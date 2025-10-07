@@ -1,0 +1,25 @@
+# Source files
+src/
+tsconfig.json
+tsup.config.ts
+
+# Development files
+.github/
+examples/
+tests/
+*.test.ts
+*.spec.ts
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.md
+!README.md
+.env*
+pnpm-lock.yaml

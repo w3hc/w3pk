@@ -1,0 +1,71 @@
+{
+  "name": "w3pk",
+  "version": "0.1.0",
+  "description": "WebAuthn SDK for passwordless authentication and encrypted file storage with optional zero-knowledge humanity proofs",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "tsx test/test.ts",
+    "test:browser": "http-server . -p 50021 -o /test/browser-test.html",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "webauthn",
+    "passkey",
+    "authentication",
+    "passwordless",
+    "fido2",
+    "biometric",
+    "ethereum",
+    "web3",
+    "encryption",
+    "zero-knowledge",
+    "humanity-proof",
+    "sybil-resistant",
+    "privacy"
+  ],
+  "author": "Julien Béranger",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/w3hc/w3pk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/w3hc/w3pk/issues"
+  },
+  "homepage": "https://github.com/w3hc/w3pk#readme",
+  "packageManager": "pnpm@10.6.4",
+  "dependencies": {
+    "@simplewebauthn/browser": "^13.2.2",
+    "ethers": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.2",
+    "http-server": "^14.1.1",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "ethers": "^6.0.0"
+  },
+  "optionalDependencies": {
+    "snarkjs": "^0.7.0",
+    "circomlibjs": "^0.1.0"
+  }
+}
