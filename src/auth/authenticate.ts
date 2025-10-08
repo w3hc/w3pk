@@ -52,9 +52,7 @@ export async function authenticate(
   }
 }
 
-export async function authenticateUsernameless(
-  apiClient: ApiClient
-): Promise<AuthResult> {
+export async function login(apiClient: ApiClient): Promise<AuthResult> {
   try {
     // Step 1: Begin usernameless authentication
     const beginResponse = await apiClient.post(
