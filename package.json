@@ -21,7 +21,6 @@
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "test": "tsx test/test.ts",
-    "test:browser": "http-server . -p 50021 -o /test/browser-test.html",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
