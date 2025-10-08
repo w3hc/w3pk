@@ -8,7 +8,7 @@ import { WalletSigner } from "../wallet/signing";
 import { generateBIP39Wallet } from "../wallet/generate";
 import { deriveEncryptionKey, encryptData } from "../wallet/crypto";
 import { register } from "../auth/register";
-import { authenticate, authenticateUsernameless } from "../auth/authenticate";
+import { authenticate, login } from "../auth/authenticate";
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo } from "../types";
@@ -281,7 +281,7 @@ export class Web3Passkey {
   /**
    * Authenticate without username (usernameless flow)
    */
-  async authenticateUsernameless(): Promise<AuthResult> {
+  async login(): Promise<AuthResult> {
     if (!this.isBrowser) {
       throw new Error(
         "Authentication requires browser environment with WebAuthn support"
@@ -289,7 +289,7 @@ export class Web3Passkey {
     }
 
     try {
-      const result = await authenticateUsernameless(this.apiClient);
+      const result = await login(this.apiClient);
 
       if (result.verified && result.user) {
         const user: UserInfo = {
