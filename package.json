@@ -55,7 +55,6 @@
   },
   "devDependencies": {
     "@types/node": "^24.6.2",
-    "http-server": "^14.1.1",
     "tsup": "^8.5.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
@@ -64,7 +63,7 @@
     "ethers": "^6.0.0"
   },
   "optionalDependencies": {
-    "snarkjs": "^0.7.0",
-    "circomlibjs": "^0.1.0"
+    "circomlibjs": "^0.1.0",
+    "snarkjs": "^0.7.0"
   }
 }

@@ -154,3 +154,5 @@ Contact [Julien Béranger](https://github.com/julienbrg):
 - Farcaster: [julien-](https://warpcast.com/julien-)
 - Telegram: [@julienbrg](https://t.me/julienbrg)
 - Twitter: [@julienbrg](https://twitter.com/julienbrg)
+
+<img src="https://bafkreid5xwxz4bed67bxb2wjmwsec4uhlcjviwy7pkzwoyu5oesjd3sp64.ipfs.w3s.link" alt="built-with-ethereum-w3hc" width="100"/>
