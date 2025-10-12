@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  w3pk: link:../Library/pnpm/store/5/node_modules/w3pk
+
 importers:
 
   .:
@@ -14,6 +17,9 @@ importers:
       ethers:
         specifier: ^6.0.0
         version: 6.15.0
+      w3pk:
+        specifier: link:../Library/pnpm/store/5/node_modules/w3pk
+        version: link:../Library/pnpm/store/5/node_modules/w3pk
     devDependencies:
       '@types/node':
         specifier: ^24.6.2

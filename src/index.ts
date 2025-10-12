@@ -14,7 +14,6 @@ export function createWeb3Passkey(config: Web3PasskeyConfig): Web3Passkey {
 // Export types
 export type { Web3PasskeyConfig } from "./core/config";
 export type { UserInfo, WalletInfo } from "./types";
-export type { AuthResult } from "./auth/types";
 
 // Export errors for custom error handling
 export {

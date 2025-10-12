@@ -11,12 +11,14 @@ import { IndexedDBWalletStorage } from "../wallet/storage";
 import { WalletSigner } from "../wallet/signing";
 import { generateBIP39Wallet } from "../wallet/generate";
 import { deriveEncryptionKey, encryptData } from "../wallet/crypto";
-import { register } from "../auth/register";
-import { authenticate, login } from "../auth/authenticate";
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo } from "../types";
-import type { AuthResult } from "../auth/types";
+
+export interface AuthResult {
+  verified: boolean;
+  user?: UserInfo;
+}
 
 export class Web3Passkey {
   private config: InternalConfig;
@@ -131,6 +133,15 @@ export class Web3Passkey {
     }
   }
 
+  private createUserInfo(username: string, ethereumAddress: string): UserInfo {
+    return {
+      id: ethereumAddress,
+      username,
+      displayName: username,
+      ethereumAddress,
+    };
+  }
+
   // ========================================
   // Public API - Wallet
   // ========================================
@@ -184,74 +195,11 @@ export class Web3Passkey {
   }
 
   // ========================================
-  // Public API - Authentication (Advanced)
+  // Public API - Authentication
   // ========================================
 
   /**
-   * Register a new user with WebAuthn (advanced interface)
-   * Requires manual WebAuthn credential management
-   * For most use cases, use registerSimplified() instead
-   *
-   * @param username Username for the account
-   * @param ethereumAddress Ethereum address from generated wallet
-   * @param mnemonic BIP39 mnemonic to encrypt and store
-   * @param credentialId WebAuthn credential ID (from registration response)
-   * @param challenge Challenge used in registration
-   */
-  async register(options: {
-    username: string;
-    ethereumAddress: string;
-    mnemonic: string;
-    credentialId: string;
-    challenge: string;
-  }): Promise<void> {
-    if (!this.isBrowser) {
-      throw new Error(
-        "Registration requires browser environment with WebAuthn support"
-      );
-    }
-
-    try {
-      const { username, ethereumAddress, mnemonic, credentialId, challenge } =
-        options;
-
-      // Step 1: Register with backend
-      await register(this.apiClient, { username, ethereumAddress });
-
-      // Step 2: Encrypt mnemonic with WebAuthn-derived key
-      const encryptionKey = await deriveEncryptionKey(credentialId, challenge);
-      const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
-
-      // Step 3: Store encrypted mnemonic in IndexedDB
-      await this.walletStorage.store({
-        ethereumAddress,
-        encryptedMnemonic,
-        credentialId,
-        challenge,
-        createdAt: Date.now(),
-      });
-
-      // Step 4: Save auth state
-      const user: UserInfo = {
-        id: ethereumAddress,
-        username,
-        ethereumAddress,
-      };
-      this.saveAuthState(user);
-
-      if (this.config.debug) {
-        console.log("Registration successful for:", ethereumAddress);
-      }
-    } catch (error) {
-      if (this.config.onError) {
-        this.config.onError(error as any);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Register a new user with WebAuthn (simplified interface)
+   * Register a new user with WebAuthn
    * Handles the complete registration flow internally
    * Automatically generates wallet if not provided
    *
@@ -260,7 +208,7 @@ export class Web3Passkey {
    * @param mnemonic Optional: BIP39 mnemonic (will generate if not provided)
    * @returns Object containing ethereumAddress and mnemonic (only if generated)
    */
-  async registerSimplified(options: {
+  async register(options: {
     username: string;
     ethereumAddress?: string;
     mnemonic?: string;
@@ -330,12 +278,8 @@ export class Web3Passkey {
         throw new Error("Registration verification failed");
       }
 
-      // Step 6: Save auth state
-      const user: UserInfo = {
-        id: ethereumAddress,
-        username,
-        ethereumAddress,
-      };
+      // Step 6: Save auth state with displayName
+      const user = this.createUserInfo(username, ethereumAddress);
       this.saveAuthState(user);
 
       if (this.config.debug) {
@@ -356,41 +300,6 @@ export class Web3Passkey {
   }
 
   /**
-   * Authenticate with Ethereum address
-   */
-  async authenticate(ethereumAddress: string): Promise<AuthResult> {
-    if (!this.isBrowser) {
-      throw new Error(
-        "Authentication requires browser environment with WebAuthn support"
-      );
-    }
-
-    try {
-      const result = await authenticate(this.apiClient, ethereumAddress);
-
-      if (result.verified && result.user) {
-        const user: UserInfo = {
-          id: result.user.id,
-          username: result.user.username,
-          ethereumAddress: result.user.ethereumAddress,
-        };
-        this.saveAuthState(user);
-
-        if (this.config.debug) {
-          console.log("Authentication successful for:", ethereumAddress);
-        }
-      }
-
-      return result;
-    } catch (error) {
-      if (this.config.onError) {
-        this.config.onError(error as any);
-      }
-      throw error;
-    }
-  }
-
-  /**
    * Authenticate without username (usernameless flow)
    */
   async login(): Promise<AuthResult> {
@@ -401,25 +310,57 @@ export class Web3Passkey {
     }
 
     try {
-      const result = await login(this.apiClient);
+      // Step 1: Begin usernameless authentication
+      const beginResponse = await this.apiClient.post(
+        "/webauthn/authenticate/usernameless/begin",
+        {}
+      );
 
-      if (result.verified && result.user) {
-        const user: UserInfo = {
-          id: result.user.id,
-          username: result.user.username,
-          ethereumAddress: result.user.ethereumAddress,
-        };
-        this.saveAuthState(user);
-
-        if (this.config.debug) {
-          console.log(
-            "Usernameless authentication successful for:",
-            result.user.ethereumAddress
-          );
-        }
+      if (!beginResponse.success || !beginResponse.data) {
+        throw new Error(
+          "Failed to get usernameless authentication options from server"
+        );
       }
 
-      return result;
+      // Handle different response formats
+      const webauthnOptions = beginResponse.data.options || beginResponse.data;
+
+      // Step 2: WebAuthn authentication
+      const credential = await startAuthentication(webauthnOptions);
+
+      // Step 3: Complete authentication
+      const completeResponse = await this.apiClient.post(
+        "/webauthn/authenticate/usernameless/complete",
+        { response: credential }
+      );
+
+      if (!completeResponse.success) {
+        throw new Error("Usernameless authentication verification failed");
+      }
+
+      const serverUser = completeResponse.data?.user;
+      if (!serverUser) {
+        throw new Error("No user data received from server");
+      }
+
+      // Create UserInfo with displayName
+      const user = this.createUserInfo(
+        serverUser.username,
+        serverUser.ethereumAddress || serverUser.id
+      );
+      this.saveAuthState(user);
+
+      if (this.config.debug) {
+        console.log(
+          "Usernameless authentication successful for:",
+          user.ethereumAddress
+        );
+      }
+
+      return {
+        verified: true,
+        user,
+      };
     } catch (error) {
       if (this.config.onError) {
         this.config.onError(error as any);
@@ -444,55 +385,12 @@ export class Web3Passkey {
   // ========================================
 
   /**
-   * Sign a message with encrypted wallet (advanced interface)
-   * Requires fresh WebAuthn authentication credentials
-   * For most use cases, use signMessageSimplified() instead
-   *
-   * @param message Message to sign
-   * @param credentialId WebAuthn credential ID (from fresh auth)
-   * @param challenge Challenge from fresh auth
-   */
-  async signMessage(
-    message: string,
-    credentialId: string,
-    challenge: string
-  ): Promise<string> {
-    if (!this.isBrowser) {
-      throw new Error("Message signing requires browser environment");
-    }
-
-    if (!this.currentUser) {
-      throw new Error("Not authenticated");
-    }
-
-    try {
-      const signature = await this.walletSigner.signMessage(
-        this.currentUser.ethereumAddress,
-        message,
-        credentialId,
-        challenge
-      );
-
-      if (this.config.debug) {
-        console.log("Message signed successfully");
-      }
-
-      return signature;
-    } catch (error) {
-      if (this.config.onError) {
-        this.config.onError(error as any);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Sign a message with encrypted wallet (simplified interface)
+   * Sign a message with encrypted wallet
    * Handles fresh WebAuthn authentication internally
    *
    * @param message Message to sign
    */
-  async signMessageSimplified(message: string): Promise<string> {
+  async signMessage(message: string): Promise<string> {
     if (!this.isBrowser) {
       throw new Error("Message signing requires browser environment");
     }
@@ -585,7 +483,7 @@ export class Web3Passkey {
    * Get SDK version
    */
   get version(): string {
-    return "0.1.0";
+    return "0.3.0";
   }
 
   /**

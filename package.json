@@ -1,6 +1,6 @@
 {
   "name": "w3pk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "WebAuthn SDK for passwordless authentication and encrypted file storage with optional zero-knowledge humanity proofs",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -51,7 +51,8 @@
   "homepage": "https://github.com/w3hc/w3pk#readme",
   "packageManager": "pnpm@10.6.4",
   "dependencies": {
-    "@simplewebauthn/browser": "^13.2.2"
+    "@simplewebauthn/browser": "^13.2.2",
+    "w3pk": "link:../Library/pnpm/store/5/node_modules/w3pk"
   },
   "devDependencies": {
     "@types/node": "^24.6.2",
@@ -65,5 +66,10 @@
   "optionalDependencies": {
     "circomlibjs": "^0.1.0",
     "snarkjs": "^0.7.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "w3pk": "link:../Library/pnpm/store/5/node_modules/w3pk"
+    }
   }
 }
