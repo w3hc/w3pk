@@ -20,12 +20,15 @@ export async function authenticate(
       ethereumAddress,
     });
 
-    if (!beginResponse.success || !beginResponse.data?.options) {
+    if (!beginResponse.success || !beginResponse.data) {
       throw new Error("Failed to get authentication options from server");
     }
 
+    // Handle different response formats
+    const webauthnOptions = beginResponse.data.options || beginResponse.data;
+
     // Step 2: WebAuthn authentication
-    const credential = await startAuthentication(beginResponse.data.options);
+    const credential = await startAuthentication(webauthnOptions);
 
     // Step 3: Complete authentication
     const completeResponse = await apiClient.post(
@@ -60,14 +63,17 @@ export async function login(apiClient: ApiClient): Promise<AuthResult> {
       {}
     );
 
-    if (!beginResponse.success || !beginResponse.data?.options) {
+    if (!beginResponse.success || !beginResponse.data) {
       throw new Error(
         "Failed to get usernameless authentication options from server"
       );
     }
 
+    // Handle different response formats
+    const webauthnOptions = beginResponse.data.options || beginResponse.data;
+
     // Step 2: WebAuthn authentication
-    const credential = await startAuthentication(beginResponse.data.options);
+    const credential = await startAuthentication(webauthnOptions);
 
     // Step 3: Complete authentication
     const completeResponse = await apiClient.post(
