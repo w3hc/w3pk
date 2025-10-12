@@ -2,6 +2,10 @@
  * Main Web3Passkey SDK class
  */
 
+import {
+  startRegistration,
+  startAuthentication,
+} from "@simplewebauthn/browser";
 import { ApiClient } from "../utils/api";
 import { IndexedDBWalletStorage } from "../wallet/storage";
 import { WalletSigner } from "../wallet/signing";
@@ -180,11 +184,14 @@ export class Web3Passkey {
   }
 
   // ========================================
-  // Public API - Authentication
+  // Public API - Authentication (Advanced)
   // ========================================
 
   /**
-   * Register a new user with WebAuthn
+   * Register a new user with WebAuthn (advanced interface)
+   * Requires manual WebAuthn credential management
+   * For most use cases, use registerSimplified() instead
+   *
    * @param username Username for the account
    * @param ethereumAddress Ethereum address from generated wallet
    * @param mnemonic BIP39 mnemonic to encrypt and store
@@ -235,6 +242,111 @@ export class Web3Passkey {
       if (this.config.debug) {
         console.log("Registration successful for:", ethereumAddress);
       }
+    } catch (error) {
+      if (this.config.onError) {
+        this.config.onError(error as any);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Register a new user with WebAuthn (simplified interface)
+   * Handles the complete registration flow internally
+   * Automatically generates wallet if not provided
+   *
+   * @param username Username for the account
+   * @param ethereumAddress Optional: Ethereum address (will generate if not provided)
+   * @param mnemonic Optional: BIP39 mnemonic (will generate if not provided)
+   * @returns Object containing ethereumAddress and mnemonic (only if generated)
+   */
+  async registerSimplified(options: {
+    username: string;
+    ethereumAddress?: string;
+    mnemonic?: string;
+  }): Promise<{ ethereumAddress: string; mnemonic?: string }> {
+    if (!this.isBrowser) {
+      throw new Error(
+        "Registration requires browser environment with WebAuthn support"
+      );
+    }
+
+    try {
+      const { username } = options;
+      let { ethereumAddress, mnemonic } = options;
+
+      // Generate wallet if not provided
+      if (!ethereumAddress || !mnemonic) {
+        const wallet = generateBIP39Wallet();
+        ethereumAddress = wallet.address;
+        mnemonic = wallet.mnemonic;
+      }
+
+      // Step 1: Begin registration - get WebAuthn options from server
+      const beginResponse = await this.apiClient.post(
+        "/webauthn/register/begin",
+        {
+          username,
+          ethereumAddress,
+        }
+      );
+
+      if (!beginResponse.success || !beginResponse.data) {
+        throw new Error("Failed to get registration options from server");
+      }
+
+      // Handle different response formats
+      const webauthnOptions = beginResponse.data.options || beginResponse.data;
+
+      // Step 2: Perform WebAuthn registration (browser prompt)
+      const credential = await startRegistration(webauthnOptions);
+
+      // Step 3: Encrypt mnemonic with WebAuthn-derived key
+      const encryptionKey = await deriveEncryptionKey(
+        credential.id,
+        webauthnOptions.challenge
+      );
+      const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
+
+      // Step 4: Store encrypted mnemonic in IndexedDB
+      await this.walletStorage.store({
+        ethereumAddress,
+        encryptedMnemonic,
+        credentialId: credential.id,
+        challenge: webauthnOptions.challenge,
+        createdAt: Date.now(),
+      });
+
+      // Step 5: Complete registration with server
+      const completeResponse = await this.apiClient.post(
+        "/webauthn/register/complete",
+        {
+          ethereumAddress,
+          response: credential,
+        }
+      );
+
+      if (!completeResponse.success) {
+        throw new Error("Registration verification failed");
+      }
+
+      // Step 6: Save auth state
+      const user: UserInfo = {
+        id: ethereumAddress,
+        username,
+        ethereumAddress,
+      };
+      this.saveAuthState(user);
+
+      if (this.config.debug) {
+        console.log("Registration successful for:", ethereumAddress);
+      }
+
+      // Return the wallet info (mnemonic only if we generated it)
+      return {
+        ethereumAddress,
+        mnemonic: options.mnemonic ? undefined : mnemonic,
+      };
     } catch (error) {
       if (this.config.onError) {
         this.config.onError(error as any);
@@ -332,8 +444,10 @@ export class Web3Passkey {
   // ========================================
 
   /**
-   * Sign a message with encrypted wallet
-   * Requires fresh WebAuthn authentication
+   * Sign a message with encrypted wallet (advanced interface)
+   * Requires fresh WebAuthn authentication credentials
+   * For most use cases, use signMessageSimplified() instead
+   *
    * @param message Message to sign
    * @param credentialId WebAuthn credential ID (from fresh auth)
    * @param challenge Challenge from fresh auth
@@ -357,6 +471,83 @@ export class Web3Passkey {
         message,
         credentialId,
         challenge
+      );
+
+      if (this.config.debug) {
+        console.log("Message signed successfully");
+      }
+
+      return signature;
+    } catch (error) {
+      if (this.config.onError) {
+        this.config.onError(error as any);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Sign a message with encrypted wallet (simplified interface)
+   * Handles fresh WebAuthn authentication internally
+   *
+   * @param message Message to sign
+   */
+  async signMessageSimplified(message: string): Promise<string> {
+    if (!this.isBrowser) {
+      throw new Error("Message signing requires browser environment");
+    }
+
+    if (!this.currentUser) {
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      // Step 1: Check if wallet exists
+      const walletData = await this.walletStorage.retrieve(
+        this.currentUser.ethereumAddress
+      );
+      if (!walletData) {
+        throw new Error(
+          "No wallet found on this device. Please register to create a new wallet."
+        );
+      }
+
+      // Step 2: Request fresh WebAuthn authentication
+      if (this.config.debug) {
+        console.log("Requesting WebAuthn authentication for signing...");
+      }
+
+      const beginResponse = await this.apiClient.post(
+        "/webauthn/authenticate/usernameless/begin",
+        {}
+      );
+
+      if (!beginResponse.success || !beginResponse.data) {
+        throw new Error("Failed to begin authentication for signing");
+      }
+
+      // Handle different response formats
+      const webauthnOptions = beginResponse.data.options || beginResponse.data;
+
+      // Step 3: Perform WebAuthn authentication (browser prompt)
+      const credential = await startAuthentication(webauthnOptions);
+
+      // Step 4: Verify authentication with server
+      const completeResponse = await this.apiClient.post(
+        "/webauthn/authenticate/usernameless/complete",
+        { response: credential }
+      );
+
+      if (!completeResponse.success) {
+        throw new Error("Authentication verification failed for signing");
+      }
+
+      // Step 5: Use the authenticated credentials to sign
+      const signature = await this.walletSigner.signMessage(
+        this.currentUser.ethereumAddress,
+        message,
+        walletData.credentialId,
+        walletData.challenge
       );
 
       if (this.config.debug) {

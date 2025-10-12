@@ -8,6 +8,14 @@ export default defineConfig({
   sourcemap: true,
   minify: true,
   splitting: false,
-  external: [],
-  noExternal: ["@simplewebauthn/browser", "ethers"],
+  // Keep ethers as external - don't bundle it
+  external: ["ethers", "@simplewebauthn/browser"],
+  // Specify that this is for browser environment
+  platform: "browser",
+  target: "es2020",
+  // Don't bundle Node.js built-ins
+  noExternal: [],
+  esbuildOptions(options) {
+    options.mainFields = ["browser", "module", "main"];
+  },
 });
