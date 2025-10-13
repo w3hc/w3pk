@@ -4,6 +4,9 @@
 
 import type { UserInfo } from "../types";
 import type { Web3PasskeyError } from "./errors";
+import type { ethers } from "ethers";
+
+export interface StealthAddressConfig {}
 
 export interface Web3PasskeyConfig {
   /**
@@ -33,6 +36,12 @@ export interface Web3PasskeyConfig {
    * Auth state change callback
    */
   onAuthStateChanged?: (isAuthenticated: boolean, user?: UserInfo) => void;
+
+  /**
+   * Optional stealth address configuration
+   * If provided, enables privacy-preserving stealth address generation
+   */
+  stealthAddresses?: StealthAddressConfig;
 }
 
 export interface InternalConfig extends Required<Web3PasskeyConfig> {
