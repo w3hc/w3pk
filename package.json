@@ -1,7 +1,7 @@
 {
   "name": "w3pk",
-  "version": "0.3.0",
-  "description": "WebAuthn SDK for passwordless authentication and encrypted file storage with optional zero-knowledge humanity proofs",
+  "version": "0.4.0",
+  "description": "WebAuthn SDK for passwordless authentication, encrypted wallets, and privacy-preserving stealth addresses",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
-    "test": "tsx test/test.ts",
+    "test": "tsx test/test.ts && tsx test/comprehensive.test.ts",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -35,9 +35,11 @@
     "web3",
     "encryption",
     "zero-knowledge",
-    "humanity-proof",
-    "sybil-resistant",
-    "privacy"
+    "privacy",
+    "stealth-address",
+    "unlinkable",
+    "anonymous-transactions",
+    "privacy-preserving"
   ],
   "author": "Julien Béranger",
   "license": "GPL-3.0-or-later",

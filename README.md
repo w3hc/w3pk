@@ -1,14 +1,22 @@
 # w3pk
 
-WebAuthn SDK for passwordless authentication with client-side encrypted Ethereum wallets.
+WebAuthn SDK for passwordless authentication, encrypted Ethereum wallets, and privacy-preserving stealth addresses.
 
-Live demo: **https://d2u.w3hc.org/web3**
+Live demo: **https://d2u.w3hc.org/voting**
 
 ## Install
 
 ```bash
 npm install w3pk
 ```
+
+## Features
+
+- **🔐 Passwordless Authentication**: WebAuthn/FIDO2 biometric authentication
+- **💰 Encrypted Wallet Management**: Client-side AES-GCM-256 encrypted wallets  
+- **🌱 HD Wallet Generation**: BIP39/BIP44 compliant wallet derivation
+- **🥷 Stealth Addresses**: Privacy-preserving stealth address generation with unlinkable transactions
+- **🛡️ Network Agnostic**: Works with any blockchain - you handle the transactions
 
 ## Quick Start
 
@@ -47,7 +55,8 @@ createWeb3Passkey({
   timeout?: number,                // Optional: Request timeout (default: 30000ms)
   debug?: boolean,                 // Optional: Enable logs (default: false)
   onError?: (error) => void,       // Optional: Error handler
-  onAuthStateChanged?: (isAuth, user?) => void  // Optional: Auth callback
+  onAuthStateChanged?: (isAuth, user?) => void,  // Optional: Auth callback
+  stealthAddresses?: {}            // Optional: Enable stealth address generation
 })
 ```
 
@@ -102,6 +111,26 @@ w3pk.isAuthenticated        // boolean
 w3pk.user                   // UserInfo | null
 w3pk.version                // string
 w3pk.isBrowserEnvironment   // boolean
+w3pk.stealth                // StealthAddressModule | null
+```
+
+### Stealth Address API
+
+When configured with `stealthAddresses` option, the SDK provides privacy-preserving stealth address generation:
+
+```typescript
+// Generate a fresh stealth address for privacy-preserving transactions
+await w3pk.stealth.generateStealthAddress()
+// Returns: { stealthAddress, stealthPrivateKey, ephemeralPublicKey }
+
+// Get stealth keys for advanced operations
+await w3pk.stealth.getKeys()
+// Returns: { metaAddress, viewingKey, spendingKey }
+
+// Check if a stealth address belongs to you (from crypto utils)
+import { canControlStealthAddress } from 'w3pk'
+canControlStealthAddress(viewingKey, ephemeralPublicKey, targetAddress)
+// Returns: boolean
 ```
 
 ### Types
@@ -123,6 +152,59 @@ interface AuthResult {
   verified: boolean
   user?: UserInfo
 }
+
+interface StealthKeys {
+  metaAddress: string
+  viewingKey: string
+  spendingKey: string
+}
+
+interface StealthAddressResult {
+  stealthAddress: string
+  stealthPrivateKey: string
+  ephemeralPublicKey: string
+}
+```
+
+## Stealth Address Example
+
+```typescript
+import { createWeb3Passkey } from 'w3pk'
+import { ethers } from 'ethers'
+
+// Initialize SDK with stealth addresses enabled
+const w3pk = createWeb3Passkey({
+  apiBaseUrl: 'https://webauthn.w3hc.org',
+  stealthAddresses: {}
+})
+
+// 1. Login with w3pk
+await w3pk.login()
+
+// 2. Generate a fresh stealth address
+const stealthResult = await w3pk.stealth.generateStealthAddress()
+console.log('Stealth address:', stealthResult.stealthAddress)
+console.log('Private key:', stealthResult.stealthPrivateKey)
+console.log('Ephemeral public key:', stealthResult.ephemeralPublicKey)
+
+// 3. Use the private key with any blockchain library
+const stealthWallet = new ethers.Wallet(stealthResult.stealthPrivateKey)
+
+// 4. Sign transactions with any provider
+const provider = new ethers.JsonRpcProvider('https://ethereum-sepolia-rpc.publicnode.com')
+const connectedWallet = stealthWallet.connect(provider)
+
+// 5. Send transactions normally - now unlinkable!
+const tx = await connectedWallet.sendTransaction({
+  to: '0x742d35Cc6139FE1C2f1234567890123456789014',
+  value: ethers.parseEther('0.001')
+})
+console.log('Transaction sent from stealth address:', tx.hash)
+
+// 6. Get stealth keys for advanced operations
+const keys = await w3pk.stealth.getKeys()
+console.log('Your stealth meta address:', keys.metaAddress)
+console.log('Your viewing key (keep private):', keys.viewingKey)
 ```
 
 ## Complete Example

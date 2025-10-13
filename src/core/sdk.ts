@@ -10,8 +10,17 @@ import { ApiClient } from "../utils/api";
 import { IndexedDBWalletStorage } from "../wallet/storage";
 import { WalletSigner } from "../wallet/signing";
 import { generateBIP39Wallet } from "../wallet/generate";
-import { deriveEncryptionKey, encryptData } from "../wallet/crypto";
-import type { Web3PasskeyConfig, InternalConfig } from "./config";
+import {
+  deriveEncryptionKey,
+  encryptData,
+  decryptData,
+} from "../wallet/crypto";
+import { StealthAddressModule } from "../stealth";
+import type {
+  Web3PasskeyConfig,
+  InternalConfig,
+  StealthAddressConfig,
+} from "./config";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo } from "../types";
 
@@ -28,6 +37,7 @@ export class Web3Passkey {
   private currentUser: UserInfo | null = null;
   private isAuthenticatedState: boolean = false;
   private isBrowser: boolean;
+  private stealthAddresses: StealthAddressModule | null = null;
 
   constructor(config: Web3PasskeyConfig) {
     // Check if running in browser
@@ -46,6 +56,14 @@ export class Web3Passkey {
     this.apiClient = new ApiClient(this.config.apiBaseUrl, this.config.timeout);
     this.walletStorage = new IndexedDBWalletStorage();
     this.walletSigner = new WalletSigner(this.walletStorage);
+
+    // Initialize stealth addresses if configured
+    if (config.stealthAddresses) {
+      this.stealthAddresses = new StealthAddressModule(
+        config.stealthAddresses,
+        this.getMnemonic.bind(this)
+      );
+    }
 
     // Initialize storage only in browser
     if (this.isBrowser) {
@@ -140,6 +158,40 @@ export class Web3Passkey {
       displayName: username,
       ethereumAddress,
     };
+  }
+
+  /**
+   * Get mnemonic for current authenticated user
+   * Used by stealth address module
+   */
+  private async getMnemonic(): Promise<string | null> {
+    if (!this.isBrowser || !this.currentUser) {
+      return null;
+    }
+
+    try {
+      // Get encrypted wallet data
+      const walletData = await this.walletStorage.retrieve(
+        this.currentUser.ethereumAddress
+      );
+      if (!walletData) {
+        return null;
+      }
+
+      // Derive encryption key from stored credentials
+      const encryptionKey = await deriveEncryptionKey(
+        walletData.credentialId,
+        walletData.challenge
+      );
+
+      // Decrypt mnemonic
+      return await decryptData(walletData.encryptedMnemonic, encryptionKey);
+    } catch (error) {
+      if (this.config.debug) {
+        console.error("Failed to get mnemonic:", error);
+      }
+      return null;
+    }
   }
 
   // ========================================
@@ -483,7 +535,7 @@ export class Web3Passkey {
    * Get SDK version
    */
   get version(): string {
-    return "0.3.0";
+    return "0.4.0";
   }
 
   /**
@@ -491,5 +543,12 @@ export class Web3Passkey {
    */
   get isBrowserEnvironment(): boolean {
     return this.isBrowser;
+  }
+
+  /**
+   * Get stealth address module (if configured)
+   */
+  get stealth(): StealthAddressModule | null {
+    return this.stealthAddresses;
   }
 }
