@@ -1,6 +1,6 @@
 {
   "name": "w3pk",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "WebAuthn SDK for passwordless authentication, encrypted wallets, stealth addresses, and zero-knowledge proofs",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
