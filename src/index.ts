@@ -36,5 +36,12 @@ export { StealthAddressModule } from "./stealth";
 // Export crypto utilities
 export { canControlStealthAddress } from "./stealth/crypto";
 
+// Export wallet generation utilities
+export {
+  generateBIP39Wallet,
+  createWalletFromMnemonic,
+  deriveWalletFromMnemonic,
+} from "./wallet/generate";
+
 // Default export
 export default createWeb3Passkey;

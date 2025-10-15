@@ -1,6 +1,6 @@
 {
   "name": "w3pk",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "WebAuthn SDK for passwordless authentication, encrypted wallets, and privacy-preserving stealth addresses",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -67,7 +67,7 @@
   },
   "optionalDependencies": {
     "circomlibjs": "^0.1.0",
-    "snarkjs": "^0.7.0"
+    "snarkjs": "^0.7.5"
   },
   "pnpm": {
     "overrides": {
