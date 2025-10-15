@@ -18,7 +18,8 @@ const CIRCUITS = [
   'membership',
   'threshold',
   'range',
-  'ownership'
+  'ownership',
+  'nft'
 ];
 
 // Colors for console output

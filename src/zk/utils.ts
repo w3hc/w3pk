@@ -86,7 +86,13 @@ export async function buildMerkleTree(leaves: string[]): Promise<{
 
       for (let i = 0; i < currentLevel.length; i += 2) {
         if (i + 1 < currentLevel.length) {
-          const hash = poseidon([currentLevel[i], currentLevel[i + 1]]);
+          const hashResult = poseidon([currentLevel[i], currentLevel[i + 1]]);
+          
+          // Convert Uint8Array result to BigInt if needed
+          const hash = hashResult instanceof Uint8Array 
+            ? bufferToBigInt(hashResult) 
+            : hashResult;
+            
           nextLevel.push(hash);
         } else {
           nextLevel.push(currentLevel[i]);
@@ -204,4 +210,159 @@ export function generateNonce(): bigint {
  */
 export function isValidAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+/**
+ * Build NFT holders merkle tree
+ * Creates a merkle tree from a list of NFT holder addresses for a specific contract
+ */
+export async function buildNFTHoldersMerkleTree(
+  holderAddresses: string[],
+  contractAddress: string
+): Promise<{
+  root: string;
+  tree: string[][];
+  holderLeaves: string[];
+}> {
+  try {
+    // @ts-ignore - Optional dependency, may not be installed
+    const circomlibjs = await import("circomlibjs");
+    const poseidon = await circomlibjs.buildPoseidon();
+
+    if (holderAddresses.length === 0) {
+      throw new Error("Cannot build NFT holders tree from empty holder list");
+    }
+
+    // Create leaf hashes: Hash(holderAddress, contractAddress)
+    // Convert hex addresses to BigInt (remove 0x prefix first)
+    const contractHash = BigInt(contractAddress.startsWith('0x') ? contractAddress : '0x' + contractAddress);
+    const holderLeaves = holderAddresses.map((address) => {
+      const cleanAddress = address.startsWith('0x') ? address : '0x' + address;
+      const addressHash = BigInt(cleanAddress);
+      const hashResult = poseidon([addressHash, contractHash]);
+      
+      // Convert Uint8Array result to BigInt if needed
+      if (hashResult instanceof Uint8Array) {
+        return bufferToBigInt(hashResult).toString();
+      }
+      
+      return hashResult.toString();
+    });
+
+    // Build merkle tree from the leaves
+    const { root, tree } = await buildMerkleTree(holderLeaves);
+
+    return {
+      root,
+      tree,
+      holderLeaves,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Cannot resolve module")) {
+      throw new CryptoError(
+        "NFT holder merkle tree requires circomlibjs. Install with: npm install circomlibjs\n" +
+        "For more info: https://github.com/w3hc/w3pk#zero-knowledge-proofs",
+        error
+      );
+    }
+    throw new CryptoError("Failed to build NFT holders merkle tree", error);
+  }
+}
+
+/**
+ * Generate NFT ownership proof inputs
+ * Helper to prepare all inputs needed for NFT ownership proof
+ */
+export async function generateNFTOwnershipProofInputs(
+  ownerAddress: string,
+  contractAddress: string,
+  allHolderAddresses: string[],
+  minBalance: bigint = 1n
+): Promise<{
+  nftProofInput: {
+    ownerAddress: string;
+    holderIndex: number;
+    pathIndices: number[];
+    pathElements: string[];
+    holdersRoot: string;
+    contractAddress: string;
+    minBalance: bigint;
+  };
+  holderLeaves: string[];
+}> {
+  // Find the owner's position in the holders list
+  const holderIndex = allHolderAddresses.findIndex(
+    (address) => address.toLowerCase() === ownerAddress.toLowerCase()
+  );
+
+  if (holderIndex === -1) {
+    throw new CryptoError(
+      `Owner address ${ownerAddress} not found in holders list for contract ${contractAddress}`
+    );
+  }
+
+  // Build the NFT holders merkle tree
+  const { root, tree, holderLeaves } = await buildNFTHoldersMerkleTree(
+    allHolderAddresses,
+    contractAddress
+  );
+
+  // Generate merkle proof for this owner
+  const { pathIndices, pathElements } = generateMerkleProof(tree, holderIndex);
+
+  return {
+    nftProofInput: {
+      ownerAddress,
+      holderIndex,
+      pathIndices,
+      pathElements,
+      holdersRoot: root,
+      contractAddress,
+      minBalance,
+    },
+    holderLeaves,
+  };
+}
+
+/**
+ * Validate NFT ownership proof inputs
+ */
+export function validateNFTOwnershipProofInputs(inputs: {
+  ownerAddress: string;
+  contractAddress: string;
+  holderIndex: number;
+  pathIndices: number[];
+  pathElements: string[];
+  holdersRoot: string;
+  minBalance?: bigint;
+}): void {
+  if (!isValidAddress(inputs.ownerAddress)) {
+    throw new CryptoError(`Invalid owner address: ${inputs.ownerAddress}`);
+  }
+
+  if (!isValidAddress(inputs.contractAddress)) {
+    throw new CryptoError(`Invalid contract address: ${inputs.contractAddress}`);
+  }
+
+  if (inputs.holderIndex < 0 || !Number.isInteger(inputs.holderIndex)) {
+    throw new CryptoError(`Invalid holder index: ${inputs.holderIndex}`);
+  }
+
+  if (inputs.pathIndices.length !== inputs.pathElements.length) {
+    throw new CryptoError(
+      `Path indices and elements length mismatch: ${inputs.pathIndices.length} vs ${inputs.pathElements.length}`
+    );
+  }
+
+  if (inputs.pathIndices.length === 0) {
+    throw new CryptoError("Empty merkle proof path");
+  }
+
+  if (!inputs.holdersRoot || inputs.holdersRoot.length === 0) {
+    throw new CryptoError("Invalid holders root");
+  }
+
+  if (inputs.minBalance && inputs.minBalance < 1n) {
+    throw new CryptoError("Minimum balance must be at least 1");
+  }
 }

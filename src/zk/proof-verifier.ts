@@ -4,6 +4,7 @@
  */
 
 import { CryptoError } from "../core/errors";
+import { bufferToBigInt } from "./utils";
 import type {
   ProofType,
   ZKProof,
@@ -183,6 +184,51 @@ export class ZKProofVerifier {
   }
 
   /**
+   * Verify NFT ownership proof with expected contract and holders root
+   */
+  async verifyNFTOwnershipProof(
+    proof: ZKProof,
+    expectedContract: string,
+    expectedHoldersRoot: string,
+    expectedMinBalance: bigint = 1n
+  ): Promise<boolean> {
+    if (proof.type !== "nft") {
+      throw new CryptoError("Invalid proof type for NFT ownership verification");
+    }
+
+    const result = await this.verifyProof(proof);
+    const holdersRoot = proof.publicSignals[0];
+    const contractAddress = proof.publicSignals[1];
+    const minBalance = BigInt(proof.publicSignals[2]);
+
+    // Hash the expected contract address for comparison
+    try {
+      const circomlibjs = await import("circomlibjs");
+      const poseidon = await circomlibjs.buildPoseidon();
+      const cleanContract = expectedContract.startsWith('0x') ? expectedContract : '0x' + expectedContract;
+      const hashResult = poseidon([BigInt(cleanContract)]);
+      
+      // Convert Uint8Array result to BigInt if needed
+      const expectedContractHash = hashResult instanceof Uint8Array 
+        ? bufferToBigInt(hashResult) 
+        : hashResult;
+
+      return (
+        result.valid &&
+        holdersRoot === expectedHoldersRoot &&
+        contractAddress === expectedContractHash.toString() &&
+        minBalance >= expectedMinBalance
+      );
+    } catch (error) {
+      throw new CryptoError(
+        "ZK proof verification requires circomlibjs. Install with: npm install circomlibjs\n" +
+        "For more info: https://github.com/w3hc/w3pk#zero-knowledge-proofs",
+        error
+      );
+    }
+  }
+
+  /**
    * Parse public signals based on proof type
    */
   private parsePublicSignals(
@@ -210,6 +256,14 @@ export class ZKProofVerifier {
         return {
           address: signals[0],
           challenge: signals[1],
+        };
+
+      case "nft":
+        return {
+          holdersRoot: signals[0],
+          contractAddress: signals[1],
+          minBalance: signals[2],
+          nullifierHash: signals[3],
         };
 
       default:

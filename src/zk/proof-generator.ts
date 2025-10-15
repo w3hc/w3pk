@@ -4,6 +4,7 @@
  */
 
 import { CryptoError } from "../core/errors";
+import { bufferToBigInt } from "./utils";
 import type {
   ProofType,
   ZKProof,
@@ -13,6 +14,7 @@ import type {
   ThresholdProofInput,
   RangeProofInput,
   OwnershipProofInput,
+  NFTOwnershipProofInput,
 } from "./types";
 
 export class ZKProofGenerator {
@@ -115,6 +117,43 @@ export class ZKProofGenerator {
     };
 
     return this.generateProof("ownership", circuit, circuitInputs);
+  }
+
+  /**
+   * Generate NFT ownership proof - prove you own an NFT from a collection
+   */
+  async generateNFTOwnershipProof(input: NFTOwnershipProofInput): Promise<ZKProof> {
+    const circuit = this.circuits.get("nft");
+    if (!circuit) {
+      throw new CryptoError("NFT ownership circuit not registered");
+    }
+
+    // Hash the owner address and contract address for privacy
+    const poseidon = await this.getPoseidonHash();
+    const cleanOwnerAddress = input.ownerAddress.startsWith('0x') ? input.ownerAddress : '0x' + input.ownerAddress;
+    const cleanContractAddress = input.contractAddress.startsWith('0x') ? input.contractAddress : '0x' + input.contractAddress;
+    
+    const ownerHashResult = poseidon([BigInt(cleanOwnerAddress)]);
+    const contractHashResult = poseidon([BigInt(cleanContractAddress)]);
+    
+    // Convert Uint8Array results to BigInt if needed
+    const ownerAddressHash = ownerHashResult instanceof Uint8Array 
+      ? bufferToBigInt(ownerHashResult) 
+      : ownerHashResult;
+    const contractAddressHash = contractHashResult instanceof Uint8Array 
+      ? bufferToBigInt(contractHashResult) 
+      : contractHashResult;
+
+    const circuitInputs: CircomInputs = {
+      ownerAddress: ownerAddressHash.toString(),
+      pathElements: input.pathElements,
+      pathIndices: input.pathIndices,
+      root: input.holdersRoot,
+      contractAddress: contractAddressHash.toString(),
+      minBalance: (input.minBalance || 1n).toString(),
+    };
+
+    return this.generateProof("nft", circuit, circuitInputs);
   }
 
   /**
