@@ -27,6 +27,7 @@ export type {
   ThresholdProofInput,
   RangeProofInput,
   OwnershipProofInput,
+  NFTOwnershipProofInput,
   CircuitArtifacts,
 } from "./zk/types";
 
@@ -75,6 +76,9 @@ export {
   bufferToBigInt,
   bigIntToBuffer,
   isValidAddress,
+  buildNFTHoldersMerkleTree,
+  generateNFTOwnershipProofInputs,
+  validateNFTOwnershipProofInputs,
 } from "./zk/utils";
 
 // Default export

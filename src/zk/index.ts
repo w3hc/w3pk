@@ -15,6 +15,7 @@ import type {
   ThresholdProofInput,
   RangeProofInput,
   OwnershipProofInput,
+  NFTOwnershipProofInput,
   CircuitArtifacts,
 } from "./types";
 
@@ -102,6 +103,23 @@ export class ZKProofModule {
       throw new Web3PasskeyError(
         "Failed to generate ownership proof",
         "ZK_OWNERSHIP_ERROR",
+        error
+      );
+    }
+  }
+
+  /**
+   * Generate NFT ownership proof - prove you own an NFT from a collection
+   * Use case: Prove NFT/SBT ownership without revealing which NFT or exact address
+   */
+  async proveNFTOwnership(input: NFTOwnershipProofInput): Promise<ZKProof> {
+    try {
+      this.assertProofEnabled("nft");
+      return await this.generator.generateNFTOwnershipProof(input);
+    } catch (error) {
+      throw new Web3PasskeyError(
+        "Failed to generate NFT ownership proof",
+        "ZK_NFT_OWNERSHIP_ERROR",
         error
       );
     }
@@ -230,6 +248,31 @@ export class ZKProofModule {
     }
   }
 
+  /**
+   * Verify NFT ownership proof
+   */
+  async verifyNFTOwnership(
+    proof: ZKProof,
+    expectedContract: string,
+    expectedHoldersRoot: string,
+    expectedMinBalance: bigint = 1n
+  ): Promise<boolean> {
+    try {
+      return await this.verifier.verifyNFTOwnershipProof(
+        proof,
+        expectedContract,
+        expectedHoldersRoot,
+        expectedMinBalance
+      );
+    } catch (error) {
+      throw new Web3PasskeyError(
+        "Failed to verify NFT ownership proof",
+        "ZK_NFT_OWNERSHIP_VERIFICATION_ERROR",
+        error
+      );
+    }
+  }
+
   // ========================================
   // Utility Methods
   // ========================================
@@ -313,5 +356,6 @@ export type {
   ThresholdProofInput,
   RangeProofInput,
   OwnershipProofInput,
+  NFTOwnershipProofInput,
   CircuitArtifacts,
 };

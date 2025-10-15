@@ -21,7 +21,8 @@ export type ProofType =
   | "range" // Prove value in range without revealing value
   | "equality" // Prove equality without revealing values
   | "ownership" // Prove ownership without revealing private key
-  | "signature"; // Prove signature validity without revealing signer
+  | "signature" // Prove signature validity without revealing signer
+  | "nft"; // Prove NFT ownership without revealing which NFT or exact address
 
 export interface CircuitArtifacts {
   wasmPath: string;
@@ -111,6 +112,26 @@ export interface OwnershipProofInput {
   address: string;
   // Public: challenge from verifier
   challenge: string;
+}
+
+/**
+ * NFT Ownership Proof - Prove you own an NFT from a collection without revealing which one
+ */
+export interface NFTOwnershipProofInput {
+  // Private: your address (as owner of the NFT)
+  ownerAddress: string;
+  // Private: your position in the holders merkle tree
+  holderIndex: number;
+  // Private: merkle proof path indices
+  pathIndices: number[];
+  // Private: merkle proof path elements
+  pathElements: string[];
+  // Public: merkle root of all NFT holders for this collection
+  holdersRoot: string;
+  // Public: NFT contract address
+  contractAddress: string;
+  // Public: minimum token balance to prove (default 1 for ownership)
+  minBalance?: bigint;
 }
 
 /**

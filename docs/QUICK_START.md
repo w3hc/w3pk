@@ -126,7 +126,7 @@ npm install snarkjs circomlibjs
 ```
 
 ```typescript
-import { generateBlinding, buildMerkleTree, generateMerkleProof } from 'w3pk'
+import { generateBlinding, buildMerkleTree, generateMerkleProof, generateNFTOwnershipProofInputs } from 'w3pk'
 
 const w3pk = createWeb3Passkey({
   apiBaseUrl: 'https://webauthn.w3hc.org',
@@ -152,6 +152,19 @@ try {
   const age = 25n
   const proof3 = await w3pk.proveAgeRange(age, 18n, 65n)
   // ✅ Proved age in range without revealing 25!
+
+  // NFT Ownership Proof - Prove you own an NFT without revealing which one
+  const nftHolders = ['0x111...', '0x222...', '0x333...'] // All NFT holders
+  const yourAddress = '0x222...' // Your address
+  const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D' // NFT contract
+
+  const { nftProofInput } = await generateNFTOwnershipProofInputs(
+    yourAddress,
+    contractAddress, 
+    nftHolders
+  )
+  const nftProof = await w3pk.zk.proveNFTOwnership(nftProofInput)
+  // ✅ Proved NFT ownership without revealing which NFT or exact address!
 
 } catch (error) {
   if (error.message.includes('snarkjs') || error.message.includes('circomlibjs')) {

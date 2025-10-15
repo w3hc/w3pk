@@ -2,7 +2,7 @@
 
 WebAuthn SDK for passwordless authentication, encrypted Ethereum wallets, privacy-preserving stealth addresses, and zero-knowledge proofs.
 
-Live demo: **https://d2u.w3hc.org/web3**
+Live demo: **https://d2u.w3hc.org/voting**
 
 ## Install
 
@@ -333,7 +333,7 @@ When configured with `zkProofs` option, the SDK provides privacy-preserving zero
 const w3pk = createWeb3Passkey({
   apiBaseUrl: 'https://webauthn.w3hc.org',
   zkProofs: {
-    enabledProofs: ['membership', 'threshold', 'range', 'ownership']
+    enabledProofs: ['membership', 'threshold', 'range', 'ownership', 'nft']
   }
 })
 
@@ -374,9 +374,29 @@ const ownershipProof = await w3pk.zk.proveOwnership({
   challenge: 'challenge_string'
 })
 
+// 5. NFT Ownership Proof - Prove you own an NFT from a collection
+import { generateNFTOwnershipProofInputs } from 'w3pk'
+
+const holderAddresses = [
+  '0x742d35Cc6139FE1C2f1234567890123456789014',
+  '0x1234567890123456789012345678901234567890',  // Your address
+  '0x9876543210987654321098765432109876543210'
+]
+const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D'  // Human Passport SBT contract
+
+const { nftProofInput } = await generateNFTOwnershipProofInputs(
+  '0x1234567890123456789012345678901234567890',  // Your address
+  contractAddress,
+  holderAddresses
+)
+
+const nftProof = await w3pk.zk.proveNFTOwnership(nftProofInput)
+
 // Verify any proof
 const isValid = await w3pk.zk.verify(membershipProof)
+const nftIsValid = await w3pk.zk.verifyNFTOwnership(nftProof, contractAddress, nftProofInput.holdersRoot)
 console.log('Proof valid:', isValid)
+console.log('NFT proof valid:', nftIsValid)
 ```
 
 ### ZK Proof Utilities
@@ -391,11 +411,24 @@ const commitment = await w3pk.zk.createCommitment(value, blinding)
 const root = await w3pk.zk.computeMerkleRoot(leaf, pathIndices, pathElements)
 
 // Direct utility functions
-import { generateBlinding, buildMerkleTree, generateMerkleProof } from 'w3pk'
+import { 
+  generateBlinding, 
+  buildMerkleTree, 
+  generateMerkleProof,
+  buildNFTHoldersMerkleTree,
+  generateNFTOwnershipProofInputs,
+  validateNFTOwnershipProofInputs 
+} from 'w3pk'
 
 const blinding = generateBlinding()
 const { root, tree } = await buildMerkleTree(['leaf1', 'leaf2', 'leaf3'])
 const { pathIndices, pathElements } = generateMerkleProof(tree, 1)
+
+// NFT-specific utilities
+const holderAddresses = ['0x...', '0x...', '0x...']
+const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D'
+const { root: nftRoot, tree: nftTree } = await buildNFTHoldersMerkleTree(holderAddresses, contractAddress)
+const { nftProofInput } = await generateNFTOwnershipProofInputs('0x...', contractAddress, holderAddresses)
 ```
 
 **Note:** ZK proofs require circuit compilation:
@@ -406,6 +439,108 @@ pnpm build:zk
 # Run comprehensive ZK demo (optional)
 tsx examples/zk-proof-demo.ts
 ```
+
+## NFT Ownership Proof Example
+
+Prove you own an NFT from a collection without revealing which specific NFT or your exact wallet address:
+
+```typescript
+import { createWeb3Passkey, generateNFTOwnershipProofInputs } from 'w3pk'
+
+// Initialize SDK with NFT proofs enabled
+const w3pk = createWeb3Passkey({
+  apiBaseUrl: 'https://webauthn.w3hc.org',
+  zkProofs: {
+    enabledProofs: ['nft']
+  }
+})
+
+// Login first
+await w3pk.login()
+
+// Example: Human Passport SBT contract
+const HumanPassportSBTContract = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D'
+const SBTHolders = [
+  '0x742d35Cc6139FE1C2f1234567890123456789014',
+  '0x1234567890123456789012345678901234567890',  // Your address
+  '0x9876543210987654321098765432109876543210',
+  '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd'
+]
+
+// 1. Generate proof inputs for your address
+const yourAddress = '0x1234567890123456789012345678901234567890'
+const { nftProofInput, holderLeaves } = await generateNFTOwnershipProofInputs(
+  yourAddress,
+  HumanPassportSBTContract,
+  SBTHolders,
+  1n  // Minimum balance requirement
+)
+
+// 2. Generate NFT ownership proof
+const nftOwnershipProof = await w3pk.zk.proveNFTOwnership(nftProofInput)
+
+console.log('NFT Ownership Proof Generated!')
+console.log('Holder index:', nftProofInput.holderIndex)  // Your position in holder list (private)
+console.log('Proof type:', nftOwnershipProof.type)      // "nft"
+console.log('Public signals:', nftOwnershipProof.publicSignals)  // Only merkle root visible
+
+// 3. Verify the proof
+const isValid = await w3pk.zk.verifyNFTOwnership(
+  nftOwnershipProof,
+  HumanPassportSBTContract,
+  nftProofInput.holdersRoot,
+  1n  // Expected minimum balance
+)
+
+console.log('NFT proof is valid:', isValid)
+
+// 4. Use case: Gated content access
+if (isValid) {
+  console.log('✅ Access granted to Human Passport SBT holders-only content!')
+  console.log('✅ Your exact NFT and wallet address remain private')
+} else {
+  console.log('❌ Access denied - proof verification failed')
+}
+
+// Example: SBT (Soulbound Token) Proof
+const sbtContract = '0x1234567890123456789012345678901234567890'
+const sbtHolders = [
+  '0xuser1...',
+  '0xuser2...',
+  yourAddress,  // You have this SBT
+  '0xuser3...'
+]
+
+const { nftProofInput: sbtProofInput } = await generateNFTOwnershipProofInputs(
+  yourAddress,
+  sbtContract, 
+  sbtHolders
+)
+
+const sbtProof = await w3pk.zk.proveNFTOwnership(sbtProofInput)
+const sbtValid = await w3pk.zk.verifyNFTOwnership(sbtProof, sbtContract, sbtProofInput.holdersRoot)
+
+if (sbtValid) {
+  console.log('✅ SBT ownership verified - access granted to exclusive community!')
+}
+```
+
+### NFT Proof Privacy Features
+
+- **🔒 Private NFT ID**: Nobody knows which specific NFT you own from the collection
+- **🔒 Private Wallet**: Your exact wallet address is not revealed
+- **🔒 Private Balance**: Only proves you meet minimum balance requirement
+- **✅ Public Verification**: Anyone can verify you own an NFT from the specified collection
+- **⚡ Efficient Proofs**: Uses merkle trees for scalable verification (supports thousands of holders)
+
+### Supported Use Cases
+
+- **🎨 NFT-Gated Content**: Prove ownership for exclusive access without linking to specific wallet
+- **🏅 SBT Credentials**: Verify soulbound token ownership for reputation systems  
+- **🎪 Community Access**: Join exclusive groups based on NFT ownership
+- **🗳️ DAO Voting**: Anonymous voting rights based on NFT collection membership
+- **🎮 Gaming**: Unlock features based on NFT ownership across multiple games
+- **📚 Education**: Access courses/content based on credential NFTs/SBTs
 
 ## Complete Example
 
@@ -611,6 +746,7 @@ pnpm test                    # Run basic + comprehensive + ZK test suites
 pnpm test:basic             # Run basic functionality tests only
 pnpm test:comprehensive     # Run full 23-test comprehensive suite  
 pnpm test:zk                # Run ZK proof module tests
+pnpm test:nft               # Run NFT ownership proof tests (6 tests)
 
 # ZK circuit compilation (optional)
 pnpm build:zk               # Compile circom circuits for proof generation
@@ -623,7 +759,7 @@ Watch [Asciinema video](https://asciinema.org/a/s9EAGyxNpBH2UZilZvEUHcGSO) (runn
 
 ### Test Coverage
 
-The SDK includes a comprehensive test suite with **31 test cases** covering:
+The SDK includes a comprehensive test suite with **37 test cases** covering:
 
 - ✅ **Core SDK functionality** - Constructor, configuration, environment detection
 - ✅ **Wallet generation** - BIP39/BIP44 compliance, HD derivation, consistency
@@ -632,6 +768,7 @@ The SDK includes a comprehensive test suite with **31 test cases** covering:
 - ✅ **Message signing** - Signature generation, address verification
 - ✅ **HD wallet derivation** - Multi-index support, validation, consistency
 - ✅ **ZK proof operations** - Commitment creation, merkle trees, proof setup
+- ✅ **NFT ownership proofs** - NFT merkle trees, proof generation, SBT support
 - ✅ **Circuit compilation** - Circom circuit status, dependency detection
 - ✅ **Error handling** - Graceful failure scenarios, mock mode fallbacks
 - ✅ **Integration testing** - End-to-end workflows
@@ -646,12 +783,12 @@ w3pk/
 │   ├── auth/           # WebAuthn authentication flows  
 │   ├── stealth/        # Privacy-preserving stealth addresses
 │   ├── zk/             # Zero-knowledge proof module
-│   │   ├── circuits/   # Circom circuit definitions
+│   │   ├── circuits/   # Circom circuit definitions (membership, threshold, range, ownership, nft)
 │   │   ├── templates/  # Compiled circuit artifacts (.r1cs, .sym, .wasm)
 │   │   └── wasm/       # WebAssembly circuit files
 │   ├── utils/          # API client, validation utilities
 │   └── types/          # TypeScript type definitions
-├── test/               # Comprehensive test suite (31 test cases)
+├── test/               # Comprehensive test suite (37 test cases)
 ├── scripts/            # Circuit compilation and build scripts
 └── dist/               # Built output (CJS + ESM + types)
 ```
@@ -674,6 +811,6 @@ Contact [Julien Béranger](https://github.com/julienbrg):
 
 ## License
 
-GPL-3.0-or-later
+GPL-3.0
 
 <img src="https://bafkreid5xwxz4bed67bxb2wjmwsec4uhlcjviwy7pkzwoyu5oesjd3sp64.ipfs.w3s.link" alt="built-with-ethereum-w3hc" width="100"/>
