@@ -72,6 +72,12 @@ await w3pk.generateWallet()
 // Check if wallet exists for current user
 await w3pk.hasWallet()
 // Returns: boolean
+
+// Derive HD wallet at specific index (requires authentication)
+await w3pk.deriveWallet(0)  // First address (default)
+await w3pk.deriveWallet(1)  // Second address
+await w3pk.deriveWallet(5)  // Sixth address
+// Returns: { address: string, privateKey: string }
 ```
 
 #### Authentication
@@ -107,11 +113,39 @@ await w3pk.signMessage(message: string)
 ### Properties
 
 ```typescript
-w3pk.isAuthenticated        // boolean
-w3pk.user                   // UserInfo | null
-w3pk.version                // string
-w3pk.isBrowserEnvironment   // boolean
-w3pk.stealth                // StealthAddressModule | null
+w3pk.isAuthenticated        // boolean - Current authentication state
+w3pk.user                   // UserInfo | null - Current user data
+w3pk.version                // string - SDK version
+w3pk.isBrowserEnvironment   // boolean - Browser environment detection
+w3pk.stealth                // StealthAddressModule | null - Stealth address module
+```
+
+### Error Handling
+
+The SDK provides specific error types for better error handling:
+
+```typescript
+import { 
+  Web3PasskeyError, 
+  AuthenticationError, 
+  RegistrationError,
+  WalletError,
+  CryptoError,
+  StorageError,
+  ApiError 
+} from 'w3pk'
+
+try {
+  await w3pk.register({ username: 'alice' })
+} catch (error) {
+  if (error instanceof AuthenticationError) {
+    console.error('WebAuthn authentication failed:', error.message)
+  } else if (error instanceof WalletError) {
+    console.error('Wallet operation failed:', error.message)  
+  } else if (error instanceof ApiError) {
+    console.error('Backend API error:', error.message)
+  }
+}
 ```
 
 ### Stealth Address API
@@ -131,6 +165,26 @@ await w3pk.stealth.getKeys()
 import { canControlStealthAddress } from 'w3pk'
 canControlStealthAddress(viewingKey, ephemeralPublicKey, targetAddress)
 // Returns: boolean
+```
+
+### Utility Functions
+
+For direct wallet operations without SDK authentication:
+
+```typescript
+import { generateBIP39Wallet, createWalletFromMnemonic, deriveWalletFromMnemonic } from 'w3pk'
+
+// Generate new BIP39 wallet
+const wallet = generateBIP39Wallet()
+// Returns: { address: string, mnemonic: string }
+
+// Create ethers wallet from mnemonic
+const ethersWallet = createWalletFromMnemonic(mnemonic)
+// Returns: ethers.HDNodeWallet
+
+// Derive HD wallet at specific index
+const derived = deriveWalletFromMnemonic(mnemonic, 2)
+// Returns: { address: string, privateKey: string }
 ```
 
 ### Types
@@ -164,6 +218,49 @@ interface StealthAddressResult {
   stealthPrivateKey: string
   ephemeralPublicKey: string
 }
+```
+
+## HD Wallet Example
+
+Access multiple addresses from a single mnemonic for advanced wallet management:
+
+```typescript
+import { createWeb3Passkey } from 'w3pk'
+import { ethers } from 'ethers'
+
+// Initialize and authenticate
+const w3pk = createWeb3Passkey({
+  apiBaseUrl: 'https://webauthn.w3hc.org'
+})
+await w3pk.login()
+
+// Generate multiple wallet addresses from the same mnemonic
+const mainWallet = await w3pk.deriveWallet(0)      // Main wallet
+const savingsWallet = await w3pk.deriveWallet(1)   // Savings wallet  
+const tradingWallet = await w3pk.deriveWallet(2)   // Trading wallet
+
+console.log('Main address:', mainWallet.address)
+console.log('Savings address:', savingsWallet.address)
+console.log('Trading address:', tradingWallet.address)
+
+// Use private keys directly with ethers.js
+const provider = new ethers.JsonRpcProvider('https://ethereum-sepolia-rpc.publicnode.com')
+const mainSigner = new ethers.Wallet(mainWallet.privateKey, provider)
+const savingsSigner = new ethers.Wallet(savingsWallet.privateKey, provider)
+
+// Send transactions from different derived addresses
+const tx1 = await mainSigner.sendTransaction({
+  to: savingsWallet.address,
+  value: ethers.parseEther('0.1')
+})
+
+const tx2 = await savingsSigner.sendTransaction({
+  to: tradingWallet.address,
+  value: ethers.parseEther('0.05')
+})
+
+console.log('Transfer to savings:', tx1.hash)
+console.log('Transfer to trading:', tx2.hash)
 ```
 
 ## Stealth Address Example
@@ -281,20 +378,49 @@ pnpm start:dev
 
 ## Security
 
-- ✅ Client-side AES-GCM-256 encryption
-- ✅ PBKDF2 key derivation (100,000 iterations) from WebAuthn credentials
-- ✅ Private keys never leave the browser
-- ✅ IndexedDB encrypted storage per device
-- ✅ BIP39 standard 12-word mnemonic
-- ✅ BIP44 HD wallet derivation (m/44'/60'/0'/0/0)
-- ⚠️ Users MUST backup their 12-word mnemonic
+### Encryption & Storage
+- ✅ **Client-side AES-GCM-256 encryption** - All sensitive data encrypted in browser
+- ✅ **PBKDF2 key derivation** (100,000 iterations) from WebAuthn credentials
+- ✅ **Private keys never leave device** - Zero server-side key storage
+- ✅ **IndexedDB encrypted storage** - Separate encrypted storage per device
+- ✅ **WebAuthn/FIDO2 authentication** - Hardware-backed biometric security
 
-### Security Notes
+### Wallet Standards
+- ✅ **BIP39 standard mnemonic** - Industry-standard 12-word recovery phrase
+- ✅ **BIP44 HD derivation** - Standard path `m/44'/60'/0'/0/{index}` for Ethereum
+- ✅ **Deterministic addresses** - Same mnemonic always produces same addresses
+- ✅ **Multiple address support** - Derive unlimited addresses from one mnemonic
 
-- Your wallet is protected by device biometrics (fingerprint, Face ID, etc.)
-- If you lose your device or passkey, your wallet **cannot be recovered** without the mnemonic
-- The mnemonic is only shown once during registration
+### Privacy Features
+- ✅ **Stealth addresses** - Unlinkable transaction privacy (optional)
+- ✅ **Zero-knowledge proofs** - Privacy-preserving stealth address generation
+- ✅ **Ephemeral keys** - Fresh keys for each stealth transaction
+- ✅ **Unlinkable transactions** - No on-chain connection between stealth addresses
+
+### Security Notes & Best Practices
+
+#### ⚠️ Critical Security Requirements
+- **MUST backup mnemonic** - The 12-word phrase is shown only once during registration
+- **MUST secure mnemonic** - Store it offline, never share or store digitally
+- **Cannot recover without mnemonic** - Lost device + lost mnemonic = lost wallet forever
+
+#### 🔒 Device Security
+- Your wallet is protected by device biometrics (fingerprint, Face ID, Windows Hello)
 - Each device stores its own encrypted copy of the wallet
+- WebAuthn credentials are bound to your specific device hardware
+- Fresh authentication required for sensitive operations (signing, key derivation)
+
+#### 🌐 Network Security
+- SDK works entirely client-side - no private keys sent to servers
+- Backend only stores WebAuthn public key credentials (no wallet data)
+- All wallet encryption/decryption happens in your browser
+- Compatible with any Ethereum-compatible network
+
+#### 💡 Operational Security Tips
+- Test wallet functionality with small amounts first
+- Verify signatures on Etherscan before sending large transactions
+- Use different derived addresses for different purposes (privacy by design)
+- Consider using stealth addresses for maximum transaction privacy
 
 ## React Integration
 
@@ -357,14 +483,47 @@ function App() {
 # Install dependencies
 pnpm install
 
-# Build
+# Build for production
 pnpm build
 
-# Watch mode
+# Development mode with watch
 pnpm dev
 
-# Test (Node.js environment - wallet generation)
-pnpm test
+# Run tests
+pnpm test                    # Run basic + comprehensive test suite
+pnpm test:basic             # Run basic functionality tests only
+pnpm test:comprehensive     # Run full 23-test comprehensive suite
+
+# Publish to npm
+pnpm prepublishOnly         # Builds before publishing
+```
+
+### Test Coverage
+
+The SDK includes a comprehensive test suite with **23 test cases** covering:
+
+- ✅ **Core SDK functionality** - Constructor, configuration, environment detection
+- ✅ **Wallet generation** - BIP39/BIP44 compliance, HD derivation, consistency
+- ✅ **Encryption/decryption** - AES-GCM-256, key derivation, data roundtrips
+- ✅ **Storage operations** - IndexedDB CRUD, multiple wallets, cleanup
+- ✅ **Message signing** - Signature generation, address verification
+- ✅ **HD wallet derivation** - Multi-index support, validation, consistency
+- ✅ **Error handling** - Graceful failure scenarios
+- ✅ **Integration testing** - End-to-end workflows
+
+### Architecture
+
+```
+w3pk/
+├── src/
+│   ├── core/           # Main SDK class and configuration
+│   ├── wallet/         # Wallet generation, signing, storage
+│   ├── auth/           # WebAuthn authentication flows  
+│   ├── stealth/        # Privacy-preserving stealth addresses
+│   ├── utils/          # API client, validation utilities
+│   └── types/          # TypeScript type definitions
+├── test/               # Comprehensive test suite
+└── dist/               # Built output (CJS + ESM + types)
 ```
 
 ## Browser Compatibility

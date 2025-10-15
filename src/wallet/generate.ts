@@ -68,3 +68,42 @@ export function createWalletFromMnemonic(
     );
   }
 }
+
+/**
+ * Derives HD wallet address and private key at specific index
+ * Uses BIP44 path: m/44'/60'/0'/0/{index}
+ */
+export function deriveWalletFromMnemonic(
+  mnemonic: string,
+  index: number = 0
+): { address: string; privateKey: string } {
+  try {
+    if (!mnemonic || mnemonic.trim().split(/\s+/).length < 12) {
+      throw new Error("Invalid mnemonic: must be at least 12 words");
+    }
+
+    if (index < 0 || !Number.isInteger(index)) {
+      throw new Error("Index must be a non-negative integer");
+    }
+
+    // Create HD wallet with derivation path including index
+    const derivationPath = `m/44'/60'/0'/0/${index}`;
+    const wallet = ethers.HDNodeWallet.fromPhrase(
+      mnemonic.trim(),
+      undefined,
+      derivationPath
+    );
+
+    return {
+      address: wallet.address,
+      privateKey: wallet.privateKey,
+    };
+  } catch (error) {
+    throw new WalletError(
+      `HD wallet derivation failed: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
+      error
+    );
+  }
+}

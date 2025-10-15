@@ -1,5 +1,5 @@
 import { createWeb3Passkey, Web3Passkey } from "../src";
-import { generateBIP39Wallet, createWalletFromMnemonic } from "../src/wallet/generate";
+import { generateBIP39Wallet, createWalletFromMnemonic, deriveWalletFromMnemonic } from "../src/wallet/generate";
 import { deriveEncryptionKey, encryptData, decryptData } from "../src/wallet/crypto";
 import { IndexedDBWalletStorage } from "../src/wallet/storage";
 import { WalletSigner } from "../src/wallet/signing";
@@ -204,6 +204,68 @@ runTest("Invalid Mnemonic Handling", () => {
   }
 });
 
+runTest("HD Wallet Derivation by Index", () => {
+  const testMnemonic = "test test test test test test test test test test test junk";
+  
+  // Derive wallets at different indices
+  const wallet0 = deriveWalletFromMnemonic(testMnemonic, 0);
+  const wallet1 = deriveWalletFromMnemonic(testMnemonic, 1);
+  const wallet2 = deriveWalletFromMnemonic(testMnemonic, 2);
+  
+  assertNotNull(wallet0.address, "Should derive wallet at index 0");
+  assertNotNull(wallet0.privateKey, "Should have private key at index 0");
+  assertNotNull(wallet1.address, "Should derive wallet at index 1");
+  assertNotNull(wallet1.privateKey, "Should have private key at index 1");
+  assertNotNull(wallet2.address, "Should derive wallet at index 2");
+  assertNotNull(wallet2.privateKey, "Should have private key at index 2");
+  
+  // Different indices should produce different addresses
+  assert(wallet0.address !== wallet1.address, "Different indices should have different addresses");
+  assert(wallet1.address !== wallet2.address, "Different indices should have different addresses");
+  assert(wallet0.privateKey !== wallet1.privateKey, "Different indices should have different private keys");
+  
+  // All should be valid Ethereum addresses
+  assert(wallet0.address.startsWith("0x"), "Should be valid Ethereum address");
+  assert(wallet1.address.startsWith("0x"), "Should be valid Ethereum address");
+  assert(wallet2.address.startsWith("0x"), "Should be valid Ethereum address");
+});
+
+runTest("HD Wallet Derivation Index Validation", () => {
+  const testMnemonic = "test test test test test test test test test test test junk";
+  
+  // Test negative index
+  try {
+    deriveWalletFromMnemonic(testMnemonic, -1);
+    assert(false, "Should throw error for negative index");
+  } catch (error) {
+    assert(error instanceof Error, "Should throw error for negative index");
+  }
+  
+  // Test non-integer index
+  try {
+    deriveWalletFromMnemonic(testMnemonic, 1.5);
+    assert(false, "Should throw error for non-integer index");
+  } catch (error) {
+    assert(error instanceof Error, "Should throw error for non-integer index");
+  }
+  
+  // Test default index (should be 0)
+  const walletDefault = deriveWalletFromMnemonic(testMnemonic);
+  const wallet0 = deriveWalletFromMnemonic(testMnemonic, 0);
+  assertEquals(walletDefault.address, wallet0.address, "Default index should be 0");
+});
+
+runTest("HD Wallet Derivation Consistency", () => {
+  const testMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+  
+  // Same index should always produce same result
+  const wallet1a = deriveWalletFromMnemonic(testMnemonic, 5);
+  const wallet1b = deriveWalletFromMnemonic(testMnemonic, 5);
+  
+  assertEquals(wallet1a.address, wallet1b.address, "Same mnemonic and index should produce same address");
+  assertEquals(wallet1a.privateKey, wallet1b.privateKey, "Same mnemonic and index should produce same private key");
+});
+
 // =============================================================================
 // ENCRYPTION/DECRYPTION TESTS
 // =============================================================================
@@ -216,7 +278,18 @@ runTest("Key Derivation", async () => {
   const key2 = await deriveEncryptionKey(credentialId, challenge);
   
   assertNotNull(key1, "Should derive encryption key");
-  assertEquals(key1, key2, "Same inputs should produce same key");
+  assertNotNull(key2, "Should derive second encryption key");
+  
+  // Test that both keys can encrypt/decrypt the same data consistently
+  const testData = "test encryption consistency";
+  const encrypted1 = await encryptData(testData, key1);
+  const encrypted2 = await encryptData(testData, key2);
+  
+  const decrypted1 = await decryptData(encrypted1, key2); // Cross-decrypt
+  const decrypted2 = await decryptData(encrypted2, key1); // Cross-decrypt
+  
+  assertEquals(decrypted1, testData, "Key1 encrypted data should decrypt with key2");
+  assertEquals(decrypted2, testData, "Key2 encrypted data should decrypt with key1");
 });
 
 runTest("Data Encryption/Decryption Roundtrip", async () => {
@@ -413,7 +486,7 @@ runTest("Storage Error Handling", async () => {
   
   try {
     // Try to retrieve without init (should handle gracefully)
-    const result = await storage.retrieve("0x1234567890123456789012345678901234567890");
+    await storage.retrieve("0x1234567890123456789012345678901234567890");
     // Should either work (auto-init) or throw proper error
     assert(true, "Storage should handle uninitialized state gracefully");
   } catch (error) {

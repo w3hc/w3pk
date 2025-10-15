@@ -9,7 +9,10 @@ import {
 import { ApiClient } from "../utils/api";
 import { IndexedDBWalletStorage } from "../wallet/storage";
 import { WalletSigner } from "../wallet/signing";
-import { generateBIP39Wallet } from "../wallet/generate";
+import {
+  generateBIP39Wallet,
+  deriveWalletFromMnemonic,
+} from "../wallet/generate";
 import {
   deriveEncryptionKey,
   encryptData,
@@ -243,6 +246,50 @@ export class Web3Passkey {
         console.error("Failed to check wallet existence:", error);
       }
       return false;
+    }
+  }
+
+  /**
+   * Derive HD wallet address and private key at specific index
+   * Requires authentication to access encrypted mnemonic
+   *
+   * @param index HD derivation index (default: 0)
+   * @returns Object with address and privateKey
+   */
+  async deriveWallet(
+    index: number = 0
+  ): Promise<{ address: string; privateKey: string }> {
+    if (!this.isBrowser) {
+      throw new Error("HD wallet derivation requires browser environment");
+    }
+
+    if (!this.currentUser) {
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      // Get mnemonic for current authenticated user
+      const mnemonic = await this.getMnemonic();
+      if (!mnemonic) {
+        throw new Error("No wallet found for this user");
+      }
+
+      // Derive wallet at specific index
+      const derivedWallet = deriveWalletFromMnemonic(mnemonic, index);
+
+      if (this.config.debug) {
+        console.log(
+          `HD wallet derived at index ${index}:`,
+          derivedWallet.address
+        );
+      }
+
+      return derivedWallet;
+    } catch (error) {
+      if (this.config.onError) {
+        this.config.onError(error as any);
+      }
+      throw error;
     }
   }
 
@@ -535,7 +582,7 @@ export class Web3Passkey {
    * Get SDK version
    */
   get version(): string {
-    return "0.4.0";
+    return "0.4.1";
   }
 
   /**
