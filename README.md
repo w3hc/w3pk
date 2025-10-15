@@ -1,6 +1,6 @@
 # w3pk
 
-WebAuthn SDK for passwordless authentication, encrypted Ethereum wallets, privacy-preserving stealth addresses, and zero-knowledge proofs.
+Passwordless Web3 authentication SDK that protects user privacy through encrypted wallets, unlinkable stealth addresses, and zero-knowledge proofs.
 
 Live demo: **https://d2u.w3hc.org/voting**
 
