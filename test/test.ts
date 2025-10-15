@@ -1,4 +1,42 @@
-import { createWeb3Passkey, Web3Passkey } from "w3pk";
+import { createWeb3Passkey, Web3Passkey } from "../src/index";
+
+// Mock IndexedDB for Node.js test environment
+(global as any).indexedDB = {
+  open: () => {
+    const request: any = {
+      result: {
+        objectStoreNames: { contains: () => false },
+        createObjectStore: () => ({}),
+        transaction: () => ({
+          objectStore: () => ({
+            put: () => ({ onsuccess: null, onerror: null }),
+            get: () => ({ onsuccess: null, onerror: null }),
+            delete: () => ({ onsuccess: null, onerror: null }),
+          })
+        })
+      },
+      onsuccess: null,
+      onerror: null,
+      onupgradeneeded: null
+    };
+    // Simulate success
+    setTimeout(() => {
+      if (request.onupgradeneeded) request.onupgradeneeded();
+      if (request.onsuccess) request.onsuccess();
+    }, 0);
+    return request;
+  }
+};
+
+// Mock localStorage for Node.js
+(global as any).localStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+  clear: () => {},
+  length: 0,
+  key: () => null
+};
 
 // Test 1: Create SDK instance
 const sdk = createWeb3Passkey({

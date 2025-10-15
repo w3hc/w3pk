@@ -46,3 +46,36 @@ coverage/
 /zhankai
 NOTES.md
 TODO.md
+
+# ZK Circuit Build Artifacts
+src/zk/templates/*.r1cs
+src/zk/templates/*.sym
+src/zk/templates/*_js/
+src/zk/templates/wasm/
+src/zk/templates/zkeys/
+src/zk/templates/artifacts.json
+
+# ZK Proving System Files
+*.ptau
+*.zkey
+*.vkey
+*.wtns
+*.proof
+*.public
+*.witness
+*.circuit
+proof_*.json
+witness_*.dat
+
+# Circuit Development
+.circom/
+circuit_*
+debug/
+
+# Security Sensitive
+private_keys/
+secrets/
+*.pem
+*.key
+wallet_*.json
+credentials/

@@ -1,8 +1,8 @@
 # w3pk
 
-WebAuthn SDK for passwordless authentication, encrypted Ethereum wallets, and privacy-preserving stealth addresses.
+WebAuthn SDK for passwordless authentication, encrypted Ethereum wallets, privacy-preserving stealth addresses, and zero-knowledge proofs.
 
-Live demo: **https://d2u.w3hc.org/voting**
+Live demo: **https://d2u.w3hc.org/web3**
 
 ## Install
 
@@ -10,13 +10,24 @@ Live demo: **https://d2u.w3hc.org/voting**
 npm install w3pk
 ```
 
+### Optional Zero-Knowledge Proofs
+
+ZK proofs require additional dependencies. Install only if you need ZK features:
+
+```bash
+# Install ZK dependencies (optional)
+npm install snarkjs circomlibjs
+```
+
 ## Features
 
 - **🔐 Passwordless Authentication**: WebAuthn/FIDO2 biometric authentication
 - **💰 Encrypted Wallet Management**: Client-side AES-GCM-256 encrypted wallets  
-- **🌱 HD Wallet Generation**: BIP39/BIP44 compliant wallet derivation
+- **🌱 HD Wallet Generation**: BIP39/BIP44 compliant wallet derivation with multi-address support
 - **🥷 Stealth Addresses**: Privacy-preserving stealth address generation with unlinkable transactions
+- **🔬 Zero-Knowledge Proofs**: Privacy-preserving proofs (membership, threshold, range, ownership)
 - **🛡️ Network Agnostic**: Works with any blockchain - you handle the transactions
+- **⚡ React Optimized**: Streamlined for modern React applications
 
 ## Quick Start
 
@@ -56,7 +67,10 @@ createWeb3Passkey({
   debug?: boolean,                 // Optional: Enable logs (default: false)
   onError?: (error) => void,       // Optional: Error handler
   onAuthStateChanged?: (isAuth, user?) => void,  // Optional: Auth callback
-  stealthAddresses?: {}            // Optional: Enable stealth address generation
+  stealthAddresses?: {},           // Optional: Enable stealth address generation
+  zkProofs?: {                     // Optional: Enable zero-knowledge proofs
+    enabledProofs: ['membership', 'threshold', 'range', 'ownership']
+  }
 })
 ```
 
@@ -118,6 +132,7 @@ w3pk.user                   // UserInfo | null - Current user data
 w3pk.version                // string - SDK version
 w3pk.isBrowserEnvironment   // boolean - Browser environment detection
 w3pk.stealth                // StealthAddressModule | null - Stealth address module
+w3pk.zk                     // ZKProofModule | null - Zero-knowledge proof module
 ```
 
 ### Error Handling
@@ -304,6 +319,94 @@ console.log('Your stealth meta address:', keys.metaAddress)
 console.log('Your viewing key (keep private):', keys.viewingKey)
 ```
 
+### Zero-Knowledge Proofs API
+
+**Prerequisites**: Install ZK dependencies first:
+```bash
+npm install snarkjs circomlibjs
+```
+
+When configured with `zkProofs` option, the SDK provides privacy-preserving zero-knowledge proof generation:
+
+```typescript
+// Initialize SDK with ZK proofs enabled
+const w3pk = createWeb3Passkey({
+  apiBaseUrl: 'https://webauthn.w3hc.org',
+  zkProofs: {
+    enabledProofs: ['membership', 'threshold', 'range', 'ownership']
+  }
+})
+
+// Login first
+await w3pk.login()
+
+// 1. Membership Proof - Prove you're in a set without revealing identity
+const members = ['user1', 'user2', 'user3']
+const membershipProof = await w3pk.zk.proveMembership({
+  value: 'user2',
+  pathIndices: [1, 0], 
+  pathElements: ['hash1', 'hash2'],
+  root: 'merkle_root'
+})
+
+// 2. Threshold Proof - Prove balance > threshold without revealing balance
+const thresholdProof = await w3pk.zk.proveThreshold({
+  value: 5000n,
+  blinding: 123456n,
+  threshold: 1000n,
+  commitment: 'commitment_hash'
+})
+
+// 3. Range Proof - Prove age is 18-65 without revealing exact age
+const rangeProof = await w3pk.zk.proveRange({
+  value: 25n,
+  blinding: 789012n, 
+  min: 18n,
+  max: 65n,
+  commitment: 'age_commitment'
+})
+
+// 4. Ownership Proof - Prove you own an address without revealing private key
+const ownershipProof = await w3pk.zk.proveOwnership({
+  privateKey: 'your_private_key',
+  nonce: 345678n,
+  address: '0x...',
+  challenge: 'challenge_string'
+})
+
+// Verify any proof
+const isValid = await w3pk.zk.verify(membershipProof)
+console.log('Proof valid:', isValid)
+```
+
+### ZK Proof Utilities
+
+**Note**: These functions require `snarkjs` and `circomlibjs` to be installed.
+
+```typescript
+// Create commitments for hiding values (requires circomlibjs)
+const commitment = await w3pk.zk.createCommitment(value, blinding)
+
+// Compute merkle roots for membership proofs (requires circomlibjs)  
+const root = await w3pk.zk.computeMerkleRoot(leaf, pathIndices, pathElements)
+
+// Direct utility functions
+import { generateBlinding, buildMerkleTree, generateMerkleProof } from 'w3pk'
+
+const blinding = generateBlinding()
+const { root, tree } = await buildMerkleTree(['leaf1', 'leaf2', 'leaf3'])
+const { pathIndices, pathElements } = generateMerkleProof(tree, 1)
+```
+
+**Note:** ZK proofs require circuit compilation:
+```bash
+# Compile circuits (required for proof generation)
+pnpm build:zk
+
+# Run comprehensive ZK demo (optional)
+tsx examples/zk-proof-demo.ts
+```
+
 ## Complete Example
 
 ```typescript
@@ -367,14 +470,28 @@ w3pk.logout()
 
 ## Backend
 
-Requires [nestjs-webauthn](https://github.com/w3hc/nestjs-webauthn):
+### Using Hosted Backend (Recommended)
 
-```bash
-git clone https://github.com/w3hc/nestjs-webauthn
-cd nestjs-webauthn
-pnpm install
-pnpm start:dev
+The easiest way to get started is to use the hosted WebAuthn backend:
+
+```typescript
+const w3pk = createWeb3Passkey({
+  apiBaseUrl: 'https://webauthn.w3hc.org'
+})
 ```
+
+This hosted service handles WebAuthn registration and authentication flows.
+
+### Self-Hosted Backend
+
+For production use, you may want to self-host your WebAuthn backend. The backend should implement:
+
+- `POST /webauthn/register/begin` - Start WebAuthn registration
+- `POST /webauthn/register/complete` - Complete WebAuthn registration  
+- `POST /webauthn/authenticate/usernameless/begin` - Start usernameless authentication
+- `POST /webauthn/authenticate/usernameless/complete` - Complete usernameless authentication
+
+See the [WebAuthn specification](https://w3c.github.io/webauthn/) for implementation details.
 
 ## Security
 
@@ -490,17 +607,23 @@ pnpm build
 pnpm dev
 
 # Run tests
-pnpm test                    # Run basic + comprehensive test suite
+pnpm test                    # Run basic + comprehensive + ZK test suites
 pnpm test:basic             # Run basic functionality tests only
-pnpm test:comprehensive     # Run full 23-test comprehensive suite
+pnpm test:comprehensive     # Run full 23-test comprehensive suite  
+pnpm test:zk                # Run ZK proof module tests
+
+# ZK circuit compilation (optional)
+pnpm build:zk               # Compile circom circuits for proof generation
 
 # Publish to npm
 pnpm prepublishOnly         # Builds before publishing
 ```
 
+Watch [Asciinema video](https://asciinema.org/a/s9EAGyxNpBH2UZilZvEUHcGSO) (running the tests)
+
 ### Test Coverage
 
-The SDK includes a comprehensive test suite with **23 test cases** covering:
+The SDK includes a comprehensive test suite with **31 test cases** covering:
 
 - ✅ **Core SDK functionality** - Constructor, configuration, environment detection
 - ✅ **Wallet generation** - BIP39/BIP44 compliance, HD derivation, consistency
@@ -508,7 +631,9 @@ The SDK includes a comprehensive test suite with **23 test cases** covering:
 - ✅ **Storage operations** - IndexedDB CRUD, multiple wallets, cleanup
 - ✅ **Message signing** - Signature generation, address verification
 - ✅ **HD wallet derivation** - Multi-index support, validation, consistency
-- ✅ **Error handling** - Graceful failure scenarios
+- ✅ **ZK proof operations** - Commitment creation, merkle trees, proof setup
+- ✅ **Circuit compilation** - Circom circuit status, dependency detection
+- ✅ **Error handling** - Graceful failure scenarios, mock mode fallbacks
 - ✅ **Integration testing** - End-to-end workflows
 
 ### Architecture
@@ -520,9 +645,14 @@ w3pk/
 │   ├── wallet/         # Wallet generation, signing, storage
 │   ├── auth/           # WebAuthn authentication flows  
 │   ├── stealth/        # Privacy-preserving stealth addresses
+│   ├── zk/             # Zero-knowledge proof module
+│   │   ├── circuits/   # Circom circuit definitions
+│   │   ├── templates/  # Compiled circuit artifacts (.r1cs, .sym, .wasm)
+│   │   └── wasm/       # WebAssembly circuit files
 │   ├── utils/          # API client, validation utilities
 │   └── types/          # TypeScript type definitions
-├── test/               # Comprehensive test suite
+├── test/               # Comprehensive test suite (31 test cases)
+├── scripts/            # Circuit compilation and build scripts
 └── dist/               # Built output (CJS + ESM + types)
 ```
 
