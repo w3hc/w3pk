@@ -19,6 +19,7 @@ import {
   decryptData,
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
+import { ZKProofModule } from "../zk";
 import type {
   Web3PasskeyConfig,
   InternalConfig,
@@ -26,6 +27,7 @@ import type {
 } from "./config";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo } from "../types";
+import type { ZKProofConfig } from "../zk/types";
 
 export interface AuthResult {
   verified: boolean;
@@ -35,18 +37,14 @@ export interface AuthResult {
 export class Web3Passkey {
   private config: InternalConfig;
   private apiClient: ApiClient;
-  private walletStorage: IndexedDBWalletStorage;
-  private walletSigner: WalletSigner;
+  private storage: IndexedDBWalletStorage;
+  private signer: WalletSigner;
+  private stealthModule?: StealthAddressModule;
+  private zkModule?: ZKProofModule;
   private currentUser: UserInfo | null = null;
-  private isAuthenticatedState: boolean = false;
-  private isBrowser: boolean;
-  private stealthAddresses: StealthAddressModule | null = null;
+  private currentMnemonic: string | null = null;
 
   constructor(config: Web3PasskeyConfig) {
-    // Check if running in browser
-    this.isBrowser =
-      typeof window !== "undefined" && typeof localStorage !== "undefined";
-
     // Merge with defaults
     this.config = {
       ...DEFAULT_CONFIG,
@@ -55,320 +53,78 @@ export class Web3Passkey {
       debug: config.debug ?? DEFAULT_CONFIG.debug!,
     } as InternalConfig;
 
-    // Initialize components
+    // Initialize API client
     this.apiClient = new ApiClient(this.config.apiBaseUrl, this.config.timeout);
-    this.walletStorage = new IndexedDBWalletStorage();
-    this.walletSigner = new WalletSigner(this.walletStorage);
 
-    // Initialize stealth addresses if configured
-    if (config.stealthAddresses) {
-      this.stealthAddresses = new StealthAddressModule(
-        config.stealthAddresses,
+    // Initialize storage
+    this.storage = new IndexedDBWalletStorage();
+    this.storage.init().catch((error) => {
+      if (this.config.onError) {
+        this.config.onError(error);
+      }
+    });
+
+    // Initialize signer
+    this.signer = new WalletSigner(this.storage);
+
+    // Initialize stealth address module if configured
+    if (this.config.stealthAddresses) {
+      this.stealthModule = new StealthAddressModule(
+        this.config.stealthAddresses,
         this.getMnemonic.bind(this)
       );
     }
 
-    // Initialize storage only in browser
-    if (this.isBrowser) {
-      this.walletStorage.init().catch((error) => {
-        if (this.config.debug) {
-          console.error("Failed to initialize wallet storage:", error);
-        }
-      });
-
-      // Load persisted auth state
-      this.loadAuthState();
-    } else if (this.config.debug) {
-      console.warn(
-        "w3pk: Running in non-browser environment, some features disabled"
-      );
+    // Initialize ZK module if configured
+    if (this.config.zkProofs) {
+      this.zkModule = new ZKProofModule(this.config.zkProofs);
     }
+
+    this.log("SDK initialized");
   }
 
   // ========================================
-  // Auth State Management
-  // ========================================
-
-  private loadAuthState(): void {
-    if (!this.isBrowser) return;
-
-    try {
-      const storedUser = localStorage.getItem("w3pk_user");
-      const storedAuth = localStorage.getItem("w3pk_authenticated");
-
-      if (storedUser && storedAuth === "true") {
-        this.currentUser = JSON.parse(storedUser);
-        this.isAuthenticatedState = true;
-        this.notifyAuthStateChange(true, this.currentUser ?? undefined);
-      }
-    } catch (error) {
-      if (this.config.debug) {
-        console.error("Failed to load auth state:", error);
-      }
-      this.clearAuthState();
-    }
-  }
-
-  private saveAuthState(user: UserInfo): void {
-    if (!this.isBrowser) {
-      console.warn("w3pk: Cannot save auth state in non-browser environment");
-      return;
-    }
-
-    try {
-      localStorage.setItem("w3pk_user", JSON.stringify(user));
-      localStorage.setItem("w3pk_authenticated", "true");
-      this.currentUser = user;
-      this.isAuthenticatedState = true;
-      this.notifyAuthStateChange(true, user);
-    } catch (error) {
-      if (this.config.debug) {
-        console.error("Failed to save auth state:", error);
-      }
-    }
-  }
-
-  private clearAuthState(): void {
-    if (!this.isBrowser) return;
-
-    try {
-      localStorage.removeItem("w3pk_user");
-      localStorage.removeItem("w3pk_authenticated");
-    } catch (error) {
-      if (this.config.debug) {
-        console.error("Failed to clear auth state:", error);
-      }
-    }
-
-    this.currentUser = null;
-    this.isAuthenticatedState = false;
-    this.notifyAuthStateChange(false);
-  }
-
-  private notifyAuthStateChange(
-    isAuthenticated: boolean,
-    user?: UserInfo
-  ): void {
-    if (this.config.onAuthStateChanged) {
-      this.config.onAuthStateChanged(isAuthenticated, user);
-    }
-  }
-
-  private createUserInfo(username: string, ethereumAddress: string): UserInfo {
-    return {
-      id: ethereumAddress,
-      username,
-      displayName: username,
-      ethereumAddress,
-    };
-  }
-
-  /**
-   * Get mnemonic for current authenticated user
-   * Used by stealth address module
-   */
-  private async getMnemonic(): Promise<string | null> {
-    if (!this.isBrowser || !this.currentUser) {
-      return null;
-    }
-
-    try {
-      // Get encrypted wallet data
-      const walletData = await this.walletStorage.retrieve(
-        this.currentUser.ethereumAddress
-      );
-      if (!walletData) {
-        return null;
-      }
-
-      // Derive encryption key from stored credentials
-      const encryptionKey = await deriveEncryptionKey(
-        walletData.credentialId,
-        walletData.challenge
-      );
-
-      // Decrypt mnemonic
-      return await decryptData(walletData.encryptedMnemonic, encryptionKey);
-    } catch (error) {
-      if (this.config.debug) {
-        console.error("Failed to get mnemonic:", error);
-      }
-      return null;
-    }
-  }
-
-  // ========================================
-  // Public API - Wallet
-  // ========================================
-
-  /**
-   * Generate a new BIP39 wallet
-   * @returns Wallet info with mnemonic (user MUST backup)
-   */
-  async generateWallet(): Promise<WalletInfo> {
-    try {
-      const wallet = generateBIP39Wallet();
-
-      if (this.config.debug) {
-        console.log("Wallet generated:", wallet.address);
-      }
-
-      return wallet;
-    } catch (error) {
-      if (this.config.onError) {
-        this.config.onError(error as any);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Check if wallet exists for current user
-   */
-  async hasWallet(): Promise<boolean> {
-    if (!this.isBrowser) {
-      console.warn(
-        "w3pk: Wallet storage not available in non-browser environment"
-      );
-      return false;
-    }
-
-    if (!this.currentUser) {
-      return false;
-    }
-
-    try {
-      return await this.walletSigner.hasWallet(
-        this.currentUser.ethereumAddress
-      );
-    } catch (error) {
-      if (this.config.debug) {
-        console.error("Failed to check wallet existence:", error);
-      }
-      return false;
-    }
-  }
-
-  /**
-   * Derive HD wallet address and private key at specific index
-   * Requires authentication to access encrypted mnemonic
-   *
-   * @param index HD derivation index (default: 0)
-   * @returns Object with address and privateKey
-   */
-  async deriveWallet(
-    index: number = 0
-  ): Promise<{ address: string; privateKey: string }> {
-    if (!this.isBrowser) {
-      throw new Error("HD wallet derivation requires browser environment");
-    }
-
-    if (!this.currentUser) {
-      throw new Error("Not authenticated");
-    }
-
-    try {
-      // Get mnemonic for current authenticated user
-      const mnemonic = await this.getMnemonic();
-      if (!mnemonic) {
-        throw new Error("No wallet found for this user");
-      }
-
-      // Derive wallet at specific index
-      const derivedWallet = deriveWalletFromMnemonic(mnemonic, index);
-
-      if (this.config.debug) {
-        console.log(
-          `HD wallet derived at index ${index}:`,
-          derivedWallet.address
-        );
-      }
-
-      return derivedWallet;
-    } catch (error) {
-      if (this.config.onError) {
-        this.config.onError(error as any);
-      }
-      throw error;
-    }
-  }
-
-  // ========================================
-  // Public API - Authentication
+  // Authentication Methods
   // ========================================
 
   /**
    * Register a new user with WebAuthn
-   * Handles the complete registration flow internally
-   * Automatically generates wallet if not provided
-   *
-   * @param username Username for the account
-   * @param ethereumAddress Optional: Ethereum address (will generate if not provided)
-   * @param mnemonic Optional: BIP39 mnemonic (will generate if not provided)
-   * @returns Object containing ethereumAddress and mnemonic (only if generated)
+   * Automatically generates and encrypts a BIP39 wallet
    */
   async register(options: {
     username: string;
-    ethereumAddress?: string;
-    mnemonic?: string;
-  }): Promise<{ ethereumAddress: string; mnemonic?: string }> {
-    if (!this.isBrowser) {
-      throw new Error(
-        "Registration requires browser environment with WebAuthn support"
-      );
-    }
-
+    ethereumAddress: string;
+  }): Promise<void> {
     try {
-      const { username } = options;
-      let { ethereumAddress, mnemonic } = options;
+      const { username, ethereumAddress } = options;
 
-      // Generate wallet if not provided
-      if (!ethereumAddress || !mnemonic) {
-        const wallet = generateBIP39Wallet();
-        ethereumAddress = wallet.address;
-        mnemonic = wallet.mnemonic;
-      }
+      this.log(`Registering user: ${username}`);
 
-      // Step 1: Begin registration - get WebAuthn options from server
+      // Step 1: Generate BIP39 wallet
+      const wallet = generateBIP39Wallet();
+      this.log(`Generated wallet: ${wallet.address}`);
+
+      // Step 2: Begin WebAuthn registration
       const beginResponse = await this.apiClient.post(
         "/webauthn/register/begin",
         {
           username,
-          ethereumAddress,
+          ethereumAddress: wallet.address,
         }
       );
 
-      if (!beginResponse.success || !beginResponse.data) {
+      if (!beginResponse.success || !beginResponse.data?.options) {
         throw new Error("Failed to get registration options from server");
       }
 
-      // Handle different response formats
-      const webauthnOptions = beginResponse.data.options || beginResponse.data;
+      // Step 3: WebAuthn registration
+      const credential = await startRegistration(beginResponse.data.options);
 
-      // Step 2: Perform WebAuthn registration (browser prompt)
-      const credential = await startRegistration(webauthnOptions);
-
-      // Step 3: Encrypt mnemonic with WebAuthn-derived key
-      const encryptionKey = await deriveEncryptionKey(
-        credential.id,
-        webauthnOptions.challenge
-      );
-      const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
-
-      // Step 4: Store encrypted mnemonic in IndexedDB
-      await this.walletStorage.store({
-        ethereumAddress,
-        encryptedMnemonic,
-        credentialId: credential.id,
-        challenge: webauthnOptions.challenge,
-        createdAt: Date.now(),
-      });
-
-      // Step 5: Complete registration with server
+      // Step 4: Complete registration
       const completeResponse = await this.apiClient.post(
         "/webauthn/register/complete",
         {
-          ethereumAddress,
+          ethereumAddress: wallet.address,
           response: credential,
         }
       );
@@ -377,20 +133,41 @@ export class Web3Passkey {
         throw new Error("Registration verification failed");
       }
 
-      // Step 6: Save auth state with displayName
-      const user = this.createUserInfo(username, ethereumAddress);
-      this.saveAuthState(user);
+      // Step 5: Encrypt and store wallet
+      const credentialId = credential.id;
+      const challenge = beginResponse.data.options.challenge;
 
-      if (this.config.debug) {
-        console.log("Registration successful for:", ethereumAddress);
-      }
+      const encryptionKey = await deriveEncryptionKey(credentialId, challenge);
+      const encryptedMnemonic = await encryptData(
+        wallet.mnemonic,
+        encryptionKey
+      );
 
-      // Return the wallet info (mnemonic only if we generated it)
-      return {
-        ethereumAddress,
-        mnemonic: options.mnemonic ? undefined : mnemonic,
+      await this.storage.store({
+        ethereumAddress: wallet.address,
+        encryptedMnemonic,
+        credentialId,
+        challenge,
+        createdAt: Date.now(),
+      });
+
+      this.log("Registration successful");
+
+      // Set current user
+      this.currentUser = {
+        id: credential.id,
+        username,
+        displayName: username,
+        ethereumAddress: wallet.address,
       };
+
+      this.currentMnemonic = wallet.mnemonic;
+
+      if (this.config.onAuthStateChanged) {
+        this.config.onAuthStateChanged(true, this.currentUser ?? undefined);
+      }
     } catch (error) {
+      this.log(`Registration failed: ${error}`, "error");
       if (this.config.onError) {
         this.config.onError(error as any);
       }
@@ -399,16 +176,13 @@ export class Web3Passkey {
   }
 
   /**
-   * Authenticate without username (usernameless flow)
+   * Authenticate with WebAuthn (usernameless flow)
+   * Decrypts the wallet after successful authentication
    */
   async login(): Promise<AuthResult> {
-    if (!this.isBrowser) {
-      throw new Error(
-        "Authentication requires browser environment with WebAuthn support"
-      );
-    }
-
     try {
+      this.log("Starting login");
+
       // Step 1: Begin usernameless authentication
       const beginResponse = await this.apiClient.post(
         "/webauthn/authenticate/usernameless/begin",
@@ -421,7 +195,6 @@ export class Web3Passkey {
         );
       }
 
-      // Handle different response formats
       const webauthnOptions = beginResponse.data.options || beginResponse.data;
 
       // Step 2: WebAuthn authentication
@@ -430,30 +203,45 @@ export class Web3Passkey {
       // Step 3: Complete authentication
       const completeResponse = await this.apiClient.post(
         "/webauthn/authenticate/usernameless/complete",
-        { response: credential }
+        {
+          response: credential,
+        }
       );
 
       if (!completeResponse.success) {
         throw new Error("Usernameless authentication verification failed");
       }
 
-      const serverUser = completeResponse.data?.user;
-      if (!serverUser) {
-        throw new Error("No user data received from server");
+      const user = completeResponse.data?.user;
+
+      if (!user) {
+        throw new Error("No user data returned from authentication");
       }
 
-      // Create UserInfo with displayName
-      const user = this.createUserInfo(
-        serverUser.username,
-        serverUser.ethereumAddress || serverUser.id
-      );
-      this.saveAuthState(user);
+      this.log(`Authenticated user: ${user.username}`);
 
-      if (this.config.debug) {
-        console.log(
-          "Usernameless authentication successful for:",
-          user.ethereumAddress
+      // Step 4: Decrypt wallet
+      const walletData = await this.storage.retrieve(user.ethereumAddress);
+
+      if (walletData) {
+        const encryptionKey = await deriveEncryptionKey(
+          walletData.credentialId,
+          walletData.challenge
         );
+
+        this.currentMnemonic = await decryptData(
+          walletData.encryptedMnemonic,
+          encryptionKey
+        );
+
+        this.log("Wallet decrypted successfully");
+      }
+
+      // Set current user
+      this.currentUser = user;
+
+      if (this.config.onAuthStateChanged) {
+        this.config.onAuthStateChanged(true, this.currentUser ?? undefined);
       }
 
       return {
@@ -461,6 +249,7 @@ export class Web3Passkey {
         user,
       };
     } catch (error) {
+      this.log(`Login failed: ${error}`, "error");
       if (this.config.onError) {
         this.config.onError(error as any);
       }
@@ -469,106 +258,249 @@ export class Web3Passkey {
   }
 
   /**
-   * Logout current user
+   * Logout - clears current session
    */
-  logout(): void {
-    this.clearAuthState();
+  async logout(): Promise<void> {
+    this.currentUser = null;
+    this.currentMnemonic = null;
 
-    if (this.config.debug) {
-      console.log("User logged out");
+    if (this.config.onAuthStateChanged) {
+      this.config.onAuthStateChanged(false, undefined);
     }
+
+    this.log("Logged out");
   }
 
   // ========================================
-  // Public API - Message Signing
+  // Wallet Methods
   // ========================================
 
   /**
-   * Sign a message with encrypted wallet
-   * Handles fresh WebAuthn authentication internally
-   *
-   * @param message Message to sign
+   * Generate a new BIP39 wallet
+   * Note: This is a utility method and doesn't require authentication
+   */
+  async generateWallet(): Promise<WalletInfo> {
+    const wallet = generateBIP39Wallet();
+    return {
+      address: wallet.address,
+      mnemonic: wallet.mnemonic,
+    };
+  }
+
+  /**
+   * Get the current user's wallet address
+   */
+  get walletAddress(): string | null {
+    return this.currentUser?.ethereumAddress || null;
+  }
+
+  /**
+   * Get the current user's mnemonic (only after authentication)
+   */
+  private async getMnemonic(): Promise<string | null> {
+    return this.currentMnemonic;
+  }
+
+  /**
+   * Export wallet mnemonic (requires authentication)
+   */
+  async exportMnemonic(): Promise<string> {
+    if (!this.currentMnemonic) {
+      throw new Error("Not authenticated. Please login first.");
+    }
+    return this.currentMnemonic;
+  }
+
+  /**
+   * Derive HD wallet at specific index
+   */
+  async deriveWallet(index: number = 0): Promise<{
+    address: string;
+    privateKey: string;
+  }> {
+    if (!this.currentMnemonic) {
+      throw new Error("Not authenticated. Please login first.");
+    }
+
+    return deriveWalletFromMnemonic(this.currentMnemonic, index);
+  }
+
+  /**
+   * Sign a message with the encrypted wallet
    */
   async signMessage(message: string): Promise<string> {
-    if (!this.isBrowser) {
-      throw new Error("Message signing requires browser environment");
-    }
-
     if (!this.currentUser) {
-      throw new Error("Not authenticated");
+      throw new Error("Not authenticated. Please login first.");
     }
 
-    try {
-      // Step 1: Check if wallet exists
-      const walletData = await this.walletStorage.retrieve(
-        this.currentUser.ethereumAddress
+    const walletData = await this.storage.retrieve(
+      this.currentUser.ethereumAddress
+    );
+
+    if (!walletData) {
+      throw new Error("No wallet found for current user");
+    }
+
+    return this.signer.signMessage(
+      this.currentUser.ethereumAddress,
+      message,
+      walletData.credentialId,
+      walletData.challenge
+    );
+  }
+
+  // ========================================
+  // Stealth Address Methods
+  // ========================================
+
+  /**
+   * Access stealth address capabilities
+   * Returns undefined if stealth addresses not configured
+   */
+  get stealth(): StealthAddressModule | undefined {
+    return this.stealthModule;
+  }
+
+  /**
+   * Check if stealth addresses are available
+   */
+  get hasStealthAddresses(): boolean {
+    return this.stealthModule !== undefined;
+  }
+
+  /**
+   * Enable stealth addresses after initialization
+   */
+  enableStealthAddresses(config: StealthAddressConfig = {}): void {
+    if (!this.stealthModule) {
+      this.stealthModule = new StealthAddressModule(
+        config,
+        this.getMnemonic.bind(this)
       );
-      if (!walletData) {
-        throw new Error(
-          "No wallet found on this device. Please register to create a new wallet."
-        );
-      }
-
-      // Step 2: Request fresh WebAuthn authentication
-      if (this.config.debug) {
-        console.log("Requesting WebAuthn authentication for signing...");
-      }
-
-      const beginResponse = await this.apiClient.post(
-        "/webauthn/authenticate/usernameless/begin",
-        {}
-      );
-
-      if (!beginResponse.success || !beginResponse.data) {
-        throw new Error("Failed to begin authentication for signing");
-      }
-
-      // Handle different response formats
-      const webauthnOptions = beginResponse.data.options || beginResponse.data;
-
-      // Step 3: Perform WebAuthn authentication (browser prompt)
-      const credential = await startAuthentication(webauthnOptions);
-
-      // Step 4: Verify authentication with server
-      const completeResponse = await this.apiClient.post(
-        "/webauthn/authenticate/usernameless/complete",
-        { response: credential }
-      );
-
-      if (!completeResponse.success) {
-        throw new Error("Authentication verification failed for signing");
-      }
-
-      // Step 5: Use the authenticated credentials to sign
-      const signature = await this.walletSigner.signMessage(
-        this.currentUser.ethereumAddress,
-        message,
-        walletData.credentialId,
-        walletData.challenge
-      );
-
-      if (this.config.debug) {
-        console.log("Message signed successfully");
-      }
-
-      return signature;
-    } catch (error) {
-      if (this.config.onError) {
-        this.config.onError(error as any);
-      }
-      throw error;
     }
   }
 
   // ========================================
-  // Public API - Getters
+  // ZK Proof Methods
+  // ========================================
+
+  /**
+   * Access ZK proof capabilities
+   * Returns undefined if ZK proofs not configured
+   */
+  get zk(): ZKProofModule | undefined {
+    return this.zkModule;
+  }
+
+  /**
+   * Check if ZK proofs are available
+   */
+  get hasZKProofs(): boolean {
+    return this.zkModule !== undefined;
+  }
+
+  /**
+   * Enable ZK proofs after initialization
+   */
+  enableZKProofs(config: ZKProofConfig = {}): void {
+    if (!this.zkModule) {
+      this.zkModule = new ZKProofModule(config);
+    }
+  }
+
+  // ========================================
+  // Convenience Methods for Common ZK Patterns
+  // ========================================
+
+  /**
+   * Prove membership in a verified user set
+   * Useful for: "Prove I'm a verified user without revealing my identity"
+   */
+  async proveVerifiedMembership(
+    userSet: string[],
+    userIndex: number
+  ): Promise<any> {
+    if (!this.zkModule) {
+      throw new Error("ZK proofs not enabled. Call enableZKProofs() first.");
+    }
+
+    const { buildMerkleTree, generateMerkleProof } = await import(
+      "../zk/utils"
+    );
+
+    // Build merkle tree from user set
+    const { root, tree } = await buildMerkleTree(userSet);
+
+    // Generate proof for this user
+    const { pathIndices, pathElements } = generateMerkleProof(tree, userIndex);
+
+    return this.zkModule.proveMembership({
+      value: userSet[userIndex],
+      pathIndices,
+      pathElements,
+      root,
+    });
+  }
+
+  /**
+   * Prove wallet balance exceeds threshold
+   * Useful for: "Prove I have > $1000 without revealing exact balance"
+   */
+  async proveBalanceThreshold(
+    balance: bigint,
+    threshold: bigint
+  ): Promise<any> {
+    if (!this.zkModule) {
+      throw new Error("ZK proofs not enabled. Call enableZKProofs() first.");
+    }
+
+    const { generateBlinding } = await import("../zk/utils");
+    const blinding = generateBlinding();
+    const commitment = await this.zkModule.createCommitment(balance, blinding);
+
+    return this.zkModule.proveThreshold({
+      value: balance,
+      blinding,
+      threshold,
+      commitment,
+    });
+  }
+
+  /**
+   * Prove age is within valid range
+   * Useful for: "Prove I'm 18-65 without revealing exact age"
+   */
+  async proveAgeRange(
+    age: bigint,
+    minAge: bigint,
+    maxAge: bigint
+  ): Promise<any> {
+    if (!this.zkModule) {
+      throw new Error("ZK proofs not enabled. Call enableZKProofs() first.");
+    }
+
+    const { generateBlinding } = await import("../zk/utils");
+    const blinding = generateBlinding();
+    const commitment = await this.zkModule.createCommitment(age, blinding);
+
+    return this.zkModule.proveRange({
+      value: age,
+      blinding,
+      min: minAge,
+      max: maxAge,
+      commitment,
+    });
+  }
+
+  // ========================================
+  // State & Info Methods
   // ========================================
 
   /**
    * Check if user is authenticated
    */
   get isAuthenticated(): boolean {
-    return this.isAuthenticatedState;
+    return this.currentUser !== null;
   }
 
   /**
@@ -579,23 +511,42 @@ export class Web3Passkey {
   }
 
   /**
-   * Get SDK version
+   * SDK version
    */
   get version(): string {
-    return "0.4.1";
+    return "0.5.0";
+  }
+
+  // ========================================
+  // Utility Methods
+  // ========================================
+
+  /**
+   * Internal logging
+   */
+  private log(message: string, level: "info" | "error" = "info"): void {
+    if (this.config.debug) {
+      const prefix = `[w3pk ${level.toUpperCase()}]`;
+      if (level === "error") {
+        console.error(prefix, message);
+      } else {
+        console.log(prefix, message);
+      }
+    }
   }
 
   /**
-   * Check if running in browser environment
+   * Clear all stored wallet data (use with caution!)
    */
-  get isBrowserEnvironment(): boolean {
-    return this.isBrowser;
-  }
+  async clearAllData(): Promise<void> {
+    await this.storage.clear();
+    this.currentUser = null;
+    this.currentMnemonic = null;
 
-  /**
-   * Get stealth address module (if configured)
-   */
-  get stealth(): StealthAddressModule | null {
-    return this.stealthAddresses;
+    if (this.config.onAuthStateChanged) {
+      this.config.onAuthStateChanged(false, undefined);
+    }
+
+    this.log("All data cleared");
   }
 }

@@ -8,8 +8,8 @@ export default defineConfig({
   sourcemap: true,
   minify: true,
   splitting: false,
-  // Keep ethers as external - don't bundle it
-  external: ["ethers", "@simplewebauthn/browser"],
+  // Keep these as external - don't bundle them
+  external: ["ethers", "@simplewebauthn/browser", "snarkjs", "circomlibjs"],
   // Specify that this is for browser environment
   platform: "browser",
   target: "es2020",

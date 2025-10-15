@@ -1,7 +1,7 @@
 {
   "name": "w3pk",
-  "version": "0.4.1",
-  "description": "WebAuthn SDK for passwordless authentication, encrypted wallets, and privacy-preserving stealth addresses",
+  "version": "0.5.0",
+  "description": "WebAuthn SDK for passwordless authentication, encrypted wallets, stealth addresses, and zero-knowledge proofs",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -10,18 +10,32 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./zk": {
+      "types": "./dist/zk/index.d.ts",
+      "import": "./dist/zk/index.mjs",
+      "require": "./dist/zk/index.js"
+    },
+    "./zk/utils": {
+      "types": "./dist/zk/utils.d.ts",
+      "import": "./dist/zk/utils.mjs",
+      "require": "./dist/zk/utils.js"
     }
   },
   "sideEffects": false,
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
+    "build:zk": "npm run build && npm run compile:circuits",
+    "compile:circuits": "node scripts/compile-circuits.js",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
-    "test": "tsx test/test.ts && tsx test/comprehensive.test.ts",
+    "test": "tsx test/test.ts && tsx test/comprehensive.test.ts && tsx test/zk/zk.test.ts",
+    "test:zk": "tsx test/zk/zk.test.ts",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -35,11 +49,17 @@
     "web3",
     "encryption",
     "zero-knowledge",
+    "zk-proofs",
+    "zk-snarks",
     "privacy",
     "stealth-address",
     "unlinkable",
     "anonymous-transactions",
-    "privacy-preserving"
+    "privacy-preserving",
+    "circom",
+    "groth16",
+    "merkle-tree",
+    "commitment-scheme"
   ],
   "author": "Julien Béranger",
   "license": "GPL-3.0-or-later",
@@ -53,11 +73,11 @@
   "homepage": "https://github.com/w3hc/w3pk#readme",
   "packageManager": "pnpm@10.6.4",
   "dependencies": {
-    "@simplewebauthn/browser": "^13.2.2",
-    "w3pk": "link:../Library/pnpm/store/5/node_modules/w3pk"
+    "@simplewebauthn/browser": "^13.2.2"
   },
   "devDependencies": {
     "@types/node": "^24.6.2",
+    "circomlib": "^2.0.5",
     "tsup": "^8.5.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
@@ -66,12 +86,7 @@
     "ethers": "^6.0.0"
   },
   "optionalDependencies": {
-    "circomlibjs": "^0.1.0",
-    "snarkjs": "^0.7.5"
-  },
-  "pnpm": {
-    "overrides": {
-      "w3pk": "link:../Library/pnpm/store/5/node_modules/w3pk"
-    }
+    "snarkjs": "^0.7.5",
+    "circomlibjs": "^0.1.7"
   }
 }

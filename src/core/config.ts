@@ -4,7 +4,7 @@
 
 import type { UserInfo } from "../types";
 import type { Web3PasskeyError } from "./errors";
-import type { ethers } from "ethers";
+import type { ZKProofConfig } from "../zk/types";
 
 export interface StealthAddressConfig {}
 
@@ -42,6 +42,13 @@ export interface Web3PasskeyConfig {
    * If provided, enables privacy-preserving stealth address generation
    */
   stealthAddresses?: StealthAddressConfig;
+
+  /**
+   * Optional zero-knowledge proof configuration
+   * If provided, enables privacy-preserving ZK proofs
+   * Requires optional dependencies: snarkjs, circomlibjs
+   */
+  zkProofs?: ZKProofConfig;
 }
 
 export interface InternalConfig extends Required<Web3PasskeyConfig> {
@@ -52,3 +59,6 @@ export const DEFAULT_CONFIG: Partial<Web3PasskeyConfig> = {
   timeout: 30000,
   debug: false,
 };
+
+// Re-export ZK config type
+export type { ZKProofConfig } from "../zk/types";
