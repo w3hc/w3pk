@@ -2,6 +2,39 @@
   "name": "w3pk",
   "version": "0.5.2",
   "description": "WebAuthn SDK for passwordless authentication, encrypted wallets, stealth addresses, and zero-knowledge proofs",
+  "author": "Julien Béranger",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/w3hc/w3pk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/w3hc/w3pk/issues"
+  },
+  "homepage": "https://github.com/w3hc/w3pk#readme",
+  "keywords": [
+    "webauthn",
+    "passkey",
+    "authentication",
+    "passwordless",
+    "fido2",
+    "biometric",
+    "ethereum",
+    "web3",
+    "encryption",
+    "zero-knowledge",
+    "zk-proofs",
+    "zk-snarks",
+    "privacy",
+    "stealth-address",
+    "unlinkable",
+    "anonymous-transactions",
+    "privacy-preserving",
+    "circom",
+    "groth16",
+    "merkle-tree",
+    "commitment-scheme"
+  ],
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -41,45 +74,12 @@
     "test:nft": "tsx test/nft-ownership.test.ts",
     "prepublishOnly": "pnpm build"
   },
-  "keywords": [
-    "webauthn",
-    "passkey",
-    "authentication",
-    "passwordless",
-    "fido2",
-    "biometric",
-    "ethereum",
-    "web3",
-    "encryption",
-    "zero-knowledge",
-    "zk-proofs",
-    "zk-snarks",
-    "privacy",
-    "stealth-address",
-    "unlinkable",
-    "anonymous-transactions",
-    "privacy-preserving",
-    "circom",
-    "groth16",
-    "merkle-tree",
-    "commitment-scheme"
-  ],
-  "author": "Julien Béranger",
-  "license": "GPL-3.0-or-later",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/w3hc/w3pk.git"
-  },
-  "bugs": {
-    "url": "https://github.com/w3hc/w3pk/issues"
-  },
-  "homepage": "https://github.com/w3hc/w3pk#readme",
   "packageManager": "pnpm@10.6.4",
   "dependencies": {
     "@simplewebauthn/browser": "^13.2.2"
   },
   "devDependencies": {
-    "@types/node": "^24.6.2",
+    "@types/node": "^24.8.1",
     "circomlib": "^2.0.5",
     "tsup": "^8.5.0",
     "tsx": "^4.20.6",
@@ -89,7 +89,7 @@
     "ethers": "^6.0.0"
   },
   "optionalDependencies": {
-    "snarkjs": "^0.7.5",
-    "circomlibjs": "^0.1.7"
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.5"
   }
 }
