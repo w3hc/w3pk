@@ -2,62 +2,62 @@
 
 ## Installation
 
-### Basic Installation (Core Features Only)
+### Choose Your Installation
 
+w3pk has two configurations based on your needs:
+
+#### Option 1: Core Features Only (Recommended)
+
+**Size**: ~5MB | **Install time**: ~10 seconds
 ```bash
 npm install w3pk ethers
 ```
 
-This gives you:
+**Includes:**
 - ✅ WebAuthn passwordless authentication
 - ✅ Encrypted wallet management
-- ✅ BIP39 HD wallet generation
+- ✅ BIP39 HD wallet generation  
 - ✅ Message signing
 - ✅ Stealth addresses (privacy-preserving transactions)
 
-### With Stealth Addresses
+**Best for:** Most dApps, authentication systems, standard Web3 applications
 
-Stealth addresses are included by default, just enable them:
+#### Option 2: With Zero-Knowledge Proofs
 
-```typescript
-const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org',
-  stealthAddresses: {}  // Enable stealth addresses
-})
-```
-
-### With Zero-Knowledge Proofs (Optional)
-
-ZK proofs require additional dependencies. Install only if you need ZK features:
-
+**Size**: ~75MB | **Install time**: ~60 seconds
 ```bash
 npm install w3pk ethers
-npm install snarkjs circomlibjs  # Optional: Only needed for ZK proofs
+npm install snarkjs circomlibjs  # Optional ZK dependencies
 ```
 
-**Bundle size impact:**
-- Core only: ~5MB (WebAuthn, wallets, stealth addresses)  
-- With ZK: ~75MB (includes cryptographic libraries)
+**Additional features:**
+- ✅ Anonymous membership proofs
+- ✅ Private balance threshold proofs
+- ✅ Age/value range proofs
+- ✅ Anonymous NFT ownership proofs
 
-**Without ZK dependencies installed:**
-- ✅ Core SDK works perfectly
-- ❌ ZK features will throw helpful error messages with install instructions
+**Best for:** Privacy-focused dApps, anonymous voting, confidential credential systems
 
-Then enable in your code:
+---
 
-```typescript
-const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org',
-  zkProofs: {
-    enabledProofs: ['membership', 'threshold', 'range']
-  }
-})
+## Quick Decision Guide
+
+**Start with core features.** You can always add ZK later if needed.
+```mermaid
+graph TD
+    A[Need w3pk?] --> B{Need Zero-Knowledge Proofs?}
+    B -->|No| C[npm install w3pk ethers]
+    B -->|Yes| D[npm install w3pk ethers<br/>snarkjs circomlibjs]
+    B -->|Not Sure| C
+    C --> E[âœ… 5MB bundle<br/>Fast install]
+    D --> F[âš ï¸ 75MB bundle<br/>Slower install<br/>Advanced privacy features]
 ```
+
+---
 
 ## Usage Examples
 
-### 1. Basic Authentication
-
+### 1. Basic Authentication (Core Features)
 ```typescript
 import { createWeb3Passkey } from 'w3pk'
 
@@ -78,8 +78,7 @@ await w3pk.login()
 const signature = await w3pk.signMessage('Hello World')
 ```
 
-### 2. Wallet Management
-
+### 2. Wallet Management (Core Features)
 ```typescript
 // Generate new wallet
 const wallet = await w3pk.generateWallet()
@@ -95,38 +94,39 @@ console.log(derived.address)
 console.log(derived.privateKey)
 ```
 
-### 3. Stealth Addresses
-
+### 3. Stealth Addresses (Core Features)
 ```typescript
 const w3pk = createWeb3Passkey({
   apiBaseUrl: 'https://webauthn.w3hc.org',
-  stealthAddresses: {}
+  stealthAddresses: {}  // Enable stealth addresses
 })
 
 await w3pk.login()
 
-// Generate stealth address
+// Generate stealth address for privacy
 const stealth = await w3pk.stealth?.generateStealthAddress()
-console.log(stealth.stealthAddress)      // Fresh address
-console.log(stealth.stealthPrivateKey)   // Private key
-console.log(stealth.ephemeralPublicKey)  // For publishing
+console.log(stealth.stealthAddress)      // Fresh unlinkable address
+console.log(stealth.stealthPrivateKey)   // Private key for this address
+console.log(stealth.ephemeralPublicKey)  // Share this for payments
 
-// Get stealth keys
+// Get master stealth keys
 const keys = await w3pk.stealth?.getKeys()
-console.log(keys.metaAddress)
-console.log(keys.viewingKey)
-console.log(keys.spendingKey)
+console.log(keys.metaAddress)   // Your stealth meta-address
+console.log(keys.viewingKey)    // For scanning transactions
+console.log(keys.spendingKey)   // For spending received funds
 ```
 
-### 4. Zero-Knowledge Proofs
+### 4. Zero-Knowledge Proofs (Requires Optional Dependencies)
 
-**Prerequisites:** Ensure ZK dependencies are installed:
+**First, install ZK dependencies:**
 ```bash
 npm install snarkjs circomlibjs
 ```
 
+**Then use ZK features:**
 ```typescript
-import { generateBlinding, buildMerkleTree, generateMerkleProof, generateNFTOwnershipProofInputs } from 'w3pk'
+import { createWeb3Passkey } from 'w3pk'
+import { buildMerkleTree, generateBlinding } from 'w3pk/zk/utils'
 
 const w3pk = createWeb3Passkey({
   apiBaseUrl: 'https://webauthn.w3hc.org',
@@ -135,208 +135,145 @@ const w3pk = createWeb3Passkey({
   }
 })
 
+// Wait for ZK module to initialize
+if (!w3pk.zk) {
+  console.error('ZK dependencies not installed. Run: npm install snarkjs circomlibjs')
+  process.exit(1)
+}
+
 try {
-  // Membership Proof - Prove you're in a set
+  // Membership Proof - Prove you're in a set without revealing which member
   const users = ['0x111...', '0x222...', '0x333...']
   const myIndex = 1
-  const proof = await w3pk.proveVerifiedMembership(users, myIndex)
-  // ✅ Proved membership without revealing which user!
+  
+  // Build merkle tree
+  const leaves = users.map(addr => BigInt(addr).toString())
+  const { root, tree } = await buildMerkleTree(leaves)
+  
+  // Generate proof
+  const { pathIndices, pathElements } = generateMerkleProof(tree, myIndex)
+  const proof = await w3pk.zk.proveMembership({
+    value: leaves[myIndex],
+    pathIndices,
+    pathElements,
+    root
+  })
+  
+  // Verify proof
+  const isValid = await w3pk.zk.verifyMembership(proof, root)
+  console.log('Membership verified:', isValid)
+  // ✅ Proved you're in the set without revealing you're user #1!
 
-  // Threshold Proof - Prove balance > $1000
+  // Threshold Proof - Prove balance > $1000 without revealing exact amount
   const balance = 5000n
   const threshold = 1000n
-  const proof2 = await w3pk.proveBalanceThreshold(balance, threshold)
+  const blinding = generateBlinding()
+  const commitment = await w3pk.zk.createCommitment(balance, blinding)
+  
+  const thresholdProof = await w3pk.zk.proveThreshold({
+    value: balance,
+    blinding,
+    threshold,
+    commitment
+  })
+  
+  const meetsThreshold = await w3pk.zk.verifyThreshold(
+    thresholdProof,
+    commitment,
+    threshold
+  )
+  console.log('Balance > $1000:', meetsThreshold)
   // ✅ Proved balance > $1000 without revealing $5000!
 
-  // Range Proof - Prove age 18-65
+  // Range Proof - Prove age 18-65 without revealing exact age
   const age = 25n
-  const proof3 = await w3pk.proveAgeRange(age, 18n, 65n)
+  const ageBlinding = generateBlinding()
+  const ageCommitment = await w3pk.zk.createCommitment(age, ageBlinding)
+  
+  const rangeProof = await w3pk.zk.proveRange({
+    value: age,
+    blinding: ageBlinding,
+    min: 18n,
+    max: 65n,
+    commitment: ageCommitment
+  })
+  
+  const inRange = await w3pk.zk.verifyRange(rangeProof, ageCommitment, 18n, 65n)
+  console.log('Age 18-65:', inRange)
   // ✅ Proved age in range without revealing 25!
-
-  // NFT Ownership Proof - Prove you own an NFT without revealing which one
-  const nftHolders = ['0x111...', '0x222...', '0x333...'] // All NFT holders
-  const yourAddress = '0x222...' // Your address
-  const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D' // NFT contract
-
-  const { nftProofInput } = await generateNFTOwnershipProofInputs(
-    yourAddress,
-    contractAddress, 
-    nftHolders
-  )
-  const nftProof = await w3pk.zk.proveNFTOwnership(nftProofInput)
-  // ✅ Proved NFT ownership without revealing which NFT or exact address!
 
 } catch (error) {
   if (error.message.includes('snarkjs') || error.message.includes('circomlibjs')) {
-    console.log('ZK dependencies not installed. Run: npm install snarkjs circomlibjs')
+    console.error('ZK dependencies missing. Install: npm install snarkjs circomlibjs')
+  } else {
+    console.error('Error:', error)
   }
 }
 ```
 
-### 5. Advanced ZK Proofs
-
+### 5. NFT Ownership Proof (Zero-Knowledge)
 ```typescript
-const zk = w3pk.zk
+import { createWeb3Passkey } from 'w3pk'
+import { 
+  buildNFTHoldersMerkleTree,
+  generateNFTOwnershipProofInputs 
+} from 'w3pk/zk/utils'
 
-// Build merkle tree
-const { root, tree } = await buildMerkleTree(leaves)
-
-// Generate merkle proof
-const { pathIndices, pathElements } = generateMerkleProof(tree, index)
-
-// Create membership proof
-const membershipProof = await zk.proveMembership({
-  value: leaves[index],
-  pathIndices,
-  pathElements,
-  root
+const w3pk = createWeb3Passkey({
+  apiBaseUrl: 'https://webauthn.w3hc.org',
+  zkProofs: { enabledProofs: ['nft'] }
 })
 
-// Verify proof
-const isValid = await zk.verifyMembership(membershipProof, root)
+// Prove you own an NFT without revealing which one or your exact address
+const nftContract = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D' // e.g., BAYC
+const allHolders = ['0x111...', '0x222...', '0x333...'] // All NFT holders
+const yourAddress = '0x222...'
 
-// Create commitment
-const blinding = generateBlinding()
-const commitment = await zk.createCommitment(value, blinding)
-
-// Threshold proof
-const thresholdProof = await zk.proveThreshold({
-  value: balance,
-  blinding,
-  threshold: 1000n,
-  commitment
-})
-
-// Verify threshold proof
-const meetsThreshold = await zk.verifyThreshold(
-  thresholdProof,
-  commitment,
-  1000n
+const { nftProofInput } = await generateNFTOwnershipProofInputs(
+  yourAddress,
+  nftContract,
+  allHolders
 )
+
+const proof = await w3pk.zk.proveNFTOwnership(nftProofInput)
+const isValid = await w3pk.zk.verifyNFTOwnership(
+  proof,
+  nftContract,
+  nftProofInput.holdersRoot,
+  1n // Prove ownership of at least 1 NFT
+)
+
+console.log('NFT ownership verified:', isValid)
+// ✅ Proved NFT ownership without revealing which NFT or exact address!
 ```
 
-## Development Setup
+---
 
-### For Contributors
+## Adding ZK to an Existing Project
 
+If you started with core features and now need ZK:
 ```bash
-# Clone repository
-git clone https://github.com/w3hc/w3pk.git
-cd w3pk
-
-# Install dependencies
-pnpm install
-
-# Install ZK dependencies
-pnpm add snarkjs circomlibjs
-
-# Build
-pnpm build
-
-# Run tests
-pnpm test
-
-# Build with ZK circuits (requires circom)
-npm install -g circom
-pnpm build:zk
-```
-
-### Compiling ZK Circuits
-
-If you want to generate actual ZK proofs (not just test the setup):
-
-```bash
-# Install circom (one-time)
-npm install -g circom
-
-# Install snarkjs (one-time)
-npm install -g snarkjs
-
-# Compile circuits and generate keys
-pnpm build:zk
-```
-
-This will:
-1. Compile all Circom circuits to WASM
-2. Download Powers of Tau (one-time, ~50MB)
-3. Generate proving keys for each circuit
-4. Export verification keys
-
-## Project Structure
-
-```
-w3pk/
-├── src/
-│   ├── auth/              # WebAuthn authentication
-│   ├── wallet/            # Wallet generation & encryption
-│   ├── stealth/           # Stealth address module
-│   ├── zk/                # Zero-knowledge proofs
-│   │   ├── circuits/      # Circom circuits
-│   │   └── templates/     # Compiled artifacts
-│   └── core/              # SDK core
-├── test/                  # Test suites
-├── examples/              # Usage examples
-└── scripts/               # Build scripts
-```
-
-## Environment Variables
-
-None required! w3pk works out of the box.
-
-## Browser Support
-
-- ✅ Chrome/Edge 67+
-- ✅ Firefox 60+
-- ✅ Safari 13+
-- ✅ Opera 54+
-
-Requires:
-- WebAuthn API support
-- Web Crypto API support
-- IndexedDB support
-
-## Common Issues
-
-### "indexedDB is not defined"
-This is expected in Node.js tests. IndexedDB only works in browsers. For testing in Node, mock IndexedDB or use browser test environments.
-
-### "ZK proofs require snarkjs. Install with: npm install snarkjs"
-ZK dependencies are optional. Install only if you need ZK features:
-```bash
+# 1. Install ZK dependencies
 npm install snarkjs circomlibjs
+
+# 2. Update your imports
+# Before:
+import { createWeb3Passkey } from 'w3pk'
+
+# After (add ZK imports):
+import { createWeb3Passkey } from 'w3pk'
+import { ZKProofModule } from 'w3pk/zk'
+import { buildMerkleTree, generateBlinding } from 'w3pk/zk/utils'
+
+# 3. Enable ZK in config
+const w3pk = createWeb3Passkey({
+  apiBaseUrl: 'https://webauthn.w3hc.org',
+  zkProofs: {
+    enabledProofs: ['membership', 'threshold']
+  }
+})
 ```
 
-### "ZK merkle tree requires circomlibjs"
-Some ZK utility functions require circomlibjs:
-```bash
-npm install circomlibjs
-```
+---
 
-### "Circuit not registered"
-You need to compile circuits first:
-```bash
-npm install -g circom snarkjs
-pnpm build:zk
-```
-
-### Bundle too large?
-Use core features only (without ZK dependencies):
-- Core bundle: ~5MB
-- With ZK: ~75MB
-- ZK dependencies are completely optional
-
-## Next Steps
-
-- 📖 Read the [ZK Integration Guide](./ZK_INTEGRATION_GUIDE.md)
-- 🔍 Check out [examples](./examples/)
-- 🛠️ See [API documentation](./README.md)
-- 🌐 Visit [Vitalik's privacy post](https://vitalik.eth.limo/general/2025/04/14/privacy.html)
-
-## Support
-
-- GitHub Issues: https://github.com/w3hc/w3pk/issues
-- Documentation: https://github.com/w3hc/w3pk
-
-## License
-
-GPL-3.0-or-later
+##

@@ -1,16 +1,51 @@
 /**
  * Zero-Knowledge Proof Demo Application
  * Demonstrates privacy-preserving authentication and verification
+ *
+ * ⚠️ REQUIREMENTS:
+ * This example requires ZK dependencies. Install with:
+ * ```bash
+ * npm install snarkjs circomlibjs
+ * ```
+ *
+ * Bundle size impact: +70MB
+ * Only use if you need privacy-preserving zero-knowledge proofs
+ *
+ * @see https://github.com/w3hc/w3pk#zero-knowledge-proofs
  */
 
 import { createWeb3Passkey } from "w3pk";
+
+// Import ZK features from separate entry points
 import {
   buildMerkleTree,
   generateMerkleProof,
   generateBlinding,
 } from "w3pk/zk/utils";
 
+// Check if ZK dependencies are available before running
+async function checkDependencies() {
+  try {
+    await import("snarkjs");
+    await import("circomlibjs");
+    return true;
+  } catch (error) {
+    console.error(
+      "\n❌ ZK dependencies not found.\n\n" +
+        "This example requires:\n" +
+        "  npm install snarkjs circomlibjs\n\n" +
+        "See: https://github.com/w3hc/w3pk#zero-knowledge-proofs\n"
+    );
+    return false;
+  }
+}
+
 async function main() {
+  // Check dependencies first
+  if (!(await checkDependencies())) {
+    process.exit(1);
+  }
+
   console.log("=== w3pk Zero-Knowledge Proof Demo ===\n");
 
   // Initialize SDK with ZK proofs enabled
@@ -21,11 +56,18 @@ async function main() {
     },
   });
 
+  // Wait a moment for async ZK initialization
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
   const zk = w3pk.zk;
   if (!zk) {
-    console.error("ZK proofs not available");
+    console.error(
+      "❌ ZK module not available. Check that dependencies are installed."
+    );
     return;
   }
+
+  console.log("✅ ZK module initialized\n");
 
   // ==========================================
   // Demo 1: Anonymous Membership Proof

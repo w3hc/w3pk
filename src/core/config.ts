@@ -4,9 +4,10 @@
 
 import type { UserInfo } from "../types";
 import type { Web3PasskeyError } from "./errors";
-import type { ZKProofConfig } from "../zk/types";
 
-export interface StealthAddressConfig {}
+export interface StealthAddressConfig {
+  // Stealth address configuration options
+}
 
 export interface Web3PasskeyConfig {
   /**
@@ -45,8 +46,19 @@ export interface Web3PasskeyConfig {
 
   /**
    * Optional zero-knowledge proof configuration
-   * If provided, enables privacy-preserving ZK proofs
-   * Requires optional dependencies: snarkjs, circomlibjs
+   *
+   * ⚠️ Requires additional dependencies (adds ~70MB to bundle):
+   * ```bash
+   * npm install snarkjs circomlibjs
+   * ```
+   *
+   * If provided, enables privacy-preserving ZK proofs:
+   * - Membership proofs (anonymous set membership)
+   * - Threshold proofs (prove value > threshold)
+   * - Range proofs (prove value in range)
+   * - NFT ownership proofs (anonymous NFT ownership)
+   *
+   * @see https://github.com/w3hc/w3pk/blob/main/docs/ZK_INTEGRATION_GUIDE.md
    */
   zkProofs?: ZKProofConfig;
 }
@@ -60,5 +72,9 @@ export const DEFAULT_CONFIG: Partial<Web3PasskeyConfig> = {
   debug: false,
 };
 
-// Re-export ZK config type
-export type { ZKProofConfig } from "../zk/types";
+// ZK config type defined inline to avoid importing from ZK modules
+export interface ZKProofConfig {
+  enabledProofs?: string[];
+  circuitArtifacts?: Record<string, any>;
+  [key: string]: any;
+}

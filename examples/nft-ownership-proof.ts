@@ -4,31 +4,68 @@
  * Demonstrates how to prove ownership of an NFT (including SBTs/Soulbound Tokens)
  * without revealing which specific NFT you own or your exact wallet address.
  *
+ * ⚠️ REQUIREMENTS:
+ * This example requires ZK dependencies. Install with:
+ * ```bash
+ * npm install snarkjs circomlibjs
+ * ```
+ *
  * Use Cases:
  * - Prove you own a Human Passport SBT without revealing which one
  * - Prove you have a governance token for voting without revealing holdings
  * - Prove you hold an educational SBT without revealing institution
  * - Prove membership in exclusive NFT community without revealing identity
+ *
+ * @see https://github.com/w3hc/w3pk#zero-knowledge-proofs
  */
 
+import { createWeb3Passkey } from "w3pk";
 import {
-  createWeb3Passkey,
   buildNFTHoldersMerkleTree,
   generateNFTOwnershipProofInputs,
   validateNFTOwnershipProofInputs,
-  type NFTOwnershipProofInput,
-} from "../src/index";
+} from "w3pk/zk/utils";
+
+// Check if ZK dependencies are available
+async function checkDependencies() {
+  try {
+    await import("snarkjs");
+    await import("circomlibjs");
+    return true;
+  } catch (error) {
+    console.error(
+      "\n❌ ZK dependencies not found.\n\n" +
+        "This example requires:\n" +
+        "  npm install snarkjs circomlibjs\n\n" +
+        "See: https://github.com/w3hc/w3pk#zero-knowledge-proofs\n"
+    );
+    return false;
+  }
+}
 
 async function nftOwnershipProofExample() {
   console.log("🎨 NFT Ownership Proof Example\n");
 
-  // Initialize SDK with ZK proofs enabled
+  // Check dependencies first
+  if (!(await checkDependencies())) {
+    return;
+  }
+
+  // Initialize main SDK (lightweight, no ZK dependencies bundled)
   const w3pk = createWeb3Passkey({
     apiBaseUrl: "https://webauthn.w3hc.org",
-    zkProofs: {
-      enabledProofs: ["nft"],
-    },
   });
+
+  console.log("✅ Main SDK initialized (no heavy ZK dependencies)");
+
+  // Initialize ZK module separately to avoid bundling dependencies
+  // for users who don't need ZK functionality
+  const { ZKProofModule } = await import("w3pk/zk");
+  const zkModule = new ZKProofModule({
+    enabledProofs: ["nft"],
+  });
+
+  console.log("✅ ZK module initialized separately");
 
   // Example: Human Passport SBT
   const HumanPassportSBTContract = "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D";
@@ -79,13 +116,13 @@ async function nftOwnershipProofExample() {
 
     console.log("\n4. Generating zero-knowledge proof...");
 
-    // Step 4: Generate the actual ZK proof
-    const nftOwnershipProof = await w3pk.zk!.proveNFTOwnership(nftProofInput);
+    // Step 4: Generate the actual ZK proof using separate ZK module
+    const nftOwnershipProof = await zkModule.proveNFTOwnership(nftProofInput);
 
     console.log("   ✅ NFT ownership proof generated!");
-    console.log(`   📝 Proof type: ${nftOwnershipProof.type}`);
+    console.log(`   🔒 Proof type: ${nftOwnershipProof.type}`);
     console.log(
-      `   🔐 Public signals: ${nftOwnershipProof.publicSignals.length}`
+      `   🔢 Public signals: ${nftOwnershipProof.publicSignals.length}`
     );
     console.log(
       `   ⏰ Generated at: ${new Date(
@@ -95,8 +132,8 @@ async function nftOwnershipProofExample() {
 
     console.log("\n5. Verifying the proof...");
 
-    // Step 5: Verify the proof (by a third party)
-    const isValid = await w3pk.zk!.verifyNFTOwnership(
+    // Step 5: Verify the proof (by a third party) using separate ZK module
+    const isValid = await zkModule.verifyNFTOwnership(
       nftOwnershipProof,
       HumanPassportSBTContract, // Expected contract
       root, // Expected holders root
