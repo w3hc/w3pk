@@ -19,15 +19,15 @@ import {
   decryptData,
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
-import { ZKProofModule } from "../zk";
+// ZK module imported dynamically to avoid bundling dependencies
 import type {
   Web3PasskeyConfig,
   InternalConfig,
   StealthAddressConfig,
+  ZKProofConfig,
 } from "./config";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo } from "../types";
-import type { ZKProofConfig } from "../zk/types";
 
 export interface AuthResult {
   verified: boolean;
@@ -40,7 +40,7 @@ export class Web3Passkey {
   private storage: IndexedDBWalletStorage;
   private signer: WalletSigner;
   private stealthModule?: StealthAddressModule;
-  private zkModule?: ZKProofModule;
+  private zkModule?: any; // Dynamically imported to avoid bundling ZK dependencies
   private currentUser: UserInfo | null = null;
   private currentMnemonic: string | null = null;
 
@@ -75,10 +75,8 @@ export class Web3Passkey {
       );
     }
 
-    // Initialize ZK module if configured
-    if (this.config.zkProofs) {
-      this.zkModule = new ZKProofModule(this.config.zkProofs);
-    }
+    // ZK module initialization handled separately through enableZKProofs()
+    // to avoid bundling ZK dependencies in the main package
 
     this.log("SDK initialized");
   }
@@ -96,7 +94,7 @@ export class Web3Passkey {
     ethereumAddress: string;
   }): Promise<void> {
     try {
-      const { username, ethereumAddress } = options;
+      const { username } = options;
 
       this.log(`Registering user: ${username}`);
 
@@ -388,7 +386,7 @@ export class Web3Passkey {
    * Access ZK proof capabilities
    * Returns undefined if ZK proofs not configured
    */
-  get zk(): ZKProofModule | undefined {
+  get zk(): any | undefined {
     return this.zkModule;
   }
 
@@ -401,95 +399,18 @@ export class Web3Passkey {
 
   /**
    * Enable ZK proofs after initialization
+   * Note: ZK functionality moved to separate entry point (w3pk/zk)
+   * to avoid bundling heavy dependencies in main package
    */
-  enableZKProofs(config: ZKProofConfig = {}): void {
-    if (!this.zkModule) {
-      this.zkModule = new ZKProofModule(config);
-    }
-  }
-
-  // ========================================
-  // Convenience Methods for Common ZK Patterns
-  // ========================================
-
-  /**
-   * Prove membership in a verified user set
-   * Useful for: "Prove I'm a verified user without revealing my identity"
-   */
-  async proveVerifiedMembership(
-    userSet: string[],
-    userIndex: number
-  ): Promise<any> {
-    if (!this.zkModule) {
-      throw new Error("ZK proofs not enabled. Call enableZKProofs() first.");
-    }
-
-    const { buildMerkleTree, generateMerkleProof } = await import(
-      "../zk/utils"
+  async enableZKProofs(_config: ZKProofConfig = {}): Promise<void> {
+    throw new Error(
+      "ZK functionality has been moved to separate entry point.\n\n" +
+        "Use instead:\n" +
+        "  import { ZKProofModule } from 'w3pk/zk'\n\n" +
+        "This prevents heavy ZK dependencies from being bundled\n" +
+        "unless explicitly imported by developers who need them.\n\n" +
+        "See: https://github.com/w3hc/w3pk#zero-knowledge-proofs"
     );
-
-    // Build merkle tree from user set
-    const { root, tree } = await buildMerkleTree(userSet);
-
-    // Generate proof for this user
-    const { pathIndices, pathElements } = generateMerkleProof(tree, userIndex);
-
-    return this.zkModule.proveMembership({
-      value: userSet[userIndex],
-      pathIndices,
-      pathElements,
-      root,
-    });
-  }
-
-  /**
-   * Prove wallet balance exceeds threshold
-   * Useful for: "Prove I have > $1000 without revealing exact balance"
-   */
-  async proveBalanceThreshold(
-    balance: bigint,
-    threshold: bigint
-  ): Promise<any> {
-    if (!this.zkModule) {
-      throw new Error("ZK proofs not enabled. Call enableZKProofs() first.");
-    }
-
-    const { generateBlinding } = await import("../zk/utils");
-    const blinding = generateBlinding();
-    const commitment = await this.zkModule.createCommitment(balance, blinding);
-
-    return this.zkModule.proveThreshold({
-      value: balance,
-      blinding,
-      threshold,
-      commitment,
-    });
-  }
-
-  /**
-   * Prove age is within valid range
-   * Useful for: "Prove I'm 18-65 without revealing exact age"
-   */
-  async proveAgeRange(
-    age: bigint,
-    minAge: bigint,
-    maxAge: bigint
-  ): Promise<any> {
-    if (!this.zkModule) {
-      throw new Error("ZK proofs not enabled. Call enableZKProofs() first.");
-    }
-
-    const { generateBlinding } = await import("../zk/utils");
-    const blinding = generateBlinding();
-    const commitment = await this.zkModule.createCommitment(age, blinding);
-
-    return this.zkModule.proveRange({
-      value: age,
-      blinding,
-      min: minAge,
-      max: maxAge,
-      commitment,
-    });
   }
 
   // ========================================
@@ -514,7 +435,7 @@ export class Web3Passkey {
    * SDK version
    */
   get version(): string {
-    return "0.5.1";
+    return "0.5.2";
   }
 
   // ========================================
