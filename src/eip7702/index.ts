@@ -48,9 +48,120 @@ const EIP7702_SUPPORTED_CHAINS = new Set([
 ]);
 
 /**
- * Check if a network supports EIP-7702 (Internal use only)
+ * Test an RPC endpoint for EIP-7702 support using eth_estimateGas
+ * Based on: https://github.com/w3hc/eip7702-playground/blob/main/eip7702_scanner.sh
  * @internal
  */
-export function supportsEIP7702(chainId: number): boolean {
-  return EIP7702_SUPPORTED_CHAINS.has(chainId);
+async function testRPCForEIP7702(
+  rpcUrl: string,
+  timeout: number = 10000
+): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "eth_estimateGas",
+        params: [
+          {
+            from: "0xdeadbeef00000000000000000000000000000000",
+            to: "0xdeadbeef00000000000000000000000000000000",
+            data: "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            value: "0x0",
+          },
+          "latest",
+          {
+            "0xdeadbeef00000000000000000000000000000000": {
+              code: "0xef01000000000000000000000000000000000000000001",
+            },
+          },
+        ],
+        id: 1,
+      }),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const data = await response.json();
+
+    // Check for error messages that indicate no EIP-7702 support
+    if (data.error) {
+      const errorMsg = (data.error.message || "").toLowerCase();
+
+      // These errors indicate the RPC doesn't support EIP-7702
+      const unsupportedErrors = [
+        "unsupported",
+        "not supported",
+        "unknown",
+        "invalid",
+        "unrecognized",
+        "does not support",
+        "not implemented",
+      ];
+
+      return !unsupportedErrors.some((err) => errorMsg.includes(err));
+    }
+
+    // If we got a result (even an estimate), EIP-7702 is supported
+    return data.result !== undefined;
+  } catch (error) {
+    // Network errors, timeouts, etc. don't necessarily mean no support
+    return false;
+  }
+}
+
+/**
+ * Check if a network supports EIP-7702
+ * First checks cached list, then performs RPC test if not found
+ * @internal
+ */
+export async function supportsEIP7702(
+  chainId: number,
+  getEndpointsFn: (chainId: number) => Promise<string[]>,
+  options?: {
+    maxEndpoints?: number;
+    timeout?: number;
+  }
+): Promise<boolean> {
+  // First, check the cached list
+  if (EIP7702_SUPPORTED_CHAINS.has(chainId)) {
+    return true;
+  }
+
+  // Not in cached list, perform RPC test
+  const maxEndpoints = options?.maxEndpoints || 3;
+  const timeout = options?.timeout || 10000;
+
+  try {
+    // Get RPC endpoints for this chain
+    const endpoints = await getEndpointsFn(chainId);
+
+    if (endpoints.length === 0) {
+      return false;
+    }
+
+    // Test up to maxEndpoints
+    const endpointsToTest = endpoints.slice(0, maxEndpoints);
+
+    for (const endpoint of endpointsToTest) {
+      const supported = await testRPCForEIP7702(endpoint, timeout);
+
+      if (supported) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch (error) {
+    return false;
+  }
 }

@@ -469,27 +469,39 @@ export class Web3Passkey {
 
   /**
    * Check if a network supports EIP-7702
+   * First checks cached list (329 known networks), then performs RPC test if not found
    *
    * @param chainId - The chain ID to check
-   * @returns True if the network supports EIP-7702, false otherwise
+   * @param options - Optional configuration for RPC testing
+   * @returns Promise<boolean> - True if the network supports EIP-7702
    *
    * @example
    * ```typescript
-   * // Check Ethereum mainnet
-   * const supported = w3pk.supportsEIP7702(1)
-   * console.log(supported) // true
+   * // Check cached network (instant, no RPC call)
+   * const ethSupported = await w3pk.supportsEIP7702(1)
+   * console.log(ethSupported) // true
    *
-   * // Check Sepolia testnet
-   * console.log(w3pk.supportsEIP7702(11155111)) // true
+   * // Check unknown network (tests RPC endpoints)
+   * const unknownSupported = await w3pk.supportsEIP7702(999)
+   * console.log(unknownSupported) // false (after testing RPCs)
    *
-   * // Check Base
-   * console.log(w3pk.supportsEIP7702(8453)) // true
+   * // Configure RPC testing
+   * const supported = await w3pk.supportsEIP7702(999, {
+   *   maxEndpoints: 5,  // Test up to 5 RPC endpoints
+   *   timeout: 5000     // 5 second timeout per RPC
+   * })
    * ```
    */
-  supportsEIP7702(chainId: number): boolean {
-    // Sync import since this is a simple lookup, no async needed
-    const { supportsEIP7702 } = require("../eip7702");
-    return supportsEIP7702(chainId);
+  async supportsEIP7702(
+    chainId: number,
+    options?: {
+      maxEndpoints?: number;
+      timeout?: number;
+    }
+  ): Promise<boolean> {
+    const { supportsEIP7702 } = await import("../eip7702");
+    const { getEndpoints } = await import("../chainlist");
+    return supportsEIP7702(chainId, getEndpoints, options);
   }
 
   // ========================================

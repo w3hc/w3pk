@@ -11,7 +11,7 @@ async function testSDKSupportsEIP7702() {
     apiBaseUrl: "https://webauthn.w3hc.org",
   });
 
-  // Test supported networks
+  // Test supported networks (cached - instant)
   const supportedChains = [
     { id: 1, name: "Ethereum Mainnet" },
     { id: 11155111, name: "Sepolia" },
@@ -22,38 +22,23 @@ async function testSDKSupportsEIP7702() {
     { id: 84532, name: "Base Sepolia" },
   ];
 
-  console.log("\n✅ Testing supported chains:");
-  supportedChains.forEach(({ id, name }) => {
-    const supported = w3pk.supportsEIP7702(id);
+  console.log("\n✅ Testing cached supported chains:");
+  for (const { id, name } of supportedChains) {
+    const supported = await w3pk.supportsEIP7702(id);
     if (!supported) {
       throw new Error(`❌ ${name} (${id}) should support EIP-7702!`);
     }
     console.log(`  ✓ ${name} (${id})`);
-  });
-
-  // Test unsupported networks (using unlikely chain IDs)
-  const unsupportedChains = [
-    { id: 999, name: "Non-existent chain 999" },
-    { id: 123456789, name: "Non-existent chain 123456789" },
-    { id: 5555555, name: "Non-existent chain 5555555" },
-  ];
-
-  console.log("\n✅ Testing unsupported chains:");
-  unsupportedChains.forEach(({ id, name }) => {
-    const supported = w3pk.supportsEIP7702(id);
-    if (supported) {
-      console.log(
-        `  ⚠️  Warning: ${name} (${id}) unexpectedly supports EIP-7702`
-      );
-    } else {
-      console.log(`  ✓ ${name} (${id}) - correctly not supported`);
-    }
-  });
+  }
 
   // Count total supported chains
-  const totalSupported = [
-    1, 10, 8453, 42161, 57073, 100, 42220, 137, 11155111,
-  ].filter((id) => w3pk.supportsEIP7702(id)).length;
+  const sampleChains = [1, 10, 8453, 42161, 57073, 100, 42220, 137, 11155111];
+  let totalSupported = 0;
+  for (const id of sampleChains) {
+    if (await w3pk.supportsEIP7702(id)) {
+      totalSupported++;
+    }
+  }
 
   console.log(`\n✅ Verified ${totalSupported} sample chains support EIP-7702`);
   console.log("✅ w3pk.supportsEIP7702() working correctly");

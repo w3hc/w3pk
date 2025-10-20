@@ -135,12 +135,20 @@ console.log(`Current block: ${blockNumber}`)
 
 ### EIP-7702 Support
 ```typescript
-// Check if a network supports EIP-7702
-const supported = w3pk.supportsEIP7702(1) // Ethereum mainnet
-console.log(supported) // true
-```
+// Check if network supports EIP-7702 (cached list + RPC verification)
+const supported = await w3pk.supportsEIP7702(1) // true (Ethereum, instant)
+await w3pk.supportsEIP7702(11155111) // true (Sepolia, instant)
+await w3pk.supportsEIP7702(8453)     // true (Base, instant)
 
-Data from [eip7702-playground](https://github.com/w3hc/eip7702-playground)
+// Unknown networks test via RPC (auto-uses getEndpoints)
+await w3pk.supportsEIP7702(999) // false (tests up to 3 RPC endpoints)
+
+// Configure RPC testing
+await w3pk.supportsEIP7702(999, {
+  maxEndpoints: 5,  // Test up to 5 endpoints
+  timeout: 5000     // 5 second timeout per RPC
+})
+```
 
 ### Stealth Addresses
 ```typescript
