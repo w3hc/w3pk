@@ -464,6 +464,35 @@ export class Web3Passkey {
   }
 
   // ========================================
+  // EIP-7702 Support
+  // ========================================
+
+  /**
+   * Check if a network supports EIP-7702
+   *
+   * @param chainId - The chain ID to check
+   * @returns True if the network supports EIP-7702, false otherwise
+   *
+   * @example
+   * ```typescript
+   * // Check Ethereum mainnet
+   * const supported = w3pk.supportsEIP7702(1)
+   * console.log(supported) // true
+   *
+   * // Check Sepolia testnet
+   * console.log(w3pk.supportsEIP7702(11155111)) // true
+   *
+   * // Check Base
+   * console.log(w3pk.supportsEIP7702(8453)) // true
+   * ```
+   */
+  supportsEIP7702(chainId: number): boolean {
+    // Sync import since this is a simple lookup, no async needed
+    const { supportsEIP7702 } = require("../eip7702");
+    return supportsEIP7702(chainId);
+  }
+
+  // ========================================
   // Utility Methods
   // ========================================
 
