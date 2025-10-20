@@ -439,6 +439,31 @@ export class Web3Passkey {
   }
 
   // ========================================
+  // Chainlist Methods
+  // ========================================
+
+  /**
+   * Get RPC endpoints for a specific chain ID
+   * Automatically filters out endpoints that require API keys
+   *
+   * @param chainId - The chain ID to get endpoints for
+   * @returns Array of public RPC URLs (without API key requirements)
+   *
+   * @example
+   * ```typescript
+   * // Get Ethereum mainnet endpoints
+   * const endpoints = await w3pk.getEndpoints(1)
+   * console.log(endpoints)
+   * // ["https://cloudflare-eth.com", "https://ethereum-rpc.publicnode.com", ...]
+   * ```
+   */
+  async getEndpoints(chainId: number): Promise<string[]> {
+    // Dynamically import to avoid bundling in all cases
+    const { getEndpoints } = await import("../chainlist");
+    return getEndpoints(chainId);
+  }
+
+  // ========================================
   // Utility Methods
   // ========================================
 
