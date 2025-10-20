@@ -51,6 +51,7 @@ const rpcUrl = endpoints[0] // Get first endpoint
 - 🔢 Multi-address derivation
 - 🥷 Stealth addresses (privacy-preserving transactions)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
+- ⚡ EIP-7702 network detection (329+ supported networks)
 
 **Optional: Zero-Knowledge Proofs**
 
@@ -131,6 +132,23 @@ console.log(`Current block: ${blockNumber}`)
 - ✅ Data from [chainid.network](https://chainid.network)
 
 [Full Documentation →](./docs/CHAINLIST.md)
+
+### EIP-7702 Support
+```typescript
+// Check if network supports EIP-7702 (cached list + RPC verification)
+const supported = await w3pk.supportsEIP7702(1) // true (Ethereum, instant)
+await w3pk.supportsEIP7702(11155111) // true (Sepolia, instant)
+await w3pk.supportsEIP7702(8453)     // true (Base, instant)
+
+// Unknown networks test via RPC (auto-uses getEndpoints)
+await w3pk.supportsEIP7702(999) // false (tests up to 3 RPC endpoints)
+
+// Configure RPC testing
+await w3pk.supportsEIP7702(999, {
+  maxEndpoints: 5,  // Test up to 5 endpoints
+  timeout: 5000     // 5 second timeout per RPC
+})
+```
 
 ### Stealth Addresses
 ```typescript
