@@ -32,4 +32,17 @@ export default defineConfig([
     platform: "browser",
     target: "es2020",
   },
+  // Chainlist subpath export
+  {
+    entry: {
+      "chainlist/index": "src/chainlist/index.ts",
+    },
+    format: ["cjs", "esm"],
+    dts: true,
+    sourcemap: true,
+    minify: true,
+    splitting: false,
+    platform: "browser",
+    target: "es2020",
+  },
 ]);
