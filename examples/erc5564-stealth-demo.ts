@@ -1,13 +1,33 @@
 /**
  * ERC-5564 Stealth Address Demo
- * Demonstrates how to use ERC-5564 compliant stealth addresses
- * for privacy-preserving transactions
+ *
+ * This demo shows how to use ERC-5564 compliant stealth addresses
+ * for privacy-preserving transactions.
+ *
+ * What are stealth addresses?
+ * - One-time addresses that only the recipient can identify and spend from
+ * - Each payment uses a unique, unlinkable address
+ * - No communication needed between sender and recipient
+ *
+ * How to run:
+ *   npm run example:erc5564
+ *
+ * Learn more:
+ *   - ERC-5564 Spec: https://eips.ethereum.org/EIPS/eip-5564
+ *   - w3pk Docs: https://github.com/w3hc/w3pk/blob/main/docs/ERC5564_STEALTH_ADDRESSES.md
  */
 
 import { createWeb3Passkey } from "../src/index";
 
 async function main() {
   console.log("\n🥷 ERC-5564 Stealth Address Demo\n");
+  console.log("=".repeat(60));
+  console.log("This demo shows the complete flow:");
+  console.log("1. Recipient generates stealth keys");
+  console.log("2. Sender generates stealth address");
+  console.log("3. Recipient scans announcements");
+  console.log("4. View tag optimization demo");
+  console.log("5. Privacy demonstration");
   console.log("=".repeat(60));
 
   // Initialize w3pk with stealth address support

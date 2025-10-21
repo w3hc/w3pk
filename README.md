@@ -142,38 +142,65 @@ await w3pk.supportsEIP7702(999, {
 ```
 
 ### ERC-5564 Stealth Addresses
+
+Privacy-preserving payments using unlinkable, one-time addresses.
+
 ```typescript
 const w3pk = createWeb3Passkey({
   apiBaseUrl: 'https://webauthn.w3hc.org',
   stealthAddresses: {}
 })
 
-// Get stealth meta-address (share this publicly)
+// STEP 1 (Recipient): Get stealth meta-address to share publicly
 const metaAddress = await w3pk.stealth?.getStealthMetaAddress()
+// Example: 0x03f2e32f9a060b8fe18736f5c4da328265d9d29ac13d5fed45649700a9c5f2cdca...
+// This is 66 bytes (spending + viewing public keys) - safe to share publicly!
 
-// SENDER: Generate stealth address for recipient
+// STEP 2 (Sender): Generate stealth address for recipient
 const announcement = await w3pk.stealth?.generateStealthAddress()
-// Returns: { stealthAddress, ephemeralPublicKey, viewTag }
-// Publish this on-chain, send funds to stealthAddress
+// Returns:
+// - stealthAddress: 0x1234... (send funds here)
+// - ephemeralPublicKey: 0x02abcd... (publish on-chain)
+// - viewTag: 0xa4 (enables ~99% skip rate when scanning)
 
-// RECIPIENT: Parse announcements to find your payments
+// Sender publishes announcement on-chain and sends funds to stealthAddress
+// Only the recipient can identify this payment belongs to them!
+
+// STEP 3 (Recipient): Parse announcements to find your payments
 const result = await w3pk.stealth?.parseAnnouncement({
   stealthAddress: announcement.stealthAddress,
   ephemeralPublicKey: announcement.ephemeralPublicKey,
   viewTag: announcement.viewTag
 })
-// Returns: { isForUser, stealthAddress, stealthPrivateKey }
 
-// Scan multiple announcements efficiently (view tags filter ~99%)
+if (result.isForUser) {
+  console.log('Payment found:', result.stealthAddress)
+  console.log('Private key:', result.stealthPrivateKey)
+  // Use this private key to spend the funds
+}
+
+// STEP 4 (Recipient): Efficiently scan many announcements
+// View tags enable ~99% (255/256) skip rate - makes scanning extremely fast!
 const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
+console.log(`Found ${myPayments.length} payments`)
 ```
+
+**Key Benefits:**
+- **Privacy**: Each payment uses a unique, unlinkable address
+- **Non-interactive**: No communication needed between sender/recipient
+- **Efficient**: View tags enable scanning 1000s of announcements quickly
+- **ERC-5564 compliant**: Works with other standard implementations
+
+[Complete ERC-5564 Guide →](./docs/ERC5564_STEALTH_ADDRESSES.md)
 
 ## Documentation
 
-- [Quick Start Guide](./docs/QUICK_START.md)
-- [RPC Endpoints](./docs/CHAINLIST.md)
-- [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md)
-- [Bundle Size Comparison](./docs/BUNDLE_SIZES.md)
+- [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
+- [ERC-5564 Stealth Addresses](./docs/ERC5564_STEALTH_ADDRESSES.md) - Complete guide with examples
+- [ERC-5564 Flow Diagrams](./docs/ERC5564_FLOW_DIAGRAM.md) - Visual explanations of how stealth addresses work
+- [RPC Endpoints](./docs/CHAINLIST.md) - Chainlist integration guide
+- [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) - Zero-knowledge proofs (optional)
+- [Bundle Size Comparison](./docs/BUNDLE_SIZES.md) - Core vs ZK bundle sizes
 
 ## Examples
 

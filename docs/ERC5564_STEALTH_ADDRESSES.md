@@ -13,6 +13,11 @@ Complete guide to using ERC-5564 compliant stealth addresses in w3pk.
 - [View Tags](#view-tags)
 - [Use Cases](#use-cases)
 - [Security Considerations](#security-considerations)
+- [Complete Integration Example](#complete-integration-example)
+- [Troubleshooting](#troubleshooting)
+- [FAQ](#frequently-asked-questions)
+
+**Visual Learner?** See [ERC-5564 Flow Diagrams](./ERC5564_FLOW_DIAGRAM.md) for detailed visual explanations.
 
 ## Overview
 
@@ -400,12 +405,356 @@ Planned features:
 - **Batch Operations**: Efficiently scan thousands of announcements
 - **Alternative Curves**: Support for other elliptic curves
 
+## Complete Integration Example
+
+Here's a full end-to-end example integrating ERC-5564 in a React application:
+
+```typescript
+import { createWeb3Passkey, generateStealthAddress } from 'w3pk'
+import { ethers } from 'ethers'
+import { useState, useEffect } from 'react'
+
+function StealthPaymentApp() {
+  const [w3pk, setW3pk] = useState(null)
+  const [metaAddress, setMetaAddress] = useState('')
+  const [announcements, setAnnouncements] = useState([])
+
+  useEffect(() => {
+    const sdk = createWeb3Passkey({
+      apiBaseUrl: 'https://webauthn.w3hc.org',
+      stealthAddresses: {}
+    })
+    setW3pk(sdk)
+  }, [])
+
+  // RECIPIENT: Setup
+  const setupRecipient = async () => {
+    await w3pk.login()
+    const meta = await w3pk.stealth?.getStealthMetaAddress()
+    setMetaAddress(meta)
+    console.log('Share this meta-address:', meta)
+  }
+
+  // SENDER: Generate and send to stealth address
+  const sendPayment = async (recipientMetaAddress: string, amount: string) => {
+    // Generate stealth address
+    const announcement = generateStealthAddress(recipientMetaAddress)
+
+    // Send transaction
+    const provider = new ethers.JsonRpcProvider('https://cloudflare-eth.com')
+    const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider)
+
+    const tx = await wallet.sendTransaction({
+      to: announcement.stealthAddress,
+      value: ethers.parseEther(amount)
+    })
+
+    await tx.wait()
+
+    // Publish announcement on-chain (emit event or store in transaction data)
+    const announcementContract = new ethers.Contract(
+      '0xYourAnnouncementContract',
+      ['function announce(address stealth, bytes ephemeral, bytes1 viewTag)'],
+      wallet
+    )
+
+    await announcementContract.announce(
+      announcement.stealthAddress,
+      announcement.ephemeralPublicKey,
+      announcement.viewTag
+    )
+
+    console.log('Payment sent and announced!')
+  }
+
+  // RECIPIENT: Scan for payments
+  const scanForPayments = async () => {
+    // Fetch announcements from blockchain
+    const provider = new ethers.JsonRpcProvider('https://cloudflare-eth.com')
+    const announcementContract = new ethers.Contract(
+      '0xYourAnnouncementContract',
+      ['event Announced(address indexed stealth, bytes ephemeral, bytes1 viewTag)'],
+      provider
+    )
+
+    const filter = announcementContract.filters.Announced()
+    const events = await announcementContract.queryFilter(filter)
+
+    const announcements = events.map(event => ({
+      stealthAddress: event.args.stealth,
+      ephemeralPublicKey: event.args.ephemeral,
+      viewTag: event.args.viewTag
+    }))
+
+    // Scan announcements efficiently
+    const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
+    console.log(`Found ${myPayments.length} payments:`, myPayments)
+
+    // Withdraw funds
+    for (const payment of myPayments) {
+      const wallet = new ethers.Wallet(payment.stealthPrivateKey, provider)
+      const balance = await provider.getBalance(payment.stealthAddress)
+
+      if (balance > 0n) {
+        // Send to your main address
+        const tx = await wallet.sendTransaction({
+          to: yourMainAddress,
+          value: balance - ethers.parseEther('0.001') // Leave gas
+        })
+        await tx.wait()
+        console.log('Withdrawn:', ethers.formatEther(balance), 'ETH')
+      }
+    }
+  }
+
+  return (
+    <div>
+      <button onClick={setupRecipient}>Setup Recipient</button>
+      {metaAddress && (
+        <div>
+          <p>Meta-Address: {metaAddress}</p>
+          <button onClick={scanForPayments}>Scan for Payments</button>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. "Cannot read property 'generateStealthAddress' of undefined"
+
+**Problem**: Stealth address module not initialized.
+
+**Solution**:
+```typescript
+// Make sure to enable stealth addresses in config
+const w3pk = createWeb3Passkey({
+  apiBaseUrl: 'https://webauthn.w3hc.org',
+  stealthAddresses: {}  // ← Don't forget this!
+})
+
+// Always check if stealth is available
+if (!w3pk.stealth) {
+  console.error('Stealth addresses not enabled')
+}
+```
+
+#### 2. "Invalid stealth meta-address length"
+
+**Problem**: Meta-address should be 134 characters (66 bytes with 0x prefix).
+
+**Solution**:
+```typescript
+// Correct format: 0x + 132 hex chars = 134 total
+const metaAddress = await w3pk.stealth?.getStealthMetaAddress()
+console.log(metaAddress.length) // Should be 134
+
+// If you have 66 characters, it's missing the 0x prefix
+if (metaAddress.length === 132) {
+  metaAddress = '0x' + metaAddress
+}
+```
+
+#### 3. "View tag mismatch - payment not found"
+
+**Problem**: This is expected! View tags filter out 99% of announcements.
+
+**Solution**:
+```typescript
+// This is normal behavior - only ~1/256 announcements will match
+const result = await w3pk.stealth?.parseAnnouncement(announcement)
+if (!result.isForUser) {
+  // This is expected for most announcements
+  console.log('Not for me - view tag filtered it out')
+}
+```
+
+#### 4. "Cannot spend from stealth address"
+
+**Problem**: Wrong private key or insufficient gas.
+
+**Solution**:
+```typescript
+// Make sure you're using the stealth private key, not your main key
+const result = await w3pk.stealth?.parseAnnouncement(announcement)
+if (result.isForUser) {
+  const wallet = new ethers.Wallet(result.stealthPrivateKey, provider)
+
+  // Check balance first
+  const balance = await provider.getBalance(wallet.address)
+  console.log('Balance:', ethers.formatEther(balance))
+
+  // Leave enough for gas
+  const gasEstimate = await provider.estimateGas({
+    to: destinationAddress,
+    value: balance
+  })
+  const gasCost = gasEstimate * (await provider.getFeeData()).gasPrice
+  const amountToSend = balance - gasCost
+
+  if (amountToSend > 0n) {
+    const tx = await wallet.sendTransaction({
+      to: destinationAddress,
+      value: amountToSend
+    })
+    await tx.wait()
+  }
+}
+```
+
+#### 5. "Scanning is too slow"
+
+**Problem**: Not using view tags or scanning too many announcements.
+
+**Solution**:
+```typescript
+// Always use scanAnnouncements for bulk scanning
+// It uses view tags for ~99% skip rate
+const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
+
+// For very large sets, filter by time range first
+const recentAnnouncements = announcements.filter(a =>
+  a.timestamp > Date.now() - 30 * 24 * 60 * 60 * 1000 // Last 30 days
+)
+
+// Or process in batches
+const batchSize = 1000
+for (let i = 0; i < announcements.length; i += batchSize) {
+  const batch = announcements.slice(i, i + batchSize)
+  const payments = await w3pk.stealth?.scanAnnouncements(batch)
+  allPayments.push(...payments)
+}
+```
+
+## Frequently Asked Questions
+
+### General Questions
+
+**Q: What's the difference between stealth addresses and regular addresses?**
+
+A: Regular addresses are static and publicly linked to your identity. Stealth addresses are one-time, unlinkable addresses that only you can identify and control. Each payment uses a unique address that cannot be connected to you or your other transactions.
+
+**Q: Do I need to communicate with the sender?**
+
+A: No! ERC-5564 is completely non-interactive. The sender only needs your public stealth meta-address to generate a stealth address. No communication or coordination is required.
+
+**Q: How does the recipient find their payments?**
+
+A: Recipients scan blockchain announcements. The sender publishes the ephemeral public key and view tag on-chain (typically in an event). Recipients can efficiently check if an announcement is for them using the view tag.
+
+**Q: What are view tags?**
+
+A: View tags are a 1-byte optimization that allows recipients to skip ~99% (255/256) of announcements without performing expensive cryptographic operations. This makes scanning practical even with thousands of announcements.
+
+### Security Questions
+
+**Q: Is it safe to share my stealth meta-address publicly?**
+
+A: Yes! The stealth meta-address contains only public keys. Sharing it publicly is like sharing an ENS name or regular address. However, never share your viewing or spending private keys.
+
+**Q: What if someone steals my stealth meta-address?**
+
+A: They can generate stealth addresses for you, but they cannot:
+- Identify which existing stealth addresses belong to you
+- Spend funds from your stealth addresses
+- Access your private keys
+
+Only you can scan announcements and spend funds.
+
+**Q: Are stealth addresses more secure than regular addresses?**
+
+A: They provide the same cryptographic security (SECP256k1) but offer additional privacy. The main benefit is unlinkability, not stronger cryptography.
+
+**Q: What happens if I lose my mnemonic?**
+
+A: You lose access to all stealth addresses derived from it. There's no recovery mechanism. Always backup your mnemonic securely.
+
+### Technical Questions
+
+**Q: Can I use hardware wallets with stealth addresses?**
+
+A: Not directly for generating stealth addresses, as hardware wallets don't typically support custom HD derivation paths (m/44'/60'/1'/0/0). However, you can:
+1. Generate stealth addresses using w3pk
+2. Export the stealth private keys
+3. Import them into a hardware wallet for signing
+
+**Q: Do stealth addresses work on all EVM chains?**
+
+A: Yes! The cryptography is chain-agnostic. However, you need announcement infrastructure on each chain (event emitters or registries).
+
+**Q: How much does it cost to use stealth addresses?**
+
+A: Costs include:
+1. **Sending payment**: Normal transaction gas + announcement event emission (~50k gas)
+2. **Receiving/scanning**: Free (done off-chain)
+3. **Spending**: Normal transaction gas
+
+**Q: Can I reuse a stealth address?**
+
+A: Technically yes, but you shouldn't! Reusing stealth addresses defeats the purpose. Each payment should use a fresh stealth address for maximum privacy.
+
+**Q: How do view tags work exactly?**
+
+A: View tags are the first byte of the hashed shared secret:
+```typescript
+sharedSecret = viewing_privkey × ephemeral_pubkey
+hashedSecret = keccak256(sharedSecret)
+viewTag = hashedSecret[0]  // First byte (0x00 to 0xff)
+```
+
+Recipients compare the view tag before doing expensive operations. Only 1 in 256 announcements will match, making scanning ~6x faster.
+
+### Integration Questions
+
+**Q: How do I integrate stealth addresses in my dApp?**
+
+A: See the [Complete Integration Example](#complete-integration-example) above. Key steps:
+1. Enable stealth addresses in w3pk config
+2. Recipient shares meta-address
+3. Sender generates stealth address using recipient's meta-address
+4. Sender publishes announcement on-chain
+5. Recipient scans announcements periodically
+
+**Q: Do I need to run my own announcement service?**
+
+A: Not necessarily. You can:
+- Use existing ERC-5564 announcement contracts
+- Emit custom events from your contracts
+- Use transaction calldata
+- Wait for ERC-6538 registry adoption (coming soon)
+
+**Q: Can I use stealth addresses with smart contracts?**
+
+A: Yes! Smart contracts can generate stealth addresses if they have the recipient's meta-address. However, contracts cannot scan announcements (that's done off-chain by recipients).
+
+**Q: How do I test stealth addresses on testnets?**
+
+A: Same as mainnet:
+```typescript
+const w3pk = createWeb3Passkey({
+  apiBaseUrl: 'https://webauthn.w3hc.org',
+  stealthAddresses: {}
+})
+
+// Use testnet RPC
+const provider = new ethers.JsonRpcProvider('https://rpc.sepolia.org')
+
+// Test stealth address generation
+const announcement = await w3pk.stealth?.generateStealthAddress()
+console.log('Test stealth address:', announcement.stealthAddress)
+```
+
 ## Resources
 
 - [ERC-5564 Specification](https://eips.ethereum.org/EIPS/eip-5564)
 - [ERC-6538 Registry](https://eips.ethereum.org/EIPS/eip-6538)
 - [Example Implementation](../examples/erc5564-stealth-demo.ts)
 - [Test Suite](../test/erc5564.test.ts)
+- [Playground Demo](https://github.com/w3hc/w3pk-playground)
 
 ## Support
 
