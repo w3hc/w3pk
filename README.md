@@ -124,21 +124,12 @@ const blockNumber = await provider.getBlockNumber()
 console.log(`Current block: ${blockNumber}`)
 ```
 
-**Features:**
-- ✅ Auto-filters endpoints requiring API keys
-- ✅ 2390+ blockchain networks
-- ✅ WebSocket URLs excluded (HTTP/HTTPS only)
-- ✅ Built-in caching (1-hour default)
-- ✅ Data from [chainid.network](https://chainid.network)
-
 [Full Documentation →](./docs/CHAINLIST.md)
 
 ### EIP-7702 Support
 ```typescript
 // Check if network supports EIP-7702 (cached list + RPC verification)
 const supported = await w3pk.supportsEIP7702(1) // true (Ethereum, instant)
-await w3pk.supportsEIP7702(11155111) // true (Sepolia, instant)
-await w3pk.supportsEIP7702(8453)     // true (Base, instant)
 
 // Unknown networks test via RPC (auto-uses getEndpoints)
 await w3pk.supportsEIP7702(999) // false (tests up to 3 RPC endpoints)
