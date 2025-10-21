@@ -46,7 +46,13 @@ export { Web3Passkey } from "./core/sdk";
 export { StealthAddressModule } from "./stealth";
 
 // Export crypto utilities
-export { canControlStealthAddress } from "./stealth/crypto";
+export {
+  canControlStealthAddress,
+  generateStealthAddress,
+  checkStealthAddress,
+  computeStealthPrivateKey,
+  deriveStealthKeys
+} from "./stealth/crypto";
 
 // Export wallet generation utilities
 export {

@@ -94,27 +94,49 @@ console.log(derived.address)
 console.log(derived.privateKey)
 ```
 
-### 3. Stealth Addresses (Core Features)
+### 3. ERC-5564 Stealth Addresses (Core Features)
+
+Stealth addresses enable privacy-preserving payments using unlinkable, one-time addresses.
+
 ```typescript
 const w3pk = createWeb3Passkey({
   apiBaseUrl: 'https://webauthn.w3hc.org',
-  stealthAddresses: {}  // Enable stealth addresses
+  stealthAddresses: {}  // Enable ERC-5564 stealth addresses
 })
 
 await w3pk.login()
 
-// Generate stealth address for privacy
-const stealth = await w3pk.stealth?.generateStealthAddress()
-console.log(stealth.stealthAddress)      // Fresh unlinkable address
-console.log(stealth.stealthPrivateKey)   // Private key for this address
-console.log(stealth.ephemeralPublicKey)  // Share this for payments
+// RECIPIENT: Get your stealth meta-address to share publicly
+const metaAddress = await w3pk.stealth?.getStealthMetaAddress()
+console.log(metaAddress)  // 0x03f2e32f... (66 bytes, ERC-5564 compliant)
+// Share this publicly - it's safe! Senders need it to generate stealth addresses.
 
-// Get master stealth keys
-const keys = await w3pk.stealth?.getKeys()
-console.log(keys.metaAddress)   // Your stealth meta-address
-console.log(keys.viewingKey)    // For scanning transactions
-console.log(keys.spendingKey)   // For spending received funds
+// SENDER: Generate stealth address for recipient
+const announcement = await w3pk.stealth?.generateStealthAddress()
+console.log(announcement.stealthAddress)      // 0x1234... (send funds here)
+console.log(announcement.ephemeralPublicKey)  // 0x02abcd... (33 bytes, publish on-chain)
+console.log(announcement.viewTag)             // 0xa4 (1 byte, for efficient scanning)
+
+// RECIPIENT: Check if an announcement is for you
+const result = await w3pk.stealth?.parseAnnouncement({
+  stealthAddress: announcement.stealthAddress,
+  ephemeralPublicKey: announcement.ephemeralPublicKey,
+  viewTag: announcement.viewTag
+})
+
+if (result.isForUser) {
+  console.log('Payment found!', result.stealthAddress)
+  console.log('Private key:', result.stealthPrivateKey)
+  // Use this private key to spend the funds
+}
+
+// RECIPIENT: Efficiently scan many announcements
+const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
+console.log(`Found ${myPayments.length} payments`)
+// View tags enable ~99% skip rate - extremely efficient!
 ```
+
+**See [ERC-5564 Stealth Addresses Guide](./ERC5564_STEALTH_ADDRESSES.md) for complete documentation.**
 
 ### 4. Zero-Knowledge Proofs (Requires Optional Dependencies)
 
