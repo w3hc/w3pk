@@ -1,43 +1,84 @@
 /**
- * Stealth Address Module for w3pk SDK
+ * ERC-5564 Stealth Address Module for w3pk SDK
  * Provides privacy-preserving stealth address generation capabilities
+ * following the ERC-5564 standard
+ *
+ * @see https://eips.ethereum.org/EIPS/eip-5564
  */
 
 import { ethers } from "ethers";
 import { Web3PasskeyError, AuthenticationError } from "../core/errors";
-import { deriveStealthKeys } from "./crypto";
-import type { StealthKeys } from "./crypto";
+import {
+  deriveStealthKeys,
+  generateStealthAddress as generateERC5564StealthAddress,
+  checkStealthAddress,
+  computeStealthPrivateKey,
+  type ParseResult
+} from "./crypto";
+import type { StealthKeys, StealthAddressResult as CryptoStealthResult } from "./crypto";
 
 export interface StealthAddressConfig {
   // Network-agnostic - no provider needed
 }
 
+/**
+ * ERC-5564 Stealth Address Generation Result
+ */
 export interface StealthAddressResult {
+  /** The generated stealth address where funds should be sent */
   stealthAddress: string;
-  stealthPrivateKey: string;
+  /** Ephemeral public key (to be published on-chain) */
   ephemeralPublicKey: string;
+  /** View tag (1 byte) for efficient scanning */
+  viewTag: string;
+  /** @deprecated Legacy field - sender doesn't get the private key in ERC-5564 */
+  stealthPrivateKey?: string;
 }
 
 /**
- * Main Stealth Address Module
+ * ERC-5564 Announcement (what gets published on-chain)
+ */
+export interface Announcement {
+  /** The stealth address that received funds */
+  stealthAddress: string;
+  /** Ephemeral public key used for generation */
+  ephemeralPublicKey: string;
+  /** View tag for efficient filtering */
+  viewTag: string;
+}
+
+/**
+ * Result of parsing/checking announcements
+ */
+export interface ParseAnnouncementResult {
+  /** Whether this announcement is for the user */
+  isForUser: boolean;
+  /** The stealth address (only if isForUser is true) */
+  stealthAddress?: string;
+  /** The stealth private key for spending (only if isForUser is true) */
+  stealthPrivateKey?: string;
+}
+
+/**
+ * ERC-5564 Stealth Address Module
  * Integrates with w3pk WebAuthn for seamless privacy-preserving stealth address generation
  */
 export class StealthAddressModule {
-  private config: StealthAddressConfig;
   private getMnemonic: () => Promise<string | null>;
 
   constructor(config: StealthAddressConfig, getMnemonic: () => Promise<string | null>) {
-    this.config = config;
     this.getMnemonic = getMnemonic;
   }
 
   // ========================================
-  // Stealth Address Generation
+  // ERC-5564 Stealth Address Generation
   // ========================================
 
   /**
-   * Generate a fresh stealth address for privacy-preserving transactions
-   * Returns the stealth address and private key for the user to handle transactions
+   * Generate a fresh ERC-5564 compliant stealth address
+   * This is the sender's operation - generates a one-time address for the recipient
+   *
+   * @returns Stealth address, ephemeral public key, and view tag (to be published on-chain)
    */
   async generateStealthAddress(): Promise<StealthAddressResult> {
     try {
@@ -47,13 +88,12 @@ export class StealthAddressModule {
       }
 
       const stealthKeys = deriveStealthKeys(mnemonic);
-      const { generateStealthAddress } = await import("./crypto");
-      const stealthResult = generateStealthAddress(stealthKeys.metaAddress);
+      const stealthResult = generateERC5564StealthAddress(stealthKeys.stealthMetaAddress);
 
       return {
         stealthAddress: stealthResult.stealthAddress,
-        stealthPrivateKey: stealthResult.stealthPrivkey,
-        ephemeralPublicKey: stealthResult.ephemeralPubkey
+        ephemeralPublicKey: stealthResult.ephemeralPubKey,
+        viewTag: stealthResult.viewTag,
       };
     } catch (error) {
       throw new Web3PasskeyError(
@@ -64,13 +104,83 @@ export class StealthAddressModule {
     }
   }
 
+  /**
+   * Parse an ERC-5564 announcement to check if it's for the user
+   * Uses view tag optimization for efficient scanning (255/256 skip rate)
+   *
+   * @param announcement - The announcement to parse (from on-chain event)
+   * @returns ParseResult indicating if announcement is for user, plus stealth private key if true
+   */
+  async parseAnnouncement(announcement: Announcement): Promise<ParseAnnouncementResult> {
+    try {
+      const mnemonic = await this.getMnemonic();
+      if (!mnemonic) {
+        throw new AuthenticationError("Not authenticated. Please login first.");
+      }
+
+      const stealthKeys = deriveStealthKeys(mnemonic);
+
+      // Check if this announcement is for us (with view tag optimization)
+      const parseResult = checkStealthAddress(
+        stealthKeys.viewingKey,
+        stealthKeys.spendingPubKey,
+        announcement.ephemeralPublicKey,
+        announcement.stealthAddress,
+        announcement.viewTag
+      );
+
+      if (!parseResult.isForUser) {
+        return { isForUser: false };
+      }
+
+      // Compute the stealth private key so user can spend the funds
+      const stealthPrivateKey = computeStealthPrivateKey(
+        stealthKeys.viewingKey,
+        stealthKeys.spendingKey,
+        announcement.ephemeralPublicKey
+      );
+
+      return {
+        isForUser: true,
+        stealthAddress: parseResult.stealthAddress,
+        stealthPrivateKey,
+      };
+    } catch (error) {
+      throw new Web3PasskeyError(
+        "Failed to parse announcement",
+        "ANNOUNCEMENT_PARSE_ERROR",
+        error
+      );
+    }
+  }
+
+  /**
+   * Scan multiple announcements efficiently using view tags
+   * Returns only the announcements that belong to the user
+   *
+   * @param announcements - Array of announcements to scan
+   * @returns Array of announcements that belong to the user with their private keys
+   */
+  async scanAnnouncements(announcements: Announcement[]): Promise<ParseAnnouncementResult[]> {
+    const results: ParseAnnouncementResult[] = [];
+
+    for (const announcement of announcements) {
+      const result = await this.parseAnnouncement(announcement);
+      if (result.isForUser) {
+        results.push(result);
+      }
+    }
+
+    return results;
+  }
 
   // ========================================
   // Privacy & Key Management
   // ========================================
 
   /**
-   * Get stealth keys for manual operations
+   * Get ERC-5564 stealth keys
+   * Returns the stealth meta-address and private keys
    */
   async getKeys(): Promise<StealthKeys> {
     try {
@@ -84,6 +194,25 @@ export class StealthAddressModule {
       throw new Web3PasskeyError(
         "Failed to get stealth keys",
         "STEALTH_KEYS_ERROR",
+        error
+      );
+    }
+  }
+
+  /**
+   * Get the stealth meta-address for receiving funds
+   * This is what you share publicly for others to send you stealth payments
+   *
+   * @returns The ERC-5564 stealth meta-address (66 bytes)
+   */
+  async getStealthMetaAddress(): Promise<string> {
+    try {
+      const keys = await this.getKeys();
+      return keys.stealthMetaAddress;
+    } catch (error) {
+      throw new Web3PasskeyError(
+        "Failed to get stealth meta-address",
+        "STEALTH_META_ADDRESS_ERROR",
         error
       );
     }

@@ -49,7 +49,7 @@ const rpcUrl = endpoints[0] // Get first endpoint
 - 💰 Encrypted wallet management (AES-GCM-256)
 - 🌱 HD wallet generation (BIP39/BIP44)
 - 🔢 Multi-address derivation
-- 🥷 Stealth addresses (privacy-preserving transactions)
+- 🥷 ERC-5564 stealth addresses (privacy-preserving transactions with view tags)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
 - ⚡ EIP-7702 network detection (329+ supported networks)
 
@@ -141,20 +141,31 @@ await w3pk.supportsEIP7702(999, {
 })
 ```
 
-### Stealth Addresses
+### ERC-5564 Stealth Addresses
 ```typescript
 const w3pk = createWeb3Passkey({
   apiBaseUrl: 'https://webauthn.w3hc.org',
   stealthAddresses: {}
 })
 
-// Generate unlinkable address
-const stealth = await w3pk.stealth?.generateStealthAddress()
-// Returns: { stealthAddress, stealthPrivateKey, ephemeralPublicKey }
+// Get stealth meta-address (share this publicly)
+const metaAddress = await w3pk.stealth?.getStealthMetaAddress()
 
-// Get master keys
-const keys = await w3pk.stealth?.getKeys()
-// Returns: { metaAddress, viewingKey, spendingKey }
+// SENDER: Generate stealth address for recipient
+const announcement = await w3pk.stealth?.generateStealthAddress()
+// Returns: { stealthAddress, ephemeralPublicKey, viewTag }
+// Publish this on-chain, send funds to stealthAddress
+
+// RECIPIENT: Parse announcements to find your payments
+const result = await w3pk.stealth?.parseAnnouncement({
+  stealthAddress: announcement.stealthAddress,
+  ephemeralPublicKey: announcement.ephemeralPublicKey,
+  viewTag: announcement.viewTag
+})
+// Returns: { isForUser, stealthAddress, stealthPrivateKey }
+
+// Scan multiple announcements efficiently (view tags filter ~99%)
+const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ```
 
 ## Documentation
@@ -169,7 +180,7 @@ const keys = await w3pk.stealth?.getKeys()
 - [Basic Authentication](./examples/basic-auth.ts)
 - [Wallet Management](./examples/wallet-demo.ts)
 - [RPC Endpoints](./examples/sdk-with-chainlist.ts)
-- [Stealth Addresses](./examples/stealth-demo.ts)
+- [ERC-5564 Stealth Addresses](./examples/erc5564-stealth-demo.ts)
 - [ZK Proofs](./examples/zk-proof-demo.ts) (requires ZK deps)
 - [NFT Ownership](./examples/nft-ownership-proof.ts) (requires ZK deps)
 
