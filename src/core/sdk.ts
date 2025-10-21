@@ -435,7 +435,7 @@ export class Web3Passkey {
    * SDK version
    */
   get version(): string {
-    return "0.5.2";
+    return "0.6.0";
   }
 
   // ========================================
