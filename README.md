@@ -5,7 +5,7 @@
 
 Passwordless Web3 authentication SDK with encrypted wallets and privacy features.
 
-**Demo:** https://d2u.w3hc.org/voting
+**Demo: https://w3pk.w3hc.org**
 
 ## Install
 ```bash
