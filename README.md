@@ -41,7 +41,8 @@ const rpcUrl = endpoints[0]
 
 **Core (Included)**
 - 🔐 Passwordless authentication (WebAuthn/FIDO2)
-- 💰 Encrypted wallet management (AES-GCM-256)
+- 🔒 Client-only biometric-gated wallet encryption (AES-GCM-256)
+- ⏱️ Session management (configurable duration, prevents repeated prompts)
 - 🌱 HD wallet generation (BIP39/BIP44)
 - 🔢 Multi-address derivation
 - 🥷 ERC-5564 stealth addresses (privacy-preserving transactions with view tags)
@@ -110,20 +111,20 @@ const w3pk = createWeb3Passkey({
 })
 
 // After login, mnemonic is cached in memory
-await w3pk.login()                // ✅ Requires biometric
+await w3pk.login()
 
 // These operations use the cached session
-await w3pk.deriveWallet(0)        // ✅ No prompt (uses session)
-await w3pk.exportMnemonic()       // ✅ No prompt (uses session)
-await w3pk.signMessage('Hello')   // ✅ No prompt (uses session)
-await w3pk.stealth.getKeys()      // ✅ No prompt (uses session)
+await w3pk.deriveWallet(0)
+await w3pk.exportMnemonic()
+await w3pk.signMessage('Hello')
+await w3pk.stealth.getKeys()
 
 // Check session status
-w3pk.hasActiveSession()           // true
-w3pk.getSessionRemainingTime()    // 3540 (seconds)
+w3pk.hasActiveSession() // true
+w3pk.getSessionRemainingTime() // 3540 seconds
 
 // Extend session
-w3pk.extendSession()              // Adds 2 more hours
+w3pk.extendSession() // Adds 2 more hours
 
 // Clear session manually (force re-authentication)
 w3pk.clearSession()
@@ -138,10 +139,10 @@ Even with an active session, you can require fresh biometric authentication for 
 
 ```typescript
 // Session is active, but force authentication anyway
-await w3pk.exportMnemonic({ requireAuth: true })     // ✅ Always prompts
-await w3pk.signMessage('Transfer $1000', { requireAuth: true }) // ✅ Always prompts
-await w3pk.deriveWallet(5, { requireAuth: true })    // ✅ Always prompts
-await w3pk.stealth.getKeys({ requireAuth: true })    // ✅ Always prompts
+await w3pk.exportMnemonic({ requireAuth: true })
+await w3pk.signMessage('Transfer $1000', { requireAuth: true })
+await w3pk.deriveWallet(5, { requireAuth: true })
+await w3pk.stealth.getKeys({ requireAuth: true })
 
 // Example: Require auth for high-value transactions
 async function transferFunds(amount: number, recipient: string) {
@@ -164,7 +165,6 @@ const endpoints = await w3pk.getEndpoints(1) // Ethereum
 const rpcUrl = endpoints[0]
 
 // Other chains
-await w3pk.getEndpoints(137)   // Polygon
 await w3pk.getEndpoints(10)    // Optimism
 await w3pk.getEndpoints(42161) // Arbitrum
 await w3pk.getEndpoints(8453)  // Base
@@ -176,8 +176,6 @@ const endpoints = await w3pk.getEndpoints(137)
 const provider = new ethers.JsonRpcProvider(endpoints[0])
 const blockNumber = await provider.getBlockNumber()
 ```
-
-[Full Documentation →](./docs/CHAINLIST.md)
 
 ### EIP-7702 Support
 ```typescript
@@ -220,9 +218,24 @@ if (result.isForUser) {
 const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ```
 
+## Browser Compatibility
+
+**Supported (95%+ of users):**
+- Chrome 67+ (May 2018), Edge 18+ (Nov 2018), Firefox 60+ (May 2018), Safari 14+ (Sep 2020)
+- iOS 14.5+ (April 2021), Android 9+ (August 2018)
+- Windows Hello, Touch ID, Face ID, platform authenticators
+
+**Not Supported:**
+- Safari < 14, Chrome/Firefox < 2018, IE11, Android < 9, iOS < 14.5
+- Private/Incognito mode (credentials don't persist)
+- WebView/embedded browsers (often disabled)
+
+[Full Compatibility Guide →](./docs/BROWSER_COMPATIBILITY.md)
+
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
+- [Browser Compatibility](./docs/BROWSER_COMPATIBILITY.md) - Supported browsers, devices, and OS versions
 - [Security Architecture](./docs/SECURITY.md) - Integration best practices
 - [ERC-5564 Stealth Addresses](./docs/ERC5564_STEALTH_ADDRESSES.md) - Complete guide with examples
 - [ERC-5564 Flow Diagrams](./docs/ERC5564_FLOW_DIAGRAM.md) - Visual explanations of how stealth addresses work

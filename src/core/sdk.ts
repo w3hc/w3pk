@@ -11,7 +11,7 @@ import {
   deriveWalletFromMnemonic,
 } from "../wallet/generate";
 import {
-  deriveEncryptionKeyFromSignature,
+  deriveEncryptionKeyFromWebAuthn,
   encryptData,
   decryptData,
 } from "../wallet/crypto";
@@ -100,16 +100,21 @@ export class Web3Passkey {
       throw new WalletError("No wallet found. Generate a wallet first.");
     }
 
-    // Authenticate to get signature
+    // Authenticate to prove identity
     const authResult = await login();
-    if (!authResult.user || !authResult.signature) {
-      throw new WalletError("Authentication failed - signature required");
+    if (!authResult.user) {
+      throw new WalletError("Authentication failed");
     }
 
-    // Derive decryption key from signature
-    const encryptionKey = await deriveEncryptionKeyFromSignature(
-      authResult.signature,
-      walletData.credentialId
+    // Get credential to access public key
+    const storage = new (await import("../auth/storage")).CredentialStorage();
+    const credential = storage.getCredentialById(walletData.credentialId);
+    const publicKey = credential?.publicKey;
+
+    // Derive decryption key from WebAuthn credential
+    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+      walletData.credentialId,
+      publicKey
     );
 
     // Decrypt mnemonic
@@ -161,11 +166,10 @@ export class Web3Passkey {
       }
 
       const credentialId = credential.id;
+      const publicKey = credential.publicKey;
 
-      const encryptionKey = await deriveEncryptionKeyFromSignature(
-        registrationResult.signature,
-        credentialId
-      );
+      // Derive encryption key from WebAuthn credential
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
 
       const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
 
@@ -190,6 +194,7 @@ export class Web3Passkey {
   /**
    * Login with WebAuthn (usernameless)
    * Uses resident credentials stored in the authenticator
+   * Automatically starts a session with the decrypted mnemonic
    */
   async login(): Promise<UserInfo> {
     try {
@@ -205,6 +210,37 @@ export class Web3Passkey {
         displayName: result.user.username,
         ethereumAddress: result.user.ethereumAddress,
       };
+
+      // Get encrypted wallet data
+      const walletData = await this.walletStorage.retrieve(
+        this.currentUser.ethereumAddress
+      );
+
+      if (!walletData) {
+        throw new WalletError(
+          "No wallet found for this user. You may need to register first."
+        );
+      }
+
+      // Get credential to access public key
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credential = storage.getCredentialById(walletData.credentialId);
+      const publicKey = credential?.publicKey;
+
+      // Derive decryption key from WebAuthn credential
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+        walletData.credentialId,
+        publicKey
+      );
+
+      // Decrypt mnemonic
+      const mnemonic = await decryptData(
+        walletData.encryptedMnemonic,
+        encryptionKey
+      );
+
+      // Start session with decrypted mnemonic
+      this.sessionManager.startSession(mnemonic, walletData.credentialId);
 
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
@@ -332,16 +368,19 @@ export class Web3Passkey {
       }
 
       const authResult = await login();
-      if (!authResult.user || !authResult.signature) {
-        throw new WalletError("Authentication failed - signature required");
+      if (!authResult.user) {
+        throw new WalletError("Authentication failed");
       }
 
       const credentialId = authResult.user.credentialId;
 
-      const encryptionKey = await deriveEncryptionKeyFromSignature(
-        authResult.signature,
-        credentialId
-      );
+      // Get credential to access public key
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credential = storage.getCredentialById(credentialId);
+      const publicKey = credential?.publicKey;
+
+      // Derive encryption key from WebAuthn credential
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
 
       const encryptedMnemonic = await encryptData(
         mnemonic.trim(),
