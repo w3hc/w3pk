@@ -230,8 +230,6 @@ const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 - Private/Incognito mode (credentials don't persist)
 - WebView/embedded browsers (often disabled)
 
-[Full Compatibility Guide →](./docs/BROWSER_COMPATIBILITY.md)
-
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
