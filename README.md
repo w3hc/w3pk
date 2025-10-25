@@ -5,7 +5,7 @@
 
 Passwordless Web3 authentication SDK with encrypted wallets and privacy features.
 
-**Demo: https://w3pk.w3hc.org**
+**Demo: [w3pk.w3hc.org](https://w3pk.w3hc.org)**
 
 ## Install
 ```bash
@@ -58,24 +58,18 @@ Requires additional dependencies (~70MB):
 npm install snarkjs circomlibjs
 ```
 
-See [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) for:
-- Anonymous membership proofs
-- Private balance verification
-- Range proofs without revealing values
-- NFT ownership proofs
-
-[Bundle size comparison →](./docs/BUNDLE_SIZES.md)
+See [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) to get started.
 
 ## API
 
 ### Authentication Flow
 
 ```typescript
-// Simple: Register (auto-generates wallet)
+// Register
 const { mnemonic } = await w3pk.register({ username: 'alice' })
 // Returns: { mnemonic } - SAVE THIS!
 
-// Save wallet (encrypts with WebAuthn credentials)
+// Save wallet
 await w3pk.saveWallet()
 
 // Subsequent sessions: just login
@@ -235,8 +229,6 @@ if (result.isForUser) {
 const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ```
 
-[Complete ERC-5564 Guide →](./docs/ERC5564_STEALTH_ADDRESSES.md)
-
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
@@ -246,15 +238,6 @@ const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 - [RPC Endpoints](./docs/CHAINLIST.md) - Chainlist integration guide
 - [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) - Zero-knowledge proofs (optional)
 - [Bundle Size Comparison](./docs/BUNDLE_SIZES.md) - Core vs ZK bundle sizes
-
-## Examples
-
-- [Basic Authentication](./examples/basic-auth.ts)
-- [Wallet Management](./examples/wallet-demo.ts)
-- [RPC Endpoints](./examples/sdk-with-chainlist.ts)
-- [ERC-5564 Stealth Addresses](./examples/erc5564-stealth-demo.ts)
-- [ZK Proofs](./examples/zk-proof-demo.ts) (requires ZK deps)
-- [NFT Ownership](./examples/nft-ownership-proof.ts) (requires ZK deps)
 
 ## Contributing
 
