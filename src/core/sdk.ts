@@ -6,7 +6,6 @@
 import { register } from "../auth/register";
 import { login } from "../auth/authenticate";
 import { IndexedDBWalletStorage } from "../wallet/storage";
-import { WalletSigner } from "../wallet/signing";
 import {
   generateBIP39Wallet,
   deriveWalletFromMnemonic,
@@ -15,9 +14,9 @@ import {
   deriveEncryptionKeyFromSignature,
   encryptData,
   decryptData,
-  generateChallenge,
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
+import { SessionManager } from "./session";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import { DEFAULT_CONFIG } from "./config";
@@ -29,9 +28,9 @@ import { supportsEIP7702 } from "../eip7702";
 export class Web3Passkey {
   private config: InternalConfig;
   private walletStorage: IndexedDBWalletStorage;
-  private walletSigner: WalletSigner;
   private currentUser: UserInfo | null = null;
   private currentWallet: WalletInfo | null = null;
+  private sessionManager: SessionManager;
 
   // Optional modules
   public stealth?: StealthAddressModule;
@@ -40,13 +39,13 @@ export class Web3Passkey {
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
     this.walletStorage = new IndexedDBWalletStorage();
-    this.walletSigner = new WalletSigner(this.walletStorage);
+    this.sessionManager = new SessionManager(config.sessionDuration || 1);
 
     // Initialize optional modules
     if (config.stealthAddresses !== undefined) {
       this.stealth = new StealthAddressModule(
         config.stealthAddresses,
-        () => this.exportMnemonic()
+        () => this.getMnemonicFromSession()
       );
     }
 
@@ -68,6 +67,55 @@ export class Web3Passkey {
         "ZK module not available. Install dependencies: npm install snarkjs circomlibjs"
       );
     }
+  }
+
+  /**
+   * Get mnemonic from active session or trigger authentication
+   * This is used internally by methods that need the mnemonic
+   */
+  private async getMnemonicFromSession(): Promise<string> {
+    // Check if session is active
+    const cachedMnemonic = this.sessionManager.getMnemonic();
+    if (cachedMnemonic) {
+      return cachedMnemonic;
+    }
+
+    // Session expired or doesn't exist - need to authenticate
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated. Call login() first.");
+    }
+
+    // Get encrypted wallet
+    const walletData = await this.walletStorage.retrieve(
+      this.currentUser.ethereumAddress
+    );
+
+    if (!walletData) {
+      throw new WalletError("No wallet found. Generate a wallet first.");
+    }
+
+    // Authenticate to get signature
+    const authResult = await login();
+    if (!authResult.user || !authResult.signature) {
+      throw new WalletError("Authentication failed - signature required");
+    }
+
+    // Derive decryption key from signature
+    const encryptionKey = await deriveEncryptionKeyFromSignature(
+      authResult.signature,
+      walletData.credentialId
+    );
+
+    // Decrypt mnemonic
+    const mnemonic = await decryptData(
+      walletData.encryptedMnemonic,
+      encryptionKey
+    );
+
+    // Start new session with decrypted mnemonic
+    this.sessionManager.startSession(mnemonic, walletData.credentialId);
+
+    return mnemonic;
   }
 
   /**
@@ -142,10 +190,12 @@ export class Web3Passkey {
 
   /**
    * Logout the current user
+   * Clears the active session and removes cached mnemonic from memory
    */
   async logout(): Promise<void> {
     this.currentUser = null;
     this.currentWallet = null;
+    this.sessionManager.clearSession();
     this.config.onAuthStateChanged?.(false, undefined);
   }
 
@@ -244,7 +294,7 @@ export class Web3Passkey {
   /**
    * Derive an HD wallet at a specific index
    *
-   * SECURITY: Requires WebAuthn authentication to decrypt the mnemonic
+   * SECURITY: Uses active session or prompts for authentication if session expired
    */
   async deriveWallet(index: number): Promise<WalletInfo> {
     try {
@@ -252,32 +302,8 @@ export class Web3Passkey {
         throw new WalletError("Must be authenticated to derive wallet");
       }
 
-      // Get encrypted wallet data
-      const walletData = await this.walletStorage.retrieve(
-        this.currentUser.ethereumAddress
-      );
-
-      if (!walletData) {
-        throw new WalletError("No wallet found. Generate a wallet first.");
-      }
-
-      // SECURITY: Re-authenticate to get signature for decryption
-      const authResult = await login();
-      if (!authResult.user || !authResult.signature) {
-        throw new WalletError("Authentication failed - signature required");
-      }
-
-      // SECURITY: Derive decryption key from WebAuthn signature
-      const encryptionKey = await deriveEncryptionKeyFromSignature(
-        authResult.signature,
-        walletData.credentialId
-      );
-
-      // Decrypt mnemonic
-      const mnemonic = await decryptData(
-        walletData.encryptedMnemonic,
-        encryptionKey
-      );
+      // Get mnemonic from session (or authenticate if needed)
+      const mnemonic = await this.getMnemonicFromSession();
 
       // Derive wallet at index
       const derived = deriveWalletFromMnemonic(mnemonic, index);
@@ -294,7 +320,8 @@ export class Web3Passkey {
 
   /**
    * Export the mnemonic phrase
-   * Requires fresh WebAuthn authentication for security
+   *
+   * SECURITY: Uses active session or prompts for authentication if session expired
    */
   async exportMnemonic(): Promise<string> {
     try {
@@ -302,31 +329,8 @@ export class Web3Passkey {
         throw new WalletError("Must be authenticated to export mnemonic");
       }
 
-      const walletData = await this.walletStorage.retrieve(
-        this.currentUser.ethereumAddress
-      );
-
-      if (!walletData) {
-        throw new WalletError("No wallet found");
-      }
-
-      // SECURITY: Re-authenticate to get signature for decryption
-      const authResult = await login();
-      if (!authResult.user || !authResult.signature) {
-        throw new WalletError("Authentication failed - signature required");
-      }
-
-      const encryptionKey = await deriveEncryptionKeyFromSignature(
-        authResult.signature,
-        walletData.credentialId
-      );
-
-      const mnemonic = await decryptData(
-        walletData.encryptedMnemonic,
-        encryptionKey
-      );
-
-      return mnemonic;
+      // Get mnemonic from session (or authenticate if needed)
+      return await this.getMnemonicFromSession();
     } catch (error) {
       this.config.onError?.(error as any);
       throw new WalletError("Failed to export mnemonic", error);
@@ -382,6 +386,9 @@ export class Web3Passkey {
         address: this.currentUser.ethereumAddress,
         mnemonic: mnemonic.trim(),
       };
+
+      // Start new session with imported mnemonic
+      this.sessionManager.startSession(mnemonic.trim(), credentialId);
     } catch (error) {
       this.config.onError?.(error as any);
       throw new WalletError("Failed to import mnemonic", error);
@@ -390,7 +397,8 @@ export class Web3Passkey {
 
   /**
    * Sign a message with the wallet
-   * Requires fresh authentication
+   *
+   * SECURITY: Uses active session or prompts for authentication if session expired
    */
   async signMessage(message: string): Promise<string> {
     try {
@@ -398,20 +406,15 @@ export class Web3Passkey {
         throw new WalletError("Must be authenticated to sign message");
       }
 
-      // Re-authenticate to get fresh credentials
-      const authResult = await login();
-      if (!authResult.user) {
-        throw new WalletError("Re-authentication failed");
-      }
+      // Get mnemonic from session (or authenticate if needed)
+      const mnemonic = await this.getMnemonicFromSession();
 
-      const challenge = generateChallenge();
+      // Import wallet from mnemonic
+      const { Wallet } = await import("ethers");
+      const wallet = Wallet.fromPhrase(mnemonic);
 
-      const signature = await this.walletSigner.signMessage(
-        this.currentUser.ethereumAddress,
-        message,
-        authResult.user.credentialId,
-        challenge
-      );
+      // Sign the message
+      const signature = await wallet.signMessage(message);
 
       return signature;
     } catch (error) {
@@ -447,6 +450,53 @@ export class Web3Passkey {
       );
     }
     return this.zkModule;
+  }
+
+  // ========================================
+  // Session Management
+  // ========================================
+
+  /**
+   * Check if there's an active session
+   */
+  hasActiveSession(): boolean {
+    return this.sessionManager.isActive();
+  }
+
+  /**
+   * Get remaining session time in seconds
+   */
+  getSessionRemainingTime(): number {
+    return this.sessionManager.getRemainingTime();
+  }
+
+  /**
+   * Extend the current session by the configured duration
+   * Throws error if no active session or if session expired
+   */
+  extendSession(): void {
+    try {
+      this.sessionManager.extendSession();
+    } catch (error) {
+      throw new WalletError("Cannot extend session", error);
+    }
+  }
+
+  /**
+   * Manually clear the active session
+   * This removes the cached mnemonic from memory
+   * User will need to authenticate again for wallet operations
+   */
+  clearSession(): void {
+    this.sessionManager.clearSession();
+  }
+
+  /**
+   * Update session duration (affects new sessions and extensions)
+   * @param hours - Session duration in hours
+   */
+  setSessionDuration(hours: number): void {
+    this.sessionManager.setSessionDuration(hours);
   }
 
 }

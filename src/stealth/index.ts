@@ -7,7 +7,7 @@
  */
 
 import { ethers } from "ethers";
-import { Web3PasskeyError, AuthenticationError } from "../core/errors";
+import { Web3PasskeyError } from "../core/errors";
 import {
   deriveStealthKeys,
   generateStealthAddress as generateERC5564StealthAddress,
@@ -64,9 +64,9 @@ export interface ParseAnnouncementResult {
  * Integrates with w3pk WebAuthn for seamless privacy-preserving stealth address generation
  */
 export class StealthAddressModule {
-  private getMnemonic: () => Promise<string | null>;
+  private getMnemonic: () => Promise<string>;
 
-  constructor(config: StealthAddressConfig, getMnemonic: () => Promise<string | null>) {
+  constructor(config: StealthAddressConfig, getMnemonic: () => Promise<string>) {
     this.getMnemonic = getMnemonic;
   }
 
@@ -82,10 +82,8 @@ export class StealthAddressModule {
    */
   async generateStealthAddress(): Promise<StealthAddressResult> {
     try {
+      // Get mnemonic from session (or authenticate if needed)
       const mnemonic = await this.getMnemonic();
-      if (!mnemonic) {
-        throw new AuthenticationError("Not authenticated. Please login first.");
-      }
 
       const stealthKeys = deriveStealthKeys(mnemonic);
       const stealthResult = generateERC5564StealthAddress(stealthKeys.stealthMetaAddress);
@@ -113,10 +111,8 @@ export class StealthAddressModule {
    */
   async parseAnnouncement(announcement: Announcement): Promise<ParseAnnouncementResult> {
     try {
+      // Get mnemonic from session (or authenticate if needed)
       const mnemonic = await this.getMnemonic();
-      if (!mnemonic) {
-        throw new AuthenticationError("Not authenticated. Please login first.");
-      }
 
       const stealthKeys = deriveStealthKeys(mnemonic);
 
@@ -184,10 +180,8 @@ export class StealthAddressModule {
    */
   async getKeys(): Promise<StealthKeys> {
     try {
+      // Get mnemonic from session (or authenticate if needed)
       const mnemonic = await this.getMnemonic();
-      if (!mnemonic) {
-        throw new AuthenticationError("Not authenticated. Please login first.");
-      }
 
       return deriveStealthKeys(mnemonic);
     } catch (error) {

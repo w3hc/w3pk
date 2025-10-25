@@ -6,6 +6,8 @@ This document explains the security model of w3pk and how wallet protection work
 
 w3pk uses **WebAuthn signatures** to derive encryption keys, ensuring that wallets can **only be decrypted with biometric/PIN authentication**. Even if an attacker gains full access to your computer, they **cannot steal your wallet** without your fingerprint/face/PIN.
 
+For better user experience, w3pk implements **secure sessions** that cache the decrypted mnemonic in memory for a configurable duration (default 1 hour), allowing operations without repeated authentication prompts while maintaining security.
+
 ## Security Guarantees
 
 ### ✅ Protected Against
@@ -154,6 +156,84 @@ const decrypted = await decryptData(encryptedWallet, key)
 - **256 bits** of entropy from signature
 - **256 bits** additional entropy from challenge
 - Combined: **512 bits** of key material
+
+## Session Management
+
+### How Sessions Work
+
+w3pk implements **secure in-memory sessions** for better UX. After initial authentication, the decrypted mnemonic is cached in memory for a configurable duration.
+
+```typescript
+// Configure session duration (default: 1 hour)
+const w3pk = new Web3Passkey({
+  sessionDuration: 1 // hours
+})
+
+// After login, operations work without repeated authentication
+await w3pk.login()              // ✅ Requires biometric
+await w3pk.deriveWallet(0)      // ✅ Uses session (no prompt)
+await w3pk.exportMnemonic()     // ✅ Uses session (no prompt)
+await w3pk.stealth.getKeys()    // ✅ Uses session (no prompt)
+
+// Session expires after 1 hour - next operation will prompt
+await w3pk.deriveWallet(1)      // ✅ Prompts for biometric (session expired)
+```
+
+### Session Security
+
+**What's cached:**
+- ✅ Decrypted mnemonic (in memory only)
+- ✅ Session expiration timestamp
+- ✅ Credential ID
+
+**What's NOT cached:**
+- ❌ Private keys (derived on-demand)
+- ❌ WebAuthn signatures (fresh each time)
+- ❌ Encryption keys (derived from signatures)
+
+**Security properties:**
+- Sessions exist **only in RAM** - never persisted to disk
+- Automatically cleared after expiration
+- Cleared on logout
+- Cleared when browser tab closes
+- Can be manually cleared with `clearSession()`
+
+### Session Management API
+
+```typescript
+// Check if session is active
+const hasSession = w3pk.hasActiveSession()
+
+// Get remaining time (in seconds)
+const remaining = w3pk.getSessionRemainingTime()
+
+// Extend session by configured duration
+w3pk.extendSession()
+
+// Manually clear session (force re-authentication)
+w3pk.clearSession()
+
+// Update session duration
+w3pk.setSessionDuration(2) // 2 hours
+
+// Disable sessions entirely (most secure)
+const w3pk = new Web3Passkey({ sessionDuration: 0 })
+```
+
+### Session Threat Model
+
+#### ✅ Session protected against:
+1. **Disk access** - Session never written to storage
+2. **Browser restart** - Session cleared automatically
+3. **Tab close** - Memory freed immediately
+4. **Automatic expiration** - Sessions timeout after configured duration
+
+#### ⚠️ Session vulnerable to:
+1. **Active browser exploitation** - If attacker has code execution in the same tab
+2. **Memory dumps** - If attacker can dump browser process memory (requires elevated privileges)
+3. **Physical access** - If device unlocked and session active
+
+**Recommendation:** For maximum security, set `sessionDuration: 0` to require authentication for every operation. For better UX, use the default 1 hour session.
 
 ## WebAuthn Security Features
 

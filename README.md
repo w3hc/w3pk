@@ -98,20 +98,56 @@ const { mnemonic } = await w3pk.register({ username: 'alice' })
 ```
 
 ### Wallet Operations
+
 ```typescript
 // Save wallet (requires authentication)
 await w3pk.saveWallet()
 
-// Derive addresses (requires authentication)
+// Derive addresses
 const wallet0 = await w3pk.deriveWallet(0)
 // Returns: { address, privateKey }
 
-// Export mnemonic (requires authentication)
+// Export mnemonic
 const mnemonic = await w3pk.exportMnemonic()
 
-// Sign message (requires authentication)
+// Sign message
 const signature = await w3pk.signMessage(message)
 ```
+
+### Session Management
+
+By default, after authentication, operations work for 1 hour without repeated biometric prompts:
+
+```typescript
+// Configure session duration
+const w3pk = createWeb3Passkey({
+  sessionDuration: 2 // 2 hours (default: 1)
+})
+
+// After login, mnemonic is cached in memory
+await w3pk.login()                // ✅ Requires biometric
+
+// These operations use the cached session
+await w3pk.deriveWallet(0)        // ✅ No prompt (uses session)
+await w3pk.exportMnemonic()       // ✅ No prompt (uses session)
+await w3pk.signMessage('Hello')   // ✅ No prompt (uses session)
+await w3pk.stealth.getKeys()      // ✅ No prompt (uses session)
+
+// Check session status
+w3pk.hasActiveSession()           // true
+w3pk.getSessionRemainingTime()    // 3540 (seconds)
+
+// Extend session
+w3pk.extendSession()              // Adds 2 more hours
+
+// Clear session manually (force re-authentication)
+w3pk.clearSession()
+
+// Disable sessions (most secure - prompt every time)
+const w3pk = createWeb3Passkey({ sessionDuration: 0 })
+```
+
+**Security Note:** Sessions are stored **only in memory** and automatically cleared on logout, expiration, or browser close. See [Security Architecture](./docs/SECURITY.md#session-management) for details.
 
 ### RPC Endpoints
 ```typescript
