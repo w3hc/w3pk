@@ -11,7 +11,8 @@ export interface UserInfo {
 
 export interface WalletInfo {
   address: string;
-  mnemonic: string;
+  mnemonic?: string;
+  privateKey?: string;
 }
 
 export interface ApiResponse<T = any> {

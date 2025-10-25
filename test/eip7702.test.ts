@@ -2,13 +2,14 @@
  * EIP-7702 SDK method tests
  */
 
+import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
 
 async function testSDKSupportsEIP7702() {
   console.log("\n🧪 Testing w3pk.supportsEIP7702()...");
 
   const w3pk = createWeb3Passkey({
-    apiBaseUrl: "https://webauthn.w3hc.org",
+    storage: mockLocalStorage,
   });
 
   // Test supported networks (cached - instant)
