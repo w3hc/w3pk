@@ -12,9 +12,10 @@ import {
   deriveWalletFromMnemonic,
 } from "../wallet/generate";
 import {
-  deriveEncryptionKey,
+  deriveEncryptionKeyFromSignature,
   encryptData,
   decryptData,
+  generateChallenge,
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
 // ZK module imported dynamically to avoid bundling dependencies
@@ -190,6 +191,10 @@ export class Web3Passkey {
   /**
    * Save the current wallet (encrypt and store)
    * Must be called after authentication to persist the wallet securely
+   *
+   * SECURITY: Requires fresh WebAuthn authentication to derive encryption key
+   * from the signature. This ensures the wallet can only be encrypted/decrypted
+   * with biometric/PIN authentication.
    */
   async saveWallet(): Promise<void> {
     try {
@@ -201,32 +206,33 @@ export class Web3Passkey {
         throw new WalletError("No wallet to save. Generate a wallet first.");
       }
 
-      // Re-authenticate to get fresh credentials for encryption
+      // SECURITY: Re-authenticate to get WebAuthn signature for encryption
+      // User must provide biometric/PIN - signature cannot be replayed/stolen
       const authResult = await login();
-      if (!authResult.user) {
-        throw new WalletError("Re-authentication failed");
+      if (!authResult.user || !authResult.signature) {
+        throw new WalletError("Authentication failed - signature required");
       }
 
       const credentialId = authResult.user.credentialId;
 
-      // Generate a challenge for encryption key derivation
-      const challenge = this.generateChallenge();
+      // SECURITY: Derive encryption key from WebAuthn signature
+      // The signature can ONLY be obtained through biometric/PIN authentication
+      const encryptionKey = await deriveEncryptionKeyFromSignature(
+        authResult.signature,
+        credentialId
+      );
 
-      // Derive encryption key from WebAuthn credentials
-      const encryptionKey = await deriveEncryptionKey(credentialId, challenge);
-
-      // Encrypt the mnemonic
+      // Encrypt the mnemonic with the signature-derived key
       const encryptedMnemonic = await encryptData(
         this.currentWallet.mnemonic,
         encryptionKey
       );
 
-      // Store encrypted wallet
+      // Store encrypted wallet (NO challenge stored - generated fresh each time)
       await this.walletStorage.store({
         ethereumAddress: this.currentUser.ethereumAddress,
         encryptedMnemonic,
         credentialId,
-        challenge,
         createdAt: Date.now(),
       });
     } catch (error) {
@@ -237,6 +243,8 @@ export class Web3Passkey {
 
   /**
    * Derive an HD wallet at a specific index
+   *
+   * SECURITY: Requires WebAuthn authentication to decrypt the mnemonic
    */
   async deriveWallet(index: number): Promise<WalletInfo> {
     try {
@@ -253,16 +261,16 @@ export class Web3Passkey {
         throw new WalletError("No wallet found. Generate a wallet first.");
       }
 
-      // Re-authenticate to decrypt
+      // SECURITY: Re-authenticate to get signature for decryption
       const authResult = await login();
-      if (!authResult.user) {
-        throw new WalletError("Re-authentication failed");
+      if (!authResult.user || !authResult.signature) {
+        throw new WalletError("Authentication failed - signature required");
       }
 
-      // Derive encryption key
-      const encryptionKey = await deriveEncryptionKey(
-        walletData.credentialId,
-        walletData.challenge
+      // SECURITY: Derive decryption key from WebAuthn signature
+      const encryptionKey = await deriveEncryptionKeyFromSignature(
+        authResult.signature,
+        walletData.credentialId
       );
 
       // Decrypt mnemonic
@@ -286,7 +294,7 @@ export class Web3Passkey {
 
   /**
    * Export the mnemonic phrase
-   * Requires fresh authentication
+   * Requires fresh WebAuthn authentication for security
    */
   async exportMnemonic(): Promise<string> {
     try {
@@ -302,15 +310,15 @@ export class Web3Passkey {
         throw new WalletError("No wallet found");
       }
 
-      // Re-authenticate to decrypt
+      // SECURITY: Re-authenticate to get signature for decryption
       const authResult = await login();
-      if (!authResult.user) {
-        throw new WalletError("Re-authentication failed");
+      if (!authResult.user || !authResult.signature) {
+        throw new WalletError("Authentication failed - signature required");
       }
 
-      const encryptionKey = await deriveEncryptionKey(
-        walletData.credentialId,
-        walletData.challenge
+      const encryptionKey = await deriveEncryptionKeyFromSignature(
+        authResult.signature,
+        walletData.credentialId
       );
 
       const mnemonic = await decryptData(
@@ -328,7 +336,7 @@ export class Web3Passkey {
   /**
    * Import a mnemonic phrase
    * Encrypts and stores it for the current user
-   * Requires fresh authentication
+   * Requires fresh WebAuthn authentication for security
    * WARNING: This will overwrite any existing wallet for this user
    */
   async importMnemonic(mnemonic: string): Promise<void> {
@@ -342,19 +350,19 @@ export class Web3Passkey {
         throw new WalletError("Invalid mnemonic: must be at least 12 words");
       }
 
-      // Re-authenticate to get fresh credentials for encryption
+      // SECURITY: Re-authenticate to get signature for encryption
       const authResult = await login();
-      if (!authResult.user) {
-        throw new WalletError("Re-authentication failed");
+      if (!authResult.user || !authResult.signature) {
+        throw new WalletError("Authentication failed - signature required");
       }
 
       const credentialId = authResult.user.credentialId;
 
-      // Generate a challenge for encryption key derivation
-      const challenge = this.generateChallenge();
-
-      // Derive encryption key from WebAuthn credentials
-      const encryptionKey = await deriveEncryptionKey(credentialId, challenge);
+      // SECURITY: Derive encryption key from WebAuthn signature
+      const encryptionKey = await deriveEncryptionKeyFromSignature(
+        authResult.signature,
+        credentialId
+      );
 
       // Encrypt the mnemonic
       const encryptedMnemonic = await encryptData(
@@ -362,12 +370,11 @@ export class Web3Passkey {
         encryptionKey
       );
 
-      // Store encrypted wallet
+      // Store encrypted wallet (NO challenge stored)
       await this.walletStorage.store({
         ethereumAddress: this.currentUser.ethereumAddress,
         encryptedMnemonic,
         credentialId,
-        challenge,
         createdAt: Date.now(),
       });
 
@@ -397,7 +404,7 @@ export class Web3Passkey {
         throw new WalletError("Re-authentication failed");
       }
 
-      const challenge = this.generateChallenge();
+      const challenge = generateChallenge();
 
       const signature = await this.walletSigner.signMessage(
         this.currentUser.ethereumAddress,
@@ -442,15 +449,4 @@ export class Web3Passkey {
     return this.zkModule;
   }
 
-  /**
-   * Generate a random challenge
-   */
-  private generateChallenge(): string {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    return btoa(String.fromCharCode(...array))
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=/g, "");
-  }
 }

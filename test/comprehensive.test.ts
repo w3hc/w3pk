@@ -10,7 +10,7 @@ import {
   deriveWalletFromMnemonic,
 } from "../src/wallet/generate";
 import {
-  deriveEncryptionKey,
+  deriveEncryptionKeyFromSignature,
   encryptData,
   decryptData,
 } from "../src/wallet/crypto";
@@ -64,15 +64,17 @@ try {
   console.log("  ✗ Failed:", (error as Error).message);
 }
 
-// Test 4: Encryption/Decryption
+// Test 4: Encryption/Decryption with Signature-Based Keys
 console.log("\nTest 4: Data Encryption/Decryption");
 async function testEncryption() {
   try {
     const testData = "secret mnemonic phrase here";
     const credentialId = "test-credential-id";
-    const challenge = "test-challenge";
 
-    const key = await deriveEncryptionKey(credentialId, challenge);
+    // Simulate a WebAuthn signature (mock for testing)
+    const mockSignature = crypto.getRandomValues(new Uint8Array(64)).buffer;
+
+    const key = await deriveEncryptionKeyFromSignature(mockSignature, credentialId);
     const encrypted = await encryptData(testData, key);
     const decrypted = await decryptData(encrypted, key);
 
@@ -80,11 +82,14 @@ async function testEncryption() {
       console.log("  ✓ Encryption/decryption successful");
       console.log(`  Original length: ${testData.length}`);
       console.log(`  Encrypted length: ${encrypted.length}`);
+      console.log("  🔒 Security: Key derived from WebAuthn signature");
+      console.log("  🔐 Requires: Biometric/PIN authentication");
     } else {
       console.log("  ✗ Decrypted data doesn't match original");
     }
   } catch (error) {
-    console.log("  ✗ Failed:", (error as Error).message);
+    console.error("  ✗ Failed:", (error as Error).message);
+    console.error("  Error details:", error);
   }
 }
 

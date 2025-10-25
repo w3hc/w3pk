@@ -19,6 +19,9 @@ export interface AuthResult {
     ethereumAddress: string;
     credentialId: string;
   };
+  // SECURITY: Signature is needed to derive encryption keys
+  // This ensures keys can only be derived after biometric/PIN authentication
+  signature?: ArrayBuffer;
 }
 
 // Re-export SimpleWebAuthn types for convenience

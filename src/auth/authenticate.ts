@@ -43,6 +43,10 @@ export async function login(): Promise<AuthResult> {
 
     storage.updateLastUsed(credential.id);
 
+    // SECURITY: Return the signature so it can be used to derive encryption keys
+    // The signature can ONLY be obtained through biometric/PIN authentication
+    const signatureBuffer = base64ToArrayBuffer(assertion.response.signature);
+
     return {
       verified: true,
       user: {
@@ -50,6 +54,7 @@ export async function login(): Promise<AuthResult> {
         ethereumAddress: credential.ethereumAddress,
         credentialId: credential.id,
       },
+      signature: signatureBuffer,
     };
   } catch (error) {
     throw new AuthenticationError(
