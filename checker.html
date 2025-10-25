@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local Storage Checker</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        max-width: 1000px;
+        margin: 50px auto;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+        margin-bottom: 20px;
+      }
+      button {
+        padding: 10px 20px;
+        font-size: 14px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        background: #007bff;
+        color: white;
+        transition: background 0.2s;
+        margin-bottom: 20px;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      .result {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        border-left: 4px solid #007bff;
+      }
+      .empty {
+        border-left-color: #6c757d;
+      }
+      pre {
+        background: #272822;
+        color: #f8f8f2;
+        padding: 15px;
+        border-radius: 4px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+      .key {
+        font-weight: bold;
+        color: #007bff;
+        margin-top: 15px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Local Storage Checker</h1>
+      <button onclick="checkStorage()">Check Storage</button>
+      <div id="results"></div>
+    </div>
+
+    <script>
+      function checkStorage() {
+        const resultsDiv = document.getElementById("results");
+        resultsDiv.innerHTML = "";
+
+        // Get all localStorage items
+        const allData = {};
+        let foundCount = localStorage.length;
+
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key) {
+            const value = localStorage.getItem(key);
+            allData[key] = value;
+          }
+        }
+
+        if (foundCount === 0) {
+          resultsDiv.innerHTML =
+            '<div class="result empty"><strong>No data found in local storage.</strong></div>';
+        } else {
+          let html = `<div class="result"><strong>Found ${foundCount} item(s) in local storage:</strong></div>`;
+
+          for (const [key, value] of Object.entries(allData)) {
+            html += `<div class="key">${key}:</div>`;
+
+            // Try to parse as JSON, if it fails, show raw value
+            try {
+              const parsed = JSON.parse(value);
+              html += "<pre>" + JSON.stringify(parsed, null, 2) + "</pre>";
+            } catch {
+              html += "<pre>" + value + "</pre>";
+            }
+          }
+
+          resultsDiv.innerHTML = html;
+        }
+      }
+
+      // Auto-check on page load
+      window.addEventListener("load", checkStorage);
+    </script>
+  </body>
+</html>
