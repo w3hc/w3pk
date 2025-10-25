@@ -6,7 +6,13 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 - **Node.js**: >= 18.0.0
 - **Package Manager**: pnpm (recommended) or npm
-- **Browser**: For testing WebAuthn features (Chrome, Firefox, Safari, Edge)
+- **Browser**: For testing WebAuthn features
+  - Chrome 67+ (May 2018)
+  - Firefox 60+ (May 2018)
+  - Safari 14+ (September 2020)
+  - Edge 18+ (November 2018)
+  - Mobile: iOS 14.5+, Android 9+
+  - See [Browser Compatibility Guide](./docs/BROWSER_COMPATIBILITY.md) for details
 
 ## Process
 
@@ -69,6 +75,7 @@ w3pk/
 import { createWeb3Passkey } from 'w3pk'
 
 const w3pk = createWeb3Passkey({
+  sessionDuration?: number  // Session duration in hours (default: 1)
   debug?: boolean
   onError?: (error: Web3PasskeyError) => void
   onAuthStateChanged?: (isAuth: boolean, user?: UserInfo) => void
@@ -139,6 +146,41 @@ Get current user info.
 const user = w3pk.user // UserInfo | null
 ```
 
+### Session Management
+
+w3pk uses session caching to prevent repeated biometric prompts while maintaining security.
+
+#### Session Configuration
+```typescript
+const w3pk = createWeb3Passkey({
+  sessionDuration: 1  // Hours (default: 1)
+})
+```
+
+#### `hasActiveSession()`
+Check if session is active.
+```typescript
+const hasSession = w3pk.hasActiveSession() // boolean
+```
+
+#### `getSessionRemainingTime()`
+Get remaining session time in seconds.
+```typescript
+const seconds = w3pk.getSessionRemainingTime() // number
+```
+
+#### `extendSession()`
+Extend session by configured duration.
+```typescript
+w3pk.extendSession()
+```
+
+#### `clearSession()`
+Manually clear session (force re-authentication).
+```typescript
+w3pk.clearSession()
+```
+
 ### Wallet Methods
 
 #### `generateWallet()`
@@ -149,17 +191,21 @@ const { mnemonic } = await w3pk.generateWallet()
 // Note: Wallet is stored in memory until register() is called
 ```
 
-#### `deriveWallet(index)`
+#### `deriveWallet(index, options?)`
 Derive HD wallet at specific index (requires authentication).
 ```typescript
-const wallet = await w3pk.deriveWallet(0)
+const wallet = await w3pk.deriveWallet(0, {
+  requireAuth?: boolean  // Force fresh biometric (default: false)
+})
 // Returns: { address: string, privateKey: string }
 ```
 
-#### `exportMnemonic()`
-Export mnemonic phrase (requires re-authentication).
+#### `exportMnemonic(options?)`
+Export mnemonic phrase (requires authentication).
 ```typescript
-const mnemonic = await w3pk.exportMnemonic()
+const mnemonic = await w3pk.exportMnemonic({
+  requireAuth?: boolean  // Force fresh biometric (default: false)
+})
 // Returns: string (12-24 words)
 ```
 
@@ -169,10 +215,12 @@ Import existing mnemonic.
 await w3pk.importMnemonic('word1 word2 ... word12')
 ```
 
-#### `signMessage(message)`
-Sign a message (requires re-authentication).
+#### `signMessage(message, options?)`
+Sign a message (requires authentication).
 ```typescript
-const signature = await w3pk.signMessage('Hello World')
+const signature = await w3pk.signMessage('Hello World', {
+  requireAuth?: boolean  // Force fresh biometric (default: false)
+})
 // Returns: string (0x... signature)
 ```
 
@@ -250,6 +298,36 @@ const zkModule = w3pk.zk
 // Access ZK proof generation methods
 // See docs/ZK_INTEGRATION_GUIDE.md for details
 ```
+
+## Security Model
+
+w3pk uses **authentication-gated encryption** for client-only wallet protection:
+
+### How It Works
+
+1. **Registration**: WebAuthn credential created, wallet encrypted with key derived from credential ID + public key
+2. **Login**: User authenticates with biometric/PIN, wallet decrypted, session started (1 hour default)
+3. **Operations**: Within session, no repeated prompts. After session expires, requires re-authentication.
+4. **Force Auth**: Developers can require fresh biometric with `{ requireAuth: true }` option
+
+### Security Properties
+
+✅ **Biometric-gated access** - SDK enforces WebAuthn authentication before wallet operations
+✅ **Session caching** - Prevents repeated prompts (configurable duration)
+✅ **Hardware-backed credentials** - Private keys stored in Secure Enclave/TPM
+✅ **Deterministic encryption** - Same key every time (credential ID + public key)
+
+⚠️ **Limitation** - File system access to both localStorage + IndexedDB could decrypt wallet files
+✅ **But** - SDK still requires WebAuthn authentication before allowing any wallet operations
+
+### For Maximum Security
+
+- Use short session durations: `sessionDuration: 0.1` (6 minutes)
+- Or disable sessions: `sessionDuration: 0` (prompt every time)
+- Require fresh auth for sensitive ops: `{ requireAuth: true }`
+- Consider server-based architecture for enterprise use cases
+
+See [Security Architecture](./docs/SECURITY.md) for detailed analysis.
 
 ## Guidelines
 
