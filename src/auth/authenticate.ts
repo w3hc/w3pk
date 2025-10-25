@@ -35,7 +35,7 @@ export async function login(): Promise<AuthResult> {
       throw new Error("Credential not found");
     }
 
-    const isValid = await verifyAssertion(assertion, credential, challenge);
+    const isValid = await verifyAssertion(assertion, credential);
 
     if (!isValid) {
       throw new Error("Signature verification failed");
@@ -66,8 +66,7 @@ export async function login(): Promise<AuthResult> {
 
 async function verifyAssertion(
   assertion: any,
-  credential: StoredCredential,
-  challenge: string
+  credential: StoredCredential
 ): Promise<boolean> {
   try {
     const publicKeyBuffer = base64ToArrayBuffer(credential.publicKey);
@@ -85,10 +84,24 @@ async function verifyAssertion(
     const authenticatorData = base64ToArrayBuffer(
       assertion.response.authenticatorData
     );
+
+    // clientDataJSON comes as base64url string, need to decode it first
     const clientDataJSON = assertion.response.clientDataJSON;
+    let clientDataJSONString: string;
+
+    // Check if it's already a JSON string or base64url encoded
+    if (clientDataJSON.startsWith('eyJ')) {
+      // It's base64url encoded, decode it
+      const decoded = atob(clientDataJSON.replace(/-/g, '+').replace(/_/g, '/'));
+      clientDataJSONString = decoded;
+    } else {
+      // It's already a JSON string
+      clientDataJSONString = clientDataJSON;
+    }
+
     const clientDataHash = await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(clientDataJSON)
+      new TextEncoder().encode(clientDataJSONString)
     );
 
     const signedData = new Uint8Array(

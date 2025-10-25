@@ -83,12 +83,9 @@ const w3pk = createWeb3Passkey({
 **Simple flow** (recommended for first-time users):
 
 ```typescript
-// 1. Register (auto-generates wallet)
+// Register (auto-generates wallet and stores it securely)
 const { mnemonic } = await w3pk.register({ username: 'alice' })
 // Returns: { mnemonic: string } - IMPORTANT: User must save this!
-
-// 2. Save wallet (encrypts with WebAuthn credentials)
-await w3pk.saveWallet()
 ```
 
 **Advanced flow** (if you want to pre-generate wallet):
@@ -98,11 +95,8 @@ await w3pk.saveWallet()
 const { mnemonic } = await w3pk.generateWallet()
 // Returns: { mnemonic: string }
 
-// 2. Register (uses pre-generated wallet)
+// 2. Register (uses pre-generated wallet and stores it securely)
 const { mnemonic } = await w3pk.register({ username: 'alice' })
-
-// 3. Save wallet
-await w3pk.saveWallet()
 ```
 
 For returning users:
@@ -152,14 +146,7 @@ Generate a new BIP39 wallet (no authentication required).
 ```typescript
 const { mnemonic } = await w3pk.generateWallet()
 // Returns: { mnemonic: string }
-// Note: Wallet is stored in memory until saveWallet() is called
-```
-
-#### `saveWallet()`
-Encrypt and persist the wallet (requires authentication).
-```typescript
-await w3pk.saveWallet()
-// Must be called after register() to securely store the wallet
+// Note: Wallet is stored in memory until register() is called
 ```
 
 #### `deriveWallet(index)`

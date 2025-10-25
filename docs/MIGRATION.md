@@ -38,15 +38,12 @@ const wallet = await w3pk.generateWallet()
 
 **New Flow (v0.6.0):**
 ```typescript
-// 1. Generate wallet FIRST (no authentication needed)
+// 1. Generate wallet FIRST (no authentication needed - optional)
 const { mnemonic } = await w3pk.generateWallet()
 console.log('Save this recovery phrase:', mnemonic)
 
-// 2. Register (account #0 address derived automatically)
+// 2. Register (auto-generates wallet if not already created, and stores it securely)
 await w3pk.register({ username: 'alice' })
-
-// 3. Save wallet (encrypts and stores securely)
-await w3pk.saveWallet()  // ← New method
 ```
 
 **Why this change?**
@@ -55,27 +52,7 @@ await w3pk.saveWallet()  // ← New method
 - Better UX: user saves mnemonic, SDK handles the rest
 - More secure: wallet address bound to WebAuthn credentials
 
-### 3. New Method: `saveWallet()`
-
-You must call `saveWallet()` after registration to persist the wallet securely.
-
-```typescript
-// Generate wallet
-const { mnemonic } = await w3pk.generateWallet()
-
-// Register (address derived automatically)
-await w3pk.register({ username: 'alice' })
-
-// NEW: Save wallet (required!)
-await w3pk.saveWallet()
-```
-
-**What it does:**
-- Encrypts the wallet mnemonic with WebAuthn-derived key
-- Stores encrypted wallet in IndexedDB
-- Requires the user to be authenticated
-
-### 4. Registration API Simplified
+### 3. Registration API Simplified
 
 ```diff
 + // Generate wallet first
@@ -96,17 +73,11 @@ Simply update your onboarding flow:
 ```typescript
 // v0.6.0 onboarding
 async function onboard(username: string) {
-  // 1. Generate wallet
-  const { mnemonic } = await w3pk.generateWallet()
+  // Register (auto-generates wallet and stores it securely)
+  const { mnemonic } = await w3pk.register({ username })
 
-  // 2. Show mnemonic to user
+  // Show mnemonic to user
   console.log('⚠️  Save this recovery phrase:', mnemonic)
-
-  // 3. Register (address derived automatically)
-  await w3pk.register({ username })
-
-  // 4. Save wallet
-  await w3pk.saveWallet()
 
   console.log('✅ Setup complete!')
 }
@@ -142,13 +113,8 @@ async function migrateUser(username: string, savedMnemonic: string) {
   // Import existing wallet
   await w3pk.importMnemonic(savedMnemonic)
 
-  // Generate wallet (uses imported mnemonic)
-  const { mnemonic } = await w3pk.generateWallet()
-
-  // Register with new flow (address derived automatically)
+  // Register with new flow (uses imported mnemonic)
   await w3pk.register({ username })
-
-  await w3pk.saveWallet()
 }
 ```
 
@@ -158,9 +124,8 @@ async function migrateUser(username: string, savedMnemonic: string) {
 
 | Method | v0.5.0 | v0.6.0 | Notes |
 |--------|--------|--------|-------|
-| `generateWallet()` | Required auth, returned full wallet | No auth needed, returns `{ mnemonic }` | Now first step in flow |
-| `register()` | `{ username }` | `{ username }` | Address derived internally |
-| `saveWallet()` | N/A | **New method** | Required after registration |
+| `generateWallet()` | Required auth, returned full wallet | No auth needed, returns `{ mnemonic }` | Optional - for pre-generating wallet |
+| `register()` | `{ username }` | `{ username }`, returns `{ mnemonic }` | Auto-generates wallet and stores it |
 
 ### Methods That Stayed The Same
 
@@ -217,31 +182,10 @@ const w3pk = createWeb3Passkey({
 
 **Cause:** You're using the old v0.5.0 pattern.
 
-**Solution:** Call `generateWallet()` BEFORE `register()`:
+**Solution:** Simply call `register()` - it auto-generates the wallet:
 ```typescript
-// ✅ Correct order
-const { mnemonic } = await w3pk.generateWallet()
-await w3pk.register({ username: 'alice' })
-```
-
-### Issue: "No wallet found. Call generateWallet() first."
-
-**Cause:** You're trying to register without generating a wallet first.
-
-**Solution:** Generate wallet before registration:
-```typescript
-const { mnemonic } = await w3pk.generateWallet()
-await w3pk.register({ username: 'alice' })
-```
-
-### Issue: Wallet not persisting
-
-**Cause:** Forgot to call `saveWallet()`.
-
-**Solution:** Call it after registration:
-```typescript
-await w3pk.register({ username: 'alice' })
-await w3pk.saveWallet()  // ← Don't forget this!
+// ✅ Correct - register auto-generates and stores wallet
+const { mnemonic } = await w3pk.register({ username: 'alice' })
 ```
 
 ## Testing Your Migration
@@ -249,10 +193,8 @@ await w3pk.saveWallet()  // ← Don't forget this!
 Use this checklist:
 
 - [ ] Remove `apiUrl` from config
-- [ ] Update registration flow: generate → register → save
+- [ ] Update registration flow: `register()` now returns and auto-stores the wallet
 - [ ] Remove `ethereumAddress` from `register()` calls
-- [ ] Update `generateWallet()` to destructure `{ mnemonic }`
-- [ ] Add `saveWallet()` after registration
 - [ ] Test new user flow
 - [ ] Test returning user flow (login)
 - [ ] Remove backend server code (if applicable)
@@ -292,15 +234,9 @@ const w3pk = createWeb3Passkey({
 // New user flow
 async function registerNewUser(username: string) {
   try {
-    // 1. Generate wallet
-    const { mnemonic } = await w3pk.generateWallet()
+    // Register (auto-generates wallet and stores it securely)
+    const { mnemonic } = await w3pk.register({ username })
     console.log('⚠️  Save this recovery phrase:', mnemonic)
-
-    // 2. Register (address derived automatically)
-    await w3pk.register({ username })
-
-    // 3. Save wallet
-    await w3pk.saveWallet()
 
     console.log('✅ Registration complete!')
     return mnemonic
