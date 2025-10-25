@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Local Storage Checker</title>
+    <title>w3pk SDK Tester</title>
     <style>
       body {
         font-family: system-ui, -apple-system, sans-serif;
-        max-width: 1000px;
-        margin: 50px auto;
+        max-width: 1200px;
+        margin: 20px auto;
         padding: 20px;
         background: #f5f5f5;
       }
@@ -20,10 +20,20 @@
       }
       h1 {
         color: #333;
+        margin-bottom: 10px;
+      }
+      .subtitle {
+        color: #666;
+        margin-bottom: 30px;
+      }
+      .button-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
         margin-bottom: 20px;
       }
       button {
-        padding: 10px 20px;
+        padding: 12px 20px;
         font-size: 14px;
         border: none;
         border-radius: 4px;
@@ -31,10 +41,13 @@
         background: #007bff;
         color: white;
         transition: background 0.2s;
-        margin-bottom: 20px;
       }
       button:hover {
         background: #0056b3;
+      }
+      button:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
       }
       .result {
         margin-top: 20px;
@@ -42,6 +55,14 @@
         background: #f8f9fa;
         border-radius: 4px;
         border-left: 4px solid #007bff;
+      }
+      .error {
+        border-left-color: #dc3545;
+        background: #f8d7da;
+      }
+      .success {
+        border-left-color: #28a745;
+        background: #d4edda;
       }
       .empty {
         border-left-color: #6c757d;
@@ -54,6 +75,23 @@
         overflow-x: auto;
         white-space: pre-wrap;
         word-wrap: break-word;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      .section {
+        margin-bottom: 30px;
+      }
+      .section h2 {
+        color: #333;
+        margin-bottom: 15px;
+        font-size: 18px;
+      }
+      .info {
+        background: #e7f3ff;
+        border-left: 4px solid #2196f3;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 4px;
       }
       .key {
         font-weight: bold;
@@ -64,17 +102,252 @@
   </head>
   <body>
     <div class="container">
-      <h1>Local Storage Checker</h1>
-      <button onclick="checkStorage()">Check Storage</button>
+      <h1>w3pk SDK Tester</h1>
+      <p class="subtitle">Browser-based testing for Web3 Passkey SDK</p>
+
+      <div class="info">
+        <strong>Note:</strong> This page uses the local build of w3pk. Open the browser console to see detailed logs.
+        <br><strong>Requirements:</strong> Run <code>npm run html</code> to build and serve.
+      </div>
+
+      <div class="section">
+        <h2>Authentication</h2>
+        <div class="button-grid">
+          <button onclick="testRegister()">Register New User</button>
+          <button onclick="testLogin()">Login</button>
+          <button onclick="testLogout()">Logout</button>
+          <button onclick="checkAuth()">Check Auth Status</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Wallet Operations</h2>
+        <div class="button-grid">
+          <button onclick="testDeriveWallet()">Derive Wallet (index 0)</button>
+          <button onclick="testDeriveMultiple()">Derive Multiple Wallets</button>
+          <button onclick="testExportMnemonic()">Export Mnemonic</button>
+          <button onclick="testSignMessage()">Sign Message</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Session Management</h2>
+        <div class="button-grid">
+          <button onclick="checkSession()">Check Session Status</button>
+          <button onclick="extendSession()">Extend Session</button>
+          <button onclick="clearSession()">Clear Session</button>
+          <button onclick="testForceAuth()">Test Force Auth</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>RPC & Network</h2>
+        <div class="button-grid">
+          <button onclick="testGetEndpoints()">Get Ethereum RPCs</button>
+          <button onclick="testEIP7702()">Check EIP-7702 Support</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Storage</h2>
+        <div class="button-grid">
+          <button onclick="checkStorage()">View LocalStorage</button>
+          <button onclick="clearStorage()">Clear All Storage</button>
+        </div>
+      </div>
+
       <div id="results"></div>
     </div>
 
-    <script>
-      function checkStorage() {
-        const resultsDiv = document.getElementById("results");
-        resultsDiv.innerHTML = "";
+    <script type="importmap">
+      {
+        "imports": {
+          "@simplewebauthn/browser": "https://esm.sh/@simplewebauthn/browser@13.2.2",
+          "ethers": "https://esm.sh/ethers@6.13.0"
+        }
+      }
+    </script>
+    <script type="module">
+      // Import from local build
+      import { createWeb3Passkey } from './dist/index.mjs';
 
-        // Get all localStorage items
+      // Make it globally available for onclick handlers
+      window.w3pk = createWeb3Passkey({ sessionDuration: 1 });
+
+      // Helper functions
+      window.showResult = function(message, data, type = 'result') {
+        const resultsDiv = document.getElementById('results');
+        const div = document.createElement('div');
+        div.className = `result ${type}`;
+
+        let html = `<strong>${message}</strong>`;
+        if (data) {
+          html += '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+        }
+        div.innerHTML = html;
+
+        resultsDiv.insertBefore(div, resultsDiv.firstChild);
+      };
+
+      window.handleError = function(error) {
+        console.error(error);
+        window.showResult('Error: ' + error.message, null, 'error');
+      };
+
+      // Test functions
+      window.testRegister = async function() {
+        try {
+          const username = 'user_' + Date.now();
+          const result = await window.w3pk.register({ username });
+          console.log('Registration result:', result);
+          window.showResult(`User registered: ${username}`, {
+            username,
+            mnemonic: result.mnemonic,
+            user: window.w3pk.user
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testLogin = async function() {
+        try {
+          const user = await window.w3pk.login();
+          console.log('Login result:', user);
+          window.showResult('Login successful', user, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testLogout = async function() {
+        try {
+          await window.w3pk.logout();
+          console.log('Logged out');
+          window.showResult('Logout successful', { isAuthenticated: window.w3pk.isAuthenticated }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.checkAuth = function() {
+        const data = {
+          isAuthenticated: window.w3pk.isAuthenticated,
+          user: window.w3pk.user
+        };
+        console.log('Auth status:', data);
+        window.showResult('Authentication Status', data);
+      };
+
+      window.testDeriveWallet = async function() {
+        try {
+          const wallet = await window.w3pk.deriveWallet(0);
+          console.log('Derived wallet:', wallet);
+          window.showResult('Wallet Derived (index 0)', wallet, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testDeriveMultiple = async function() {
+        try {
+          const wallets = await Promise.all([
+            window.w3pk.deriveWallet(0),
+            window.w3pk.deriveWallet(1),
+            window.w3pk.deriveWallet(2)
+          ]);
+          console.log('Multiple wallets:', wallets);
+          window.showResult('Multiple Wallets Derived', wallets, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testExportMnemonic = async function() {
+        try {
+          const mnemonic = await window.w3pk.exportMnemonic();
+          console.log('Mnemonic:', mnemonic);
+          window.showResult('Mnemonic Exported', { mnemonic }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testSignMessage = async function() {
+        try {
+          const message = 'Hello Web3! Timestamp: ' + Date.now();
+          const signature = await window.w3pk.signMessage(message);
+          console.log('Signature:', signature);
+          window.showResult('Message Signed', { message, signature }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.checkSession = function() {
+        const data = {
+          hasActiveSession: window.w3pk.hasActiveSession(),
+          remainingTimeSeconds: window.w3pk.getSessionRemainingTime()
+        };
+        console.log('Session status:', data);
+        window.showResult('Session Status', data);
+      };
+
+      window.extendSession = function() {
+        try {
+          window.w3pk.extendSession();
+          const data = {
+            hasActiveSession: window.w3pk.hasActiveSession(),
+            remainingTimeSeconds: window.w3pk.getSessionRemainingTime()
+          };
+          console.log('Session extended:', data);
+          window.showResult('Session Extended', data, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.clearSession = function() {
+        window.w3pk.clearSession();
+        const data = {
+          hasActiveSession: window.w3pk.hasActiveSession()
+        };
+        console.log('Session cleared:', data);
+        window.showResult('Session Cleared', data, 'success');
+      };
+
+      window.testForceAuth = async function() {
+        try {
+          const signature = await window.w3pk.signMessage('Force auth test', { requireAuth: true });
+          console.log('Forced auth signature:', signature);
+          window.showResult('Forced Authentication Successful', { signature }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGetEndpoints = async function() {
+        try {
+          const endpoints = await window.w3pk.getEndpoints(1); // Ethereum
+          console.log('Ethereum endpoints:', endpoints);
+          window.showResult('Ethereum RPC Endpoints', { count: endpoints.length, endpoints: endpoints.slice(0, 5) }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testEIP7702 = async function() {
+        try {
+          window.showResult('Checking EIP-7702 support...', null);
+          const supported = await window.w3pk.supportsEIP7702(1);
+          console.log('EIP-7702 support:', supported);
+          window.showResult('EIP-7702 Support Check', { chainId: 1, supported }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.checkStorage = function() {
         const allData = {};
         let foundCount = localStorage.length;
 
@@ -82,34 +355,45 @@
           const key = localStorage.key(i);
           if (key) {
             const value = localStorage.getItem(key);
-            allData[key] = value;
+            try {
+              allData[key] = JSON.parse(value);
+            } catch {
+              allData[key] = value;
+            }
           }
         }
 
         if (foundCount === 0) {
-          resultsDiv.innerHTML =
-            '<div class="result empty"><strong>No data found in local storage.</strong></div>';
+          window.showResult('No data found in local storage.', null, 'empty');
         } else {
-          let html = `<div class="result"><strong>Found ${foundCount} item(s) in local storage:</strong></div>`;
+          let html = `<div class="result"><strong>Found ${foundCount} item(s) in local storage:</strong>`;
 
           for (const [key, value] of Object.entries(allData)) {
             html += `<div class="key">${key}:</div>`;
-
-            // Try to parse as JSON, if it fails, show raw value
-            try {
-              const parsed = JSON.parse(value);
-              html += "<pre>" + JSON.stringify(parsed, null, 2) + "</pre>";
-            } catch {
-              html += "<pre>" + value + "</pre>";
-            }
+            html += "<pre>" + JSON.stringify(value, null, 2) + "</pre>";
           }
 
-          resultsDiv.innerHTML = html;
+          html += '</div>';
+          document.getElementById('results').insertAdjacentHTML('afterbegin', html);
         }
-      }
 
-      // Auto-check on page load
-      window.addEventListener("load", checkStorage);
+        console.log('LocalStorage:', allData);
+      };
+
+      window.clearStorage = function() {
+        if (confirm('This will clear ALL localStorage data. Are you sure?')) {
+          localStorage.clear();
+          console.log('Storage cleared');
+          window.showResult('All Storage Cleared', null, 'success');
+        }
+      };
+
+      // Initial status check
+      console.log('w3pk SDK loaded:', window.w3pk);
+      window.showResult('w3pk SDK Ready', {
+        version: 'latest from CDN',
+        isAuthenticated: window.w3pk.isAuthenticated
+      }, 'success');
     </script>
   </body>
 </html>
