@@ -85,7 +85,8 @@
     "test:chainlist": "tsx test/chainlist.test.ts",
     "test:eip7702": "tsx test/eip7702.test.ts",
     "test:erc5564": "tsx test/erc5564.test.ts",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "html": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true && tsup && npx serve . -l 3000 & sleep 5 && open http://localhost:3000/checker.html"
   },
   "packageManager": "pnpm@10.6.4",
   "dependencies": {
