@@ -3,6 +3,7 @@
  * Tests the NFT/SBT ownership proof functionality
  */
 
+import { mockLocalStorage } from './setup';
 import { createWeb3Passkey } from '../src/index';
 import {
   buildNFTHoldersMerkleTree,
@@ -136,11 +137,10 @@ async function runNFTOwnershipTests() {
   try {
     // Step 1: Initialize main SDK (lightweight, no ZK dependencies)
     const w3pk = createWeb3Passkey({
-      apiBaseUrl: 'https://webauthn.w3hc.org'
+      storage: mockLocalStorage
     });
 
     console.log('  ✅ Main SDK initialized (no ZK dependencies)');
-    console.log(`  🔍 Has ZK module: ${w3pk.hasZKProofs}`);
 
     // Step 2: Initialize ZK module separately when needed
     const { ZKProofModule } = await import('../src/zk/proof-module');

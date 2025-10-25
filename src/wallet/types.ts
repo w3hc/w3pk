@@ -11,7 +11,7 @@ export interface EncryptedWalletData {
   ethereumAddress: string;
   encryptedMnemonic: string;
   credentialId: string;
-  challenge: string;
+  // Challenge is NOT stored - generated fresh for each operation
   createdAt: number;
 }
 

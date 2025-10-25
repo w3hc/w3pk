@@ -1,55 +1,23 @@
-import { createWeb3Passkey, Web3Passkey } from "../src/index";
+/**
+ * Comprehensive SDK Tests
+ * Tests low-level wallet utilities and SDK functionality
+ */
+import { mockLocalStorage } from "./setup";
+import { createWeb3Passkey } from "../src/index";
 import {
   generateBIP39Wallet,
   createWalletFromMnemonic,
   deriveWalletFromMnemonic,
 } from "../src/wallet/generate";
 import {
-  deriveEncryptionKey,
+  deriveEncryptionKeyFromSignature,
   encryptData,
   decryptData,
 } from "../src/wallet/crypto";
 import { ethers } from "ethers";
 
-// Mock IndexedDB for Node.js test environment
-(global as any).indexedDB = {
-  open: () => {
-    const request: any = {
-      result: {
-        objectStoreNames: { contains: () => false },
-        createObjectStore: () => ({}),
-        transaction: () => ({
-          objectStore: () => ({
-            put: () => ({ onsuccess: null, onerror: null }),
-            get: () => ({ onsuccess: null, onerror: null }),
-            delete: () => ({ onsuccess: null, onerror: null }),
-          })
-        })
-      },
-      onsuccess: null,
-      onerror: null,
-      onupgradeneeded: null
-    };
-    // Simulate success
-    setTimeout(() => {
-      if (request.onupgradeneeded) request.onupgradeneeded();
-      if (request.onsuccess) request.onsuccess();
-    }, 0);
-    return request;
-  }
-};
-
-// Mock localStorage for Node.js
-(global as any).localStorage = {
-  getItem: () => null,
-  setItem: () => {},
-  removeItem: () => {},
-  clear: () => {},
-  length: 0,
-  key: () => null
-};
-
 console.log("=== Comprehensive SDK Tests ===\n");
+console.log("Testing low-level wallet utilities and SDK features\n");
 
 // Test 1: Wallet Generation
 console.log("Test 1: Wallet Generation");
@@ -96,15 +64,17 @@ try {
   console.log("  ✗ Failed:", (error as Error).message);
 }
 
-// Test 4: Encryption/Decryption
+// Test 4: Encryption/Decryption with Signature-Based Keys
 console.log("\nTest 4: Data Encryption/Decryption");
 async function testEncryption() {
   try {
     const testData = "secret mnemonic phrase here";
     const credentialId = "test-credential-id";
-    const challenge = "test-challenge";
 
-    const key = await deriveEncryptionKey(credentialId, challenge);
+    // Simulate a WebAuthn signature (mock for testing)
+    const mockSignature = crypto.getRandomValues(new Uint8Array(64)).buffer;
+
+    const key = await deriveEncryptionKeyFromSignature(mockSignature, credentialId);
     const encrypted = await encryptData(testData, key);
     const decrypted = await decryptData(encrypted, key);
 
@@ -112,11 +82,14 @@ async function testEncryption() {
       console.log("  ✓ Encryption/decryption successful");
       console.log(`  Original length: ${testData.length}`);
       console.log(`  Encrypted length: ${encrypted.length}`);
+      console.log("  🔒 Security: Key derived from WebAuthn signature");
+      console.log("  🔐 Requires: Biometric/PIN authentication");
     } else {
       console.log("  ✗ Decrypted data doesn't match original");
     }
   } catch (error) {
-    console.log("  ✗ Failed:", (error as Error).message);
+    console.error("  ✗ Failed:", (error as Error).message);
+    console.error("  Error details:", error);
   }
 }
 
@@ -124,15 +97,12 @@ async function testEncryption() {
 console.log("\nTest 5: SDK Initialization");
 try {
   const sdk = createWeb3Passkey({
-    apiBaseUrl: "https://webauthn.w3hc.org",
+    storage: mockLocalStorage,
     debug: false,
   });
 
   console.log("  ✓ SDK initialized");
-  console.log(`  Version: ${sdk.version}`);
   console.log(`  Authenticated: ${sdk.isAuthenticated}`);
-  console.log(`  Has stealth: ${sdk.hasStealthAddresses}`);
-  console.log(`  Has ZK: ${sdk.hasZKProofs}`);
 } catch (error) {
   console.log("  ✗ Failed:", (error as Error).message);
 }
@@ -141,12 +111,11 @@ try {
 console.log("\nTest 6: SDK with Stealth Addresses");
 try {
   const sdk = createWeb3Passkey({
-    apiBaseUrl: "https://webauthn.w3hc.org",
+    storage: mockLocalStorage,
     stealthAddresses: {},
   });
 
   console.log("  ✓ SDK with stealth addresses initialized");
-  console.log(`  Stealth available: ${sdk.hasStealthAddresses}`);
   console.log(`  Stealth module: ${sdk.stealth ? "Present" : "Not present"}`);
 } catch (error) {
   console.log("  ✗ Failed:", (error as Error).message);
@@ -155,16 +124,15 @@ try {
 // Test 7: SDK with ZK Proofs
 console.log("\nTest 7: SDK with ZK Proofs");
 try {
-  const sdk = createWeb3Passkey({
-    apiBaseUrl: "https://webauthn.w3hc.org",
+  const zkSdk = createWeb3Passkey({
+    storage: mockLocalStorage,
     zkProofs: {
       enabledProofs: ["membership", "threshold"],
     },
   });
 
   console.log("  ✓ SDK with ZK proofs initialized");
-  console.log(`  ZK available: ${sdk.hasZKProofs}`);
-  console.log(`  ZK module: ${sdk.zk ? "Present" : "Not present"}`);
+  console.log(`  ZK module available: ${zkSdk.zk ? "Yes" : "No"}`);
 } catch (error) {
   console.log("  ✗ Failed:", (error as Error).message);
 }

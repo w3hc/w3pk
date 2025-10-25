@@ -1,12 +1,10 @@
 /**
- * Main Web3Passkey SDK class
+ * Main Web3Passkey SDK class - Client-Only Version
+ * No server required - all authentication happens locally
  */
 
-import {
-  startRegistration,
-  startAuthentication,
-} from "@simplewebauthn/browser";
-import { ApiClient } from "../utils/api";
+import { register } from "../auth/register";
+import { login } from "../auth/authenticate";
 import { IndexedDBWalletStorage } from "../wallet/storage";
 import { WalletSigner } from "../wallet/signing";
 import {
@@ -14,411 +12,145 @@ import {
   deriveWalletFromMnemonic,
 } from "../wallet/generate";
 import {
-  deriveEncryptionKey,
+  deriveEncryptionKeyFromSignature,
   encryptData,
   decryptData,
+  generateChallenge,
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
 // ZK module imported dynamically to avoid bundling dependencies
-import type {
-  Web3PasskeyConfig,
-  InternalConfig,
-  StealthAddressConfig,
-  ZKProofConfig,
-} from "./config";
+import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo } from "../types";
-
-export interface AuthResult {
-  verified: boolean;
-  user?: UserInfo;
-}
+import { AuthenticationError, WalletError } from "./errors";
+import { getEndpoints } from "../chainlist";
+import { supportsEIP7702 } from "../eip7702";
 
 export class Web3Passkey {
   private config: InternalConfig;
-  private apiClient: ApiClient;
-  private storage: IndexedDBWalletStorage;
-  private signer: WalletSigner;
-  private stealthModule?: StealthAddressModule;
-  private zkModule?: any; // Dynamically imported to avoid bundling ZK dependencies
+  private walletStorage: IndexedDBWalletStorage;
+  private walletSigner: WalletSigner;
   private currentUser: UserInfo | null = null;
-  private currentMnemonic: string | null = null;
+  private currentWallet: WalletInfo | null = null;
 
-  constructor(config: Web3PasskeyConfig) {
-    // Merge with defaults
-    this.config = {
-      ...DEFAULT_CONFIG,
-      ...config,
-      timeout: config.timeout ?? DEFAULT_CONFIG.timeout!,
-      debug: config.debug ?? DEFAULT_CONFIG.debug!,
-    } as InternalConfig;
+  // Optional modules
+  public stealth?: StealthAddressModule;
+  private zkModule?: any;
 
-    // Initialize API client
-    this.apiClient = new ApiClient(this.config.apiBaseUrl, this.config.timeout);
+  constructor(config: Web3PasskeyConfig = {}) {
+    this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
+    this.walletStorage = new IndexedDBWalletStorage();
+    this.walletSigner = new WalletSigner(this.walletStorage);
 
-    // Initialize storage
-    this.storage = new IndexedDBWalletStorage();
-    this.storage.init().catch((error) => {
-      if (this.config.onError) {
-        this.config.onError(error);
-      }
-    });
-
-    // Initialize signer
-    this.signer = new WalletSigner(this.storage);
-
-    // Initialize stealth address module if configured
-    if (this.config.stealthAddresses) {
-      this.stealthModule = new StealthAddressModule(
-        this.config.stealthAddresses,
-        this.getMnemonic.bind(this)
+    // Initialize optional modules
+    if (config.stealthAddresses !== undefined) {
+      this.stealth = new StealthAddressModule(
+        config.stealthAddresses,
+        () => this.exportMnemonic()
       );
     }
 
-    // ZK module initialization handled separately through enableZKProofs()
-    // to avoid bundling ZK dependencies in the main package
-
-    this.log("SDK initialized");
+    // Initialize ZK module if configured
+    if (config.zkProofs) {
+      this.initializeZKModule(config.zkProofs);
+    }
   }
 
-  // ========================================
-  // Authentication Methods
-  // ========================================
+  /**
+   * Lazy-load ZK module to avoid bundling large dependencies
+   */
+  private async initializeZKModule(zkConfig: any) {
+    try {
+      const { ZKProofModule } = await import("../zk");
+      this.zkModule = new ZKProofModule(zkConfig);
+    } catch (error) {
+      console.warn(
+        "ZK module not available. Install dependencies: npm install snarkjs circomlibjs"
+      );
+    }
+  }
 
   /**
    * Register a new user with WebAuthn
-   * Automatically generates and encrypts a BIP39 wallet
+   * Automatically generates a wallet if none exists
+   * Creates a passkey and associates it with the Ethereum address (account #0)
+   * Returns the mnemonic phrase - IMPORTANT: User must save this!
    */
-  async register(options: {
-    username: string;
-    ethereumAddress: string;
-  }): Promise<void> {
+  async register(options: { username: string }): Promise<{ mnemonic: string }> {
     try {
-      const { username } = options;
-
-      this.log(`Registering user: ${username}`);
-
-      // Step 1: Generate BIP39 wallet
-      const wallet = generateBIP39Wallet();
-      this.log(`Generated wallet: ${wallet.address}`);
-
-      // Step 2: Begin WebAuthn registration
-      const beginResponse = await this.apiClient.post(
-        "/webauthn/register/begin",
-        {
-          username,
-          ethereumAddress: wallet.address,
-        }
-      );
-
-      if (!beginResponse.success || !beginResponse.data?.options) {
-        throw new Error("Failed to get registration options from server");
+      // Auto-generate wallet if it doesn't exist
+      if (!this.currentWallet?.address) {
+        await this.generateWallet();
       }
 
-      // Step 3: WebAuthn registration
-      const credential = await startRegistration(beginResponse.data.options);
+      // Derive account #0 address from the generated wallet
+      const ethereumAddress = this.currentWallet!.address;
+      const mnemonic = this.currentWallet!.mnemonic!;
 
-      // Step 4: Complete registration
-      const completeResponse = await this.apiClient.post(
-        "/webauthn/register/complete",
-        {
-          ethereumAddress: wallet.address,
-          response: credential,
-        }
-      );
-
-      if (!completeResponse.success) {
-        throw new Error("Registration verification failed");
-      }
-
-      // Step 5: Encrypt and store wallet
-      const credentialId = credential.id;
-      const challenge = beginResponse.data.options.challenge;
-
-      const encryptionKey = await deriveEncryptionKey(credentialId, challenge);
-      const encryptedMnemonic = await encryptData(
-        wallet.mnemonic,
-        encryptionKey
-      );
-
-      await this.storage.store({
-        ethereumAddress: wallet.address,
-        encryptedMnemonic,
-        credentialId,
-        challenge,
-        createdAt: Date.now(),
+      await register({
+        username: options.username,
+        ethereumAddress,
       });
 
-      this.log("Registration successful");
-
-      // Set current user
+      // Update auth state
       this.currentUser = {
-        id: credential.id,
-        username,
-        displayName: username,
-        ethereumAddress: wallet.address,
+        id: ethereumAddress, // Use address as unique ID
+        username: options.username,
+        displayName: options.username, // Use username as display name
+        ethereumAddress,
       };
 
-      this.currentMnemonic = wallet.mnemonic;
+      // Notify state change
+      this.config.onAuthStateChanged?.(true, this.currentUser);
 
-      if (this.config.onAuthStateChanged) {
-        this.config.onAuthStateChanged(true, this.currentUser ?? undefined);
-      }
+      // Return mnemonic so user can save it
+      return { mnemonic };
     } catch (error) {
-      this.log(`Registration failed: ${error}`, "error");
-      if (this.config.onError) {
-        this.config.onError(error as any);
-      }
+      this.config.onError?.(error as any);
       throw error;
     }
   }
 
   /**
-   * Authenticate with WebAuthn (usernameless flow)
-   * Decrypts the wallet after successful authentication
+   * Login with WebAuthn (usernameless)
+   * Uses resident credentials stored in the authenticator
    */
-  async login(): Promise<AuthResult> {
+  async login(): Promise<UserInfo> {
     try {
-      this.log("Starting login");
+      const result = await login();
 
-      // Step 1: Begin usernameless authentication
-      const beginResponse = await this.apiClient.post(
-        "/webauthn/authenticate/usernameless/begin",
-        {}
-      );
-
-      if (!beginResponse.success || !beginResponse.data) {
-        throw new Error(
-          "Failed to get usernameless authentication options from server"
-        );
+      if (!result.verified || !result.user) {
+        throw new AuthenticationError("Login failed");
       }
 
-      const webauthnOptions = beginResponse.data.options || beginResponse.data;
-
-      // Step 2: WebAuthn authentication
-      const credential = await startAuthentication(webauthnOptions);
-
-      // Step 3: Complete authentication
-      const completeResponse = await this.apiClient.post(
-        "/webauthn/authenticate/usernameless/complete",
-        {
-          response: credential,
-        }
-      );
-
-      if (!completeResponse.success) {
-        throw new Error("Usernameless authentication verification failed");
-      }
-
-      const user = completeResponse.data?.user;
-
-      if (!user) {
-        throw new Error("No user data returned from authentication");
-      }
-
-      this.log(`Authenticated user: ${user.username}`);
-
-      // Step 4: Decrypt wallet
-      const walletData = await this.storage.retrieve(user.ethereumAddress);
-
-      if (walletData) {
-        const encryptionKey = await deriveEncryptionKey(
-          walletData.credentialId,
-          walletData.challenge
-        );
-
-        this.currentMnemonic = await decryptData(
-          walletData.encryptedMnemonic,
-          encryptionKey
-        );
-
-        this.log("Wallet decrypted successfully");
-      }
-
-      // Set current user
-      this.currentUser = user;
-
-      if (this.config.onAuthStateChanged) {
-        this.config.onAuthStateChanged(true, this.currentUser ?? undefined);
-      }
-
-      return {
-        verified: true,
-        user,
+      this.currentUser = {
+        id: result.user.ethereumAddress, // Use address as unique ID
+        username: result.user.username,
+        displayName: result.user.username, // Use username as display name
+        ethereumAddress: result.user.ethereumAddress,
       };
+
+      // Notify state change
+      this.config.onAuthStateChanged?.(true, this.currentUser);
+
+      return this.currentUser;
     } catch (error) {
-      this.log(`Login failed: ${error}`, "error");
-      if (this.config.onError) {
-        this.config.onError(error as any);
-      }
+      this.config.onError?.(error as any);
       throw error;
     }
   }
 
   /**
-   * Logout - clears current session
+   * Logout the current user
    */
   async logout(): Promise<void> {
     this.currentUser = null;
-    this.currentMnemonic = null;
-
-    if (this.config.onAuthStateChanged) {
-      this.config.onAuthStateChanged(false, undefined);
-    }
-
-    this.log("Logged out");
-  }
-
-  // ========================================
-  // Wallet Methods
-  // ========================================
-
-  /**
-   * Generate a new BIP39 wallet
-   * Note: This is a utility method and doesn't require authentication
-   */
-  async generateWallet(): Promise<WalletInfo> {
-    const wallet = generateBIP39Wallet();
-    return {
-      address: wallet.address,
-      mnemonic: wallet.mnemonic,
-    };
+    this.currentWallet = null;
+    this.config.onAuthStateChanged?.(false, undefined);
   }
 
   /**
-   * Get the current user's wallet address
-   */
-  get walletAddress(): string | null {
-    return this.currentUser?.ethereumAddress || null;
-  }
-
-  /**
-   * Get the current user's mnemonic (only after authentication)
-   */
-  private async getMnemonic(): Promise<string | null> {
-    return this.currentMnemonic;
-  }
-
-  /**
-   * Export wallet mnemonic (requires authentication)
-   */
-  async exportMnemonic(): Promise<string> {
-    if (!this.currentMnemonic) {
-      throw new Error("Not authenticated. Please login first.");
-    }
-    return this.currentMnemonic;
-  }
-
-  /**
-   * Derive HD wallet at specific index
-   */
-  async deriveWallet(index: number = 0): Promise<{
-    address: string;
-    privateKey: string;
-  }> {
-    if (!this.currentMnemonic) {
-      throw new Error("Not authenticated. Please login first.");
-    }
-
-    return deriveWalletFromMnemonic(this.currentMnemonic, index);
-  }
-
-  /**
-   * Sign a message with the encrypted wallet
-   */
-  async signMessage(message: string): Promise<string> {
-    if (!this.currentUser) {
-      throw new Error("Not authenticated. Please login first.");
-    }
-
-    const walletData = await this.storage.retrieve(
-      this.currentUser.ethereumAddress
-    );
-
-    if (!walletData) {
-      throw new Error("No wallet found for current user");
-    }
-
-    return this.signer.signMessage(
-      this.currentUser.ethereumAddress,
-      message,
-      walletData.credentialId,
-      walletData.challenge
-    );
-  }
-
-  // ========================================
-  // Stealth Address Methods
-  // ========================================
-
-  /**
-   * Access stealth address capabilities
-   * Returns undefined if stealth addresses not configured
-   */
-  get stealth(): StealthAddressModule | undefined {
-    return this.stealthModule;
-  }
-
-  /**
-   * Check if stealth addresses are available
-   */
-  get hasStealthAddresses(): boolean {
-    return this.stealthModule !== undefined;
-  }
-
-  /**
-   * Enable stealth addresses after initialization
-   */
-  enableStealthAddresses(config: StealthAddressConfig = {}): void {
-    if (!this.stealthModule) {
-      this.stealthModule = new StealthAddressModule(
-        config,
-        this.getMnemonic.bind(this)
-      );
-    }
-  }
-
-  // ========================================
-  // ZK Proof Methods
-  // ========================================
-
-  /**
-   * Access ZK proof capabilities
-   * Returns undefined if ZK proofs not configured
-   */
-  get zk(): any | undefined {
-    return this.zkModule;
-  }
-
-  /**
-   * Check if ZK proofs are available
-   */
-  get hasZKProofs(): boolean {
-    return this.zkModule !== undefined;
-  }
-
-  /**
-   * Enable ZK proofs after initialization
-   * Note: ZK functionality moved to separate entry point (w3pk/zk)
-   * to avoid bundling heavy dependencies in main package
-   */
-  async enableZKProofs(_config: ZKProofConfig = {}): Promise<void> {
-    throw new Error(
-      "ZK functionality has been moved to separate entry point.\n\n" +
-        "Use instead:\n" +
-        "  import { ZKProofModule } from 'w3pk/zk'\n\n" +
-        "This prevents heavy ZK dependencies from being bundled\n" +
-        "unless explicitly imported by developers who need them.\n\n" +
-        "See: https://github.com/w3hc/w3pk#zero-knowledge-proofs"
-    );
-  }
-
-  // ========================================
-  // State & Info Methods
-  // ========================================
-
-  /**
-   * Check if user is authenticated
+   * Get current authentication status
    */
   get isAuthenticated(): boolean {
     return this.currentUser !== null;
@@ -432,108 +164,289 @@ export class Web3Passkey {
   }
 
   /**
-   * SDK version
+   * Generate a new BIP39 wallet
+   * Returns the mnemonic phrase (12 words)
+   * After registration/authentication, call saveWallet() to encrypt and store it
    */
-  get version(): string {
-    return "0.6.0";
+  async generateWallet(): Promise<{ mnemonic: string }> {
+    try {
+      // Generate new BIP39 wallet
+      const wallet = generateBIP39Wallet();
+
+      // Store in memory (unencrypted) until user authenticates
+      this.currentWallet = {
+        address: wallet.address,
+        mnemonic: wallet.mnemonic,
+      };
+
+      return {
+        mnemonic: wallet.mnemonic,
+      };
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to generate wallet", error);
+    }
   }
 
-  // ========================================
-  // Chainlist Methods
-  // ========================================
+  /**
+   * Save the current wallet (encrypt and store)
+   * Must be called after authentication to persist the wallet securely
+   *
+   * SECURITY: Requires fresh WebAuthn authentication to derive encryption key
+   * from the signature. This ensures the wallet can only be encrypted/decrypted
+   * with biometric/PIN authentication.
+   */
+  async saveWallet(): Promise<void> {
+    try {
+      if (!this.currentUser) {
+        throw new WalletError("Must be authenticated to save wallet");
+      }
+
+      if (!this.currentWallet?.mnemonic) {
+        throw new WalletError("No wallet to save. Generate a wallet first.");
+      }
+
+      // SECURITY: Re-authenticate to get WebAuthn signature for encryption
+      // User must provide biometric/PIN - signature cannot be replayed/stolen
+      const authResult = await login();
+      if (!authResult.user || !authResult.signature) {
+        throw new WalletError("Authentication failed - signature required");
+      }
+
+      const credentialId = authResult.user.credentialId;
+
+      // SECURITY: Derive encryption key from WebAuthn signature
+      // The signature can ONLY be obtained through biometric/PIN authentication
+      const encryptionKey = await deriveEncryptionKeyFromSignature(
+        authResult.signature,
+        credentialId
+      );
+
+      // Encrypt the mnemonic with the signature-derived key
+      const encryptedMnemonic = await encryptData(
+        this.currentWallet.mnemonic,
+        encryptionKey
+      );
+
+      // Store encrypted wallet (NO challenge stored - generated fresh each time)
+      await this.walletStorage.store({
+        ethereumAddress: this.currentUser.ethereumAddress,
+        encryptedMnemonic,
+        credentialId,
+        createdAt: Date.now(),
+      });
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to save wallet", error);
+    }
+  }
 
   /**
-   * Get RPC endpoints for a specific chain ID
-   * Automatically filters out endpoints that require API keys
+   * Derive an HD wallet at a specific index
    *
-   * @param chainId - The chain ID to get endpoints for
-   * @returns Array of public RPC URLs (without API key requirements)
-   *
-   * @example
-   * ```typescript
-   * // Get Ethereum mainnet endpoints
-   * const endpoints = await w3pk.getEndpoints(1)
-   * console.log(endpoints)
-   * // ["https://cloudflare-eth.com", "https://ethereum-rpc.publicnode.com", ...]
-   * ```
+   * SECURITY: Requires WebAuthn authentication to decrypt the mnemonic
+   */
+  async deriveWallet(index: number): Promise<WalletInfo> {
+    try {
+      if (!this.currentUser) {
+        throw new WalletError("Must be authenticated to derive wallet");
+      }
+
+      // Get encrypted wallet data
+      const walletData = await this.walletStorage.retrieve(
+        this.currentUser.ethereumAddress
+      );
+
+      if (!walletData) {
+        throw new WalletError("No wallet found. Generate a wallet first.");
+      }
+
+      // SECURITY: Re-authenticate to get signature for decryption
+      const authResult = await login();
+      if (!authResult.user || !authResult.signature) {
+        throw new WalletError("Authentication failed - signature required");
+      }
+
+      // SECURITY: Derive decryption key from WebAuthn signature
+      const encryptionKey = await deriveEncryptionKeyFromSignature(
+        authResult.signature,
+        walletData.credentialId
+      );
+
+      // Decrypt mnemonic
+      const mnemonic = await decryptData(
+        walletData.encryptedMnemonic,
+        encryptionKey
+      );
+
+      // Derive wallet at index
+      const derived = deriveWalletFromMnemonic(mnemonic, index);
+
+      return {
+        address: derived.address,
+        privateKey: derived.privateKey,
+      };
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to derive wallet", error);
+    }
+  }
+
+  /**
+   * Export the mnemonic phrase
+   * Requires fresh WebAuthn authentication for security
+   */
+  async exportMnemonic(): Promise<string> {
+    try {
+      if (!this.currentUser) {
+        throw new WalletError("Must be authenticated to export mnemonic");
+      }
+
+      const walletData = await this.walletStorage.retrieve(
+        this.currentUser.ethereumAddress
+      );
+
+      if (!walletData) {
+        throw new WalletError("No wallet found");
+      }
+
+      // SECURITY: Re-authenticate to get signature for decryption
+      const authResult = await login();
+      if (!authResult.user || !authResult.signature) {
+        throw new WalletError("Authentication failed - signature required");
+      }
+
+      const encryptionKey = await deriveEncryptionKeyFromSignature(
+        authResult.signature,
+        walletData.credentialId
+      );
+
+      const mnemonic = await decryptData(
+        walletData.encryptedMnemonic,
+        encryptionKey
+      );
+
+      return mnemonic;
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to export mnemonic", error);
+    }
+  }
+
+  /**
+   * Import a mnemonic phrase
+   * Encrypts and stores it for the current user
+   * Requires fresh WebAuthn authentication for security
+   * WARNING: This will overwrite any existing wallet for this user
+   */
+  async importMnemonic(mnemonic: string): Promise<void> {
+    try {
+      if (!this.currentUser) {
+        throw new WalletError("Must be authenticated to import mnemonic");
+      }
+
+      // Validate the mnemonic format
+      if (!mnemonic || mnemonic.trim().split(/\s+/).length < 12) {
+        throw new WalletError("Invalid mnemonic: must be at least 12 words");
+      }
+
+      // SECURITY: Re-authenticate to get signature for encryption
+      const authResult = await login();
+      if (!authResult.user || !authResult.signature) {
+        throw new WalletError("Authentication failed - signature required");
+      }
+
+      const credentialId = authResult.user.credentialId;
+
+      // SECURITY: Derive encryption key from WebAuthn signature
+      const encryptionKey = await deriveEncryptionKeyFromSignature(
+        authResult.signature,
+        credentialId
+      );
+
+      // Encrypt the mnemonic
+      const encryptedMnemonic = await encryptData(
+        mnemonic.trim(),
+        encryptionKey
+      );
+
+      // Store encrypted wallet (NO challenge stored)
+      await this.walletStorage.store({
+        ethereumAddress: this.currentUser.ethereumAddress,
+        encryptedMnemonic,
+        credentialId,
+        createdAt: Date.now(),
+      });
+
+      this.currentWallet = {
+        address: this.currentUser.ethereumAddress,
+        mnemonic: mnemonic.trim(),
+      };
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to import mnemonic", error);
+    }
+  }
+
+  /**
+   * Sign a message with the wallet
+   * Requires fresh authentication
+   */
+  async signMessage(message: string): Promise<string> {
+    try {
+      if (!this.currentUser) {
+        throw new WalletError("Must be authenticated to sign message");
+      }
+
+      // Re-authenticate to get fresh credentials
+      const authResult = await login();
+      if (!authResult.user) {
+        throw new WalletError("Re-authentication failed");
+      }
+
+      const challenge = generateChallenge();
+
+      const signature = await this.walletSigner.signMessage(
+        this.currentUser.ethereumAddress,
+        message,
+        authResult.user.credentialId,
+        challenge
+      );
+
+      return signature;
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to sign message", error);
+    }
+  }
+
+  /**
+   * Get RPC endpoints for a chain
    */
   async getEndpoints(chainId: number): Promise<string[]> {
-    // Dynamically import to avoid bundling in all cases
-    const { getEndpoints } = await import("../chainlist");
     return getEndpoints(chainId);
   }
 
-  // ========================================
-  // EIP-7702 Support
-  // ========================================
-
   /**
    * Check if a network supports EIP-7702
-   * First checks cached list (329 known networks), then performs RPC test if not found
-   *
-   * @param chainId - The chain ID to check
-   * @param options - Optional configuration for RPC testing
-   * @returns Promise<boolean> - True if the network supports EIP-7702
-   *
-   * @example
-   * ```typescript
-   * // Check cached network (instant, no RPC call)
-   * const ethSupported = await w3pk.supportsEIP7702(1)
-   * console.log(ethSupported) // true
-   *
-   * // Check unknown network (tests RPC endpoints)
-   * const unknownSupported = await w3pk.supportsEIP7702(999)
-   * console.log(unknownSupported) // false (after testing RPCs)
-   *
-   * // Configure RPC testing
-   * const supported = await w3pk.supportsEIP7702(999, {
-   *   maxEndpoints: 5,  // Test up to 5 RPC endpoints
-   *   timeout: 5000     // 5 second timeout per RPC
-   * })
-   * ```
    */
   async supportsEIP7702(
     chainId: number,
-    options?: {
-      maxEndpoints?: number;
-      timeout?: number;
-    }
+    options?: { maxEndpoints?: number; timeout?: number }
   ): Promise<boolean> {
-    const { supportsEIP7702 } = await import("../eip7702");
-    const { getEndpoints } = await import("../chainlist");
-    return supportsEIP7702(chainId, getEndpoints, options);
-  }
-
-  // ========================================
-  // Utility Methods
-  // ========================================
-
-  /**
-   * Internal logging
-   */
-  private log(message: string, level: "info" | "error" = "info"): void {
-    if (this.config.debug) {
-      const prefix = `[w3pk ${level.toUpperCase()}]`;
-      if (level === "error") {
-        console.error(prefix, message);
-      } else {
-        console.log(prefix, message);
-      }
-    }
+    return supportsEIP7702(chainId, this.getEndpoints.bind(this), options);
   }
 
   /**
-   * Clear all stored wallet data (use with caution!)
+   * Access ZK proof module (if available)
    */
-  async clearAllData(): Promise<void> {
-    await this.storage.clear();
-    this.currentUser = null;
-    this.currentMnemonic = null;
-
-    if (this.config.onAuthStateChanged) {
-      this.config.onAuthStateChanged(false, undefined);
+  get zk(): any {
+    if (!this.zkModule) {
+      throw new Error(
+        "ZK module not available. Install dependencies: npm install snarkjs circomlibjs"
+      );
     }
-
-    this.log("All data cleared");
+    return this.zkModule;
   }
+
 }

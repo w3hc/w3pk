@@ -1,32 +1,52 @@
 /**
  * Cryptographic utilities for wallet encryption
+ *
+ * SECURITY: Encryption keys are derived from WebAuthn signatures,
+ * which require biometric/PIN authentication. This prevents wallet
+ * theft even if an attacker has file system access.
  */
 
 import { CryptoError } from "../core/errors";
 
 /**
- * Derives an encryption key from WebAuthn credential data
+ * Derives an encryption key from a WebAuthn signature
+ *
+ * CRITICAL SECURITY: The signature can only be obtained by authenticating
+ * with biometrics/PIN. This ensures the encryption key is protected by
+ * the authenticator, not just stored data.
+ *
+ * @param signature - WebAuthn assertion signature (requires authentication)
+ * @param credentialId - Public credential identifier (for salt diversity)
  */
-export async function deriveEncryptionKey(
-  credentialId: string,
-  challenge: string
+export async function deriveEncryptionKeyFromSignature(
+  signature: ArrayBuffer,
+  credentialId: string
 ): Promise<CryptoKey> {
   try {
-    const keyMaterial = new TextEncoder().encode(credentialId + challenge);
+    // Hash the signature to get uniform key material
+    const signatureHash = await crypto.subtle.digest("SHA-256", signature);
 
+    // Import the signature hash as key material
     const importedKey = await crypto.subtle.importKey(
       "raw",
-      keyMaterial,
+      signatureHash,
       { name: "PBKDF2" },
       false,
       ["deriveKey"]
     );
 
+    // Use credentialId as additional salt for key diversity
+    const salt = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode("w3pk-v1:" + credentialId)
+    );
+
+    // Derive the actual encryption key with strong parameters
     return crypto.subtle.deriveKey(
       {
         name: "PBKDF2",
-        salt: new TextEncoder().encode("webauthn-wallet-salt-w3pk"),
-        iterations: 100000,
+        salt: new Uint8Array(salt),
+        iterations: 210000, // OWASP 2023 recommendation
         hash: "SHA-256",
       },
       importedKey,
@@ -37,6 +57,18 @@ export async function deriveEncryptionKey(
   } catch (error) {
     throw new CryptoError("Failed to derive encryption key", error);
   }
+}
+
+/**
+ * Generates a cryptographic challenge for WebAuthn authentication
+ */
+export function generateChallenge(): string {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return btoa(String.fromCharCode(...array))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
 }
 
 /**

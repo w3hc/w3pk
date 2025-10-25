@@ -16,30 +16,28 @@ npm install w3pk ethers
 ```typescript
 import { createWeb3Passkey } from 'w3pk'
 
-const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org'
-})
+const w3pk = createWeb3Passkey()
 
-// Register
-await w3pk.register({
-  username: 'alice',
-  ethereumAddress: '0x...'
-})
+// Register (auto-generates wallet)
+const { mnemonic } = await w3pk.register({ username: 'alice' })
+console.log('⚠️  Save this recovery phrase:', mnemonic)
 
-// Login
+// Save wallet (encrypts and stores securely)
+await w3pk.saveWallet()
+
+// Login (for subsequent sessions)
 await w3pk.login()
 
 // Sign message
 const signature = await w3pk.signMessage('Hello World')
 
 // Derive addresses
-const wallet = await w3pk.deriveWallet(0) // First address
-const wallet2 = await w3pk.deriveWallet(1) // Second address
+const wallet0 = await w3pk.deriveWallet(0)
+const wallet1 = await w3pk.deriveWallet(1)
 
-// Get RPC endpoints for any chain (no API key required)
-const endpoints = await w3pk.getEndpoints(1) // Example for Ethereum mainnet
-const rpcUrl = endpoints[0] // Get first endpoint
-// Will return "https://cloudflare-eth.com"
+// Get RPC endpoints for any chain
+const endpoints = await w3pk.getEndpoints(1) // Ethereum
+const rpcUrl = endpoints[0]
 ```
 
 ## Features
@@ -70,103 +68,99 @@ See [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) for:
 
 ## API
 
-### Authentication
-```typescript
-// Register new user
-await w3pk.register({ username, ethereumAddress })
+### Authentication Flow
 
-// Login (usernameless)
+```typescript
+// Simple: Register (auto-generates wallet)
+const { mnemonic } = await w3pk.register({ username: 'alice' })
+// Returns: { mnemonic } - SAVE THIS!
+
+// Save wallet (encrypts with WebAuthn credentials)
+await w3pk.saveWallet()
+
+// Subsequent sessions: just login
 await w3pk.login()
 
 // Logout
 await w3pk.logout()
 
-// Check status
+// Status
 w3pk.isAuthenticated
 w3pk.user
 ```
 
-### Wallet
+**Advanced: Pre-generate wallet (optional)**
 ```typescript
-// Generate wallet
-const wallet = await w3pk.generateWallet()
+// If you want to see the wallet before registering:
+const { mnemonic } = await w3pk.generateWallet()
+const { mnemonic } = await w3pk.register({ username: 'alice' })
+// register() will use the pre-generated wallet
+```
 
-// Derive HD wallet addresses
-const derived = await w3pk.deriveWallet(index)
+### Wallet Operations
+```typescript
+// Save wallet (requires authentication)
+await w3pk.saveWallet()
+
+// Derive addresses (requires authentication)
+const wallet0 = await w3pk.deriveWallet(0)
 // Returns: { address, privateKey }
 
-// Export mnemonic
+// Export mnemonic (requires authentication)
 const mnemonic = await w3pk.exportMnemonic()
 
-// Sign message
+// Sign message (requires authentication)
 const signature = await w3pk.signMessage(message)
 ```
 
-### RPC Endpoints (Chainlist)
+### RPC Endpoints
 ```typescript
-// Get public RPC endpoints for any chain
-const endpoints = await w3pk.getEndpoints(1) // Ethereum mainnet
-const rpcUrl = endpoints[0] // First endpoint
-// Returns: "https://cloudflare-eth.com"
+// Get public RPC endpoints
+const endpoints = await w3pk.getEndpoints(1) // Ethereum
+const rpcUrl = endpoints[0]
 
-// Other examples
+// Other chains
 await w3pk.getEndpoints(137)   // Polygon
 await w3pk.getEndpoints(10)    // Optimism
-await w3pk.getEndpoints(42161) // Arbitrum One
+await w3pk.getEndpoints(42161) // Arbitrum
 await w3pk.getEndpoints(8453)  // Base
 
-// Integration with ethers.js
+// Use with ethers.js
 import { ethers } from 'ethers'
 
-const endpoints = await w3pk.getEndpoints(137) // Polygon
+const endpoints = await w3pk.getEndpoints(137)
 const provider = new ethers.JsonRpcProvider(endpoints[0])
 const blockNumber = await provider.getBlockNumber()
-console.log(`Current block: ${blockNumber}`)
 ```
 
 [Full Documentation →](./docs/CHAINLIST.md)
 
 ### EIP-7702 Support
 ```typescript
-// Check if network supports EIP-7702 (cached list + RPC verification)
-const supported = await w3pk.supportsEIP7702(1) // true (Ethereum, instant)
-
-// Unknown networks test via RPC (auto-uses getEndpoints)
-await w3pk.supportsEIP7702(999) // false (tests up to 3 RPC endpoints)
+// Check network support
+const supported = await w3pk.supportsEIP7702(1) // true
 
 // Configure RPC testing
 await w3pk.supportsEIP7702(999, {
-  maxEndpoints: 5,  // Test up to 5 endpoints
-  timeout: 5000     // 5 second timeout per RPC
+  maxEndpoints: 5,
+  timeout: 5000
 })
 ```
 
 ### ERC-5564 Stealth Addresses
 
-Privacy-preserving payments using unlinkable, one-time addresses.
-
 ```typescript
 const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org',
   stealthAddresses: {}
 })
 
-// STEP 1 (Recipient): Get stealth meta-address to share publicly
+// Get stealth meta-address
 const metaAddress = await w3pk.stealth?.getStealthMetaAddress()
-// Example: 0x03f2e32f9a060b8fe18736f5c4da328265d9d29ac13d5fed45649700a9c5f2cdca...
-// This is 66 bytes (spending + viewing public keys) - safe to share publicly!
 
-// STEP 2 (Sender): Generate stealth address for recipient
+// Generate stealth address
 const announcement = await w3pk.stealth?.generateStealthAddress()
-// Returns:
-// - stealthAddress: 0x1234... (send funds here)
-// - ephemeralPublicKey: 0x02abcd... (publish on-chain)
-// - viewTag: 0xa4 (enables ~99% skip rate when scanning)
 
-// Sender publishes announcement on-chain and sends funds to stealthAddress
-// Only the recipient can identify this payment belongs to them!
-
-// STEP 3 (Recipient): Parse announcements to find your payments
+// Parse announcement
 const result = await w3pk.stealth?.parseAnnouncement({
   stealthAddress: announcement.stealthAddress,
   ephemeralPublicKey: announcement.ephemeralPublicKey,
@@ -174,22 +168,13 @@ const result = await w3pk.stealth?.parseAnnouncement({
 })
 
 if (result.isForUser) {
-  console.log('Payment found:', result.stealthAddress)
+  // Use private key to spend funds
   console.log('Private key:', result.stealthPrivateKey)
-  // Use this private key to spend the funds
 }
 
-// STEP 4 (Recipient): Efficiently scan many announcements
-// View tags enable ~99% (255/256) skip rate - makes scanning extremely fast!
+// Scan announcements
 const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
-console.log(`Found ${myPayments.length} payments`)
 ```
-
-**Key Benefits:**
-- **Privacy**: Each payment uses a unique, unlinkable address
-- **Non-interactive**: No communication needed between sender/recipient
-- **Efficient**: View tags enable scanning 1000s of announcements quickly
-- **ERC-5564 compliant**: Works with other standard implementations
 
 [Complete ERC-5564 Guide →](./docs/ERC5564_STEALTH_ADDRESSES.md)
 
