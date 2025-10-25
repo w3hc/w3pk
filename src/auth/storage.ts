@@ -8,7 +8,6 @@ export interface StoredCredential {
   publicKey: string;
   username: string;
   ethereumAddress: string;
-  userId: string;
   createdAt: number;
   lastUsed: number;
 }

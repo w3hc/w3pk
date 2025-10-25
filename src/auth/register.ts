@@ -13,14 +13,6 @@ function generateChallenge(): string {
     .replace(/=/g, "");
 }
 
-function generateUserId(username: string): string {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(username + Date.now().toString());
-  return btoa(String.fromCharCode(...data))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
-}
 
 export async function register(options: RegisterOptions): Promise<{ signature: ArrayBuffer }> {
   try {
@@ -36,7 +28,6 @@ export async function register(options: RegisterOptions): Promise<{ signature: A
     }
 
     const challenge = generateChallenge();
-    const userId = generateUserId(username);
 
     const registrationOptions = {
       challenge,
@@ -45,7 +36,7 @@ export async function register(options: RegisterOptions): Promise<{ signature: A
         id: window.location.hostname,
       },
       user: {
-        id: userId,
+        id: username,
         name: username,
         displayName: username,
       },
@@ -77,7 +68,6 @@ export async function register(options: RegisterOptions): Promise<{ signature: A
       publicKey,
       username,
       ethereumAddress,
-      userId,
       createdAt: Date.now(),
       lastUsed: Date.now(),
     });
