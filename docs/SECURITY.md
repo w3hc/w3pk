@@ -933,8 +933,6 @@ const { mnemonic } = await w3pk.register({ username: 'alice' })
 
 // ⚠️ CRITICAL: Save this offline
 console.log('Write this down:', mnemonic)
-
-await w3pk.saveWallet()
 ```
 
 **Why?**
@@ -995,7 +993,6 @@ await w3pk.saveWallet()
 3. **Use `userVerification: "required"`** to enforce biometric/PIN
 4. **Prompt users to save mnemonic** prominently during registration
 5. **Clear wallet from memory** after operations complete
-6. **Use `saveWallet()` immediately** after registration
 
 ### For Users
 

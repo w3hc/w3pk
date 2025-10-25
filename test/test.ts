@@ -69,7 +69,6 @@ async function runTests() {
 
   console.log("\n=== All Tests Complete ===");
   console.log("Note: WebAuthn features require a browser environment");
-  console.log("Note: saveWallet() and other authenticated methods need real WebAuthn");
 }
 
 runTests().catch(console.error);

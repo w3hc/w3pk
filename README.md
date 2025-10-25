@@ -18,12 +18,9 @@ import { createWeb3Passkey } from 'w3pk'
 
 const w3pk = createWeb3Passkey()
 
-// Register (auto-generates wallet)
+// Register (auto-generates wallet and stores it securely)
 const { mnemonic } = await w3pk.register({ username: 'alice' })
 console.log('⚠️  Save this recovery phrase:', mnemonic)
-
-// Save wallet (encrypts and stores securely)
-await w3pk.saveWallet()
 
 // Login (for subsequent sessions)
 await w3pk.login()
@@ -65,12 +62,9 @@ See [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) to get started.
 ### Authentication Flow
 
 ```typescript
-// Register
+// Register (auto-stores wallet)
 const { mnemonic } = await w3pk.register({ username: 'alice' })
 // Returns: { mnemonic } - SAVE THIS!
-
-// Save wallet
-await w3pk.saveWallet()
 
 // Subsequent sessions: just login
 await w3pk.login()
@@ -94,9 +88,6 @@ const { mnemonic } = await w3pk.register({ username: 'alice' })
 ### Wallet Operations
 
 ```typescript
-// Save wallet (requires authentication)
-await w3pk.saveWallet()
-
 // Derive addresses
 const wallet0 = await w3pk.deriveWallet(0)
 // Returns: { address, privateKey }
