@@ -147,7 +147,30 @@ w3pk.clearSession()
 const w3pk = createWeb3Passkey({ sessionDuration: 0 })
 ```
 
-**Security Note:** Sessions are stored **only in memory** and automatically cleared on logout, expiration, or browser close. See [Security Architecture](./docs/SECURITY.md#session-management) for details.
+#### Force Authentication for Sensitive Operations
+
+Even with an active session, you can require fresh biometric authentication for specific operations:
+
+```typescript
+// Session is active, but force authentication anyway
+await w3pk.exportMnemonic({ requireAuth: true })     // ✅ Always prompts
+await w3pk.signMessage('Transfer $1000', { requireAuth: true }) // ✅ Always prompts
+await w3pk.deriveWallet(5, { requireAuth: true })    // ✅ Always prompts
+await w3pk.stealth.getKeys({ requireAuth: true })    // ✅ Always prompts
+
+// Example: Require auth for high-value transactions
+async function transferFunds(amount: number, recipient: string) {
+  // For transfers above $100, require fresh authentication
+  const requireAuth = amount > 100
+
+  const signature = await w3pk.signMessage(
+    `Transfer ${amount} to ${recipient}`,
+    { requireAuth }
+  )
+
+  // ... submit transaction
+}
+```
 
 ### RPC Endpoints
 ```typescript
@@ -217,6 +240,7 @@ const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
+- [Security Architecture](./docs/SECURITY.md) - Integration best practices
 - [ERC-5564 Stealth Addresses](./docs/ERC5564_STEALTH_ADDRESSES.md) - Complete guide with examples
 - [ERC-5564 Flow Diagrams](./docs/ERC5564_FLOW_DIAGRAM.md) - Visual explanations of how stealth addresses work
 - [RPC Endpoints](./docs/CHAINLIST.md) - Chainlist integration guide

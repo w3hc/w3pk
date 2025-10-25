@@ -45,7 +45,7 @@ export class Web3Passkey {
     if (config.stealthAddresses !== undefined) {
       this.stealth = new StealthAddressModule(
         config.stealthAddresses,
-        () => this.getMnemonicFromSession()
+        (requireAuth?: boolean) => this.getMnemonicFromSession(requireAuth)
       );
     }
 
@@ -72,15 +72,19 @@ export class Web3Passkey {
   /**
    * Get mnemonic from active session or trigger authentication
    * This is used internally by methods that need the mnemonic
+   *
+   * @param forceAuth - If true, bypass session cache and require fresh authentication
    */
-  private async getMnemonicFromSession(): Promise<string> {
-    // Check if session is active
-    const cachedMnemonic = this.sessionManager.getMnemonic();
-    if (cachedMnemonic) {
-      return cachedMnemonic;
+  private async getMnemonicFromSession(forceAuth: boolean = false): Promise<string> {
+    // Check if session is active (unless force auth is required)
+    if (!forceAuth) {
+      const cachedMnemonic = this.sessionManager.getMnemonic();
+      if (cachedMnemonic) {
+        return cachedMnemonic;
+      }
     }
 
-    // Session expired or doesn't exist - need to authenticate
+    // Session expired, doesn't exist, or force auth requested - need to authenticate
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated. Call login() first.");
     }
@@ -295,15 +299,19 @@ export class Web3Passkey {
    * Derive an HD wallet at a specific index
    *
    * SECURITY: Uses active session or prompts for authentication if session expired
+   *
+   * @param index - The HD wallet derivation index
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
    */
-  async deriveWallet(index: number): Promise<WalletInfo> {
+  async deriveWallet(index: number, options?: { requireAuth?: boolean }): Promise<WalletInfo> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to derive wallet");
       }
 
-      // Get mnemonic from session (or authenticate if needed)
-      const mnemonic = await this.getMnemonicFromSession();
+      // Get mnemonic from session (or authenticate if needed/forced)
+      const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
 
       // Derive wallet at index
       const derived = deriveWalletFromMnemonic(mnemonic, index);
@@ -322,15 +330,18 @@ export class Web3Passkey {
    * Export the mnemonic phrase
    *
    * SECURITY: Uses active session or prompts for authentication if session expired
+   *
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
    */
-  async exportMnemonic(): Promise<string> {
+  async exportMnemonic(options?: { requireAuth?: boolean }): Promise<string> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to export mnemonic");
       }
 
-      // Get mnemonic from session (or authenticate if needed)
-      return await this.getMnemonicFromSession();
+      // Get mnemonic from session (or authenticate if needed/forced)
+      return await this.getMnemonicFromSession(options?.requireAuth);
     } catch (error) {
       this.config.onError?.(error as any);
       throw new WalletError("Failed to export mnemonic", error);
@@ -399,15 +410,19 @@ export class Web3Passkey {
    * Sign a message with the wallet
    *
    * SECURITY: Uses active session or prompts for authentication if session expired
+   *
+   * @param message - The message to sign
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
    */
-  async signMessage(message: string): Promise<string> {
+  async signMessage(message: string, options?: { requireAuth?: boolean }): Promise<string> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to sign message");
       }
 
-      // Get mnemonic from session (or authenticate if needed)
-      const mnemonic = await this.getMnemonicFromSession();
+      // Get mnemonic from session (or authenticate if needed/forced)
+      const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
 
       // Import wallet from mnemonic
       const { Wallet } = await import("ethers");

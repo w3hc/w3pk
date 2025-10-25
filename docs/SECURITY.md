@@ -220,6 +220,129 @@ w3pk.setSessionDuration(2) // 2 hours
 const w3pk = new Web3Passkey({ sessionDuration: 0 })
 ```
 
+### Force Authentication Option
+
+Developers can require fresh authentication for specific operations, even when a session is active:
+
+```typescript
+// Force authentication for sensitive operations
+await w3pk.exportMnemonic({ requireAuth: true })
+await w3pk.signMessage('Transfer $1000', { requireAuth: true })
+await w3pk.deriveWallet(5, { requireAuth: true })
+await w3pk.stealth.getKeys({ requireAuth: true })
+
+// Example: Context-based security
+async function transferFunds(amount: number, recipient: string) {
+  // Require fresh auth for high-value transactions
+  const requireAuth = amount > 100
+
+  const signature = await w3pk.signMessage(
+    `Transfer ${amount} to ${recipient}`,
+    { requireAuth }
+  )
+
+  // ... submit transaction
+}
+
+// Example: Time-based security
+async function exportBackup() {
+  // Always require fresh auth for backup exports
+  const mnemonic = await w3pk.exportMnemonic({ requireAuth: true })
+
+  // ... show mnemonic to user
+}
+```
+
+**Use cases for `requireAuth: true`:**
+- High-value transactions (amount-based)
+- Exporting recovery phrases
+- Changing critical settings
+- Administrative operations
+- Time-sensitive operations after long idle
+
+### ⚠️ Important: `requireAuth` is NOT a Security Boundary
+
+**Can `requireAuth` be bypassed?**
+**Yes** - An attacker with JavaScript execution in your app can bypass this flag:
+
+```javascript
+// Attacker bypasses requireAuth
+await w3pk.signMessage('Steal funds', { requireAuth: false })
+```
+
+**What `requireAuth` actually protects:**
+- ✅ Honest users making mistakes (accidental clicks)
+- ✅ Application-level policy enforcement
+- ✅ User experience (confirmation for sensitive actions)
+- ✅ Compliance requirements (audit trails)
+
+**What `requireAuth` does NOT protect:**
+- ❌ Code injection attacks (XSS)
+- ❌ Malicious browser extensions
+- ❌ Compromised dependencies
+- ❌ Active attackers with JS execution
+
+**The REAL security boundaries are:**
+
+1. **WebAuthn Browser Prompt** (Strongest)
+   - Cannot be bypassed without physical biometric/PIN
+   - Browser-enforced, origin-bound
+   - User sees requesting domain
+
+2. **Session Expiration** (Strong)
+   - Limits attack window to session duration
+   - Attacker must act within time limit
+   - Shorter sessions = smaller attack surface
+
+3. **Signature-Based Encryption** (Strong)
+   - Protects wallet at rest
+   - File system access useless without authentication
+   - Cannot decrypt without fresh signature
+
+4. **`requireAuth` Flag** (Weak - UX/Policy Only)
+   - Can be bypassed by code injection
+   - Not a security boundary
+   - Think: seatbelt, not bulletproof vest
+
+**Example Attack Scenarios:**
+
+```typescript
+// Scenario: Malicious browser extension active session
+// Attacker can steal mnemonic during session window
+setInterval(async () => {
+  if (w3pk.hasActiveSession()) {
+    const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
+    sendToAttacker(mnemonic) // ❌ Stolen!
+  }
+}, 1000)
+
+// Mitigation: Very short sessions
+const w3pk = new Web3Passkey({ sessionDuration: 0.1 }) // 6 minutes
+
+// Scenario: XSS attack + expired session
+await w3pk.exportMnemonic({ requireAuth: false })
+// ✅ Session expired - user sees authentication prompt
+// ⚠️  User might authenticate thinking it's legitimate
+
+// Mitigation: User education + short sessions
+```
+
+**Recommendations for High Security:**
+
+```typescript
+// 1. Minimal session duration
+const w3pk = new Web3Passkey({ sessionDuration: 0.1 }) // 6 min
+
+// 2. Or disable sessions entirely
+const w3pk = new Web3Passkey({ sessionDuration: 0 })
+
+// 3. Combine with defense in depth:
+// - Content Security Policy (prevent XSS)
+// - Subresource Integrity (prevent CDN attacks)
+// - Dependency auditing (prevent supply chain)
+// - User education (recognize suspicious prompts)
+```
+
 ### Session Threat Model
 
 #### ✅ Session protected against:
@@ -234,6 +357,461 @@ const w3pk = new Web3Passkey({ sessionDuration: 0 })
 3. **Physical access** - If device unlocked and session active
 
 **Recommendation:** For maximum security, set `sessionDuration: 0` to require authentication for every operation. For better UX, use the default 1 hour session.
+
+## Integration Best Practices
+
+Since `requireAuth` and sessions can be bypassed by code execution, here are **essential security measures** to prevent attacks:
+
+### 1. Prevent XSS Attacks
+
+#### Content Security Policy (CSP)
+
+Add strict CSP headers to prevent script injection:
+
+```html
+<!-- In your HTML -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self' 'nonce-{RANDOM}';
+               style-src 'self' 'nonce-{RANDOM}';
+               object-src 'none';
+               base-uri 'self';
+               form-action 'self';">
+```
+
+Or via HTTP headers:
+```
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{RANDOM}'; object-src 'none'
+```
+
+**Best practices:**
+- ❌ Avoid `unsafe-inline` and `unsafe-eval`
+- ✅ Use nonces for inline scripts
+- ✅ Whitelist only trusted domains
+- ✅ Use `strict-dynamic` for modern browsers
+
+#### Input Sanitization
+
+```typescript
+// Sanitize all user inputs
+import DOMPurify from 'dompurify'
+
+function displayUsername(username: string) {
+  // ❌ NEVER do this:
+  element.innerHTML = username
+
+  // ✅ DO this:
+  element.textContent = username
+
+  // ✅ OR if HTML needed:
+  element.innerHTML = DOMPurify.sanitize(username)
+}
+```
+
+#### Output Encoding
+
+```typescript
+// Encode data before display
+function showTransaction(recipient: string) {
+  // ✅ Use proper encoding
+  const encoded = encodeURIComponent(recipient)
+
+  // ✅ Or use framework escaping (React, Vue, etc.)
+  return <div>{recipient}</div> // React auto-escapes
+}
+```
+
+#### Framework-Specific Protection
+
+**React:**
+```typescript
+// ✅ React auto-escapes by default
+<div>{userInput}</div>
+
+// ❌ Dangerous - only use for trusted content
+<div dangerouslySetInnerHTML={{__html: userInput}} />
+```
+
+**Vue:**
+```vue
+<!-- ✅ Vue auto-escapes -->
+<div>{{ userInput }}</div>
+
+<!-- ❌ Dangerous -->
+<div v-html="userInput"></div>
+```
+
+### 2. Defend Against Malicious Browser Extensions
+
+#### Extension Isolation Strategies
+
+```typescript
+// 1. Detect suspicious extension behavior
+function detectExtensionInjection() {
+  const originalFetch = window.fetch
+  let fetchModified = false
+
+  setTimeout(() => {
+    if (window.fetch !== originalFetch) {
+      console.warn('Fetch API modified - possible extension interference')
+      fetchModified = true
+    }
+  }, 100)
+
+  return fetchModified
+}
+
+// 2. Protect sensitive operations with iframe isolation
+function createIsolatedContext() {
+  const iframe = document.createElement('iframe')
+  iframe.sandbox = 'allow-same-origin allow-scripts'
+  iframe.style.display = 'none'
+  document.body.appendChild(iframe)
+
+  // Use iframe's clean window context
+  return iframe.contentWindow
+}
+
+// 3. Short sessions limit exposure
+const w3pk = new Web3Passkey({
+  sessionDuration: 0.1 // 6 minutes - limits extension attack window
+})
+```
+
+#### User Education
+
+Display warnings when detecting extensions:
+
+```typescript
+// Check for common wallet extension conflicts
+const hasMetaMask = typeof window.ethereum !== 'undefined'
+const hasExtensions = detectExtensionInjection()
+
+if (hasExtensions) {
+  showWarning(
+    'Browser extensions detected. ' +
+    'For maximum security, use a dedicated browser profile ' +
+    'without extensions when accessing your wallet.'
+  )
+}
+```
+
+#### Browser Profile Recommendation
+
+```typescript
+// In your UI/documentation
+const securityMessage = `
+🔒 Security Recommendation:
+- Create a dedicated browser profile for wallet operations
+- Disable all browser extensions in this profile
+- Use this profile only for financial transactions
+`
+```
+
+### 3. Prevent Compromised Dependencies (Supply Chain)
+
+#### Package Auditing
+
+```bash
+# Regular security audits
+npm audit
+npm audit fix
+
+# Use audit in CI/CD
+npm audit --audit-level=high
+
+# Alternative: use pnpm or yarn for better security
+pnpm audit
+```
+
+#### Lock File Integrity
+
+```bash
+# Always commit lock files
+git add package-lock.json
+git commit -m "Lock dependencies"
+
+# Verify lock file in CI
+npm ci  # Fails if package.json and lock mismatch
+```
+
+#### Subresource Integrity (SRI)
+
+For CDN-loaded scripts:
+
+```html
+<!-- ✅ Use SRI hashes -->
+<script
+  src="https://cdn.example.com/w3pk.js"
+  integrity="sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8wC"
+  crossorigin="anonymous">
+</script>
+```
+
+Generate SRI hashes:
+```bash
+# Generate hash
+curl https://cdn.example.com/w3pk.js | openssl dgst -sha384 -binary | openssl base64 -A
+```
+
+#### Dependency Monitoring
+
+```json
+{
+  "scripts": {
+    "postinstall": "npm audit",
+    "security-check": "npx snyk test"
+  }
+}
+```
+
+Use security services:
+- [Snyk](https://snyk.io/)
+- [Socket](https://socket.dev/)
+- [Dependabot](https://github.com/dependabot) (GitHub)
+
+#### Minimal Dependencies
+
+```typescript
+// ❌ Avoid kitchen-sink libraries
+import _ from 'lodash' // 70KB
+
+// ✅ Import only what you need
+import debounce from 'lodash.debounce' // 2KB
+```
+
+Review dependencies regularly:
+```bash
+# List dependency tree
+npm list
+pnpm list --depth=1
+
+# Check package size
+npx bundlephobia lodash
+```
+
+### 4. Prevent Code Injection
+
+#### Secure Build Pipeline
+
+```typescript
+// In your build config (vite.config.ts, webpack.config.js)
+export default {
+  build: {
+    // Minify and obfuscate
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true, // Remove console logs in production
+      }
+    },
+
+    // Enable source maps only in development
+    sourcemap: process.env.NODE_ENV === 'development',
+
+    // Rollup security options
+    rollupOptions: {
+      external: ['crypto', 'buffer'], // Don't bundle Node.js modules
+    }
+  }
+}
+```
+
+#### Runtime Integrity Checks
+
+```typescript
+// Detect if code has been tampered with
+class IntegrityChecker {
+  private checksum: string
+
+  constructor() {
+    // Store checksum of critical code at build time
+    this.checksum = this.calculateChecksum()
+  }
+
+  private calculateChecksum(): string {
+    // Calculate hash of critical functions
+    const criticalCode = [
+      w3pk.signMessage.toString(),
+      w3pk.exportMnemonic.toString(),
+    ].join('')
+
+    return this.hash(criticalCode)
+  }
+
+  verify(): boolean {
+    const currentChecksum = this.calculateChecksum()
+    return currentChecksum === this.checksum
+  }
+
+  private hash(str: string): string {
+    // Simple hash (use crypto.subtle.digest in production)
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i)
+      hash = hash & hash
+    }
+    return hash.toString(36)
+  }
+}
+
+// Use in critical operations
+const checker = new IntegrityChecker()
+if (!checker.verify()) {
+  throw new Error('Code integrity check failed - possible tampering')
+}
+```
+
+#### Freeze Critical Objects
+
+```typescript
+// Prevent prototype pollution and tampering
+Object.freeze(Object.prototype)
+Object.freeze(Array.prototype)
+Object.freeze(String.prototype)
+
+// Freeze critical SDK methods
+Object.freeze(w3pk.signMessage)
+Object.freeze(w3pk.exportMnemonic)
+Object.freeze(w3pk.deriveWallet)
+```
+
+#### Secure Coding Patterns
+
+```typescript
+// ❌ Don't use eval or Function constructor
+eval(userInput) // NEVER
+new Function(userInput)() // NEVER
+
+// ❌ Don't use innerHTML with user content
+element.innerHTML = userInput // DANGEROUS
+
+// ✅ Use safe alternatives
+element.textContent = userInput
+element.setAttribute('data-value', userInput)
+
+// ❌ Don't trust client-side validation only
+if (amount > 0) { // Can be bypassed
+  transfer(amount)
+}
+
+// ✅ Always validate on both sides
+async function transfer(amount: number) {
+  // Server-side validation
+  const response = await fetch('/api/validate', {
+    method: 'POST',
+    body: JSON.stringify({ amount })
+  })
+
+  if (response.ok) {
+    // Proceed with transfer
+  }
+}
+```
+
+### 5. Defense in Depth Strategy
+
+Combine multiple layers:
+
+```typescript
+const w3pk = new Web3Passkey({
+  // 1. Short sessions (limit attack window)
+  sessionDuration: 0.1, // 6 minutes
+
+  // 2. Callbacks for security events
+  onError: (error) => {
+    // Log security events
+    reportSecurityEvent({
+      type: 'error',
+      message: error.message,
+      timestamp: Date.now()
+    })
+  }
+})
+
+// 3. Rate limiting sensitive operations
+const rateLimiter = new RateLimiter({ maxAttempts: 3, windowMs: 60000 })
+
+async function secureSignMessage(message: string) {
+  // Check integrity
+  if (!integrityChecker.verify()) {
+    throw new Error('Code tampering detected')
+  }
+
+  // Rate limit
+  if (!rateLimiter.attempt()) {
+    throw new Error('Too many attempts')
+  }
+
+  // Detect extensions
+  if (detectExtensionInjection()) {
+    console.warn('Extension interference detected')
+  }
+
+  // Always require auth for high-value
+  const requireAuth = parseAmount(message) > 100
+
+  return w3pk.signMessage(message, { requireAuth })
+}
+```
+
+### 6. Monitoring and Alerting
+
+```typescript
+// Monitor suspicious behavior
+class SecurityMonitor {
+  private attemptCounts = new Map<string, number>()
+
+  trackOperation(operation: string) {
+    const count = (this.attemptCounts.get(operation) || 0) + 1
+    this.attemptCounts.set(operation, count)
+
+    // Alert on suspicious patterns
+    if (count > 10) {
+      this.alert(`Suspicious: ${operation} called ${count} times`)
+    }
+  }
+
+  private alert(message: string) {
+    // Log to monitoring service
+    console.error('[SECURITY]', message)
+
+    // Optional: Send to backend
+    fetch('/api/security-alert', {
+      method: 'POST',
+      body: JSON.stringify({ message, timestamp: Date.now() })
+    })
+  }
+}
+
+const monitor = new SecurityMonitor()
+monitor.trackOperation('exportMnemonic')
+```
+
+### Summary: Security Checklist
+
+Before deploying w3pk in production:
+
+- [ ] ✅ Content Security Policy configured (strict, no unsafe-inline)
+- [ ] ✅ Input sanitization on all user inputs
+- [ ] ✅ Output encoding for display
+- [ ] ✅ XSS protection via framework defaults
+- [ ] ✅ Extension detection implemented
+- [ ] ✅ User warnings for security risks
+- [ ] ✅ Short session duration configured (< 15 minutes)
+- [ ] ✅ Dedicated browser profile recommended to users
+- [ ] ✅ npm audit passing with no high/critical issues
+- [ ] ✅ Lock files committed and verified
+- [ ] ✅ Subresource Integrity for CDN scripts
+- [ ] ✅ Dependency monitoring enabled (Snyk/Dependabot)
+- [ ] ✅ Minimal dependency tree
+- [ ] ✅ Secure build pipeline (minification, no source maps)
+- [ ] ✅ Object.freeze on critical prototypes
+- [ ] ✅ No eval/Function constructor in codebase
+- [ ] ✅ Server-side validation for critical operations
+- [ ] ✅ Rate limiting implemented
+- [ ] ✅ Security monitoring and alerting
+- [ ] ✅ User education materials prepared
 
 ## WebAuthn Security Features
 

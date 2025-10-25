@@ -64,9 +64,9 @@ export interface ParseAnnouncementResult {
  * Integrates with w3pk WebAuthn for seamless privacy-preserving stealth address generation
  */
 export class StealthAddressModule {
-  private getMnemonic: () => Promise<string>;
+  private getMnemonic: (requireAuth?: boolean) => Promise<string>;
 
-  constructor(config: StealthAddressConfig, getMnemonic: () => Promise<string>) {
+  constructor(config: StealthAddressConfig, getMnemonic: (requireAuth?: boolean) => Promise<string>) {
     this.getMnemonic = getMnemonic;
   }
 
@@ -78,12 +78,14 @@ export class StealthAddressModule {
    * Generate a fresh ERC-5564 compliant stealth address
    * This is the sender's operation - generates a one-time address for the recipient
    *
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
    * @returns Stealth address, ephemeral public key, and view tag (to be published on-chain)
    */
-  async generateStealthAddress(): Promise<StealthAddressResult> {
+  async generateStealthAddress(options?: { requireAuth?: boolean }): Promise<StealthAddressResult> {
     try {
-      // Get mnemonic from session (or authenticate if needed)
-      const mnemonic = await this.getMnemonic();
+      // Get mnemonic from session (or authenticate if needed/forced)
+      const mnemonic = await this.getMnemonic(options?.requireAuth);
 
       const stealthKeys = deriveStealthKeys(mnemonic);
       const stealthResult = generateERC5564StealthAddress(stealthKeys.stealthMetaAddress);
@@ -107,12 +109,14 @@ export class StealthAddressModule {
    * Uses view tag optimization for efficient scanning (255/256 skip rate)
    *
    * @param announcement - The announcement to parse (from on-chain event)
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
    * @returns ParseResult indicating if announcement is for user, plus stealth private key if true
    */
-  async parseAnnouncement(announcement: Announcement): Promise<ParseAnnouncementResult> {
+  async parseAnnouncement(announcement: Announcement, options?: { requireAuth?: boolean }): Promise<ParseAnnouncementResult> {
     try {
-      // Get mnemonic from session (or authenticate if needed)
-      const mnemonic = await this.getMnemonic();
+      // Get mnemonic from session (or authenticate if needed/forced)
+      const mnemonic = await this.getMnemonic(options?.requireAuth);
 
       const stealthKeys = deriveStealthKeys(mnemonic);
 
@@ -155,13 +159,15 @@ export class StealthAddressModule {
    * Returns only the announcements that belong to the user
    *
    * @param announcements - Array of announcements to scan
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
    * @returns Array of announcements that belong to the user with their private keys
    */
-  async scanAnnouncements(announcements: Announcement[]): Promise<ParseAnnouncementResult[]> {
+  async scanAnnouncements(announcements: Announcement[], options?: { requireAuth?: boolean }): Promise<ParseAnnouncementResult[]> {
     const results: ParseAnnouncementResult[] = [];
 
     for (const announcement of announcements) {
-      const result = await this.parseAnnouncement(announcement);
+      const result = await this.parseAnnouncement(announcement, options);
       if (result.isForUser) {
         results.push(result);
       }
@@ -177,11 +183,14 @@ export class StealthAddressModule {
   /**
    * Get ERC-5564 stealth keys
    * Returns the stealth meta-address and private keys
+   *
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
    */
-  async getKeys(): Promise<StealthKeys> {
+  async getKeys(options?: { requireAuth?: boolean }): Promise<StealthKeys> {
     try {
-      // Get mnemonic from session (or authenticate if needed)
-      const mnemonic = await this.getMnemonic();
+      // Get mnemonic from session (or authenticate if needed/forced)
+      const mnemonic = await this.getMnemonic(options?.requireAuth);
 
       return deriveStealthKeys(mnemonic);
     } catch (error) {
@@ -197,11 +206,13 @@ export class StealthAddressModule {
    * Get the stealth meta-address for receiving funds
    * This is what you share publicly for others to send you stealth payments
    *
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
    * @returns The ERC-5564 stealth meta-address (66 bytes)
    */
-  async getStealthMetaAddress(): Promise<string> {
+  async getStealthMetaAddress(options?: { requireAuth?: boolean }): Promise<string> {
     try {
-      const keys = await this.getKeys();
+      const keys = await this.getKeys(options);
       return keys.stealthMetaAddress;
     } catch (error) {
       throw new Web3PasskeyError(
