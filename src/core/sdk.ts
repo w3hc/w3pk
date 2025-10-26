@@ -666,9 +666,7 @@ export class Web3Passkey {
     description: string;
   }): Promise<any> {
     if (!this.currentUser) {
-      throw new WalletError(
-        "Must be authenticated to run recovery simulation"
-      );
+      throw new WalletError("Must be authenticated to run recovery simulation");
     }
 
     const status = await this.getBackupStatus();
@@ -766,6 +764,6 @@ export class Web3Passkey {
    * SDK version
    */
   get version(): string {
-    return "0.7.0";
+    return "0.7.1";
   }
 }

@@ -45,13 +45,13 @@ const rpcUrl = endpoints[0]
 - ⏱️ Session management (configurable duration, prevents repeated prompts)
 - 🌱 HD wallet generation (BIP39/BIP44)
 - 🔢 Multi-address derivation
+- 🥷 ERC-5564 stealth addresses (privacy-preserving transactions with view tags)
+- 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
+- ⚡ EIP-7702 network detection (329+ supported networks)
 - 🛡️ Three-layer backup & recovery system
   - Passkey auto-sync (iCloud/Google/Microsoft)
   - Encrypted backups (ZIP/QR with password protection)
   - Social recovery (Shamir Secret Sharing)
-- 🥷 ERC-5564 stealth addresses (privacy-preserving transactions with view tags)
-- 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
-- ⚡ EIP-7702 network detection (329+ supported networks)
 
 **Optional: Zero-Knowledge Proofs**
 
@@ -230,7 +230,7 @@ const status = await w3pk.getBackupStatus()
 console.log('Security Score:', status.securityScore.score) // 0-100
 
 // Create encrypted ZIP backup
-const blob = await w3pk.createZipBackup('MyS3cur3!Password@2024')
+const blob = await w3pk.createZipBackup('MyS3cur3!Password@2042')
 // Save blob to file system
 
 // Create QR backup
