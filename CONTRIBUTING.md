@@ -37,6 +37,10 @@ pnpm test
 # Run specific test suites
 pnpm test:basic           # Basic SDK tests
 pnpm test:comprehensive   # Comprehensive tests
+pnpm test:recovery        # Backup & recovery system tests
+pnpm test:backup          # Backup system tests only
+pnpm test:social-recovery # Social recovery tests only
+pnpm test:education       # Recovery education tests only
 pnpm test:zk              # Zero-knowledge proof tests
 pnpm test:nft             # NFT ownership tests
 pnpm test:chainlist       # RPC endpoint tests
@@ -57,6 +61,10 @@ w3pk/
 ├── src/
 │   ├── auth/           # WebAuthn authentication
 │   ├── wallet/         # Wallet generation & signing
+│   ├── backup/         # Backup system (ZIP, QR, encryption)
+│   ├── recovery/       # Social recovery (Shamir Secret Sharing)
+│   ├── sync/           # Cross-device sync detection
+│   ├── education/      # Recovery scenario simulators
 │   ├── stealth/        # ERC-5564 stealth addresses
 │   ├── zk/             # Zero-knowledge proofs (optional)
 │   ├── chainlist/      # RPC endpoint management
@@ -285,6 +293,102 @@ Efficiently scan multiple announcements.
 ```typescript
 const myPayments = await w3pk.stealth?.scanAnnouncements([...])
 // Returns: ParseAnnouncementResult[]
+```
+
+### Backup & Recovery Methods
+
+#### `getBackupStatus()`
+Get current backup and security status.
+```typescript
+const status = await w3pk.getBackupStatus()
+// Returns: {
+//   passkeySync: { enabled, deviceCount, platform }
+//   backups: { zip, qr, total }
+//   socialRecovery: { configured, guardians, threshold }
+//   securityScore: { score, level, breakdown }
+// }
+```
+
+#### `createZipBackup(password, options?)`
+Create encrypted ZIP backup.
+```typescript
+const blob = await w3pk.createZipBackup('MyS3cur3!Password@2024', {
+  includeInstructions: true,
+  deviceBinding: false
+})
+// Returns: Blob (save to file)
+```
+
+#### `createQRBackup(password?, options?)`
+Create QR code backup.
+```typescript
+const { qrCodeDataURL, rawData } = await w3pk.createQRBackup('password', {
+  errorCorrection: 'H' // High (30% damage tolerance)
+})
+// Returns: { qrCodeDataURL, rawData, instructions }
+```
+
+#### `setupSocialRecovery(guardians, threshold)`
+Setup social recovery with guardians.
+```typescript
+const guardianObjects = await w3pk.setupSocialRecovery(
+  [
+    { name: 'Alice', email: 'alice@example.com' },
+    { name: 'Bob', phone: '+1234567890' }
+  ],
+  2 // Need 2 guardians to recover
+)
+// Returns: Guardian[] (with IDs for invite generation)
+```
+
+#### `generateGuardianInvite(guardianId)`
+Generate invitation for guardian.
+```typescript
+const invite = await w3pk.generateGuardianInvite(guardianId)
+// Returns: { guardianId, qrCode, shareCode, explainer }
+```
+
+#### `recoverFromGuardians(shares)`
+Recover wallet from guardian shares.
+```typescript
+const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians([
+  share1, share2, share3
+])
+```
+
+#### `restoreFromBackup(backupData, password)`
+Restore from encrypted backup.
+```typescript
+const { mnemonic, metadata } = await w3pk.restoreFromBackup(
+  encryptedData,
+  'password'
+)
+```
+
+#### `simulateRecoveryScenario(scenario)`
+Test recovery scenarios.
+```typescript
+const result = await w3pk.simulateRecoveryScenario({
+  type: 'lost-device', // or 'lost-phrase', 'lost-both', 'switch-platform'
+  hasBackup: true,
+  hasSocialRecovery: true,
+  hasPasskeySync: true
+})
+// Returns: { canRecover, availableMethods, recommendation }
+```
+
+#### `getSyncStatus()`
+Get cross-device sync status.
+```typescript
+const status = await w3pk.getSyncStatus()
+// Returns: { platform, capabilities, enabled }
+```
+
+#### `getEducation(topic)`
+Get educational content.
+```typescript
+const explainer = await w3pk.getEducation('what-is-passkey')
+// Returns: { title, content, notes }
 ```
 
 ### Zero-Knowledge Proof Methods
