@@ -79,4 +79,3 @@ secrets/
 *.key
 wallet_*.json
 credentials/
-migrate-to-client-only/

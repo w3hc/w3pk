@@ -1,22 +1,22 @@
-# Migration Guide: v0.5.0 → v0.6.0
+# Migration Guide: v0.6.0 → v0.7.0
 
-This guide helps you migrate from w3pk v0.5.0 (server-based) to v0.6.0 (client-only).
+This guide helps you migrate from w3pk v0.6.0 (server-based) to v0.7.0 (client-only).
 
 ## Breaking Changes
 
 ### 1. Client-Only Architecture
 
-**v0.5.0** required a backend server for WebAuthn verification.
+**v0.6.0** required a backend server for WebAuthn verification.
 
-**v0.6.0** is fully client-side - no server needed.
+**v0.7.0** is fully client-side - no server needed.
 
 ```diff
-- // v0.5.0: Required backend API
+- // v0.6.0: Required backend API
 - const w3pk = createWeb3Passkey({
 -   apiUrl: 'https://your-backend.com/api'
 - })
 
-+ // v0.6.0: No backend needed
++ // v0.7.0: No backend needed
 + const w3pk = createWeb3Passkey()
 ```
 
@@ -24,7 +24,7 @@ This guide helps you migrate from w3pk v0.5.0 (server-based) to v0.6.0 (client-o
 
 The wallet generation flow has been reordered for better UX and security.
 
-**Old Flow (v0.5.0):**
+**Old Flow (v0.6.0):**
 ```typescript
 // 1. Register first
 await w3pk.register({ username: 'alice' })
@@ -94,11 +94,11 @@ await w3pk.login()
 
 ### For Existing Installations
 
-If you have users on v0.5.0, you'll need to migrate their data:
+If you have users on v0.6.0, you'll need to migrate their data:
 
-1. **Export data from v0.5.0** (before upgrading):
+1. **Export data from v0.6.0** (before upgrading):
 ```typescript
-// Run this with v0.5.0 still installed
+// Run this with v0.6.0 still installed
 const users = await getAllUsers() // Your backend
 const wallets = await exportAllWallets() // Your backend
 ```
@@ -122,7 +122,7 @@ async function migrateUser(username: string, savedMnemonic: string) {
 
 ### Methods That Changed
 
-| Method | v0.5.0 | v0.6.0 | Notes |
+| Method | v0.6.0 | v0.7.0 | Notes |
 |--------|--------|--------|-------|
 | `generateWallet()` | Required auth, returned full wallet | No auth needed, returns `{ mnemonic }` | Optional - for pre-generating wallet |
 | `register()` | `{ username }` | `{ username }`, returns `{ mnemonic }` | Auto-generates wallet and stores it |
@@ -148,7 +148,7 @@ These methods work identically:
 
 ## Configuration Changes
 
-### Before (v0.5.0)
+### Before (v0.6.0)
 ```typescript
 const w3pk = createWeb3Passkey({
   apiUrl: 'https://backend.com/api',  // Removed
@@ -180,7 +180,7 @@ const w3pk = createWeb3Passkey({
 
 ### Issue: "Must be authenticated to generate wallet"
 
-**Cause:** You're using the old v0.5.0 pattern.
+**Cause:** You're using the old v0.6.0 pattern.
 
 **Solution:** Simply call `register()` - it auto-generates the wallet:
 ```typescript
@@ -294,5 +294,5 @@ initApp()
 
 ---
 
-**Last Updated:** v0.6.0
-**Previous Version:** v0.5.0
+**Last Updated:** v0.7.0
+**Previous Version:** v0.6.0

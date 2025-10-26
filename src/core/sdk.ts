@@ -169,7 +169,10 @@ export class Web3Passkey {
       const publicKey = credential.publicKey;
 
       // Derive encryption key from WebAuthn credential
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+        credentialId,
+        publicKey
+      );
 
       const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
 
@@ -380,7 +383,10 @@ export class Web3Passkey {
       const publicKey = credential?.publicKey;
 
       // Derive encryption key from WebAuthn credential
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+        credentialId,
+        publicKey
+      );
 
       const encryptedMnemonic = await encryptData(
         mnemonic.trim(),
@@ -512,5 +518,12 @@ export class Web3Passkey {
    */
   setSessionDuration(hours: number): void {
     this.sessionManager.setSessionDuration(hours);
+  }
+
+  /**
+   * SDK version
+   */
+  get version(): string {
+    return "0.7.0";
   }
 }
