@@ -149,6 +149,35 @@
       </div>
 
       <div class="section">
+        <h2>Backup & Recovery</h2>
+        <div class="button-grid">
+          <button onclick="testGetBackupStatus()">Get Backup Status</button>
+          <button onclick="testCreateZipBackup()">Create ZIP Backup</button>
+          <button onclick="testCreateQRBackup()">Create QR Backup</button>
+          <button onclick="testDetectSyncCapabilities()">Detect Sync Capabilities</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Social Recovery</h2>
+        <div class="button-grid">
+          <button onclick="testSetupSocialRecovery()">Setup Social Recovery (3-of-5)</button>
+          <button onclick="testGenerateGuardianInvite()">Generate Guardian Invite</button>
+          <button onclick="testGetSocialRecoveryConfig()">View Social Recovery Config</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Education & Testing</h2>
+        <div class="button-grid">
+          <button onclick="testRunRecoveryTest()">Run Recovery Test</button>
+          <button onclick="testSimulateLostDevice()">Simulate: Lost Device</button>
+          <button onclick="testSimulateLostPhrase()">Simulate: Lost Phrase</button>
+          <button onclick="testGetEducation()">Get Education (Passkeys)</button>
+        </div>
+      </div>
+
+      <div class="section">
         <h2>Storage</h2>
         <div class="button-grid">
           <button onclick="checkStorage()">View LocalStorage</button>
@@ -388,10 +417,319 @@
         }
       };
 
+      // Backup & Recovery Functions
+      window.testGetBackupStatus = async function() {
+        try {
+          const status = await window.w3pk.getBackupStatus();
+          console.log('Backup status:', status);
+          window.showResult('Backup Status', {
+            securityScore: status.securityScore.total + '/100',
+            level: status.securityScore.level,
+            passkeySync: status.passkeySync.enabled,
+            platform: status.passkeySync.platform,
+            encryptedBackups: status.recoveryPhrase.encryptedBackups.length,
+            socialRecovery: status.socialRecovery?.enabled || false
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testCreateZipBackup = async function() {
+        try {
+          const password = prompt('Enter a strong password for the backup:', 'TestPassword123!');
+          if (!password) return;
+
+          const blob = await window.w3pk.createZipBackup(password, {
+            includeInstructions: true,
+            deviceBinding: false
+          });
+
+          // Create download link
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `wallet-backup-${Date.now()}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+
+          console.log('ZIP backup created');
+          window.showResult('ZIP Backup Created', {
+            size: `${(blob.size / 1024).toFixed(2)} KB`,
+            password: password,
+            note: 'File downloaded automatically'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testCreateQRBackup = async function() {
+        try {
+          const password = prompt('Enter password for QR backup (or leave empty for unencrypted):', '');
+
+          const result = await window.w3pk.createQRBackup(password || undefined, {
+            errorCorrection: 'H'
+          });
+
+          console.log('QR backup created');
+
+          // Display QR code in results
+          const img = new Image();
+          img.src = result.qrCodeDataURL;
+          img.style.maxWidth = '400px';
+          img.style.border = '2px solid #007bff';
+          img.style.borderRadius = '8px';
+          img.style.marginTop = '10px';
+
+          const div = document.createElement('div');
+          div.className = 'result success';
+          div.innerHTML = `
+            <strong>QR Code Backup Created</strong>
+            <p>Encrypted: ${password ? 'Yes' : 'No'}</p>
+            <p>Error Correction: High (30% damage tolerance)</p>
+            <div>${img.outerHTML}</div>
+            <details style="margin-top: 10px;">
+              <summary>View Instructions</summary>
+              <pre>${result.instructions}</pre>
+            </details>
+          `;
+          document.getElementById('results').insertBefore(div, document.getElementById('results').firstChild);
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testDetectSyncCapabilities = async function() {
+        try {
+          const capabilities = await window.w3pk.detectSyncCapabilities();
+          console.log('Sync capabilities:', capabilities);
+
+          const syncStatus = await window.w3pk.getSyncStatus();
+          console.log('Sync status:', syncStatus);
+
+          window.showResult('Sync Capabilities Detected', {
+            platform: capabilities.platform,
+            passkeysSync: capabilities.passkeysSync,
+            estimatedDevices: capabilities.estimatedDevices,
+            syncEnabled: capabilities.syncEnabled,
+            devices: syncStatus.devices
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      // Social Recovery Functions
+      window.testSetupSocialRecovery = async function() {
+        try {
+          const guardians = [
+            { name: 'Alice', email: 'alice@example.com' },
+            { name: 'Bob', email: 'bob@example.com' },
+            { name: 'Charlie', email: 'charlie@example.com' },
+            { name: 'Diana', email: 'diana@example.com' },
+            { name: 'Eve', email: 'eve@example.com' }
+          ];
+
+          window.showResult('Setting up social recovery (this will require authentication)...', null);
+
+          const result = await window.w3pk.setupSocialRecovery(guardians, 3);
+          console.log('Social recovery setup:', result);
+
+          window.showResult('Social Recovery Setup Complete', {
+            totalGuardians: result.length,
+            threshold: 3,
+            guardians: result.map(g => ({
+              id: g.id,
+              name: g.name,
+              status: g.status
+            }))
+          }, 'success');
+
+          // Store first guardian ID for testing
+          if (result.length > 0) {
+            window.testGuardianId = result[0].id;
+          }
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGenerateGuardianInvite = async function() {
+        try {
+          if (!window.testGuardianId) {
+            window.showResult('Please set up social recovery first', null, 'error');
+            return;
+          }
+
+          const invite = await window.w3pk.generateGuardianInvite(window.testGuardianId);
+          console.log('Guardian invite:', invite);
+
+          // Display QR code and explainer
+          const img = new Image();
+          img.src = invite.qrCode;
+          img.style.maxWidth = '300px';
+          img.style.border = '2px solid #28a745';
+          img.style.borderRadius = '8px';
+
+          const div = document.createElement('div');
+          div.className = 'result success';
+          div.innerHTML = `
+            <strong>Guardian Invitation Generated</strong>
+            <p>Guardian ID: ${invite.guardianId}</p>
+            <div>${img.outerHTML}</div>
+            <details style="margin-top: 10px;">
+              <summary>View Guardian Instructions</summary>
+              <pre>${invite.explainer}</pre>
+            </details>
+            <details style="margin-top: 10px;">
+              <summary>View Share Code (JSON)</summary>
+              <pre>${invite.shareCode}</pre>
+            </details>
+          `;
+          document.getElementById('results').insertBefore(div, document.getElementById('results').firstChild);
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGetSocialRecoveryConfig = async function() {
+        try {
+          // Import SocialRecoveryManager
+          const { SocialRecoveryManager } = await import('./dist/index.mjs');
+          const socialRecovery = new SocialRecoveryManager();
+
+          const config = socialRecovery.getSocialRecoveryConfig();
+
+          if (!config) {
+            window.showResult('Social recovery not configured yet', null, 'empty');
+            return;
+          }
+
+          console.log('Social recovery config:', config);
+          window.showResult('Social Recovery Configuration', {
+            threshold: config.threshold,
+            totalGuardians: config.totalGuardians,
+            ethereumAddress: config.ethereumAddress,
+            createdAt: new Date(config.createdAt).toISOString(),
+            guardians: config.guardians.map(g => ({
+              name: g.name,
+              email: g.email,
+              status: g.status,
+              addedAt: new Date(g.addedAt).toISOString()
+            }))
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      // Education & Testing Functions
+      window.testRunRecoveryTest = async function() {
+        try {
+          window.showResult('Running recovery test...', null);
+
+          const result = await window.w3pk.runRecoveryTest();
+          console.log('Recovery test:', result);
+
+          let scenariosHtml = '<div style="margin-top: 10px;"><strong>Scenarios:</strong></div>';
+          result.scenarios.forEach(scenario => {
+            const icon = scenario.success ? '✅' : '❌';
+            scenariosHtml += `<div style="margin: 5px 0;">${icon} ${scenario.scenario.description}</div>`;
+          });
+
+          const div = document.createElement('div');
+          div.className = 'result ' + (result.overallScore >= 75 ? 'success' : 'error');
+          div.innerHTML = `
+            <strong>Recovery Test Complete</strong>
+            <p>Overall Score: ${result.overallScore}/100</p>
+            ${scenariosHtml}
+            <pre style="margin-top: 10px;">${result.feedback}</pre>
+          `;
+          document.getElementById('results').insertBefore(div, document.getElementById('results').firstChild);
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testSimulateLostDevice = async function() {
+        try {
+          const result = await window.w3pk.simulateRecoveryScenario({
+            type: 'lost-device',
+            description: 'Your phone fell in the ocean'
+          });
+          console.log('Lost device simulation:', result);
+
+          let methodsHtml = '<div style="margin-top: 10px;"><strong>Available Methods:</strong></div>';
+          result.availableMethods.forEach((method, index) => {
+            methodsHtml += `<div style="margin: 5px 0;">${index + 1}. ${method.method} (~${method.time})</div>`;
+          });
+
+          const div = document.createElement('div');
+          div.className = 'result ' + (result.success ? 'success' : 'error');
+          div.innerHTML = `
+            <strong>Scenario: Lost Device</strong>
+            <p>Can Recover: ${result.success ? 'Yes ✅' : 'No ❌'}</p>
+            <p>Fastest Recovery: ${result.timeEstimate}</p>
+            ${methodsHtml}
+            <pre style="margin-top: 10px;">${result.educationalNote}</pre>
+          `;
+          document.getElementById('results').insertBefore(div, document.getElementById('results').firstChild);
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testSimulateLostPhrase = async function() {
+        try {
+          const result = await window.w3pk.simulateRecoveryScenario({
+            type: 'lost-phrase',
+            description: 'Your paper backup burned in a fire'
+          });
+          console.log('Lost phrase simulation:', result);
+
+          let methodsHtml = '<div style="margin-top: 10px;"><strong>Available Methods:</strong></div>';
+          result.availableMethods.forEach((method, index) => {
+            methodsHtml += `<div style="margin: 5px 0;">${index + 1}. ${method.method} (~${method.time})</div>`;
+          });
+
+          const div = document.createElement('div');
+          div.className = 'result ' + (result.success ? 'success' : 'error');
+          div.innerHTML = `
+            <strong>Scenario: Lost Recovery Phrase</strong>
+            <p>Can Recover: ${result.success ? 'Yes ✅' : 'No ❌'}</p>
+            <p>Fastest Recovery: ${result.timeEstimate}</p>
+            ${methodsHtml}
+            <pre style="margin-top: 10px;">${result.educationalNote}</pre>
+          `;
+          document.getElementById('results').insertBefore(div, document.getElementById('results').firstChild);
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGetEducation = async function() {
+        try {
+          const content = await window.w3pk.getEducation('whatIsPasskey');
+          console.log('Educational content:', content);
+
+          const div = document.createElement('div');
+          div.className = 'result';
+          div.innerHTML = `
+            <strong>${content.title}</strong>
+            <pre>${content.content}</pre>
+            ${content.visual ? `<pre>${content.visual}</pre>` : ''}
+          `;
+          document.getElementById('results').insertBefore(div, document.getElementById('results').firstChild);
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
       // Initial status check
       console.log('w3pk SDK loaded:', window.w3pk);
       window.showResult('w3pk SDK Ready', {
-        version: 'latest from CDN',
+        version: window.w3pk.version,
         isAuthenticated: window.w3pk.isAuthenticated
       }, 'success');
     </script>

@@ -925,6 +925,337 @@ Modern authenticators (TouchID, Windows Hello, YubiKey) have **built-in secure s
 - Mnemonic is the ultimate recovery mechanism
 - WebAuthn is for convenience + security, not recovery
 
+## Backup & Recovery Security
+
+w3pk implements a **three-layer backup and recovery system** that balances security, usability, and resilience. Each layer uses different cryptographic primitives and trust models.
+
+### Layer 1: Passkey Auto-Sync (Platform-Based)
+
+**How it works:**
+- WebAuthn credentials automatically sync via platform services (iCloud Keychain, Google Password Manager, Microsoft Account)
+- Encrypted end-to-end by platform provider
+- Requires device unlock + cloud account authentication
+
+**Security properties:**
+- ✅ **Encrypted in transit** - Platform handles E2E encryption
+- ✅ **Hardware-backed** - Credentials protected by Secure Enclave/TPM
+- ✅ **Automatic** - No user action required
+- ⚠️ **Platform trust** - Relies on Apple/Google/Microsoft security
+- ⚠️ **Ecosystem lock-in** - Cannot cross platforms (Apple → Android)
+
+**Threat model:**
+| Threat | Protected? | Notes |
+|--------|-----------|-------|
+| Device loss (same ecosystem) | ✅ Yes | Credentials restore on new device |
+| Device loss (cross-platform) | ❌ No | Need Layer 2 (mnemonic) |
+| Platform account compromise | ⚠️ Depends | Platform MFA protects |
+| State-level attack on cloud | ⚠️ Possible | Platform E2E encryption helps |
+
+### Layer 2: Encrypted Backups (User-Controlled)
+
+**How it works:**
+- Mnemonic encrypted with user-chosen password
+- Multiple backup formats: password-protected ZIP, QR code
+- Encryption: **AES-256-GCM** with **PBKDF2** (310,000 iterations, OWASP 2025 standard)
+
+**Security properties:**
+- ✅ **Military-grade encryption** - AES-256-GCM
+- ✅ **Password-based** - User controls secret
+- ✅ **Offline storage** - Can be stored on paper/USB/safe
+- ✅ **Platform-independent** - Works across any device
+- ⚠️ **Password strength critical** - Weak password = vulnerable
+
+**Cryptographic details:**
+```typescript
+// Key derivation
+PBKDF2-SHA256
+├─ Iterations: 310,000 (OWASP 2025)
+├─ Salt: 32 bytes (random per backup)
+└─ Output: 256-bit key
+
+// Encryption
+AES-256-GCM
+├─ Key: From PBKDF2
+├─ IV: 12 bytes (random per encryption)
+├─ Auth tag: 16 bytes (automatic)
+└─ Additional data: Ethereum address (for integrity)
+```
+
+**Password validation:**
+w3pk enforces strong passwords:
+- Minimum 12 characters
+- Uppercase + lowercase + numbers + special chars
+- Not in common password list
+- Strength score ≥50/100 required
+
+**Threat model:**
+| Threat | Protected? | Notes |
+|--------|-----------|-------|
+| Backup file stolen | ✅ Yes | Requires password to decrypt |
+| Weak password | ⚠️ Vulnerable | User responsibility |
+| Password forgotten | ❌ Unrecoverable | Need Layer 3 (social recovery) |
+| Brute force (strong password) | ✅ Yes | 310k iterations slow down attacks |
+| Brute force (weak password) | ❌ Vulnerable | Minutes to hours with GPU |
+
+**Brute force analysis:**
+
+Assuming attacker has:
+- Modern GPU (RTX 4090)
+- ~100,000 PBKDF2-SHA256 hashes/second at 310k iterations
+
+| Password Type | Entropy | Time to Crack |
+|--------------|---------|---------------|
+| `password123` (common) | ~20 bits | Seconds |
+| `MyPassword123!` (weak) | ~35 bits | Hours |
+| `MyS3cur3!Pass@2024` (medium) | ~50 bits | Months |
+| `correct horse battery staple` (strong) | ~80 bits | Centuries |
+| Truly random 16 chars | ~100 bits | Universe lifetime |
+
+**Recommendation:** Use password manager to generate strong passwords or use multi-word passphrases (4+ random words).
+
+### Layer 3: Social Recovery (Distributed Trust)
+
+**How it works:**
+- Mnemonic split into **N shares** using **Shamir Secret Sharing**
+- Requires **M-of-N** shares to recover (e.g., 3-of-5)
+- Each guardian receives encrypted share via QR code
+- Guardians never see the actual mnemonic
+
+**Cryptographic details:**
+```typescript
+// Shamir Secret Sharing over GF(256)
+├─ Threshold: M (minimum shares needed)
+├─ Total shares: N (total guardians)
+├─ Secret: Mnemonic (67 bytes UTF-8)
+├─ Polynomial degree: M-1
+├─ Field: Galois Field GF(256)
+│   ├─ Primitive polynomial: x^8 + x^4 + x^3 + x + 1 (0x11b)
+│   ├─ Generator: 3
+│   └─ Lagrange interpolation for reconstruction
+└─ Share format:
+    ├─ Byte 0: X coordinate (1-255)
+    └─ Bytes 1-67: Y values (polynomial evaluation)
+
+// Guardian share encryption
+AES-256-GCM (same as Layer 2)
+├─ Optional: Guardian can password-protect their share
+└─ QR code includes guardian metadata + instructions
+```
+
+**Security properties:**
+- ✅ **Information-theoretic security** - Cannot learn secret from M-1 shares
+- ✅ **Distributed trust** - No single point of failure
+- ✅ **Privacy-preserving** - Guardians never see mnemonic
+- ✅ **Flexible threshold** - Customize M-of-N based on risk tolerance
+- ⚠️ **Coordination required** - Must contact M guardians
+- ⚠️ **Guardian trust** - Guardians could collude (if ≥M)
+
+**Threat model:**
+| Threat | Protected? | Notes |
+|--------|-----------|-------|
+| M-1 guardians compromised | ✅ Yes | Cannot recover without Mth share |
+| M guardians collude | ❌ Vulnerable | Can reconstruct mnemonic |
+| All guardians lost | ❌ Unrecoverable | Need Layer 2 backup |
+| Guardian share stolen | ✅ Depends | If password-protected, still safe |
+| User forgets who guardians are | ⚠️ Problem | Keep guardian list separately |
+
+**Information-theoretic security proof:**
+
+Shamir Secret Sharing over GF(256) provides perfect secrecy:
+- Given M-1 shares, **every possible secret is equally likely**
+- Attacker learns **zero bits** of information about secret
+- No amount of computation can break this (unlike encryption)
+
+Mathematical proof:
+```
+For threshold M and secret S:
+- Polynomial P(x) = a₀ + a₁x + ... + aₘ₋₁x^(M-1)
+- Secret: S = P(0) = a₀
+- Share i: Sᵢ = P(i)
+
+Given M-1 shares {S₁, S₂, ..., Sₘ₋₁}:
+- Infinite polynomials pass through these points
+- Each yields different P(0) = a₀
+- All secrets equally probable
+- H(S | S₁,...,Sₘ₋₁) = H(S)  [Shannon entropy unchanged]
+```
+
+**Example configuration:**
+
+| Scenario | Threshold | Guardians | Rationale |
+|----------|-----------|-----------|-----------|
+| High paranoia | 5-of-7 | 7 close friends | Can lose 2 guardians |
+| Balanced | 3-of-5 | 5 trusted contacts | Standard recommendation |
+| Convenience | 2-of-3 | 3 family members | Easy to coordinate |
+| Multi-sig like | 2-of-2 | 2 co-owners | Both must agree |
+
+### Layered Security Strategy
+
+**Defense in depth:**
+```
+┌─────────────────────────────────────────────┐
+│ Recovery Scenario                            │
+├─────────────────────────────────────────────┤
+│                                              │
+│ Lost Device (Same Platform)                 │
+│ └─> Layer 1: Passkey Sync ✅ RECOVERED      │
+│                                              │
+│ Lost Device (Cross-Platform)                │
+│ └─> Layer 1: Failed ❌                       │
+│ └─> Layer 2: Encrypted Backup ✅ RECOVERED   │
+│                                              │
+│ Lost Device + Forgot Password               │
+│ └─> Layer 1: Failed ❌                       │
+│ └─> Layer 2: Failed ❌                       │
+│ └─> Layer 3: Social Recovery ✅ RECOVERED    │
+│                                              │
+│ Lost Everything + All Guardians Lost        │
+│ └─> ❌ UNRECOVERABLE                         │
+│                                              │
+└─────────────────────────────────────────────┘
+```
+
+**Security scoring:**
+
+w3pk calculates a security score (0-100) based on active backup methods:
+
+| Configuration | Score | Level |
+|--------------|-------|-------|
+| No backups | 0-25 | 🔴 Vulnerable |
+| Passkey sync only | 30-50 | 🟡 Protected |
+| Passkey + encrypted backup | 60-80 | 🟢 Secured |
+| All three layers | 85-100 | 🟦 Fort Knox |
+
+**Score calculation:**
+```typescript
+score = 0
++ (passkeySync.enabled ? 30 : 0)
++ (backups.zip > 0 ? 25 : 0)
++ (backups.qr > 0 ? 15 : 0)
++ (socialRecovery.configured ? 30 : 0)
+```
+
+### Backup Best Practices
+
+**1. Use multiple layers:**
+```typescript
+// ✅ GOOD: Enable all three layers
+await w3pk.setupSocialRecovery([...guardians], 3)
+await w3pk.createZipBackup('MyS3cur3!Password@2024')
+// Passkey sync enabled by default on platform
+
+// ❌ BAD: Rely on single layer
+// (only passkey sync - what if switch platforms?)
+```
+
+**2. Test recovery before trusting:**
+```typescript
+// Simulate recovery scenarios
+const test1 = await w3pk.simulateRecoveryScenario({
+  type: 'lost-device',
+  hasBackup: true,
+  hasSocialRecovery: true
+})
+console.log('Can recover?', test1.canRecover)
+
+const test2 = await w3pk.simulateRecoveryScenario({
+  type: 'lost-phrase',
+  hasPasskeySync: true
+})
+console.log('Can recover?', test2.canRecover)
+```
+
+**3. Store backups securely:**
+```typescript
+// ✅ GOOD: Offline, encrypted, geographically distributed
+- Physical safe (home)
+- Safety deposit box (bank)
+- Encrypted USB drive (office)
+- Password manager (different password)
+
+// ❌ BAD: Digital-only, centralized
+- Cloud storage unencrypted
+- Email to self
+- Single location
+- Shared with others
+```
+
+**4. Choose guardians wisely:**
+```typescript
+// ✅ GOOD guardian criteria:
+- Trustworthy (won't collude)
+- Available (can reach when needed)
+- Technical (understands basic security)
+- Diverse (different locations/relationships)
+- Long-term (stable relationship)
+
+// ❌ BAD guardian choices:
+- All family members (could collude)
+- All same location (disaster risk)
+- Strangers/acquaintances
+- People who might lose share
+```
+
+**5. Use strong passwords:**
+```typescript
+// ✅ GOOD passwords:
+'correct horse battery staple'  // Multi-word passphrase
+'MyS3cur3!Backup@December2024'  // Long with variety
+(password manager generated)     // Truly random
+
+// ❌ BAD passwords:
+'password123'      // Common
+'MyPassword'       // Dictionary word
+'12345678'         // Sequential
+'qwerty123'        // Keyboard pattern
+```
+
+### API Security Considerations
+
+**All backup operations require authentication:**
+```typescript
+// These operations trigger biometric prompt
+await w3pk.createZipBackup(password)        // ✅ Auth required
+await w3pk.createQRBackup(password)         // ✅ Auth required
+await w3pk.setupSocialRecovery(...)         // ✅ Auth required
+await w3pk.exportMnemonic()                 // ✅ Auth required
+
+// Read-only operations don't require auth
+await w3pk.getBackupStatus()                // ✅ No auth needed
+await w3pk.getSyncStatus()                  // ✅ No auth needed
+```
+
+**Password validation is client-side:**
+⚠️ **Important:** Password strength is checked in the browser. A determined attacker with code execution could bypass validation and create backups with weak passwords.
+
+**Mitigation:**
+- Use `requireAuth: true` for backup creation
+- Short session durations
+- XSS/injection protection (CSP, input sanitization)
+- Educate users on password strength
+
+**Recovery operations don't require authentication:**
+```typescript
+// Recovery from existing backups is public
+await w3pk.restoreFromBackup(encryptedData, password)
+await w3pk.recoverFromGuardians([shares...])
+
+// Rationale: If user has backup data + password/shares,
+// they own the wallet regardless of authentication
+```
+
+### Comparison with Other Recovery Systems
+
+| Recovery Method | w3pk Layer 1 | w3pk Layer 2 | w3pk Layer 3 | Traditional Seed | Hardware Wallet |
+|----------------|--------------|--------------|--------------|------------------|-----------------|
+| **Automatic** | ✅ Yes | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual |
+| **Cross-platform** | ❌ No | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Offline storage** | ❌ No | ✅ Yes | ✅ Yes | ✅ Yes | N/A |
+| **No single point** | ❌ No | ❌ No | ✅ Yes | ❌ No | ❌ No |
+| **Cryptographic** | ✅ E2E | ✅ AES-256 | ✅ Shamir | N/A | N/A |
+| **User effort** | None | Medium | High | Low | None |
+| **Trust model** | Platform | Self | Distributed | Self | Self |
+
 ## Best Practices for Users
 
 ### 1. **Always Save Your Mnemonic**

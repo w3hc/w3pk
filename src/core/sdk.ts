@@ -169,7 +169,10 @@ export class Web3Passkey {
       const publicKey = credential.publicKey;
 
       // Derive encryption key from WebAuthn credential
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+        credentialId,
+        publicKey
+      );
 
       const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
 
@@ -380,7 +383,10 @@ export class Web3Passkey {
       const publicKey = credential?.publicKey;
 
       // Derive encryption key from WebAuthn credential
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+        credentialId,
+        publicKey
+      );
 
       const encryptedMnemonic = await encryptData(
         mnemonic.trim(),
@@ -468,6 +474,246 @@ export class Web3Passkey {
   }
 
   // ========================================
+  // Backup and Recovery
+  // ========================================
+
+  /**
+   * Get comprehensive backup status
+   * Shows user exactly what protects their wallet
+   */
+  async getBackupStatus(): Promise<any> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to check backup status");
+    }
+
+    const { BackupManager } = await import("../backup");
+    const backupManager = new BackupManager();
+    return backupManager.getBackupStatus(this.currentUser.ethereumAddress);
+  }
+
+  /**
+   * Create password-protected ZIP backup
+   * @param password - Strong password to encrypt the backup
+   * @param options - Optional backup configuration
+   */
+  async createZipBackup(
+    password: string,
+    options?: { includeInstructions?: boolean; deviceBinding?: boolean }
+  ): Promise<Blob> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to create backup");
+    }
+
+    const mnemonic = await this.getMnemonicFromSession(true); // Force auth for security
+
+    const { BackupManager } = await import("../backup");
+    const backupManager = new BackupManager();
+
+    return backupManager.createZipBackup(
+      mnemonic,
+      this.currentUser.ethereumAddress,
+      { password, ...options }
+    );
+  }
+
+  /**
+   * Create QR code backup
+   * @param password - Optional password to encrypt QR code
+   * @param options - QR code configuration
+   */
+  async createQRBackup(
+    password?: string,
+    options?: { errorCorrection?: "L" | "M" | "Q" | "H" }
+  ): Promise<{ qrCodeDataURL: string; instructions: string }> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to create backup");
+    }
+
+    const mnemonic = await this.getMnemonicFromSession(true); // Force auth for security
+
+    const { BackupManager } = await import("../backup");
+    const backupManager = new BackupManager();
+
+    return backupManager.createQRBackup(
+      mnemonic,
+      this.currentUser.ethereumAddress,
+      { password, ...options }
+    );
+  }
+
+  /**
+   * Set up social recovery
+   * Splits mnemonic into M-of-N shares for guardian-based recovery
+   *
+   * @param guardians - Array of guardian information
+   * @param threshold - Number of guardians required to recover (M in M-of-N)
+   */
+  async setupSocialRecovery(
+    guardians: { name: string; email?: string; phone?: string }[],
+    threshold: number
+  ): Promise<any[]> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to set up social recovery");
+    }
+
+    const mnemonic = await this.getMnemonicFromSession(true); // Force auth for security
+
+    const { SocialRecoveryManager } = await import("../recovery");
+    const socialRecovery = new SocialRecoveryManager();
+
+    return socialRecovery.setupSocialRecovery(
+      mnemonic,
+      this.currentUser.ethereumAddress,
+      guardians,
+      threshold
+    );
+  }
+
+  /**
+   * Generate guardian invitation
+   * Creates QR code and instructions for a guardian
+   */
+  async generateGuardianInvite(guardianId: string): Promise<any> {
+    const { SocialRecoveryManager } = await import("../recovery");
+    const socialRecovery = new SocialRecoveryManager();
+
+    const config = socialRecovery.getSocialRecoveryConfig();
+    if (!config) {
+      throw new WalletError("Social recovery not configured");
+    }
+
+    const guardian = config.guardians.find((g) => g.id === guardianId);
+    if (!guardian) {
+      throw new WalletError("Guardian not found");
+    }
+
+    return socialRecovery.generateGuardianInvite(guardian);
+  }
+
+  /**
+   * Recover wallet from guardian shares
+   * @param shares - Array of share data from guardians (JSON strings)
+   */
+  async recoverFromGuardians(
+    shares: string[]
+  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+    const { SocialRecoveryManager } = await import("../recovery");
+    const socialRecovery = new SocialRecoveryManager();
+
+    return socialRecovery.recoverFromGuardians(shares);
+  }
+
+  /**
+   * Restore wallet from encrypted backup
+   * @param backupData - Backup file contents (JSON string)
+   * @param password - Password used to encrypt the backup
+   */
+  async restoreFromBackup(
+    backupData: string,
+    password: string
+  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+    const { BackupManager } = await import("../backup");
+    const backupManager = new BackupManager();
+
+    return backupManager.restoreFromZipBackup(backupData, password);
+  }
+
+  /**
+   * Restore wallet from QR code
+   * @param qrData - Scanned QR code data (JSON string)
+   * @param password - Optional password if QR was encrypted
+   */
+  async restoreFromQR(
+    qrData: string,
+    password?: string
+  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+    const { BackupManager } = await import("../backup");
+    const backupManager = new BackupManager();
+
+    return backupManager.restoreFromQR(qrData, password);
+  }
+
+  /**
+   * Get cross-device sync status
+   * Shows which devices have access and sync capabilities
+   */
+  async getSyncStatus(): Promise<any> {
+    const { DeviceManager } = await import("../sync");
+    const deviceManager = new DeviceManager();
+
+    return deviceManager.getSyncStatus();
+  }
+
+  /**
+   * Detect sync capabilities
+   * Shows what platform sync is available (iCloud, Google, etc.)
+   */
+  async detectSyncCapabilities(): Promise<any> {
+    const { PlatformDetector } = await import("../sync");
+    const detector = new PlatformDetector();
+
+    return detector.detectSyncCapabilities();
+  }
+
+  /**
+   * Simulate recovery scenario (educational)
+   * Tests what happens in various loss scenarios
+   *
+   * @param scenario - Type of scenario to simulate
+   */
+  async simulateRecoveryScenario(scenario: {
+    type: "lost-device" | "lost-phrase" | "lost-both" | "switch-platform";
+    description: string;
+  }): Promise<any> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to run recovery simulation");
+    }
+
+    const status = await this.getBackupStatus();
+
+    const { RecoverySimulator } = await import("../education");
+    const simulator = new RecoverySimulator();
+
+    return simulator.simulateScenario(scenario, status);
+  }
+
+  /**
+   * Run interactive recovery test
+   * Tests all recovery scenarios and provides feedback
+   */
+  async runRecoveryTest(): Promise<{
+    scenarios: any[];
+    overallScore: number;
+    feedback: string;
+  }> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to run recovery test");
+    }
+
+    const status = await this.getBackupStatus();
+
+    const { RecoverySimulator } = await import("../education");
+    const simulator = new RecoverySimulator();
+
+    return simulator.runInteractiveTest(status);
+  }
+
+  /**
+   * Get educational content
+   * @param topic - Topic to explain (e.g., 'whatIsPasskey', 'socialRecoveryExplained')
+   */
+  async getEducation(topic: string): Promise<any> {
+    const { getExplainer } = await import("../education");
+    const explainer = getExplainer(topic);
+
+    if (!explainer) {
+      throw new WalletError(`Unknown education topic: ${topic}`);
+    }
+
+    return explainer;
+  }
+
+  // ========================================
   // Session Management
   // ========================================
 
@@ -512,5 +758,12 @@ export class Web3Passkey {
    */
   setSessionDuration(hours: number): void {
     this.sessionManager.setSessionDuration(hours);
+  }
+
+  /**
+   * SDK version
+   */
+  get version(): string {
+    return "0.7.1";
   }
 }

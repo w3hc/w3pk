@@ -48,6 +48,10 @@ const rpcUrl = endpoints[0]
 - 🥷 ERC-5564 stealth addresses (privacy-preserving transactions with view tags)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
 - ⚡ EIP-7702 network detection (329+ supported networks)
+- 🛡️ Three-layer backup & recovery system
+  - Passkey auto-sync (iCloud/Google/Microsoft)
+  - Encrypted backups (ZIP/QR with password protection)
+  - Social recovery (Shamir Secret Sharing)
 
 **Optional: Zero-Knowledge Proofs**
 
@@ -218,6 +222,54 @@ if (result.isForUser) {
 const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ```
 
+### Backup & Recovery
+
+```typescript
+// Get backup status
+const status = await w3pk.getBackupStatus()
+console.log('Security Score:', status.securityScore.score) // 0-100
+
+// Create encrypted ZIP backup
+const blob = await w3pk.createZipBackup('MyS3cur3!Password@2042')
+// Save blob to file system
+
+// Create QR backup
+const { qrCodeDataURL } = await w3pk.createQRBackup('password')
+// Display QR code or save as image
+
+// Setup social recovery (3-of-5 guardians)
+await w3pk.setupSocialRecovery(
+  [
+    { name: 'Alice', email: 'alice@example.com' },
+    { name: 'Bob', phone: '+1234567890' },
+    { name: 'Charlie' }
+  ],
+  3 // threshold
+)
+
+// Generate guardian invite
+const invite = await w3pk.generateGuardianInvite(guardianId)
+// Share invite.qrCode or invite.shareCode with guardian
+
+// Recover from guardian shares
+const { mnemonic } = await w3pk.recoverFromGuardians([
+  share1, share2, share3
+])
+
+// Restore from backup
+await w3pk.restoreFromBackup(encryptedData, password)
+
+// Simulate recovery scenarios for testing
+const result = await w3pk.simulateRecoveryScenario({
+  type: 'lost-device',
+  hasBackup: true,
+  hasSocialRecovery: true
+})
+console.log('Can recover:', result.canRecover)
+```
+
+See [Recovery Guide](./docs/RECOVERY.md) for complete documentation.
+
 ## Browser Compatibility
 
 **Supported (95%+ of users):**
@@ -233,6 +285,7 @@ const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
+- [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
 - [Browser Compatibility](./docs/BROWSER_COMPATIBILITY.md) - Supported browsers, devices, and OS versions
 - [Security Architecture](./docs/SECURITY.md) - Integration best practices
 - [ERC-5564 Stealth Addresses](./docs/ERC5564_STEALTH_ADDRESSES.md) - Complete guide with examples

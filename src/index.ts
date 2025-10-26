@@ -41,4 +41,36 @@ export {
   deriveWalletFromMnemonic,
 } from "./wallet/generate";
 
+// Backup and Recovery
+export { BackupManager, BackupStorage } from "./backup";
+export { SocialRecoveryManager } from "./recovery";
+export { VaultSync, DeviceManager, PlatformDetector } from "./sync";
+export { RecoverySimulator, getExplainer, getAllTopics, searchExplainers } from "./education";
+
+// Backup and Recovery Types
+export type {
+  BackupStatus,
+  SecurityScore,
+  ZipBackupOptions,
+  QRBackupOptions,
+  RecoveryScenario,
+  SimulationResult,
+  EncryptedBackupInfo,
+} from "./backup/types";
+
+export type {
+  Guardian,
+  GuardianInvite,
+  SocialRecoveryConfig,
+  RecoveryShare,
+  RecoveryProgress,
+} from "./recovery/types";
+
+export type {
+  SyncVault,
+  DeviceInfo,
+  SyncCapabilities,
+  SyncStatus,
+} from "./sync/types";
+
 export default createWeb3Passkey;
