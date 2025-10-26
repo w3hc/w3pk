@@ -253,7 +253,7 @@ When you create a password-protected ZIP backup, here's what happens:
 
 ```typescript
 Input:
-- mnemonic: "wide bundle detect art van embody ride human will leave brush angle"
+- mnemonic: "test test test test test test test test test test test junk"
 - password: "my-super-secure-password-123"
 
 Process:
