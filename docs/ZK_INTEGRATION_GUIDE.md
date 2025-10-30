@@ -22,9 +22,12 @@ The w3pk SDK supports general-purpose zero-knowledge proofs that enable users to
 ### Installation
 
 ```bash
-npm install w3pk
-# ZK dependencies (snarkjs, circomlibjs) are included automatically
+npm install w3pk ethers
+# Optional: Install ZK dependencies if you'll use ZK features
+npm install snarkjs circomlibjs
 ```
+
+**Note**: ZK dependencies are optional. The SDK automatically loads them only when you access `w3pk.zk`, keeping your bundle small if you don't use ZK features.
 
 ### Quick Start
 
@@ -32,13 +35,12 @@ npm install w3pk
 import { createWeb3Passkey } from 'w3pk'
 
 const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org',
   zkProofs: {
     enabledProofs: ['membership', 'threshold', 'range']
   }
 })
 
-// Access ZK module
+// Access ZK module (loads automatically on first use)
 const zk = w3pk.zk
 ```
 

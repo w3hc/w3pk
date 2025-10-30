@@ -61,10 +61,13 @@ npm install w3pk ethers snarkjs circomlibjs
 ## Production Optimization
 
 ### Tree-Shaking
-Modern bundlers (Vite, Webpack 5, Rollup) will automatically remove unused ZK code if:
-1. You don't import from `w3pk/zk`
-2. You don't enable `zkProofs` in config
-3. You use ES modules (`import` not `require`)
+Modern bundlers (Vite, Webpack 5, Rollup) automatically exclude ZK dependencies from your bundle:
+1. ZK module loads **only when accessed** via `w3pk.zk`
+2. No webpack configuration needed for Next.js, Vite, or other frameworks
+3. Zero bundle size impact if you don't use ZK features
+4. Works automatically with ES modules (`import` not `require`)
+
+**Result**: If you don't use ZK features, `circomlibjs` and `snarkjs` never load, keeping your bundle small.
 
 ### Code Splitting
 For applications that need ZK features for some users:

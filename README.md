@@ -46,21 +46,13 @@ const rpcUrl = endpoints[0]
 - 🌱 HD wallet generation (BIP39/BIP44)
 - 🔢 Multi-address derivation
 - 🥷 ERC-5564 stealth addresses (privacy-preserving transactions with view tags)
+- 🧮 ZK primitives (zero-knowledge proof generation and verification)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
 - ⚡ EIP-7702 network detection (329+ supported networks)
 - 🛡️ Three-layer backup & recovery system
   - Passkey auto-sync (iCloud/Google/Microsoft)
   - Encrypted backups (ZIP/QR with password protection)
   - Social recovery (Shamir Secret Sharing)
-
-**Optional: Zero-Knowledge Proofs**
-
-Requires additional dependencies (~70MB):
-```bash
-npm install snarkjs circomlibjs
-```
-
-See [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) to get started.
 
 ## API
 

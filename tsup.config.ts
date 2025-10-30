@@ -15,6 +15,11 @@ export default defineConfig([
     target: "es2020",
     esbuildOptions(options) {
       options.mainFields = ["browser", "module", "main"];
+      // Mark ZK module as external to prevent bundling circomlibjs
+      options.external = [
+        ...(options.external || []),
+        "w3pk/zk"
+      ];
     },
   },
   // ZK subpath exports (requires optional dependencies)
