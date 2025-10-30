@@ -200,9 +200,10 @@
           const username = 'user_' + Date.now();
           const result = await window.w3pk.register({ username });
           console.log('Registration result:', result);
-          window.showResult(`User registered: ${username}`, {
-            username,
-            mnemonic: result.mnemonic,
+          window.showResult(`User registered: ${result.username}`, {
+            username: result.username,
+            address: result.address,
+            isAuthenticated: window.w3pk.isAuthenticated,
             user: window.w3pk.user
           }, 'success');
         } catch (error) {
