@@ -10,89 +10,87 @@ import {
   generateNFTOwnershipProofInputs,
   validateNFTOwnershipProofInputs,
 } from '../src/zk/utils';
-
-console.log('=== NFT Ownership Proof Tests ===\n');
+import {
+  startTestSuite,
+  endTestSuite,
+  runTest,
+  passTest,
+  logDetail,
+  logInfo,
+  skipTest,
+  assert,
+  assertEqual,
+} from './test-utils';
 
 async function runNFTOwnershipTests() {
-  let testsPassed = 0;
-  let testsFailed = 0;
+  startTestSuite('NFT Ownership Proof Tests');
 
   // Test 1: NFT Holders Merkle Tree Building
-  console.log('Test 1: NFT Holders Merkle Tree Building');
-  try {
-    const holderAddresses = [
-      '0x1234567890123456789012345678901234567890',
-      '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
-      '0x9876543210987654321098765432109876543210',
-    ];
-    const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
+  await runTest('NFT Holders Merkle Tree Building', async () => {
+    try {
+      const holderAddresses = [
+        '0x1234567890123456789012345678901234567890',
+        '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        '0x9876543210987654321098765432109876543210',
+      ];
+      const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
 
-    const { root, tree, holderLeaves } = await buildNFTHoldersMerkleTree(
-      holderAddresses,
-      contractAddress
-    );
+      const { root, tree, holderLeaves } = await buildNFTHoldersMerkleTree(
+        holderAddresses,
+        contractAddress
+      );
 
-    console.log(`  ✅ Merkle tree built successfully`);
-    console.log(`  📊 Root: ${root.substring(0, 20)}...`);
-    console.log(`  🌳 Tree levels: ${tree.length}`);
-    console.log(`  🍃 Holder leaves: ${holderLeaves.length}`);
+      passTest('Merkle tree built successfully');
+      logDetail(`Root: ${root.substring(0, 20)}...`);
+      logDetail(`Tree levels: ${tree.length}`);
+      logDetail(`Holder leaves: ${holderLeaves.length}`);
 
-    if (root && tree.length > 0 && holderLeaves.length === holderAddresses.length) {
-      testsPassed++;
-    } else {
-      throw new Error('Invalid tree structure');
+      assert(root && tree.length > 0 && holderLeaves.length === holderAddresses.length, 'Invalid tree structure');
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('circomlibjs')) {
+        skipTest('circomlibjs not available');
+      } else {
+        throw error;
+      }
     }
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('circomlibjs')) {
-      console.log('  ℹ️ Merkle tree test skipped - circomlibjs not available');
-      testsPassed++; // Count as passed since this is expected without deps
-    } else {
-      console.log(`  ❌ Test failed: ${error}`);
-      testsFailed++;
-    }
-  }
+  });
 
   // Test 2: NFT Ownership Proof Inputs Generation
-  console.log('\nTest 2: NFT Ownership Proof Inputs Generation');
-  try {
-    const holderAddresses = [
-      '0x1111111111111111111111111111111111111111',
-      '0x2222222222222222222222222222222222222222',
-      '0x3333333333333333333333333333333333333333',
-    ];
-    const yourAddress = '0x2222222222222222222222222222222222222222';
-    const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
+  await runTest('NFT Ownership Proof Inputs Generation', async () => {
+    try {
+      const holderAddresses = [
+        '0x1111111111111111111111111111111111111111',
+        '0x2222222222222222222222222222222222222222',
+        '0x3333333333333333333333333333333333333333',
+      ];
+      const yourAddress = '0x2222222222222222222222222222222222222222';
+      const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
 
-    const { nftProofInput } = await generateNFTOwnershipProofInputs(
-      yourAddress,
-      contractAddress,
-      holderAddresses,
-      1n
-    );
+      const { nftProofInput } = await generateNFTOwnershipProofInputs(
+        yourAddress,
+        contractAddress,
+        holderAddresses,
+        1n
+      );
 
-    console.log('  ✅ NFT proof inputs generated');
-    console.log(`  📍 Holder index: ${nftProofInput.holderIndex}`);
-    console.log(`  🛣️  Path depth: ${nftProofInput.pathIndices.length}`);
-    console.log(`  📊 Root: ${nftProofInput.holdersRoot.substring(0, 20)}...`);
+      passTest('NFT proof inputs generated');
+      logDetail(`Holder index: ${nftProofInput.holderIndex}`);
+      logDetail(`Path depth: ${nftProofInput.pathIndices.length}`);
+      logDetail(`Root: ${nftProofInput.holdersRoot.substring(0, 20)}...`);
 
-    if (nftProofInput.holderIndex === 1 && nftProofInput.pathIndices.length > 0) {
-      testsPassed++;
-    } else {
-      throw new Error('Invalid proof inputs');
+      assertEqual(nftProofInput.holderIndex, 1, 'Holder index should be 1');
+      assert(nftProofInput.pathIndices.length > 0, 'Path indices should not be empty');
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('circomlibjs')) {
+        skipTest('circomlibjs not available');
+      } else {
+        throw error;
+      }
     }
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('circomlibjs')) {
-      console.log('  ℹ️ Proof inputs test skipped - circomlibjs not available');
-      testsPassed++;
-    } else {
-      console.log(`  ❌ Test failed: ${error}`);
-      testsFailed++;
-    }
-  }
+  });
 
   // Test 3: NFT Proof Input Validation
-  console.log('\nTest 3: NFT Proof Input Validation');
-  try {
+  await runTest('NFT Proof Input Validation', async () => {
     const validInputs = {
       ownerAddress: '0x1234567890123456789012345678901234567890',
       contractAddress: '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D',
@@ -104,16 +102,11 @@ async function runNFTOwnershipTests() {
     };
 
     validateNFTOwnershipProofInputs(validInputs);
-    console.log('  ✅ Valid inputs passed validation');
-    testsPassed++;
-  } catch (error) {
-    console.log(`  ❌ Validation test failed: ${error}`);
-    testsFailed++;
-  }
+    passTest('Valid inputs passed validation');
+  });
 
   // Test 4: Invalid Input Validation
-  console.log('\nTest 4: Invalid Input Validation');
-  try {
+  await runTest('Invalid Input Validation', async () => {
     const invalidInputs = {
       ownerAddress: 'invalid_address',
       contractAddress: '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D',
@@ -124,23 +117,25 @@ async function runNFTOwnershipTests() {
       minBalance: 1n,
     };
 
-    validateNFTOwnershipProofInputs(invalidInputs);
-    console.log('  ❌ Should have failed validation');
-    testsFailed++;
-  } catch (error) {
-    console.log('  ✅ Invalid inputs correctly rejected');
-    testsPassed++;
-  }
+    let threw = false;
+    try {
+      validateNFTOwnershipProofInputs(invalidInputs);
+    } catch {
+      threw = true;
+    }
+
+    assert(threw, 'Should have failed validation');
+    passTest('Invalid inputs correctly rejected');
+  });
 
   // Test 5: SDK Integration (New Pattern)
-  console.log('\nTest 5: SDK Integration');
-  try {
+  await runTest('SDK Integration', async () => {
     // Step 1: Initialize main SDK (lightweight, no ZK dependencies)
     const w3pk = createWeb3Passkey({
       storage: mockLocalStorage
     });
 
-    console.log('  ✅ Main SDK initialized (no ZK dependencies)');
+    passTest('Main SDK initialized (no ZK dependencies)');
 
     // Step 2: Initialize ZK module separately when needed
     const { ZKProofModule } = await import('../src/zk/proof-module');
@@ -148,79 +143,58 @@ async function runNFTOwnershipTests() {
       enabledProofs: ['nft']
     });
 
-    console.log('  ✅ ZK module initialized separately');
-    console.log('  ✅ NFT functionality available via separate ZK module');
-    console.log('  ℹ️ This pattern prevents bundling heavy ZK dependencies');
-    console.log('     in apps that don\'t need ZK features');
-    
-    testsPassed++;
-  } catch (error) {
-    console.log(`  ❌ SDK integration test failed: ${error}`);
-    testsFailed++;
-  }
+    passTest('ZK module initialized separately');
+    passTest('NFT functionality available via separate ZK module');
+    logInfo('This pattern prevents bundling heavy ZK dependencies in apps that don\'t need ZK features');
+  });
 
   // Test 6: Error Handling for Missing Owner
-  console.log('\nTest 6: Error Handling for Missing Owner');
-  try {
-    const holderAddresses = [
-      '0x1111111111111111111111111111111111111111',
-      '0x2222222222222222222222222222222222222222',
-    ];
-    const missingAddress = '0x3333333333333333333333333333333333333333';
-    const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
+  await runTest('Error Handling for Missing Owner', async () => {
+    try {
+      const holderAddresses = [
+        '0x1111111111111111111111111111111111111111',
+        '0x2222222222222222222222222222222222222222',
+      ];
+      const missingAddress = '0x3333333333333333333333333333333333333333';
+      const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
 
-    await generateNFTOwnershipProofInputs(
-      missingAddress,
-      contractAddress,
-      holderAddresses,
-      1n
-    );
+      await generateNFTOwnershipProofInputs(
+        missingAddress,
+        contractAddress,
+        holderAddresses,
+        1n
+      );
 
-    console.log('  ❌ Should have failed for missing owner');
-    testsFailed++;
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('not found in holders list')) {
-      console.log('  ✅ Correctly handled missing owner error');
-      testsPassed++;
-    } else if (error instanceof Error && error.message.includes('circomlibjs')) {
-      console.log('  ℹ️ Missing owner test skipped - circomlibjs not available');
-      testsPassed++;
-    } else {
-      console.log(`  ❌ Unexpected error: ${error}`);
-      testsFailed++;
+      throw new Error('Should have failed for missing owner');
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('not found in holders list')) {
+        passTest('Correctly handled missing owner error');
+      } else if (error instanceof Error && error.message.includes('circomlibjs')) {
+        skipTest('circomlibjs not available');
+      } else {
+        throw error;
+      }
     }
+  });
+
+  // Check ZK dependencies status
+  try {
+    await import('circomlibjs');
+    await import('snarkjs');
+    logInfo('ZK dependencies available and functional');
+    logInfo('Full NFT ownership proof generation supported');
+  } catch {
+    logInfo('ZK dependencies not installed (optional)');
+    logInfo('NFT proof setup and validation working correctly');
+    logInfo('Install with: npm install snarkjs circomlibjs');
   }
 
-  return { testsPassed, testsFailed };
+  logInfo('Circuit compilation: pnpm build:zk (when circuits are ready)');
+  endTestSuite();
 }
 
 async function main() {
-  const { testsPassed, testsFailed } = await runNFTOwnershipTests();
-  
-  console.log('\n=== NFT Ownership Test Summary ===');
-  console.log(`Passed: ${testsPassed}/${testsPassed + testsFailed}`);
-  console.log(`Failed: ${testsFailed}/${testsPassed + testsFailed}`);
-  
-  if (testsFailed === 0) {
-    console.log('✅ All NFT ownership tests passed!');
-  } else {
-    console.log(`❌ ${testsFailed} test(s) failed`);
-  }
-
-  console.log('\n=== NFT Ownership Module Status ===');
-  try {
-    // Try to import ZK dependencies to show status
-    await import('circomlibjs');
-    await import('snarkjs');
-    console.log('✅ ZK dependencies available and functional');
-    console.log('✅ Full NFT ownership proof generation supported');
-  } catch {
-    console.log('ℹ️ ZK dependencies not installed (optional)');
-    console.log('ℹ️ NFT proof setup and validation working correctly');
-    console.log('ℹ️ Install with: npm install snarkjs circomlibjs');
-  }
-
-  console.log('ℹ️ Circuit compilation: pnpm build:zk (when circuits are ready)');
+  await runNFTOwnershipTests();
 }
 
 // Run tests if called directly

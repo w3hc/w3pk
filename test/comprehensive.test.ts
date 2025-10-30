@@ -15,132 +15,118 @@ import {
   decryptData,
 } from "../src/wallet/crypto";
 import { ethers } from "ethers";
+import {
+  startTestSuite,
+  endTestSuite,
+  runTest,
+  passTest,
+  logDetail,
+  logInfo,
+  assert,
+  assertEqual,
+} from "./test-utils";
 
-console.log("=== Comprehensive SDK Tests ===\n");
-console.log("Testing low-level wallet utilities and SDK features\n");
+async function runTests() {
+  startTestSuite("Comprehensive SDK Tests");
+  logInfo("Testing low-level wallet utilities and SDK features");
 
-// Test 1: Wallet Generation
-console.log("Test 1: Wallet Generation");
-try {
-  const wallet = generateBIP39Wallet();
-  console.log("  ✓ BIP39 wallet generated");
-  console.log(`  Address: ${wallet.address}`);
-  console.log(`  Mnemonic words: ${wallet.mnemonic.split(" ").length}`);
-} catch (error) {
-  console.log("  ✗ Failed:", (error as Error).message);
-}
+  // Test 1: Wallet Generation
+  await runTest("Wallet Generation", async () => {
+    const wallet = generateBIP39Wallet();
+    passTest("BIP39 wallet generated");
+    logDetail(`Address: ${wallet.address}`);
+    logDetail(`Mnemonic words: ${wallet.mnemonic.split(" ").length}`);
+  });
 
-// Test 2: Wallet Recovery
-console.log("\nTest 2: Wallet Recovery from Mnemonic");
-try {
-  const originalWallet = generateBIP39Wallet();
-  const recoveredWallet = createWalletFromMnemonic(originalWallet.mnemonic);
+  // Test 2: Wallet Recovery
+  await runTest("Wallet Recovery from Mnemonic", async () => {
+    const originalWallet = generateBIP39Wallet();
+    const recoveredWallet = createWalletFromMnemonic(originalWallet.mnemonic);
 
-  if (recoveredWallet.address === originalWallet.address) {
-    console.log("  ✓ Wallet recovered successfully");
-    console.log(`  Addresses match: ${recoveredWallet.address}`);
-  } else {
-    console.log("  ✗ Address mismatch");
-  }
-} catch (error) {
-  console.log("  ✗ Failed:", (error as Error).message);
-}
+    assertEqual(
+      recoveredWallet.address,
+      originalWallet.address,
+      "Addresses should match"
+    );
+    passTest("Wallet recovered successfully");
+    logDetail(`Addresses match: ${recoveredWallet.address}`);
+  });
 
-// Test 3: HD Wallet Derivation
-console.log("\nTest 3: HD Wallet Derivation");
-try {
-  const wallet = generateBIP39Wallet();
-  const derived0 = deriveWalletFromMnemonic(wallet.mnemonic, 0);
-  const derived1 = deriveWalletFromMnemonic(wallet.mnemonic, 1);
+  // Test 3: HD Wallet Derivation
+  await runTest("HD Wallet Derivation", async () => {
+    const wallet = generateBIP39Wallet();
+    const derived0 = deriveWalletFromMnemonic(wallet.mnemonic, 0);
+    const derived1 = deriveWalletFromMnemonic(wallet.mnemonic, 1);
 
-  if (derived0.address !== derived1.address) {
-    console.log("  ✓ HD derivation working");
-    console.log(`  Index 0: ${derived0.address}`);
-    console.log(`  Index 1: ${derived1.address}`);
-  } else {
-    console.log("  ✗ Derived addresses are the same");
-  }
-} catch (error) {
-  console.log("  ✗ Failed:", (error as Error).message);
-}
+    assert(
+      derived0.address !== derived1.address,
+      "Derived addresses should be different"
+    );
+    passTest("HD derivation working");
+    logDetail(`Index 0: ${derived0.address}`);
+    logDetail(`Index 1: ${derived1.address}`);
+  });
 
-// Test 4: Encryption/Decryption with Signature-Based Keys
-console.log("\nTest 4: Data Encryption/Decryption");
-async function testEncryption() {
-  try {
+  // Test 4: Encryption/Decryption with Signature-Based Keys
+  await runTest("Data Encryption/Decryption", async () => {
     const testData = "secret mnemonic phrase here";
     const credentialId = "test-credential-id";
 
     // Simulate a WebAuthn signature (mock for testing)
     const mockSignature = crypto.getRandomValues(new Uint8Array(64)).buffer;
 
-    const key = await deriveEncryptionKeyFromSignature(mockSignature, credentialId);
+    const key = await deriveEncryptionKeyFromSignature(
+      mockSignature,
+      credentialId
+    );
     const encrypted = await encryptData(testData, key);
     const decrypted = await decryptData(encrypted, key);
 
-    if (decrypted === testData) {
-      console.log("  ✓ Encryption/decryption successful");
-      console.log(`  Original length: ${testData.length}`);
-      console.log(`  Encrypted length: ${encrypted.length}`);
-      console.log("  🔒 Security: Key derived from WebAuthn signature");
-      console.log("  🔐 Requires: Biometric/PIN authentication");
-    } else {
-      console.log("  ✗ Decrypted data doesn't match original");
-    }
-  } catch (error) {
-    console.error("  ✗ Failed:", (error as Error).message);
-    console.error("  Error details:", error);
-  }
-}
-
-// Test 5: SDK Initialization
-console.log("\nTest 5: SDK Initialization");
-try {
-  const sdk = createWeb3Passkey({
-    storage: mockLocalStorage,
-    debug: false,
+    assertEqual(decrypted, testData, "Decrypted data should match original");
+    passTest("Encryption/decryption successful");
+    logDetail(`Original length: ${testData.length}`);
+    logDetail(`Encrypted length: ${encrypted.length}`);
+    logDetail("Security: Key derived from WebAuthn signature");
+    logDetail("Requires: Biometric/PIN authentication");
   });
 
-  console.log("  ✓ SDK initialized");
-  console.log(`  Authenticated: ${sdk.isAuthenticated}`);
-} catch (error) {
-  console.log("  ✗ Failed:", (error as Error).message);
-}
+  // Test 5: SDK Initialization
+  await runTest("SDK Initialization", async () => {
+    const sdk = createWeb3Passkey({
+      storage: mockLocalStorage,
+      debug: false,
+    });
 
-// Test 6: SDK with Stealth Addresses
-console.log("\nTest 6: SDK with Stealth Addresses");
-try {
-  const sdk = createWeb3Passkey({
-    storage: mockLocalStorage,
-    stealthAddresses: {},
+    passTest("SDK initialized");
+    logDetail(`Authenticated: ${sdk.isAuthenticated}`);
   });
 
-  console.log("  ✓ SDK with stealth addresses initialized");
-  console.log(`  Stealth module: ${sdk.stealth ? "Present" : "Not present"}`);
-} catch (error) {
-  console.log("  ✗ Failed:", (error as Error).message);
-}
+  // Test 6: SDK with Stealth Addresses
+  await runTest("SDK with Stealth Addresses", async () => {
+    const sdk = createWeb3Passkey({
+      storage: mockLocalStorage,
+      stealthAddresses: {},
+    });
 
-// Test 7: SDK with ZK Proofs
-console.log("\nTest 7: SDK with ZK Proofs");
-try {
-  const zkSdk = createWeb3Passkey({
-    storage: mockLocalStorage,
-    zkProofs: {
-      enabledProofs: ["membership", "threshold"],
-    },
+    passTest("SDK with stealth addresses initialized");
+    logDetail(`Stealth module: ${sdk.stealth ? "Present" : "Not present"}`);
   });
 
-  console.log("  ✓ SDK with ZK proofs initialized");
-  console.log(`  ZK module available: ${zkSdk.zk ? "Yes" : "No"}`);
-} catch (error) {
-  console.log("  ✗ Failed:", (error as Error).message);
-}
+  // Test 7: SDK with ZK Proofs
+  await runTest("SDK with ZK Proofs", async () => {
+    const zkSdk = createWeb3Passkey({
+      storage: mockLocalStorage,
+      zkProofs: {
+        enabledProofs: ["membership", "threshold"],
+      },
+    });
 
-// Test 8: Wallet Signing
-console.log("\nTest 8: Message Signing");
-async function testSigning() {
-  try {
+    passTest("SDK with ZK proofs initialized");
+    logDetail(`ZK module available: ${zkSdk.zk ? "Yes" : "No"}`);
+  });
+
+  // Test 8: Message Signing
+  await runTest("Message Signing", async () => {
     const wallet = generateBIP39Wallet();
     const ethersWallet = createWalletFromMnemonic(wallet.mnemonic);
     const message = "Hello, Web3!";
@@ -148,42 +134,29 @@ async function testSigning() {
     const signature = await ethersWallet.signMessage(message);
     const recovered = ethers.verifyMessage(message, signature);
 
-    if (recovered.toLowerCase() === wallet.address.toLowerCase()) {
-      console.log("  ✓ Message signing verified");
-      console.log(`  Message: ${message}`);
-      console.log(`  Signer: ${recovered}`);
-    } else {
-      console.log("  ✗ Signature verification failed");
-    }
-  } catch (error) {
-    console.log("  ✗ Failed:", (error as Error).message);
-  }
+    assertEqual(
+      recovered.toLowerCase(),
+      wallet.address.toLowerCase(),
+      "Signature verification should succeed"
+    );
+    passTest("Message signing verified");
+    logDetail(`Message: ${message}`);
+    logDetail(`Signer: ${recovered}`);
+  });
+
+  // Test 9: Address Validation
+  await runTest("Address Validation", async () => {
+    const wallet = generateBIP39Wallet();
+    const isValid = /^0x[a-fA-F0-9]{40}$/.test(wallet.address);
+
+    assert(isValid, "Address should be valid Ethereum format");
+    passTest("Valid Ethereum address format");
+    logDetail(`Address: ${wallet.address}`);
+  });
+
+  logInfo("WebAuthn tests require a browser environment");
+  logInfo("ZK proof tests require compiled circuits");
+  endTestSuite();
 }
 
-// Test 9: Address Validation
-console.log("\nTest 9: Address Validation");
-try {
-  const wallet = generateBIP39Wallet();
-  const isValid = /^0x[a-fA-F0-9]{40}$/.test(wallet.address);
-
-  if (isValid) {
-    console.log("  ✓ Valid Ethereum address format");
-    console.log(`  Address: ${wallet.address}`);
-  } else {
-    console.log("  ✗ Invalid address format");
-  }
-} catch (error) {
-  console.log("  ✗ Failed:", (error as Error).message);
-}
-
-// Run async tests
-async function runAsyncTests() {
-  await testEncryption();
-  await testSigning();
-
-  console.log("\n=== All Tests Complete ===");
-  console.log("Note: WebAuthn tests require a browser environment");
-  console.log("Note: ZK proof tests require compiled circuits");
-}
-
-runAsyncTests().catch(console.error);
+runTests().catch(console.error);
