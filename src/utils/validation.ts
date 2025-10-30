@@ -32,3 +32,50 @@ export function assertMnemonic(mnemonic: string): void {
     throw new Error("Invalid mnemonic: must be 12 or 24 words");
   }
 }
+
+/**
+ * Validates password strength based on security best practices
+ * @param password - The password to validate
+ * @returns true if password meets strength requirements, false otherwise
+ *
+ * Requirements:
+ * - At least 12 characters long
+ * - Contains at least one uppercase letter
+ * - Contains at least one lowercase letter
+ * - Contains at least one number
+ * - Contains at least one special character
+ * - Not a common password
+ */
+export function isStrongPassword(password: string): boolean {
+  // Length check
+  if (password.length < 12) {
+    return false;
+  }
+
+  // Character requirements
+  const hasUppercase = /[A-Z]/.test(password);
+  const hasLowercase = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+
+  if (!hasUppercase || !hasLowercase || !hasNumber || !hasSpecialChar) {
+    return false;
+  }
+
+  // Common password check
+  const commonPasswords = [
+    'password',
+    '12345678',
+    'qwerty',
+    'abc123',
+    'password123',
+    'admin',
+    'letmein',
+  ];
+
+  if (commonPasswords.some((common) => password.toLowerCase().includes(common))) {
+    return false;
+  }
+
+  return true;
+}

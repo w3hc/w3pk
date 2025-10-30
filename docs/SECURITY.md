@@ -1265,6 +1265,30 @@ w3pk enforces strong passwords:
 - Not in common password list
 - Strength score ≥50/100 required
 
+**Using `isStrongPassword` utility:**
+```typescript
+import { isStrongPassword } from 'w3pk'
+
+// Validate before creating backups
+const password = userInput
+if (!isStrongPassword(password)) {
+  throw new Error('Password must be at least 12 characters with uppercase, lowercase, numbers, and special characters')
+}
+
+// Now safe to create backup
+const blob = await w3pk.createZipBackup(password)
+```
+
+**Examples:**
+```typescript
+// Test fixtures - not real passwords!
+isStrongPassword('Test1234!@#$')        // ✅ true
+isStrongPassword('Example1@Correct')    // ✅ true
+isStrongPassword('weak')                // ❌ false - too short
+isStrongPassword('NoNumbersHere!')      // ❌ false - missing numbers
+isStrongPassword('Password123!Foo')     // ❌ false - contains "password"
+```
+
 **Threat model:**
 | Threat | Protected? | Notes |
 |--------|-----------|-------|

@@ -63,8 +63,8 @@ export class Web3Passkey {
 
     try {
       // Use Function constructor to completely hide import from webpack
-      const dynamicImport = new Function('path', 'return import(path)');
-      const { ZKProofModule } = await dynamicImport('w3pk/zk');
+      const dynamicImport = new Function("path", "return import(path)");
+      const { ZKProofModule } = await dynamicImport("w3pk/zk");
       const zkConfig = (this.config as any).zkProofs || {};
       this.zkModule = new ZKProofModule(zkConfig);
       return this.zkModule;
@@ -480,14 +480,17 @@ export class Web3Passkey {
    */
   get zk(): any {
     // Return a proxy that loads ZK module on first method call
-    return new Proxy({}, {
-      get: (_target, prop) => {
-        return async (...args: any[]) => {
-          const zkModule = await this.loadZKModule();
-          return zkModule[prop](...args);
-        };
+    return new Proxy(
+      {},
+      {
+        get: (_target, prop) => {
+          return async (...args: any[]) => {
+            const zkModule = await this.loadZKModule();
+            return zkModule[prop](...args);
+          };
+        },
       }
-    });
+    );
   }
 
   // ========================================
@@ -781,6 +784,6 @@ export class Web3Passkey {
    * SDK version
    */
   get version(): string {
-    return "0.7.1";
+    return "0.7.2";
   }
 }

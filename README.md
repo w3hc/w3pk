@@ -220,12 +220,21 @@ const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ### Backup & Recovery
 
 ```typescript
+import { isStrongPassword } from 'w3pk'
+
+// Validate password strength before creating backups
+const password = 'MyS3cur3!Password@2042'
+if (!isStrongPassword(password)) {
+  throw new Error('Password does not meet security requirements')
+}
+// Requirements: 12+ chars, uppercase, lowercase, number, special char, not common
+
 // Get backup status
 const status = await w3pk.getBackupStatus()
 console.log('Security Score:', status.securityScore.score) // 0-100
 
 // Create encrypted ZIP backup
-const blob = await w3pk.createZipBackup('MyS3cur3!Password@2042')
+const blob = await w3pk.createZipBackup(password)
 // Save blob to file system
 
 // Create QR backup
