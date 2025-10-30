@@ -813,6 +813,283 @@ Before deploying w3pk in production:
 - [ ] ✅ Security monitoring and alerting
 - [ ] ✅ User education materials prepared
 
+## Credential Scoping and Domain Isolation
+
+### Credentials are Domain-Specific
+
+**Important:** Credentials created on one web application **cannot be used on another web application**, even for the same username. This is a fundamental WebAuthn security feature.
+
+### How It Works
+
+When you register a credential, it is cryptographically bound to the domain:
+
+```typescript
+// Registration on example.com
+const registrationOptions = {
+  challenge,
+  rp: {
+    name: "w3pk",
+    id: window.location.hostname,  // "example.com"
+  },
+  user: {
+    id: username,
+    name: username,
+    displayName: username,
+  },
+  // ...
+}
+
+// Authentication on example.com
+const authOptions = {
+  challenge,
+  rpId: window.location.hostname,  // Must be "example.com"
+  userVerification: "required",
+  // ...
+}
+```
+
+**Key Points:**
+
+1. **RP ID is auto-detected**: The Relying Party ID (RP ID) is automatically set to `window.location.hostname`
+2. **Cannot be configured**: Manual RP ID configuration was removed in v0.7.0 to enforce security
+3. **Cryptographically bound**: The WebAuthn credential private key is tied to the RP ID
+4. **Browser-enforced**: The browser's WebAuthn API enforces this isolation
+
+### Why Credentials Don't Work Across Domains
+
+**Example scenario:**
+
+```typescript
+// Step 1: Register on app1.com
+// User visits: https://app1.com
+await w3pk.register({ username: 'alice' })
+// → RP ID: "app1.com"
+// → Credential created and bound to "app1.com"
+// → Stored in browser with origin: "https://app1.com"
+
+// Step 2: Try to login on app2.com
+// User visits: https://app2.com
+await w3pk.login()
+// → RP ID: "app2.com" (different!)
+// → Browser WebAuthn API: "No credential found for RP ID 'app2.com'"
+// → Login fails ❌
+
+// Step 3: Must register separately on app2.com
+await w3pk.register({ username: 'alice' })
+// → Creates NEW credential for "app2.com"
+// → This is a completely separate credential
+```
+
+### Security Guarantees
+
+This domain isolation provides critical security guarantees:
+
+#### ✅ Protection Against Phishing
+
+```typescript
+// Legitimate site: example.com
+await w3pk.register({ username: 'alice' })
+// RP ID: "example.com"
+
+// Phishing site: examp1e.com (note the "1")
+await w3pk.login()
+// RP ID: "examp1e.com" (different!)
+// ❌ Credential not found - phishing attempt blocked
+```
+
+The attacker **cannot** use your `example.com` credential even if they:
+- Copy your localStorage data
+- Copy your IndexedDB data
+- Trick you into visiting their site
+- Use an identical UI
+
+The browser enforces that credentials for `example.com` can only be used on `example.com`.
+
+#### ✅ Origin-Based Storage Isolation
+
+```typescript
+// Browser storage is automatically scoped by origin
+localStorage  // Scoped to "https://example.com"
+IndexedDB     // Scoped to "https://example.com"
+
+// A different origin cannot access this storage
+// - https://attacker.com → different origin
+// - https://subdomain.example.com → different origin (unless RP ID configured for parent)
+// - http://example.com → different origin (different protocol)
+```
+
+#### ✅ No Cross-Site Credential Replay
+
+```typescript
+// Even if attacker intercepts network traffic
+const stolenSignature = interceptFromNetwork()
+
+// They cannot replay it on their site
+await navigator.credentials.get({
+  publicKey: {
+    challenge: stolenChallenge,
+    rpId: "attacker.com",  // Different RP ID!
+    // ...
+  }
+})
+// ❌ Browser rejects: "RP ID mismatch"
+```
+
+### Subdomain Considerations
+
+**By default, credentials are scoped to the exact hostname:**
+
+```typescript
+// Registered on: app.example.com
+// RP ID: "app.example.com"
+
+// Cannot use on: api.example.com (different subdomain)
+// Cannot use on: example.com (parent domain)
+```
+
+**Note:** The WebAuthn standard allows setting RP ID to a parent domain, but w3pk uses auto-detection which sets it to the exact hostname for maximum security.
+
+### Localhost and Development
+
+During development, credentials are scoped to `localhost`:
+
+```typescript
+// Development environment
+window.location.hostname  // "localhost"
+// RP ID: "localhost"
+
+// Credentials created during development:
+// ✅ Work on: http://localhost:3000
+// ✅ Work on: http://localhost:8080
+// ✅ Work on: https://localhost:5173
+// ❌ Don't work on: 127.0.0.1 (different hostname!)
+```
+
+**Development tip:** Always use `localhost`, not `127.0.0.1`, for consistent RP ID.
+
+### Migration from v0.6.0 to v0.7.0
+
+In v0.6.0, the RP ID could be manually configured:
+
+```typescript
+// v0.6.0 (old)
+const w3pk = createWeb3Passkey({
+  rpId: 'example.com',  // Manual configuration
+})
+```
+
+In v0.7.0+, this was removed for security:
+
+```typescript
+// v0.7.0+ (current)
+const w3pk = createWeb3Passkey({
+  // rpId is auto-detected from window.location.hostname
+  // Cannot be overridden
+})
+```
+
+**Why this change?**
+- Prevents misconfiguration
+- Enforces best practices
+- Eliminates cross-origin credential risks
+- Simplifies API
+
+### Credential Storage and Scoping
+
+**What's stored and where:**
+
+```typescript
+// localStorage (origin-scoped by browser)
+// Key: w3pk_credential_<credentialId>
+{
+  "id": "credential-abc123",
+  "publicKey": "MFkw...",      // Public key only
+  "username": "alice",
+  "ethereumAddress": "0x1234...",
+  "createdAt": 1234567890
+}
+
+// IndexedDB (origin-scoped by browser)
+// Store: wallets
+{
+  "ethereumAddress": "0x1234...",
+  "encryptedMnemonic": "v1kT...",  // AES-GCM encrypted
+  "credentialId": "credential-abc123",
+  "createdAt": 1234567890
+}
+
+// Authenticator (hardware/platform)
+// WebAuthn private key (bound to RP ID)
+// - Cannot be exported
+// - Cannot be used for different RP ID
+// - Hardware-protected
+```
+
+**Security properties:**
+
+1. **localStorage**: Origin-scoped by browser (cannot access from different origin)
+2. **IndexedDB**: Origin-scoped by browser + encrypted with WebAuthn signature
+3. **Authenticator**: RP ID-bound + hardware-protected
+
+### Common Questions
+
+**Q: Can I use the same wallet on multiple domains?**
+
+A: No, each domain requires separate registration. However, you can import the same mnemonic on different domains to access the same wallet addresses:
+
+```typescript
+// On domain1.com
+const { mnemonic } = await w3pk.register({ username: 'alice' })
+// Save mnemonic: "word1 word2 ... word12"
+
+// On domain2.com (later)
+await w3pk.register({
+  username: 'alice',
+  mnemonic: 'word1 word2 ... word12'  // Import same mnemonic
+})
+// ✅ Same wallet addresses, different WebAuthn credential
+```
+
+**Q: What if I want to share credentials across subdomains?**
+
+A: Currently not supported. Each subdomain requires separate registration. This is the most secure approach.
+
+**Q: Can I migrate credentials between domains?**
+
+A: WebAuthn credentials cannot be migrated, but wallets can:
+
+1. Export mnemonic from old domain
+2. Register on new domain with same mnemonic
+3. Same wallet addresses, new credential
+
+**Q: What happens if I switch from `app.example.com` to `example.com`?**
+
+A: These are different RP IDs. You'll need to re-register. Export your mnemonic first to preserve your wallet.
+
+### Security Best Practices
+
+1. **Educate users**: Make it clear that credentials are per-domain
+2. **Prompt for backup**: Always prompt users to save their mnemonic after registration
+3. **Test on production domain**: Don't expect development credentials to work in production
+4. **Use consistent domains**: Avoid switching between `www.example.com` and `example.com`
+5. **Display current domain**: Show users which domain they're authenticating for
+
+### Implementation Example
+
+```typescript
+// Show user which domain they're registering on
+const currentDomain = window.location.hostname
+
+console.log(`🔐 Creating credential for: ${currentDomain}`)
+console.log(`⚠️  This credential will only work on ${currentDomain}`)
+
+await w3pk.register({ username: 'alice' })
+
+console.log(`✅ Credential created for ${currentDomain}`)
+console.log(`💾 Save your recovery phrase - you'll need it to access`)
+console.log(`   this wallet on other domains or devices`)
+```
+
 ## WebAuthn Security Features
 
 ### User Verification
