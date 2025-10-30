@@ -46,21 +46,13 @@ const rpcUrl = endpoints[0]
 - 🌱 HD wallet generation (BIP39/BIP44)
 - 🔢 Multi-address derivation
 - 🥷 ERC-5564 stealth addresses (privacy-preserving transactions with view tags)
+- 🧮 ZK primitives (zero-knowledge proof generation and verification)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
 - ⚡ EIP-7702 network detection (329+ supported networks)
 - 🛡️ Three-layer backup & recovery system
   - Passkey auto-sync (iCloud/Google/Microsoft)
   - Encrypted backups (ZIP/QR with password protection)
   - Social recovery (Shamir Secret Sharing)
-
-**Optional: Zero-Knowledge Proofs**
-
-Requires additional dependencies (~70MB):
-```bash
-npm install snarkjs circomlibjs
-```
-
-See [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) to get started.
 
 ## API
 
@@ -228,12 +220,21 @@ const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ### Backup & Recovery
 
 ```typescript
+import { isStrongPassword } from 'w3pk'
+
+// Validate password strength before creating backups
+const password = 'MyS3cur3!Password@2042'
+if (!isStrongPassword(password)) {
+  throw new Error('Password does not meet security requirements')
+}
+// Requirements: 12+ chars, uppercase, lowercase, number, special char, not common
+
 // Get backup status
 const status = await w3pk.getBackupStatus()
 console.log('Security Score:', status.securityScore.score) // 0-100
 
 // Create encrypted ZIP backup
-const blob = await w3pk.createZipBackup('MyS3cur3!Password@2042')
+const blob = await w3pk.createZipBackup(password)
 // Save blob to file system
 
 // Create QR backup

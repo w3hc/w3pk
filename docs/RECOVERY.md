@@ -726,7 +726,20 @@ test/integration/
 For encrypted backups, enforce strong passwords:
 
 ```typescript
-Password requirements:
+import { isStrongPassword } from 'w3pk'
+
+// Validate password before creating backup
+const password = userInput
+if (!isStrongPassword(password)) {
+  // Show error to user
+  throw new Error('Password does not meet security requirements')
+}
+
+// Password is strong - proceed with backup
+const blob = await w3pk.createZipBackup(password)
+```
+
+**Password requirements:**
 - Minimum 12 characters
 - At least 1 uppercase letter
 - At least 1 lowercase letter
@@ -734,12 +747,19 @@ Password requirements:
 - At least 1 special character
 - Not a common password (dictionary check)
 
-Strength indicator:
+**Examples:**
+```typescript
+// Test fixtures - not real passwords!
+isStrongPassword('Test1234!@#$')     // ✅ Valid
+isStrongPassword('weak')             // ❌ Too short
+isStrongPassword('Password123!Foo')  // ❌ Contains "password"
+```
+
+**Strength indicator:**
 - 0-25%   : ❌ Weak (rejected)
 - 26-50%  : ⚠️  Fair (warning shown)
 - 51-75%  : 🟡 Good (accepted)
 - 76-100% : ✅ Strong (recommended)
-```
 
 ### **Backup Storage Best Practices**
 

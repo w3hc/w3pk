@@ -47,6 +47,17 @@ export { SocialRecoveryManager } from "./recovery";
 export { VaultSync, DeviceManager, PlatformDetector } from "./sync";
 export { RecoverySimulator, getExplainer, getAllTopics, searchExplainers } from "./education";
 
+// Validation utilities
+export {
+  validateEthereumAddress,
+  validateUsername,
+  validateMnemonic,
+  isStrongPassword,
+  assertEthereumAddress,
+  assertUsername,
+  assertMnemonic,
+} from "./utils/validation";
+
 // Backup and Recovery Types
 export type {
   BackupStatus,

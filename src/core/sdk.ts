@@ -49,21 +49,27 @@ export class Web3Passkey {
       );
     }
 
-    // Initialize ZK module if configured
-    if (config.zkProofs) {
-      this.initializeZKModule(config.zkProofs);
-    }
+    // ZK module will be lazy-loaded on first access (no eager initialization)
   }
 
   /**
-   * Lazy-load ZK module to avoid bundling large dependencies
+   * Lazy-load ZK module only when accessed
+   * This prevents bundlers from including circomlibjs unless ZK features are used
    */
-  private async initializeZKModule(zkConfig: any) {
+  private async loadZKModule() {
+    if (this.zkModule) {
+      return this.zkModule;
+    }
+
     try {
-      const { ZKProofModule } = await import("../zk");
+      // Use Function constructor to completely hide import from webpack
+      const dynamicImport = new Function("path", "return import(path)");
+      const { ZKProofModule } = await dynamicImport("w3pk/zk");
+      const zkConfig = (this.config as any).zkProofs || {};
       this.zkModule = new ZKProofModule(zkConfig);
+      return this.zkModule;
     } catch (error) {
-      console.warn(
+      throw new Error(
         "ZK module not available. Install dependencies: npm install snarkjs circomlibjs"
       );
     }
@@ -473,12 +479,18 @@ export class Web3Passkey {
    * Access ZK proof module (if available)
    */
   get zk(): any {
-    if (!this.zkModule) {
-      throw new Error(
-        "ZK module not available. Install dependencies: npm install snarkjs circomlibjs"
-      );
-    }
-    return this.zkModule;
+    // Return a proxy that loads ZK module on first method call
+    return new Proxy(
+      {},
+      {
+        get: (_target, prop) => {
+          return async (...args: any[]) => {
+            const zkModule = await this.loadZKModule();
+            return zkModule[prop](...args);
+          };
+        },
+      }
+    );
   }
 
   // ========================================
@@ -772,6 +784,6 @@ export class Web3Passkey {
    * SDK version
    */
   get version(): string {
-    return "0.7.1";
+    return "0.7.2";
   }
 }

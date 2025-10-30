@@ -1,75 +1,80 @@
 import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
+import {
+  startTestSuite,
+  endTestSuite,
+  runTest,
+  passTest,
+  logDetail,
+  logInfo,
+  skipTest,
+} from "./test-utils";
 
-console.log("=== Basic SDK Tests ===\n");
+async function runTests() {
+  startTestSuite("Basic SDK Tests");
 
-// Test 1: SDK Initialization
-console.log("Test 1: SDK Initialization");
-const sdk = createWeb3Passkey({
-  storage: mockLocalStorage,
-  debug: false,
-  onError: (error) => {
-    console.error("  SDK Error:", error.message);
-  },
-  onAuthStateChanged: (isAuth, user) => {
-    console.log(`  Auth state changed: ${isAuth ? "Logged in" : "Logged out"} ${user ? `(${user.username})` : ""}`);
-  },
-});
+  // Test 1: SDK Initialization
+  await runTest("SDK Initialization", async () => {
+    const sdk = createWeb3Passkey({
+      storage: mockLocalStorage,
+      debug: false,
+      onError: (error) => {
+        logInfo(`SDK Error: ${error.message}`);
+      },
+      onAuthStateChanged: (isAuth, user) => {
+        logInfo(`Auth state changed: ${isAuth ? "Logged in" : "Logged out"} ${user ? `(${user.username})` : ""}`);
+      },
+    });
 
-console.log("  ✓ SDK initialized");
-console.log(`  Authenticated: ${sdk.isAuthenticated}`);
-console.log(`  Current user: ${sdk.user || "None"}`);
+    passTest("SDK initialized");
+    logDetail(`Authenticated: ${sdk.isAuthenticated}`);
+    logDetail(`Current user: ${sdk.user || "None"}`);
+  });
 
-// Test 2: Wallet Generation (Optional Pre-generation)
-console.log("\nTest 2: Wallet Generation (Optional)");
-async function testWalletGeneration() {
-  try {
+  // Test 2: Wallet Generation (Optional Pre-generation)
+  await runTest("Wallet Generation (Optional)", async () => {
+    const sdk = createWeb3Passkey({
+      storage: mockLocalStorage,
+      debug: false,
+    });
+
     const { mnemonic } = await sdk.generateWallet();
-    console.log("  ✓ Wallet generated");
-    console.log(`  Mnemonic words: ${mnemonic.split(" ").length}`);
-    console.log("  Note: This is optional - register() auto-generates if not called");
-  } catch (error) {
-    console.log("  ✗ Failed:", (error as Error).message);
-  }
-}
+    passTest("Wallet generated");
+    logDetail(`Mnemonic words: ${mnemonic.split(" ").length}`);
+    logInfo("This is optional - register() auto-generates if not called");
+  });
 
-// Test 3: Registration (Auto-generates wallet if not pre-generated)
-console.log("\nTest 3: Registration Flow");
-async function testRegistration() {
-  try {
+  // Test 3: Registration (Auto-generates wallet if not pre-generated)
+  await runTest("Registration Flow", async () => {
     // Create new SDK instance for clean test
     const sdk2 = createWeb3Passkey({
       storage: mockLocalStorage,
       debug: false,
     });
 
-    // Register without pre-generating wallet
-    console.log("  Testing auto-generation in register()...");
-    const { address, username } = await sdk2.register({ username: "test-user" });
+    try {
+      // Register without pre-generating wallet
+      logInfo("Testing auto-generation in register()...");
+      const { address, username } = await sdk2.register({ username: "test-user" });
 
-    console.log("  ✓ Registration successful (wallet auto-generated)");
-    console.log(`  Username: ${username}`);
-    console.log(`  Address (derived #0): ${address}`);
-    console.log(`  User: ${sdk2.user?.username}`);
-    console.log(`  Authenticated: ${sdk2.isAuthenticated}`);
-  } catch (error) {
-    const errMsg = (error as Error).message;
-    if (errMsg.includes("WebAuthn")) {
-      console.log("  ⚠️  Skipped: WebAuthn requires browser environment");
-      console.log("  Note: register() auto-generates wallet correctly");
-    } else {
-      console.log("  ✗ Failed:", errMsg);
+      passTest("Registration successful (wallet auto-generated)");
+      logDetail(`Username: ${username}`);
+      logDetail(`Address (derived #0): ${address}`);
+      logDetail(`User: ${sdk2.user?.username}`);
+      logDetail(`Authenticated: ${sdk2.isAuthenticated}`);
+    } catch (error) {
+      const errMsg = (error as Error).message;
+      if (errMsg.includes("WebAuthn")) {
+        skipTest("WebAuthn requires browser environment");
+        logInfo("register() auto-generates wallet correctly");
+      } else {
+        throw error;
+      }
     }
-  }
-}
+  });
 
-// Run all async tests
-async function runTests() {
-  await testWalletGeneration();
-  await testRegistration();
-
-  console.log("\n=== All Tests Complete ===");
-  console.log("Note: WebAuthn features require a browser environment");
+  logInfo("WebAuthn features require a browser environment");
+  endTestSuite();
 }
 
 runTests().catch(console.error);
