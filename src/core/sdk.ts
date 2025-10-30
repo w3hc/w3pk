@@ -133,9 +133,11 @@ export class Web3Passkey {
    * Register a new user with WebAuthn
    * Automatically generates a wallet if none exists
    * Creates a passkey and associates it with the Ethereum address (account #0)
-   * Returns the mnemonic phrase - IMPORTANT: User must save this!
+   * Returns the derived address #0 and username
    */
-  async register(options: { username: string }): Promise<{ mnemonic: string }> {
+  async register(options: {
+    username: string;
+  }): Promise<{ address: string; username: string }> {
     try {
       // Auto-generate wallet if it doesn't exist
       if (!this.currentWallet?.address) {
@@ -146,7 +148,7 @@ export class Web3Passkey {
       const ethereumAddress = this.currentWallet!.address;
       const mnemonic = this.currentWallet!.mnemonic!;
 
-      const registrationResult = await register({
+      await register({
         username: options.username,
         ethereumAddress,
       });
@@ -185,9 +187,15 @@ export class Web3Passkey {
 
       this.sessionManager.startSession(mnemonic, credentialId);
 
+      // Set currentWallet to ensure wallet state is available
+      this.currentWallet = {
+        address: ethereumAddress,
+        mnemonic,
+      };
+
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
-      return { mnemonic };
+      return { address: ethereumAddress, username: options.username };
     } catch (error) {
       this.config.onError?.(error as any);
       throw error;

@@ -19,8 +19,8 @@ import { createWeb3Passkey } from 'w3pk'
 const w3pk = createWeb3Passkey()
 
 // Register (auto-generates wallet and stores it securely)
-const { mnemonic } = await w3pk.register({ username: 'alice' })
-console.log('⚠️  Save this recovery phrase:', mnemonic)
+const { address, username } = await w3pk.register({ username: 'alice' })
+console.log('✅ Registered:', username, 'with address:', address)
 
 // Login (for subsequent sessions)
 await w3pk.login()
@@ -67,9 +67,9 @@ See [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) to get started.
 ### Authentication Flow
 
 ```typescript
-// Register (auto-stores wallet)
-const { mnemonic } = await w3pk.register({ username: 'alice' })
-// Returns: { mnemonic } - SAVE THIS!
+// Register (generates and stores wallet securely)
+const { address, username } = await w3pk.register({ username: 'alice' })
+// Returns: { address, username } 
 
 // Subsequent sessions: just login
 await w3pk.login()
@@ -82,12 +82,15 @@ w3pk.isAuthenticated
 w3pk.user
 ```
 
-**Advanced: Pre-generate wallet (optional)**
+**Important: Backup your wallet!**
 ```typescript
-// If you want to see the wallet before registering:
-const { mnemonic } = await w3pk.generateWallet()
-const { mnemonic } = await w3pk.register({ username: 'alice' })
-// register() will use the pre-generated wallet
+// After registration, users can create a backup
+const mnemonic = await w3pk.exportMnemonic({ requireAuth: true })
+console.log('⚠️  Save this recovery phrase:', mnemonic)
+
+// Or create encrypted backups:
+const zipBackup = await w3pk.createZipBackup('strong-password')
+const qrBackup = await w3pk.createQRBackup('optional-password')
 ```
 
 ### Wallet Operations

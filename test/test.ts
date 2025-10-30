@@ -45,12 +45,13 @@ async function testRegistration() {
 
     // Register without pre-generating wallet
     console.log("  Testing auto-generation in register()...");
-    const { mnemonic } = await sdk2.register({ username: "test-user" });
+    const { address, username } = await sdk2.register({ username: "test-user" });
 
     console.log("  ✓ Registration successful (wallet auto-generated)");
-    console.log(`  Mnemonic returned: ${mnemonic.split(" ").length} words`);
+    console.log(`  Username: ${username}`);
+    console.log(`  Address (derived #0): ${address}`);
     console.log(`  User: ${sdk2.user?.username}`);
-    console.log(`  Address: ${sdk2.user?.ethereumAddress}`);
+    console.log(`  Authenticated: ${sdk2.isAuthenticated}`);
   } catch (error) {
     const errMsg = (error as Error).message;
     if (errMsg.includes("WebAuthn")) {
