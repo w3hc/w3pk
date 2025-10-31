@@ -779,11 +779,4 @@ export class Web3Passkey {
   setSessionDuration(hours: number): void {
     this.sessionManager.setSessionDuration(hours);
   }
-
-  /**
-   * SDK version
-   */
-  get version(): string {
-    return "0.7.2";
-  }
 }

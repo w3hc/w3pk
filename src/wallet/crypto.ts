@@ -7,25 +7,13 @@
  */
 
 import { CryptoError } from "../core/errors";
+import { arrayBufferToBase64Url, safeAtob } from "../utils/base64";
 
 /**
  * Fixed message used for deterministic signature generation
  * This ensures the same signature is produced every time for encryption/decryption
  */
 const ENCRYPTION_MESSAGE = "w3pk-wallet-encryption-v3";
-
-/**
- * Converts base64url string to ArrayBuffer
- */
-function base64UrlToArrayBuffer(base64url: string): ArrayBuffer {
-  const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
 
 /**
  * Derives an encryption key from WebAuthn credential (RECOMMENDED)
@@ -95,7 +83,10 @@ export async function deriveEncryptionKeyFromWebAuthn(
       ["encrypt", "decrypt"]
     );
   } catch (error: any) {
-    throw new CryptoError("Failed to derive encryption key from WebAuthn", error);
+    throw new CryptoError(
+      "Failed to derive encryption key from WebAuthn",
+      error
+    );
   }
 }
 
@@ -173,7 +164,7 @@ export async function deriveEncryptionKeyFromSignature(
 ): Promise<CryptoKey> {
   try {
     // Try WebAuthn first if available
-    if (typeof window !== 'undefined' && window.PublicKeyCredential) {
+    if (typeof window !== "undefined" && window.PublicKeyCredential) {
       return deriveEncryptionKeyFromWebAuthn(credentialId);
     }
 
@@ -216,10 +207,7 @@ export async function deriveEncryptionKeyFromSignature(
 export function generateChallenge(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
-  return btoa(String.fromCharCode(...array))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
+  return arrayBufferToBase64Url(array);
 }
 
 /**
@@ -243,7 +231,11 @@ export async function encryptData(
     combined.set(iv);
     combined.set(new Uint8Array(encrypted), iv.length);
 
-    return btoa(String.fromCharCode(...combined));
+    let binary = "";
+    for (let i = 0; i < combined.length; i++) {
+      binary += String.fromCharCode(combined[i]);
+    }
+    return btoa(binary);
   } catch (error) {
     throw new CryptoError("Failed to encrypt data", error);
   }
@@ -261,11 +253,11 @@ export async function decryptData(
       throw new Error("Invalid encrypted data: too small");
     }
 
-    const combined = new Uint8Array(
-      atob(encryptedData)
-        .split("")
-        .map((char) => char.charCodeAt(0))
-    );
+    const binaryString = safeAtob(encryptedData);
+    const combined = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      combined[i] = binaryString.charCodeAt(i);
+    }
 
     if (combined.length < 12) {
       throw new Error("Invalid encrypted data: missing IV");

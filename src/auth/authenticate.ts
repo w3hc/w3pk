@@ -3,14 +3,16 @@ import { AuthenticationError } from "../core/errors";
 import type { AuthResult } from "./types";
 import type { StoredCredential } from "./storage";
 import { CredentialStorage } from "./storage";
+import {
+  arrayBufferToBase64Url,
+  base64UrlToArrayBuffer,
+  safeAtob,
+} from "../utils/base64";
 
 function generateChallenge(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
-  return btoa(String.fromCharCode(...array))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
+  return arrayBufferToBase64Url(array);
 }
 
 export async function login(): Promise<AuthResult> {
@@ -45,7 +47,9 @@ export async function login(): Promise<AuthResult> {
 
     // SECURITY: Return the signature so it can be used to derive encryption keys
     // The signature can ONLY be obtained through biometric/PIN authentication
-    const signatureBuffer = base64ToArrayBuffer(assertion.response.signature);
+    const signatureBuffer = base64UrlToArrayBuffer(
+      assertion.response.signature
+    );
 
     return {
       verified: true,
@@ -69,7 +73,7 @@ async function verifyAssertion(
   credential: StoredCredential
 ): Promise<boolean> {
   try {
-    const publicKeyBuffer = base64ToArrayBuffer(credential.publicKey);
+    const publicKeyBuffer = base64UrlToArrayBuffer(credential.publicKey);
     const publicKey = await crypto.subtle.importKey(
       "spki",
       publicKeyBuffer,
@@ -81,7 +85,7 @@ async function verifyAssertion(
       ["verify"]
     );
 
-    const authenticatorData = base64ToArrayBuffer(
+    const authenticatorData = base64UrlToArrayBuffer(
       assertion.response.authenticatorData
     );
 
@@ -90,9 +94,8 @@ async function verifyAssertion(
     let clientDataJSONString: string;
 
     // Check if it's already a JSON string or base64url encoded
-    if (clientDataJSON.startsWith('eyJ')) {
-      // It's base64url encoded, decode it
-      const decoded = atob(clientDataJSON.replace(/-/g, '+').replace(/_/g, '/'));
+    if (clientDataJSON.startsWith("eyJ")) {
+      const decoded = safeAtob(clientDataJSON);
       clientDataJSONString = decoded;
     } else {
       // It's already a JSON string
@@ -113,7 +116,7 @@ async function verifyAssertion(
       authenticatorData.byteLength
     );
 
-    const signature = base64ToArrayBuffer(assertion.response.signature);
+    const signature = base64UrlToArrayBuffer(assertion.response.signature);
     const rawSignature = derToRaw(new Uint8Array(signature));
 
     const isValid = await crypto.subtle.verify(
@@ -131,16 +134,6 @@ async function verifyAssertion(
     console.error("Signature verification error:", error);
     return false;
   }
-}
-
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const base64Clean = base64.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(base64Clean);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
 }
 
 function derToRaw(der: Uint8Array): ArrayBuffer {
