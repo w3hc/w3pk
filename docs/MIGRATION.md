@@ -1,4 +1,80 @@
-# Migration Guide: v0.6.0 → v0.7.0
+# Migration Guide
+
+This guide helps you migrate between different versions of w3pk.
+
+## Quick Links
+
+- [v0.7.2 → v0.7.3](#v072--v073) - Base64 handling fixes (no breaking changes)
+- [v0.6.0 → v0.7.0](#v060--v070) - Client-only architecture (breaking changes)
+
+---
+
+## v0.7.2 → v0.7.3
+
+### Summary
+
+**No breaking changes.** This is a bug fix release that improves base64/base64url handling.
+
+### What Changed
+
+Fixed critical registration error:
+```
+Failed to execute 'atob' on 'Window': The string to be decoded is not correctly encoded
+```
+
+### Impact
+
+✅ **Zero migration needed** - All existing code continues to work
+✅ **Drop-in replacement** - Just update the version
+✅ **Better reliability** - Registration, authentication, and backups more robust
+
+### Update Steps
+
+1. **Update package.json:**
+```diff
+{
+  "dependencies": {
+-   "w3pk": "^0.7.2"
++   "w3pk": "^0.7.3"
+  }
+}
+```
+
+2. **Install:**
+```bash
+pnpm install
+# or
+npm install
+```
+
+3. **Done!** No code changes needed.
+
+### Technical Details
+
+The SDK now has improved base64url decoding that:
+- Automatically adds padding to base64url strings
+- Converts URL-safe characters (`-`, `_`) to standard base64 (`+`, `/`)
+- Handles both base64 and base64url formats transparently
+
+See [BASE64_HANDLING.md](./BASE64_HANDLING.md) for technical details.
+
+### What's Fixed
+
+- ✅ Registration with WebAuthn (attestation object decoding)
+- ✅ Authentication signature verification
+- ✅ Backup encryption/decryption
+- ✅ All crypto operations with base64url data
+
+### Testing
+
+All existing tests pass without modification:
+```bash
+pnpm test  # All 50+ tests passing
+```
+
+---
+
+## v0.6.0 → v0.7.0
 
 This guide helps you migrate from w3pk v0.6.0 (server-based) to v0.7.0 (client-only).
 
@@ -294,5 +370,15 @@ initApp()
 
 ---
 
-**Last Updated:** v0.7.0
-**Previous Version:** v0.6.0
+## Version History
+
+- **v0.7.3** (2025-10-31) - Base64 handling fixes, no breaking changes
+- **v0.7.2** (2025-10-30) - Backup system added
+- **v0.7.1** (2025-10-25) - Stealth addresses & ZK proofs
+- **v0.7.0** (2025-10-20) - Client-only architecture (breaking changes from v0.6.0)
+- **v0.6.0** (2025-10-15) - Server-based architecture (legacy)
+
+---
+
+**Last Updated:** v0.7.3
+**Current Version:** v0.7.3

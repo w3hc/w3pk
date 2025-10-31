@@ -3,6 +3,8 @@
  * Uses PBKDF2 + AES-256-GCM for password-based encryption
  */
 
+import { safeAtob } from "../utils/base64";
+
 /**
  * Derive encryption key from password using PBKDF2
  * @param password - User's password
@@ -19,25 +21,25 @@ export async function deriveKeyFromPassword(
 
   // Import password as key material
   const keyMaterial = await crypto.subtle.importKey(
-    'raw',
+    "raw",
     passwordBuffer,
-    'PBKDF2',
+    "PBKDF2",
     false,
-    ['deriveBits', 'deriveKey']
+    ["deriveBits", "deriveKey"]
   );
 
   // Derive AES-256 key using PBKDF2
   return crypto.subtle.deriveKey(
     {
-      name: 'PBKDF2',
+      name: "PBKDF2",
       salt: salt as BufferSource,
       iterations,
-      hash: 'SHA-256',
+      hash: "SHA-256",
     },
     keyMaterial,
-    { name: 'AES-GCM', length: 256 },
+    { name: "AES-GCM", length: 256 },
     false,
-    ['encrypt', 'decrypt']
+    ["encrypt", "decrypt"]
   );
 }
 
@@ -64,7 +66,7 @@ export async function encryptWithPassword(
 
   const encryptedBuffer = await crypto.subtle.encrypt(
     {
-      name: 'AES-GCM',
+      name: "AES-GCM",
       iv,
     },
     key,
@@ -97,7 +99,7 @@ export async function decryptWithPassword(
 
   const decryptedBuffer = await crypto.subtle.decrypt(
     {
-      name: 'AES-GCM',
+      name: "AES-GCM",
       iv: ivBuffer as BufferSource,
     },
     key,
@@ -117,15 +119,15 @@ export async function getDeviceFingerprint(): Promise<string> {
     navigator.userAgent,
     navigator.language,
     new Date().getTimezoneOffset().toString(),
-    screen.width + 'x' + screen.height,
+    screen.width + "x" + screen.height,
     screen.colorDepth.toString(),
   ];
 
-  const fingerprintString = components.join('|');
+  const fingerprintString = components.join("|");
   const encoder = new TextEncoder();
   const buffer = encoder.encode(fingerprintString);
 
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   return bufferToBase64(hashBuffer);
 }
 
@@ -137,7 +139,7 @@ export async function deriveAddressChecksum(
 ): Promise<string> {
   const encoder = new TextEncoder();
   const buffer = encoder.encode(ethereumAddress.toLowerCase());
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   return bufferToBase64(hashBuffer).substring(0, 16);
 }
 
@@ -154,35 +156,35 @@ export function validatePasswordStrength(password: string): {
 
   // Length check
   if (password.length < 12) {
-    feedback.push('Password must be at least 12 characters');
+    feedback.push("Password must be at least 12 characters");
   } else {
     score += 25;
   }
 
   // Uppercase check
   if (!/[A-Z]/.test(password)) {
-    feedback.push('Add at least one uppercase letter');
+    feedback.push("Add at least one uppercase letter");
   } else {
     score += 15;
   }
 
   // Lowercase check
   if (!/[a-z]/.test(password)) {
-    feedback.push('Add at least one lowercase letter');
+    feedback.push("Add at least one lowercase letter");
   } else {
     score += 15;
   }
 
   // Number check
   if (!/[0-9]/.test(password)) {
-    feedback.push('Add at least one number');
+    feedback.push("Add at least one number");
   } else {
     score += 15;
   }
 
   // Special character check
   if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
-    feedback.push('Add at least one special character');
+    feedback.push("Add at least one special character");
   } else {
     score += 15;
   }
@@ -197,18 +199,18 @@ export function validatePasswordStrength(password: string): {
 
   // Common password check (simple version)
   const commonPasswords = [
-    'password',
-    '12345678',
-    'qwerty',
-    'abc123',
-    'password123',
-    'admin',
-    'letmein',
+    "password",
+    "12345678",
+    "qwerty",
+    "abc123",
+    "password123",
+    "admin",
+    "letmein",
   ];
   if (
     commonPasswords.some((common) => password.toLowerCase().includes(common))
   ) {
-    feedback.push('Password is too common');
+    feedback.push("Password is too common");
     score = Math.min(score, 25);
   }
 
@@ -224,10 +226,11 @@ export function validatePasswordStrength(password: string): {
  */
 function bufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  let binary = '';
+  let binary = "";
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
+  // Use regular btoa for binary data (not safeBtoa which is for Unicode text)
   return btoa(binary);
 }
 
@@ -235,7 +238,7 @@ function bufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
  * Helper: Convert Base64 to ArrayBuffer
  */
 function base64ToBuffer(base64: string): Uint8Array {
-  const binary = atob(base64);
+  const binary = safeAtob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);

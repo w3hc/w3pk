@@ -3,18 +3,20 @@ import { RegistrationError } from "../core/errors";
 import { assertUsername, assertEthereumAddress } from "../utils/validation";
 import type { RegisterOptions } from "./types";
 import { CredentialStorage } from "./storage";
+import {
+  arrayBufferToBase64Url,
+  base64UrlToArrayBuffer,
+} from "../utils/base64";
 
 function generateChallenge(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
-  return btoa(String.fromCharCode(...array))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
+  return arrayBufferToBase64Url(array);
 }
 
-
-export async function register(options: RegisterOptions): Promise<{ signature: ArrayBuffer }> {
+export async function register(
+  options: RegisterOptions
+): Promise<{ signature: ArrayBuffer }> {
   try {
     const { username, ethereumAddress } = options;
 
@@ -83,8 +85,11 @@ export async function register(options: RegisterOptions): Promise<{ signature: A
     }
 
     // Decode the attestationObject (it's base64url encoded CBOR)
-    const attestationBuffer = base64ToArrayBuffer(attestationObject);
-    console.log("[register] Attestation buffer length:", attestationBuffer.byteLength);
+    const attestationBuffer = base64UrlToArrayBuffer(attestationObject);
+    console.log(
+      "[register] Attestation buffer length:",
+      attestationBuffer.byteLength
+    );
 
     // For now, we'll use the raw attestation data as our signature material
     // This is cryptographically signed by the authenticator during registration
@@ -95,14 +100,4 @@ export async function register(options: RegisterOptions): Promise<{ signature: A
       error
     );
   }
-}
-
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const base64Clean = base64.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(base64Clean);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
 }
