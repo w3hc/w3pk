@@ -10,12 +10,6 @@ import { CryptoError } from "../core/errors";
 import { arrayBufferToBase64Url, safeAtob } from "../utils/base64";
 
 /**
- * Fixed message used for deterministic signature generation
- * This ensures the same signature is produced every time for encryption/decryption
- */
-const ENCRYPTION_MESSAGE = "w3pk-wallet-encryption-v3";
-
-/**
  * Derives an encryption key from WebAuthn credential (RECOMMENDED)
  *
  * SECURITY: This provides authentication-gated encryption:
@@ -137,58 +131,6 @@ export async function deriveEncryptionKey(
         name: "PBKDF2",
         salt: new Uint8Array(salt),
         iterations: 210000, // OWASP 2023 recommendation
-        hash: "SHA-256",
-      },
-      importedKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt", "decrypt"]
-    );
-  } catch (error) {
-    throw new CryptoError("Failed to derive encryption key", error);
-  }
-}
-
-/**
- * Derives encryption key from raw signature (testing/legacy fallback)
- *
- * WARNING: Does not require WebAuthn.
- * Use deriveEncryptionKeyFromWebAuthn for biometric protection.
- *
- * @param signature - Raw signature bytes
- * @param credentialId - Credential ID for salt
- */
-export async function deriveEncryptionKeyFromSignature(
-  signature: ArrayBuffer,
-  credentialId: string
-): Promise<CryptoKey> {
-  try {
-    // Try WebAuthn first if available
-    if (typeof window !== "undefined" && window.PublicKeyCredential) {
-      return deriveEncryptionKeyFromWebAuthn(credentialId);
-    }
-
-    // Fallback: Derive from provided signature (for testing/Node.js)
-    const signatureHash = await crypto.subtle.digest("SHA-256", signature);
-
-    const importedKey = await crypto.subtle.importKey(
-      "raw",
-      signatureHash,
-      { name: "PBKDF2" },
-      false,
-      ["deriveKey"]
-    );
-
-    const salt = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode("w3pk-salt-v3:" + credentialId)
-    );
-
-    return crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: new Uint8Array(salt),
-        iterations: 210000,
         hash: "SHA-256",
       },
       importedKey,
