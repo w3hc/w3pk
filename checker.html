@@ -211,10 +211,21 @@
       </div>
 
       <div class="section">
-        <h2>Storage</h2>
+        <h2>Storage - LocalStorage</h2>
         <div class="button-grid">
           <button onclick="checkStorage()">View LocalStorage</button>
-          <button onclick="clearStorage()">Clear All Storage</button>
+          <button onclick="clearStorage()">Clear LocalStorage</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Storage - IndexedDB</h2>
+        <div class="button-grid">
+          <button onclick="checkIndexedDB()">View IndexedDB Data</button>
+          <button onclick="checkIndexedDBSize()">Get Storage Size</button>
+          <button onclick="exportIndexedDB()">Export IndexedDB</button>
+          <button onclick="clearIndexedDB()">Clear IndexedDB</button>
+          <button onclick="checkAllStorage()">View All Storage</button>
         </div>
       </div>
 
@@ -1149,6 +1160,300 @@
             address: window.w3pk.user?.address,
             username: window.w3pk.user?.username
           }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      // IndexedDB Functions
+      window.checkIndexedDB = async function() {
+        try {
+          const DB_NAME = 'Web3PasskeyWallet';
+          const STORE_NAME = 'wallets';
+
+          const request = indexedDB.open(DB_NAME);
+
+          request.onsuccess = function() {
+            const db = request.result;
+
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              window.showResult('IndexedDB exists but no wallet store found', null, 'empty');
+              db.close();
+              return;
+            }
+
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const getAllRequest = store.getAll();
+
+            getAllRequest.onsuccess = function() {
+              const data = getAllRequest.result;
+
+              if (data.length === 0) {
+                window.showResult('IndexedDB is empty', { database: DB_NAME, store: STORE_NAME }, 'empty');
+              } else {
+                // Mask sensitive data for display
+                const maskedData = data.map(item => ({
+                  ethereumAddress: item.ethereumAddress,
+                  credentialId: item.credentialId ? `${item.credentialId.substring(0, 20)}...` : 'N/A',
+                  encryptedMnemonic: item.encryptedMnemonic ? `[${item.encryptedMnemonic.length} bytes]` : 'N/A',
+                  iv: item.iv ? `${item.iv.substring(0, 20)}...` : 'N/A',
+                  timestamp: item.timestamp ? new Date(item.timestamp).toISOString() : 'N/A'
+                }));
+
+                window.showResult('IndexedDB Data', {
+                  database: DB_NAME,
+                  store: STORE_NAME,
+                  count: data.length,
+                  wallets: maskedData
+                }, 'success');
+              }
+
+              db.close();
+            };
+
+            getAllRequest.onerror = function() {
+              window.showResult('Error reading IndexedDB', { error: getAllRequest.error }, 'error');
+              db.close();
+            };
+          };
+
+          request.onerror = function() {
+            window.showResult('Error opening IndexedDB', { error: request.error }, 'error');
+          };
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.checkIndexedDBSize = async function() {
+        try {
+          if ('storage' in navigator && 'estimate' in navigator.storage) {
+            const estimate = await navigator.storage.estimate();
+            const usageInMB = (estimate.usage / (1024 * 1024)).toFixed(2);
+            const quotaInMB = (estimate.quota / (1024 * 1024)).toFixed(2);
+            const percentUsed = ((estimate.usage / estimate.quota) * 100).toFixed(2);
+
+            window.showResult('Storage Quota Information', {
+              usage: `${usageInMB} MB`,
+              quota: `${quotaInMB} MB`,
+              percentUsed: `${percentUsed}%`,
+              available: `${(quotaInMB - usageInMB).toFixed(2)} MB`,
+              note: 'Includes IndexedDB, LocalStorage, Cache API, etc.'
+            }, 'success');
+          } else {
+            window.showResult('Storage API not supported in this browser', null, 'error');
+          }
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.exportIndexedDB = async function() {
+        try {
+          const DB_NAME = 'Web3PasskeyWallet';
+          const STORE_NAME = 'wallets';
+
+          const request = indexedDB.open(DB_NAME);
+
+          request.onsuccess = function() {
+            const db = request.result;
+
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              window.showResult('No wallet store found', null, 'error');
+              db.close();
+              return;
+            }
+
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const getAllRequest = store.getAll();
+
+            getAllRequest.onsuccess = function() {
+              const data = getAllRequest.result;
+
+              if (data.length === 0) {
+                window.showResult('No data to export', null, 'empty');
+                db.close();
+                return;
+              }
+
+              // Create JSON export
+              const exportData = {
+                exportDate: new Date().toISOString(),
+                database: DB_NAME,
+                store: STORE_NAME,
+                count: data.length,
+                data: data
+              };
+
+              const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `w3pk-indexeddb-export-${Date.now()}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+
+              window.showResult('IndexedDB Exported', {
+                count: data.length,
+                size: `${(blob.size / 1024).toFixed(2)} KB`,
+                note: 'File downloaded successfully'
+              }, 'success');
+
+              db.close();
+            };
+
+            getAllRequest.onerror = function() {
+              window.showResult('Error exporting IndexedDB', { error: getAllRequest.error }, 'error');
+              db.close();
+            };
+          };
+
+          request.onerror = function() {
+            window.showResult('Error opening IndexedDB', { error: request.error }, 'error');
+          };
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.clearIndexedDB = async function() {
+        try {
+          if (!confirm('This will delete ALL wallet data from IndexedDB. Are you sure?')) {
+            return;
+          }
+
+          const DB_NAME = 'Web3PasskeyWallet';
+
+          // Delete the entire database
+          const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
+
+          deleteRequest.onsuccess = function() {
+            console.log('IndexedDB cleared successfully');
+            window.showResult('IndexedDB Cleared', {
+              database: DB_NAME,
+              note: 'All wallet data has been deleted'
+            }, 'success');
+          };
+
+          deleteRequest.onerror = function() {
+            window.showResult('Error clearing IndexedDB', { error: deleteRequest.error }, 'error');
+          };
+
+          deleteRequest.onblocked = function() {
+            window.showResult('IndexedDB deletion blocked', {
+              note: 'Close all tabs using this database and try again'
+            }, 'error');
+          };
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.checkAllStorage = async function() {
+        try {
+          // Get localStorage
+          const localStorageData = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key) {
+              try {
+                localStorageData[key] = JSON.parse(localStorage.getItem(key));
+              } catch {
+                localStorageData[key] = localStorage.getItem(key);
+              }
+            }
+          }
+
+          // Get IndexedDB
+          const DB_NAME = 'Web3PasskeyWallet';
+          const STORE_NAME = 'wallets';
+
+          const request = indexedDB.open(DB_NAME);
+
+          request.onsuccess = function() {
+            const db = request.result;
+            let indexedDBData = [];
+
+            if (db.objectStoreNames.contains(STORE_NAME)) {
+              const transaction = db.transaction([STORE_NAME], 'readonly');
+              const store = transaction.objectStore(STORE_NAME);
+              const getAllRequest = store.getAll();
+
+              getAllRequest.onsuccess = function() {
+                indexedDBData = getAllRequest.result.map(item => ({
+                  ethereumAddress: item.ethereumAddress,
+                  credentialId: item.credentialId ? `${item.credentialId.substring(0, 20)}...` : 'N/A',
+                  hasEncryptedData: !!item.encryptedMnemonic,
+                  timestamp: item.timestamp ? new Date(item.timestamp).toISOString() : 'N/A'
+                }));
+
+                // Get storage estimate
+                if ('storage' in navigator && 'estimate' in navigator.storage) {
+                  navigator.storage.estimate().then(estimate => {
+                    const summary = {
+                      localStorage: {
+                        count: localStorage.length,
+                        keys: Object.keys(localStorageData),
+                        data: localStorageData
+                      },
+                      indexedDB: {
+                        database: DB_NAME,
+                        count: indexedDBData.length,
+                        wallets: indexedDBData
+                      },
+                      storageQuota: {
+                        usage: `${(estimate.usage / (1024 * 1024)).toFixed(2)} MB`,
+                        quota: `${(estimate.quota / (1024 * 1024)).toFixed(2)} MB`,
+                        percentUsed: `${((estimate.usage / estimate.quota) * 100).toFixed(2)}%`
+                      }
+                    };
+
+                    window.showResult('Complete Storage Overview', summary, 'success');
+                    db.close();
+                  });
+                } else {
+                  const summary = {
+                    localStorage: {
+                      count: localStorage.length,
+                      keys: Object.keys(localStorageData),
+                      data: localStorageData
+                    },
+                    indexedDB: {
+                      database: DB_NAME,
+                      count: indexedDBData.length,
+                      wallets: indexedDBData
+                    }
+                  };
+
+                  window.showResult('Complete Storage Overview', summary, 'success');
+                  db.close();
+                }
+              };
+
+              getAllRequest.onerror = function() {
+                window.showResult('Error reading IndexedDB', { error: getAllRequest.error }, 'error');
+                db.close();
+              };
+            } else {
+              window.showResult('Complete Storage Overview', {
+                localStorage: {
+                  count: localStorage.length,
+                  keys: Object.keys(localStorageData),
+                  data: localStorageData
+                },
+                indexedDB: {
+                  note: 'No wallet store found'
+                }
+              }, 'success');
+              db.close();
+            }
+          };
+
+          request.onerror = function() {
+            window.showResult('Error opening IndexedDB', { error: request.error }, 'error');
+          };
         } catch (error) {
           window.handleError(error);
         }
