@@ -86,7 +86,52 @@ async function runTests() {
     logDetail("Method: Authentication-gated encryption");
   });
 
-  // Test 5: SDK Initialization
+  // Test 5: Encrypted Credential Storage (v0.7.5 fix)
+  await runTest("Encrypted Credential Storage", async () => {
+    const { CredentialStorage } = await import("../src/auth/storage");
+    const storage = new CredentialStorage(mockLocalStorage);
+
+    const testCredential = {
+      id: "test-cred-123",
+      publicKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...", // Mock public key
+      username: "alice",
+      ethereumAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+      createdAt: Date.now(),
+      lastUsed: Date.now(),
+    };
+
+    // Save credential (should encrypt username/address)
+    await storage.saveCredential(testCredential);
+
+    // Retrieve credential (should decrypt)
+    const retrieved = await storage.getCredentialById(testCredential.id);
+
+    assert(retrieved !== null, "Credential should be retrieved");
+    assertEqual(retrieved!.username, testCredential.username, "Username should match after decryption");
+    assertEqual(retrieved!.ethereumAddress, testCredential.ethereumAddress, "Address should match after decryption");
+    assertEqual(retrieved!.publicKey, testCredential.publicKey, "Public key should be stored and retrieved (v0.7.5 fix)");
+
+    // Verify data is encrypted in storage
+    const storageKeys = Object.keys(mockLocalStorage);
+    const credentialKey = storageKeys.find(k => k.startsWith('w3pk_credential_') && k !== 'w3pk_credential_index');
+
+    if (credentialKey) {
+      const rawData = JSON.parse(mockLocalStorage[credentialKey]);
+      assert(rawData.encryptedUsername !== undefined, "Username should be encrypted in storage");
+      assert(rawData.encryptedAddress !== undefined, "Address should be encrypted in storage");
+      assert(rawData.publicKey !== undefined, "Public key should be stored (required for key derivation)");
+      assert(rawData.username === undefined, "Plaintext username should not exist");
+      assert(rawData.ethereumAddress === undefined, "Plaintext address should not exist");
+    }
+
+    passTest("Encrypted storage verified (metadata encrypted, public key preserved)");
+    logDetail("✓ Username encrypted in localStorage");
+    logDetail("✓ Address encrypted in localStorage");
+    logDetail("✓ Public key stored (v0.7.5 critical fix)");
+    logDetail("✓ Decryption successful");
+  });
+
+  // Test 6: SDK Initialization
   await runTest("SDK Initialization", async () => {
     const sdk = createWeb3Passkey({
       storage: mockLocalStorage,
@@ -97,7 +142,7 @@ async function runTests() {
     logDetail(`Authenticated: ${sdk.isAuthenticated}`);
   });
 
-  // Test 6: SDK with Stealth Addresses
+  // Test 7: SDK with Stealth Addresses
   await runTest("SDK with Stealth Addresses", async () => {
     const sdk = createWeb3Passkey({
       storage: mockLocalStorage,
@@ -108,7 +153,7 @@ async function runTests() {
     logDetail(`Stealth module: ${sdk.stealth ? "Present" : "Not present"}`);
   });
 
-  // Test 7: SDK with ZK Proofs
+  // Test 8: SDK with ZK Proofs
   await runTest("SDK with ZK Proofs", async () => {
     const zkSdk = createWeb3Passkey({
       storage: mockLocalStorage,
@@ -121,7 +166,7 @@ async function runTests() {
     logDetail(`ZK module available: ${zkSdk.zk ? "Yes" : "No"}`);
   });
 
-  // Test 8: Message Signing
+  // Test 9: Message Signing
   await runTest("Message Signing", async () => {
     const wallet = generateBIP39Wallet();
     const ethersWallet = createWalletFromMnemonic(wallet.mnemonic);
@@ -140,7 +185,7 @@ async function runTests() {
     logDetail(`Signer: ${recovered}`);
   });
 
-  // Test 9: Address Validation
+  // Test 10: Address Validation
   await runTest("Address Validation", async () => {
     const wallet = generateBIP39Wallet();
     const isValid = /^0x[a-fA-F0-9]{40}$/.test(wallet.address);
