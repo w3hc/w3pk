@@ -31,7 +31,7 @@ export async function login(): Promise<AuthResult> {
       optionsJSON: authOptions,
     });
 
-    const credential = storage.getCredentialById(assertion.id);
+    const credential = await storage.getCredentialById(assertion.id);
 
     if (!credential) {
       throw new Error("Credential not found");
@@ -43,7 +43,7 @@ export async function login(): Promise<AuthResult> {
       throw new Error("Signature verification failed");
     }
 
-    storage.updateLastUsed(credential.id);
+    await storage.updateLastUsed(credential.id);
 
     // SECURITY: Return the signature so it can be used to derive encryption keys
     // The signature can ONLY be obtained through biometric/PIN authentication

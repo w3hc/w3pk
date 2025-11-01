@@ -52,6 +52,9 @@ pnpm build
 
 # Watch mode for development
 pnpm dev
+
+# Browser-based SDK tester
+pnpm html              # Build, serve, and open checker.html in browser
 ```
 
 ## Project Structure
@@ -457,6 +460,37 @@ See [Security Architecture](./docs/SECURITY.md) for detailed analysis.
 - Use clear, descriptive commit messages
 - Keep commits focused and atomic
 - Reference issue numbers in commits
+
+## Browser-Based Testing
+
+The SDK includes a comprehensive browser-based tester (`checker.html`) for interactive testing of all SDK features.
+
+### Running the Tester
+
+```bash
+pnpm html
+```
+
+This command will:
+1. Build the SDK (`tsup`)
+2. Kill any existing server on port 3000
+3. Start a local server on port 3000
+4. Automatically open `checker.html` in your browser
+
+### Using the Tester
+
+The browser tester provides buttons for testing:
+- **Authentication**: Register, login, logout, auth status
+- **Wallet Operations**: Generate, derive, import/export mnemonic, sign messages
+- **Session Management**: Check, extend, clear sessions
+- **Network**: Get RPC endpoints, check EIP-7702 support
+- **Stealth Addresses**: Generate stealth addresses, scan announcements (ERC-5564)
+- **ZK Proofs**: Generate and verify zero-knowledge proofs
+- **Backup & Recovery**: Create/restore ZIP and QR backups
+- **Social Recovery**: Setup guardians, generate invites, recover from shares
+- **Storage**: View and manage localStorage and IndexedDB
+
+All results are displayed in real-time with detailed logs in the browser console.
 
 ## Common Tasks
 

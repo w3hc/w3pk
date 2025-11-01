@@ -25,7 +25,7 @@ export async function register(
 
     const storage = new CredentialStorage();
 
-    if (storage.userExists(username)) {
+    if (await storage.userExists(username)) {
       throw new Error("Username already registered");
     }
 
@@ -65,7 +65,7 @@ export async function register(
       throw new Error("Public key not returned from authenticator");
     }
 
-    storage.saveCredential({
+    await storage.saveCredential({
       id: credential.id,
       publicKey,
       username,

@@ -1610,7 +1610,8 @@ import {
   deriveStealthKeys,
   generateStealthAddress,
   checkStealthAddress,
-  computeStealthPrivateKey
+  computeStealthPrivateKey,
+  canControlStealthAddress
 } from 'w3pk'
 ```
 
@@ -1666,6 +1667,48 @@ const stealthPrivateKey = computeStealthPrivateKey(
   spendingKey,
   ephemeralPubKey
 )
+```
+
+---
+
+#### `canControlStealthAddress(viewingKey: string, spendingKey: string, spendingPubKey: string, ephemeralPubKey: string, stealthAddress: string, viewTag?: string): boolean`
+
+Verify that you can control a stealth address by checking if your keys can derive the correct private key.
+
+**Parameters:**
+- `viewingKey: string` - Your viewing private key
+- `spendingKey: string` - Your spending private key
+- `spendingPubKey: string` - Your spending public key (compressed)
+- `ephemeralPubKey: string` - Ephemeral public key from announcement
+- `stealthAddress: string` - The stealth address to verify control of
+- `viewTag?: string` - Optional view tag for optimization
+
+**Returns:** `boolean` - True if you can control the stealth address
+
+**Use case:** Verify you can spend funds from a stealth address before attempting a transaction.
+
+```typescript
+import { canControlStealthAddress, deriveStealthKeys } from 'w3pk'
+
+// Get your stealth keys
+const keys = deriveStealthKeys(mnemonic)
+
+// Check if you can control a stealth address
+const canControl = canControlStealthAddress(
+  keys.viewingKey,
+  keys.spendingKey,
+  keys.spendingPubKey,
+  announcement.ephemeralPublicKey,
+  announcement.stealthAddress,
+  announcement.viewTag
+)
+
+if (canControl) {
+  console.log('You can spend from this stealth address')
+  // Proceed with transaction
+} else {
+  console.log('This stealth address is not yours')
+}
 ```
 
 ---

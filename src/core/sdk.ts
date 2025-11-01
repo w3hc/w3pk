@@ -114,7 +114,7 @@ export class Web3Passkey {
 
     // Get credential to access public key
     const storage = new (await import("../auth/storage")).CredentialStorage();
-    const credential = storage.getCredentialById(walletData.credentialId);
+    const credential = await storage.getCredentialById(walletData.credentialId);
     const publicKey = credential?.publicKey;
 
     // Derive decryption key from WebAuthn credential
@@ -167,7 +167,7 @@ export class Web3Passkey {
       };
 
       const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credential = storage.getCredentialByAddress(ethereumAddress);
+      const credential = await storage.getCredentialByAddress(ethereumAddress);
 
       if (!credential) {
         throw new WalletError("Credential not found after registration");
@@ -241,7 +241,7 @@ export class Web3Passkey {
 
       // Get credential to access public key
       const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credential = storage.getCredentialById(walletData.credentialId);
+      const credential = await storage.getCredentialById(walletData.credentialId);
       const publicKey = credential?.publicKey;
 
       // Derive decryption key from WebAuthn credential
@@ -393,7 +393,7 @@ export class Web3Passkey {
 
       // Get credential to access public key
       const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credential = storage.getCredentialById(credentialId);
+      const credential = await storage.getCredentialById(credentialId);
       const publicKey = credential?.publicKey;
 
       // Derive encryption key from WebAuthn credential

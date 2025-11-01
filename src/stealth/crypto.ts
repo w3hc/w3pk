@@ -246,6 +246,57 @@ export function computeStealthPrivateKey(
   }
 }
 
+/**
+ * ERC-5564: Check if user can control a stealth address
+ * Verifies that the user's keys can derive the correct private key for a stealth address.
+ *
+ * @param viewingKey - Recipient's viewing private key
+ * @param spendingKey - Recipient's spending private key
+ * @param spendingPubKey - Recipient's spending public key (compressed)
+ * @param ephemeralPubKey - Ephemeral public key from announcement
+ * @param stealthAddress - The stealth address to verify control of
+ * @param viewTag - View tag from announcement (optional, for optimization)
+ * @returns True if the user can control the stealth address
+ */
+export function canControlStealthAddress(
+  viewingKey: string,
+  spendingKey: string,
+  spendingPubKey: string,
+  ephemeralPubKey: string,
+  stealthAddress: string,
+  viewTag?: string
+): boolean {
+  try {
+    // First, check if this stealth address belongs to the user
+    const checkResult = checkStealthAddress(
+      viewingKey,
+      spendingPubKey,
+      ephemeralPubKey,
+      stealthAddress,
+      viewTag
+    );
+
+    if (!checkResult.isForUser) {
+      return false;
+    }
+
+    // Compute the stealth private key
+    const stealthPrivKey = computeStealthPrivateKey(
+      viewingKey,
+      spendingKey,
+      ephemeralPubKey
+    );
+
+    // Verify the private key controls the stealth address
+    const wallet = new ethers.Wallet(stealthPrivKey);
+    const derivedAddress = wallet.address;
+
+    return derivedAddress.toLowerCase() === stealthAddress.toLowerCase();
+  } catch (error) {
+    return false;
+  }
+}
+
 // ========================================
 // ERC-5564 Cryptographic Primitives
 // ========================================

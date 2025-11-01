@@ -10,20 +10,21 @@
         max-width: 1200px;
         margin: 20px auto;
         padding: 20px;
-        background: #f5f5f5;
+        background: #000000;
+        color: #FFFFFF;
       }
       .container {
-        background: white;
+        background: #000000;
         padding: 30px;
         border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 8px rgba(140, 28, 132, 0.3);
       }
       h1 {
-        color: #333;
+        color: #FFFFFF;
         margin-bottom: 10px;
       }
       .subtitle {
-        color: #666;
+        color: #45a2f8;
         margin-bottom: 30px;
       }
       .button-grid {
@@ -35,41 +36,56 @@
       button {
         padding: 12px 20px;
         font-size: 14px;
-        border: none;
-        border-radius: 4px;
+        border: 2px solid #8c1c84;
+        border-radius: 6px;
         cursor: pointer;
-        background: #007bff;
-        color: white;
-        transition: background 0.2s;
+        background: #000000;
+        color: #FFFFFF;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(140, 28, 132, 0.3);
+        font-weight: 500;
       }
       button:hover {
-        background: #0056b3;
+        background: #000000;
+        border-color: #45a2f8;
+        box-shadow: 0 6px 12px rgba(69, 162, 248, 0.4);
+        transform: translateY(-2px);
+      }
+      button:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(69, 162, 248, 0.3);
       }
       button:disabled {
-        background: #6c757d;
+        background: #000000;
+        border-color: #333;
+        color: #666;
         cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
       }
       .result {
         margin-top: 20px;
         padding: 15px;
-        background: #f8f9fa;
+        background: #1a1a1a;
         border-radius: 4px;
-        border-left: 4px solid #007bff;
+        border-left: 4px solid #45a2f8;
+        color: #FFFFFF;
       }
       .error {
         border-left-color: #dc3545;
-        background: #f8d7da;
+        background: #2a0a0a;
       }
       .success {
-        border-left-color: #28a745;
-        background: #d4edda;
+        border-left-color: #8c1c84;
+        background: #1a0a1a;
       }
       .empty {
-        border-left-color: #6c757d;
+        border-left-color: #666;
+        background: #1a1a1a;
       }
       pre {
-        background: #272822;
-        color: #f8f8f2;
+        background: #0a0a0a;
+        color: #FFFFFF;
         padding: 15px;
         border-radius: 4px;
         overflow-x: auto;
@@ -77,25 +93,27 @@
         word-wrap: break-word;
         max-height: 400px;
         overflow-y: auto;
+        border: 1px solid #333;
       }
       .section {
         margin-bottom: 30px;
       }
       .section h2 {
-        color: #333;
+        color: #45a2f8;
         margin-bottom: 15px;
         font-size: 18px;
       }
       .info {
-        background: #e7f3ff;
-        border-left: 4px solid #2196f3;
+        background: #0a0a1a;
+        border-left: 4px solid #8c1c84;
         padding: 15px;
         margin-bottom: 20px;
         border-radius: 4px;
+        color: #FFFFFF;
       }
       .key {
         font-weight: bold;
-        color: #007bff;
+        color: #8c1c84;
         margin-top: 15px;
       }
     </style>
@@ -123,9 +141,11 @@
       <div class="section">
         <h2>Wallet Operations</h2>
         <div class="button-grid">
+          <button onclick="testGenerateWallet()">Generate Wallet</button>
           <button onclick="testDeriveWallet()">Derive Wallet (index 0)</button>
           <button onclick="testDeriveMultiple()">Derive Multiple Wallets</button>
           <button onclick="testExportMnemonic()">Export Mnemonic</button>
+          <button onclick="testImportMnemonic()">Import Mnemonic</button>
           <button onclick="testSignMessage()">Sign Message</button>
         </div>
       </div>
@@ -136,6 +156,7 @@
           <button onclick="checkSession()">Check Session Status</button>
           <button onclick="extendSession()">Extend Session</button>
           <button onclick="clearSession()">Clear Session</button>
+          <button onclick="testSetSessionDuration()">Set Session Duration</button>
           <button onclick="testForceAuth()">Test Force Auth</button>
         </div>
       </div>
@@ -149,11 +170,52 @@
       </div>
 
       <div class="section">
+        <h2>ERC-5564 Stealth Addresses</h2>
+        <div class="button-grid">
+          <button onclick="testGetStealthMetaAddress()">Get Stealth Meta-Address</button>
+          <button onclick="testGenerateStealthAddress()">Generate Stealth Address</button>
+          <button onclick="testParseAnnouncement()">Parse Announcement</button>
+          <button onclick="testScanAnnouncements()">Scan Announcements</button>
+          <button onclick="testGetStealthKeys()">Get Stealth Keys</button>
+          <button onclick="testStealthIsAvailable()">Check Stealth Available</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>ZK Primitives - Proof Generation</h2>
+        <div class="button-grid">
+          <button onclick="testProveMembership()">Prove Membership</button>
+          <button onclick="testProveThreshold()">Prove Threshold</button>
+          <button onclick="testProveRange()">Prove Range</button>
+          <button onclick="testProveOwnership()">Prove Ownership</button>
+          <button onclick="testProveNFTOwnership()">Prove NFT Ownership</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>ZK Primitives - Verification</h2>
+        <div class="button-grid">
+          <button onclick="testVerifyProof()">Verify Proof</button>
+          <button onclick="testVerifyBatch()">Verify Batch Proofs</button>
+          <button onclick="testVerifyMembership()">Verify Membership</button>
+          <button onclick="testVerifyThreshold()">Verify Threshold</button>
+          <button onclick="testVerifyRange()">Verify Range</button>
+          <button onclick="testVerifyOwnership()">Verify Ownership</button>
+          <button onclick="testVerifyNFTOwnership()">Verify NFT Ownership</button>
+          <button onclick="testCreateCommitment()">Create Commitment</button>
+          <button onclick="testComputeMerkleRoot()">Compute Merkle Root</button>
+          <button onclick="testZKIsAvailable()">Check ZK Available</button>
+        </div>
+      </div>
+
+      <div class="section">
         <h2>Backup & Recovery</h2>
         <div class="button-grid">
           <button onclick="testGetBackupStatus()">Get Backup Status</button>
           <button onclick="testCreateZipBackup()">Create ZIP Backup</button>
           <button onclick="testCreateQRBackup()">Create QR Backup</button>
+          <button onclick="testRestoreFromBackup()">Restore from Backup</button>
+          <button onclick="testRestoreFromQR()">Restore from QR</button>
           <button onclick="testDetectSyncCapabilities()">Detect Sync Capabilities</button>
         </div>
       </div>
@@ -164,6 +226,7 @@
           <button onclick="testSetupSocialRecovery()">Setup Social Recovery (3-of-5)</button>
           <button onclick="testGenerateGuardianInvite()">Generate Guardian Invite</button>
           <button onclick="testGetSocialRecoveryConfig()">View Social Recovery Config</button>
+          <button onclick="testRecoverFromGuardians()">Recover from Guardians</button>
         </div>
       </div>
 
@@ -174,14 +237,27 @@
           <button onclick="testSimulateLostDevice()">Simulate: Lost Device</button>
           <button onclick="testSimulateLostPhrase()">Simulate: Lost Phrase</button>
           <button onclick="testGetEducation()">Get Education (Passkeys)</button>
+          <button onclick="testGetAllTopics()">Get All Topics</button>
+          <button onclick="testSearchExplainers()">Search Explainers</button>
         </div>
       </div>
 
       <div class="section">
-        <h2>Storage</h2>
+        <h2>Storage - LocalStorage</h2>
         <div class="button-grid">
           <button onclick="checkStorage()">View LocalStorage</button>
-          <button onclick="clearStorage()">Clear All Storage</button>
+          <button onclick="clearStorage()">Clear LocalStorage</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Storage - IndexedDB</h2>
+        <div class="button-grid">
+          <button onclick="checkIndexedDB()">View IndexedDB Data</button>
+          <button onclick="checkIndexedDBSize()">Get Storage Size</button>
+          <button onclick="exportIndexedDB()">Export IndexedDB</button>
+          <button onclick="clearIndexedDB()">Clear IndexedDB</button>
+          <button onclick="checkAllStorage()">View All Storage</button>
         </div>
       </div>
 
@@ -201,7 +277,12 @@
       import { createWeb3Passkey } from './dist/index.mjs';
 
       // Make it globally available for onclick handlers
-      window.w3pk = createWeb3Passkey({ sessionDuration: 1 });
+      // Enable stealth addresses and ZK primitives
+      window.w3pk = createWeb3Passkey({
+        sessionDuration: 1,
+        stealthAddresses: {},
+        zkProofs: {}
+      });
 
       // Helper functions
       window.showResult = function(message, data, type = 'result') {
@@ -269,6 +350,19 @@
         window.showResult('Authentication Status', data);
       };
 
+      window.testGenerateWallet = async function() {
+        try {
+          const result = await window.w3pk.generateWallet();
+          console.log('Wallet generated:', result);
+          window.showResult('Wallet Generated', {
+            mnemonic: result.mnemonic,
+            note: 'Save this mnemonic safely!'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
       window.testDeriveWallet = async function() {
         try {
           const wallet = await window.w3pk.deriveWallet(0);
@@ -298,6 +392,22 @@
           const mnemonic = await window.w3pk.exportMnemonic();
           console.log('Mnemonic:', mnemonic);
           window.showResult('Mnemonic Exported', { mnemonic }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testImportMnemonic = async function() {
+        try {
+          const mnemonic = prompt('Enter 12-word mnemonic phrase:', '');
+          if (!mnemonic) return;
+
+          await window.w3pk.importMnemonic(mnemonic);
+          console.log('Mnemonic imported');
+          window.showResult('Mnemonic Imported Successfully', {
+            address: window.w3pk.user?.ethereumAddress,
+            note: 'Wallet has been replaced with imported mnemonic'
+          }, 'success');
         } catch (error) {
           window.handleError(error);
         }
@@ -344,6 +454,22 @@
         };
         console.log('Session cleared:', data);
         window.showResult('Session Cleared', data, 'success');
+      };
+
+      window.testSetSessionDuration = function() {
+        try {
+          const hours = prompt('Enter session duration in hours:', '2');
+          if (!hours) return;
+
+          window.w3pk.setSessionDuration(parseFloat(hours));
+          console.log('Session duration updated:', hours);
+          window.showResult('Session Duration Updated', {
+            newDuration: `${hours} hours`,
+            note: 'Applies to new sessions and extensions'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
       };
 
       window.testForceAuth = async function() {
@@ -479,7 +605,7 @@
           const img = new Image();
           img.src = result.qrCodeDataURL;
           img.style.maxWidth = '400px';
-          img.style.border = '2px solid #007bff';
+          img.style.border = '2px solid #8c1c84';
           img.style.borderRadius = '8px';
           img.style.marginTop = '10px';
 
@@ -570,7 +696,7 @@
           const img = new Image();
           img.src = invite.qrCode;
           img.style.maxWidth = '300px';
-          img.style.border = '2px solid #28a745';
+          img.style.border = '2px solid #8c1c84';
           img.style.borderRadius = '8px';
 
           const div = document.createElement('div');
@@ -619,6 +745,40 @@
               status: g.status,
               addedAt: new Date(g.addedAt).toISOString()
             }))
+          }, 'success');
+
+          // Store guardian shares for testing recovery
+          window.testGuardianShares = config.guardians.map(g => g.share);
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testRecoverFromGuardians = async function() {
+        try {
+          const sharesInput = prompt('Enter guardian shares (comma-separated JSON strings):\nOr leave empty to use stored shares from setup', '');
+
+          let shares;
+          if (!sharesInput) {
+            // Use shares from social recovery setup
+            if (!window.testGuardianShares || window.testGuardianShares.length === 0) {
+              window.showResult('No guardian shares available. Set up social recovery first.', null, 'error');
+              return;
+            }
+            shares = window.testGuardianShares.slice(0, 3); // Use first 3 shares (threshold)
+          } else {
+            shares = sharesInput.split(',').map(s => s.trim());
+          }
+
+          window.showResult('Recovering from guardian shares...', null);
+
+          const result = await window.w3pk.recoverFromGuardians(shares);
+          console.log('Recovery result:', result);
+
+          window.showResult('Recovery Successful', {
+            ethereumAddress: result.ethereumAddress,
+            mnemonicLength: result.mnemonic.split(' ').length,
+            note: 'Wallet recovered from guardian shares!'
           }, 'success');
         } catch (error) {
           window.handleError(error);
@@ -727,11 +887,961 @@
         }
       };
 
+      window.testGetAllTopics = async function() {
+        try {
+          const { getAllTopics } = await import('./dist/index.mjs');
+          const topics = getAllTopics();
+          console.log('All educational topics:', topics);
+
+          window.showResult('All Educational Topics', {
+            count: topics.length,
+            topics: topics
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testSearchExplainers = async function() {
+        try {
+          const query = prompt('Enter search query:', 'passkey');
+          if (!query) return;
+
+          const { searchExplainers } = await import('./dist/index.mjs');
+          const results = searchExplainers(query);
+          console.log('Search results:', results);
+
+          window.showResult('Search Results', {
+            query: query,
+            found: results.length,
+            results: results.map(r => ({
+              topic: r.topic,
+              title: r.title
+            }))
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      // ERC-5564 Stealth Address Functions
+      window.testGetStealthMetaAddress = async function() {
+        try {
+          if (!window.w3pk.stealth) {
+            window.showResult('Stealth addresses not enabled. Reinitialize SDK with stealthAddresses config.', null, 'error');
+            return;
+          }
+          const metaAddress = await window.w3pk.stealth.getStealthMetaAddress();
+          console.log('Stealth meta-address:', metaAddress);
+          window.showResult('Stealth Meta-Address', { metaAddress }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGenerateStealthAddress = async function() {
+        try {
+          if (!window.w3pk.stealth) {
+            window.showResult('Stealth addresses not enabled', null, 'error');
+            return;
+          }
+          const announcement = await window.w3pk.stealth.generateStealthAddress();
+          console.log('Generated stealth address:', announcement);
+          window.showResult('Stealth Address Generated', announcement, 'success');
+
+          // Store for testing parseAnnouncement
+          window.testAnnouncement = announcement;
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testParseAnnouncement = async function() {
+        try {
+          if (!window.w3pk.stealth) {
+            window.showResult('Stealth addresses not enabled', null, 'error');
+            return;
+          }
+          if (!window.testAnnouncement) {
+            window.showResult('Please generate a stealth address first', null, 'error');
+            return;
+          }
+
+          const result = await window.w3pk.stealth.parseAnnouncement({
+            stealthAddress: window.testAnnouncement.stealthAddress,
+            ephemeralPublicKey: window.testAnnouncement.ephemeralPublicKey,
+            viewTag: window.testAnnouncement.viewTag
+          });
+
+          console.log('Parse announcement result:', result);
+          window.showResult('Announcement Parsed', {
+            isForUser: result.isForUser,
+            stealthAddress: result.stealthAddress,
+            hasPrivateKey: !!result.stealthPrivateKey
+          }, result.isForUser ? 'success' : 'result');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testScanAnnouncements = async function() {
+        try {
+          if (!window.w3pk.stealth) {
+            window.showResult('Stealth addresses not enabled', null, 'error');
+            return;
+          }
+
+          // Generate a few test announcements first
+          const announcements = [];
+          for (let i = 0; i < 3; i++) {
+            const ann = await window.w3pk.stealth.generateStealthAddress();
+            announcements.push({
+              stealthAddress: ann.stealthAddress,
+              ephemeralPublicKey: ann.ephemeralPublicKey,
+              viewTag: ann.viewTag
+            });
+          }
+
+          window.showResult('Scanning announcements...', null);
+          const results = await window.w3pk.stealth.scanAnnouncements(announcements);
+          console.log('Scan results:', results);
+
+          window.showResult('Announcements Scanned', {
+            total: announcements.length,
+            found: results.length,
+            addresses: results.map(r => r.stealthAddress)
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGetStealthKeys = async function() {
+        try {
+          if (!window.w3pk.stealth) {
+            window.showResult('Stealth addresses not enabled', null, 'error');
+            return;
+          }
+          const keys = await window.w3pk.stealth.getKeys();
+          console.log('Stealth keys obtained');
+          window.showResult('Stealth Keys Retrieved', {
+            hasViewingKey: !!keys.viewingPrivateKey,
+            hasSpendingKey: !!keys.spendingPrivateKey,
+            note: 'Private keys hidden for security'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testStealthIsAvailable = function() {
+        try {
+          if (!window.w3pk.stealth) {
+            window.showResult('Stealth Module Not Initialized', {
+              available: false,
+              note: 'Enable stealthAddresses in SDK config'
+            }, 'error');
+            return;
+          }
+
+          const isAvailable = window.w3pk.stealth.isAvailable;
+          console.log('Stealth available:', isAvailable);
+          window.showResult('Stealth Addresses Availability', {
+            available: isAvailable,
+            status: isAvailable ? 'Ready to use' : 'Not available'
+          }, isAvailable ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      // ZK Proof Functions
+      window.testProveMembership = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled. Reinitialize SDK with zkProofs config.', null, 'error');
+            return;
+          }
+
+          window.showResult('Generating membership proof...', null);
+
+          // Create a set and prove membership
+          const members = ['0x123', '0x456', '0x789', '0xabc', '0xdef'];
+          const secret = '0x456'; // We're proving we're in the set without revealing which one
+
+          const proof = await window.w3pk.zk.proveMembership(members, secret);
+          console.log('Membership proof:', proof);
+
+          window.showResult('Membership Proof Generated', {
+            proofType: proof.type,
+            merkleRoot: proof.publicSignals.root,
+            hasProof: !!proof.proof,
+            note: 'Proves membership without revealing identity'
+          }, 'success');
+
+          window.testMembershipProof = proof;
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testProveThreshold = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          window.showResult('Generating threshold proof...', null);
+
+          // Prove balance exceeds 1000 without revealing exact amount
+          const value = 5000;
+          const threshold = 1000;
+
+          const proof = await window.w3pk.zk.proveThreshold(value, threshold);
+          console.log('Threshold proof:', proof);
+
+          window.showResult('Threshold Proof Generated', {
+            proofType: proof.type,
+            threshold: proof.publicSignals.threshold,
+            note: 'Proves value > threshold without revealing exact value'
+          }, 'success');
+
+          window.testThresholdProof = proof;
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testProveRange = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          window.showResult('Generating range proof...', null);
+
+          // Prove age is between 18 and 100 without revealing exact age
+          const value = 25;
+          const min = 18;
+          const max = 100;
+
+          const proof = await window.w3pk.zk.proveRange(value, min, max);
+          console.log('Range proof:', proof);
+
+          window.showResult('Range Proof Generated', {
+            proofType: proof.type,
+            range: `${proof.publicSignals.min} - ${proof.publicSignals.max}`,
+            note: 'Proves value in range without revealing exact value'
+          }, 'success');
+
+          window.testRangeProof = proof;
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testProveOwnership = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          window.showResult('Generating ownership proof...', null);
+
+          // Get current wallet address
+          const wallet = await window.w3pk.deriveWallet(0);
+
+          const proof = await window.w3pk.zk.proveOwnership(wallet.address);
+          console.log('Ownership proof:', proof);
+
+          window.showResult('Ownership Proof Generated', {
+            proofType: proof.type,
+            address: proof.publicSignals.address,
+            note: 'Proves you control address without revealing private key'
+          }, 'success');
+
+          window.testOwnershipProof = proof;
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testProveNFTOwnership = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          window.showResult('Generating NFT ownership proof...', null);
+
+          // Example: Prove ownership of an NFT without revealing which one
+          const contractAddress = '0x1234567890123456789012345678901234567890';
+          const tokenIds = [1, 5, 10, 15, 20];
+          const ownedTokenId = 10;
+
+          const proof = await window.w3pk.zk.proveNFTOwnership(
+            contractAddress,
+            tokenIds,
+            ownedTokenId
+          );
+          console.log('NFT ownership proof:', proof);
+
+          window.showResult('NFT Ownership Proof Generated', {
+            proofType: proof.type,
+            contractAddress: proof.publicSignals.contractAddress,
+            note: 'Proves NFT ownership without revealing token ID'
+          }, 'success');
+
+          window.testNFTProof = proof;
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyProof = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          // Try to verify a previously generated proof
+          let proofToVerify = window.testMembershipProof || window.testThresholdProof || window.testRangeProof;
+
+          if (!proofToVerify) {
+            window.showResult('Please generate a proof first (membership, threshold, or range)', null, 'error');
+            return;
+          }
+
+          window.showResult('Verifying proof...', null);
+
+          const isValid = await window.w3pk.zk.verify(proofToVerify);
+          console.log('Proof verification result:', isValid);
+
+          window.showResult('Proof Verification Result', {
+            proofType: proofToVerify.type,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyBatch = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          const proofs = [
+            window.testMembershipProof,
+            window.testThresholdProof,
+            window.testRangeProof
+          ].filter(p => p);
+
+          if (proofs.length === 0) {
+            window.showResult('Please generate some proofs first', null, 'error');
+            return;
+          }
+
+          window.showResult('Verifying batch of proofs...', null);
+
+          const results = await window.w3pk.zk.verifyBatch(proofs);
+          console.log('Batch verification results:', results);
+
+          window.showResult('Batch Verification Results', {
+            totalProofs: proofs.length,
+            results: results.map((r, i) => ({
+              type: proofs[i].type,
+              valid: r.isValid
+            }))
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyMembership = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testMembershipProof) {
+            window.showResult('Please generate a membership proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testMembershipProof;
+          const expectedRoot = proof.publicSignals.root;
+
+          const isValid = await window.w3pk.zk.verifyMembership(proof, expectedRoot);
+          console.log('Membership verification:', isValid);
+
+          window.showResult('Membership Verification', {
+            expectedRoot: expectedRoot,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyThreshold = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testThresholdProof) {
+            window.showResult('Please generate a threshold proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testThresholdProof;
+          const expectedCommitment = proof.publicSignals.commitment;
+          const expectedThreshold = BigInt(proof.publicSignals.threshold);
+
+          const isValid = await window.w3pk.zk.verifyThreshold(proof, expectedCommitment, expectedThreshold);
+          console.log('Threshold verification:', isValid);
+
+          window.showResult('Threshold Verification', {
+            threshold: proof.publicSignals.threshold,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyRange = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testRangeProof) {
+            window.showResult('Please generate a range proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testRangeProof;
+          const expectedCommitment = proof.publicSignals.commitment;
+          const expectedMin = BigInt(proof.publicSignals.min);
+          const expectedMax = BigInt(proof.publicSignals.max);
+
+          const isValid = await window.w3pk.zk.verifyRange(proof, expectedCommitment, expectedMin, expectedMax);
+          console.log('Range verification:', isValid);
+
+          window.showResult('Range Verification', {
+            range: `${proof.publicSignals.min} - ${proof.publicSignals.max}`,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyOwnership = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testOwnershipProof) {
+            window.showResult('Please generate an ownership proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testOwnershipProof;
+          const expectedAddress = proof.publicSignals.address;
+          const expectedChallenge = proof.publicSignals.challenge;
+
+          const isValid = await window.w3pk.zk.verifyOwnership(proof, expectedAddress, expectedChallenge);
+          console.log('Ownership verification:', isValid);
+
+          window.showResult('Ownership Verification', {
+            address: expectedAddress,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyNFTOwnership = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testNFTProof) {
+            window.showResult('Please generate an NFT ownership proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testNFTProof;
+          const expectedContract = proof.publicSignals.contractAddress;
+          const expectedHoldersRoot = proof.publicSignals.holdersRoot;
+          const expectedMinBalance = 1n;
+
+          const isValid = await window.w3pk.zk.verifyNFTOwnership(proof, expectedContract, expectedHoldersRoot, expectedMinBalance);
+          console.log('NFT ownership verification:', isValid);
+
+          window.showResult('NFT Ownership Verification', {
+            contract: expectedContract,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testCreateCommitment = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          const value = 12345;
+          const salt = Date.now().toString();
+
+          const commitment = await window.w3pk.zk.createCommitment(value, salt);
+          console.log('Commitment created:', commitment);
+
+          window.showResult('Pedersen Commitment Created', {
+            commitment: commitment,
+            originalValue: value,
+            salt: salt,
+            note: 'Commitment hides the value until revealed'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testComputeMerkleRoot = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          // Use correct signature: computeMerkleRoot(leaf, pathIndices, pathElements)
+          const leaf = '0xaaa';
+          const pathIndices = [0, 1, 0];
+          const pathElements = ['0xbbb', '0xccc', '0xddd'];
+
+          const root = await window.w3pk.zk.computeMerkleRoot(leaf, pathIndices, pathElements);
+          console.log('Merkle root:', root);
+
+          window.showResult('Merkle Root Computed', {
+            root: root,
+            leaf: leaf,
+            pathDepth: pathIndices.length,
+            note: 'Used for membership proofs'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testZKIsAvailable = function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK Module Not Initialized', {
+              available: false,
+              note: 'Enable zkProofs in SDK config'
+            }, 'error');
+            return;
+          }
+
+          // Since zk is a proxy, we need to check if it's accessible
+          const isAvailable = true; // ZK module is lazy-loaded
+          console.log('ZK available:', isAvailable);
+          window.showResult('ZK Proofs Availability', {
+            available: isAvailable,
+            status: 'Ready to use (lazy-loaded)',
+            note: 'ZK circuits loaded on first use'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      // Wallet Restore Functions
+      window.testRestoreFromBackup = async function() {
+        try {
+          const fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.accept = '.json';
+
+          fileInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const password = prompt('Enter backup password:', '');
+            if (!password) return;
+
+            const text = await file.text();
+            const encryptedData = JSON.parse(text);
+
+            window.showResult('Restoring from backup...', null);
+
+            await window.w3pk.restoreFromBackup(encryptedData, password);
+            console.log('Restored from backup');
+
+            window.showResult('Wallet Restored from Backup', {
+              address: window.w3pk.user?.address,
+              username: window.w3pk.user?.username
+            }, 'success');
+          };
+
+          fileInput.click();
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testRestoreFromQR = async function() {
+        try {
+          const qrData = prompt('Enter QR code data (or use test data):', 'test-qr-data');
+          if (!qrData) return;
+
+          const password = prompt('Enter QR password (leave empty if unencrypted):', '');
+
+          window.showResult('Restoring from QR...', null);
+
+          await window.w3pk.restoreFromQR(qrData, password || undefined);
+          console.log('Restored from QR');
+
+          window.showResult('Wallet Restored from QR', {
+            address: window.w3pk.user?.address,
+            username: window.w3pk.user?.username
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      // IndexedDB Functions
+      window.checkIndexedDB = async function() {
+        try {
+          const DB_NAME = 'Web3PasskeyWallet';
+          const STORE_NAME = 'wallets';
+
+          const request = indexedDB.open(DB_NAME);
+
+          request.onsuccess = function() {
+            const db = request.result;
+
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              window.showResult('IndexedDB exists but no wallet store found', null, 'empty');
+              db.close();
+              return;
+            }
+
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const getAllRequest = store.getAll();
+
+            getAllRequest.onsuccess = function() {
+              const data = getAllRequest.result;
+
+              if (data.length === 0) {
+                window.showResult('IndexedDB is empty', { database: DB_NAME, store: STORE_NAME }, 'empty');
+              } else {
+                // Mask sensitive data for display
+                const maskedData = data.map(item => ({
+                  ethereumAddress: item.ethereumAddress,
+                  credentialId: item.credentialId ? `${item.credentialId.substring(0, 20)}...` : 'N/A',
+                  encryptedMnemonic: item.encryptedMnemonic ? `[${item.encryptedMnemonic.length} bytes]` : 'N/A',
+                  iv: item.iv ? `${item.iv.substring(0, 20)}...` : 'N/A',
+                  timestamp: item.timestamp ? new Date(item.timestamp).toISOString() : 'N/A'
+                }));
+
+                window.showResult('IndexedDB Data', {
+                  database: DB_NAME,
+                  store: STORE_NAME,
+                  count: data.length,
+                  wallets: maskedData
+                }, 'success');
+              }
+
+              db.close();
+            };
+
+            getAllRequest.onerror = function() {
+              window.showResult('Error reading IndexedDB', { error: getAllRequest.error }, 'error');
+              db.close();
+            };
+          };
+
+          request.onerror = function() {
+            window.showResult('Error opening IndexedDB', { error: request.error }, 'error');
+          };
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.checkIndexedDBSize = async function() {
+        try {
+          if ('storage' in navigator && 'estimate' in navigator.storage) {
+            const estimate = await navigator.storage.estimate();
+            const usageInMB = (estimate.usage / (1024 * 1024)).toFixed(2);
+            const quotaInMB = (estimate.quota / (1024 * 1024)).toFixed(2);
+            const percentUsed = ((estimate.usage / estimate.quota) * 100).toFixed(2);
+
+            window.showResult('Storage Quota Information', {
+              usage: `${usageInMB} MB`,
+              quota: `${quotaInMB} MB`,
+              percentUsed: `${percentUsed}%`,
+              available: `${(quotaInMB - usageInMB).toFixed(2)} MB`,
+              note: 'Includes IndexedDB, LocalStorage, Cache API, etc.'
+            }, 'success');
+          } else {
+            window.showResult('Storage API not supported in this browser', null, 'error');
+          }
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.exportIndexedDB = async function() {
+        try {
+          const DB_NAME = 'Web3PasskeyWallet';
+          const STORE_NAME = 'wallets';
+
+          const request = indexedDB.open(DB_NAME);
+
+          request.onsuccess = function() {
+            const db = request.result;
+
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              window.showResult('No wallet store found', null, 'error');
+              db.close();
+              return;
+            }
+
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const getAllRequest = store.getAll();
+
+            getAllRequest.onsuccess = function() {
+              const data = getAllRequest.result;
+
+              if (data.length === 0) {
+                window.showResult('No data to export', null, 'empty');
+                db.close();
+                return;
+              }
+
+              // Create JSON export
+              const exportData = {
+                exportDate: new Date().toISOString(),
+                database: DB_NAME,
+                store: STORE_NAME,
+                count: data.length,
+                data: data
+              };
+
+              const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `w3pk-indexeddb-export-${Date.now()}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+
+              window.showResult('IndexedDB Exported', {
+                count: data.length,
+                size: `${(blob.size / 1024).toFixed(2)} KB`,
+                note: 'File downloaded successfully'
+              }, 'success');
+
+              db.close();
+            };
+
+            getAllRequest.onerror = function() {
+              window.showResult('Error exporting IndexedDB', { error: getAllRequest.error }, 'error');
+              db.close();
+            };
+          };
+
+          request.onerror = function() {
+            window.showResult('Error opening IndexedDB', { error: request.error }, 'error');
+          };
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.clearIndexedDB = async function() {
+        try {
+          if (!confirm('This will delete ALL wallet data from IndexedDB. Are you sure?')) {
+            return;
+          }
+
+          const DB_NAME = 'Web3PasskeyWallet';
+
+          // Delete the entire database
+          const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
+
+          deleteRequest.onsuccess = function() {
+            console.log('IndexedDB cleared successfully');
+            window.showResult('IndexedDB Cleared', {
+              database: DB_NAME,
+              note: 'All wallet data has been deleted'
+            }, 'success');
+          };
+
+          deleteRequest.onerror = function() {
+            window.showResult('Error clearing IndexedDB', { error: deleteRequest.error }, 'error');
+          };
+
+          deleteRequest.onblocked = function() {
+            window.showResult('IndexedDB deletion blocked', {
+              note: 'Close all tabs using this database and try again'
+            }, 'error');
+          };
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.checkAllStorage = async function() {
+        try {
+          // Get localStorage
+          const localStorageData = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key) {
+              try {
+                localStorageData[key] = JSON.parse(localStorage.getItem(key));
+              } catch {
+                localStorageData[key] = localStorage.getItem(key);
+              }
+            }
+          }
+
+          // Get IndexedDB
+          const DB_NAME = 'Web3PasskeyWallet';
+          const STORE_NAME = 'wallets';
+
+          const request = indexedDB.open(DB_NAME);
+
+          request.onsuccess = function() {
+            const db = request.result;
+            let indexedDBData = [];
+
+            if (db.objectStoreNames.contains(STORE_NAME)) {
+              const transaction = db.transaction([STORE_NAME], 'readonly');
+              const store = transaction.objectStore(STORE_NAME);
+              const getAllRequest = store.getAll();
+
+              getAllRequest.onsuccess = function() {
+                indexedDBData = getAllRequest.result.map(item => ({
+                  ethereumAddress: item.ethereumAddress,
+                  credentialId: item.credentialId ? `${item.credentialId.substring(0, 20)}...` : 'N/A',
+                  hasEncryptedData: !!item.encryptedMnemonic,
+                  timestamp: item.timestamp ? new Date(item.timestamp).toISOString() : 'N/A'
+                }));
+
+                // Get storage estimate
+                if ('storage' in navigator && 'estimate' in navigator.storage) {
+                  navigator.storage.estimate().then(estimate => {
+                    const summary = {
+                      localStorage: {
+                        count: localStorage.length,
+                        keys: Object.keys(localStorageData),
+                        data: localStorageData
+                      },
+                      indexedDB: {
+                        database: DB_NAME,
+                        count: indexedDBData.length,
+                        wallets: indexedDBData
+                      },
+                      storageQuota: {
+                        usage: `${(estimate.usage / (1024 * 1024)).toFixed(2)} MB`,
+                        quota: `${(estimate.quota / (1024 * 1024)).toFixed(2)} MB`,
+                        percentUsed: `${((estimate.usage / estimate.quota) * 100).toFixed(2)}%`
+                      }
+                    };
+
+                    window.showResult('Complete Storage Overview', summary, 'success');
+                    db.close();
+                  });
+                } else {
+                  const summary = {
+                    localStorage: {
+                      count: localStorage.length,
+                      keys: Object.keys(localStorageData),
+                      data: localStorageData
+                    },
+                    indexedDB: {
+                      database: DB_NAME,
+                      count: indexedDBData.length,
+                      wallets: indexedDBData
+                    }
+                  };
+
+                  window.showResult('Complete Storage Overview', summary, 'success');
+                  db.close();
+                }
+              };
+
+              getAllRequest.onerror = function() {
+                window.showResult('Error reading IndexedDB', { error: getAllRequest.error }, 'error');
+                db.close();
+              };
+            } else {
+              window.showResult('Complete Storage Overview', {
+                localStorage: {
+                  count: localStorage.length,
+                  keys: Object.keys(localStorageData),
+                  data: localStorageData
+                },
+                indexedDB: {
+                  note: 'No wallet store found'
+                }
+              }, 'success');
+              db.close();
+            }
+          };
+
+          request.onerror = function() {
+            window.showResult('Error opening IndexedDB', { error: request.error }, 'error');
+          };
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
       // Initial status check
       console.log('w3pk SDK loaded:', window.w3pk);
       window.showResult('w3pk SDK Ready', {
         version: window.w3pk.version,
-        isAuthenticated: window.w3pk.isAuthenticated
+        isAuthenticated: window.w3pk.isAuthenticated,
+        stealthAddresses: !!window.w3pk.stealth,
+        zkProofs: !!window.w3pk.zk
       }, 'success');
     </script>
   </body>
