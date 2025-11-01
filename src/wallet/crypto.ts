@@ -228,3 +228,57 @@ export async function decryptData(
     );
   }
 }
+
+/**
+ * Hashes a credential ID using SHA-256
+ * Used to obscure credential IDs in localStorage
+ */
+export async function hashCredentialId(credentialId: string): Promise<string> {
+  try {
+    const hash = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(`w3pk-cred-id:${credentialId}`)
+    );
+    return arrayBufferToBase64Url(hash);
+  } catch (error) {
+    throw new CryptoError("Failed to hash credential ID", error);
+  }
+}
+
+/**
+ * Hashes a public key using SHA-256
+ * Creates a fingerprint for public key identification
+ */
+export async function hashPublicKey(publicKey: string): Promise<string> {
+  try {
+    const hash = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(publicKey)
+    );
+    return arrayBufferToBase64Url(hash);
+  } catch (error) {
+    throw new CryptoError("Failed to hash public key", error);
+  }
+}
+
+/**
+ * Encrypts metadata (username, address, etc.) using AES-GCM
+ * Similar to encryptData but specifically for credential metadata
+ */
+export async function encryptMetadata(
+  data: string,
+  key: CryptoKey
+): Promise<string> {
+  return encryptData(data, key);
+}
+
+/**
+ * Decrypts metadata using AES-GCM
+ * Similar to decryptData but specifically for credential metadata
+ */
+export async function decryptMetadata(
+  encryptedData: string,
+  key: CryptoKey
+): Promise<string> {
+  return decryptData(encryptedData, key);
+}
