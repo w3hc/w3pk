@@ -78,16 +78,12 @@ export class QRBackupCreator {
 
   /**
    * Generate QR code from data
-   * Uses Canvas API to generate QR code without external dependencies
+   * Uses 'qrcode' library if available, falls back to text representation
    */
   private async generateQRCode(
     data: string,
     errorCorrection: string
   ): Promise<string> {
-    // For production, use 'qrcode' npm package
-    // This is a placeholder that creates a data URL
-
-    // Try to use qrcode library if available
     try {
       const QRCode = (await import('qrcode')).default;
       return await QRCode.toDataURL(data, {
@@ -96,8 +92,6 @@ export class QRBackupCreator {
         margin: 2,
       });
     } catch {
-      // Fallback: Create a simple text representation
-      // In production, always include 'qrcode' package
       return this.createFallbackQRDataURL(data);
     }
   }

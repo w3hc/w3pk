@@ -91,15 +91,15 @@ export async function deriveEncryptionKeyFromWebAuthn(
 }
 
 /**
- * Derives an encryption key from credential ID (FALLBACK - WEAKER SECURITY)
+ * Derives an encryption key from credential ID (FALLBACK)
  *
- * WARNING: This method does NOT require biometric authentication for decryption.
+ * WARNING: Does NOT require biometric authentication for decryption.
  * An attacker with file system access can decrypt the wallet.
  * Use only as fallback for unsupported platforms.
  *
  * @param credentialId - Unique credential identifier
- * @param publicKey - Public key from the credential (optional, for additional entropy)
- * @deprecated Use deriveEncryptionKeyFromWebAuthn for true biometric protection
+ * @param publicKey - Public key from the credential (optional)
+ * @deprecated Use deriveEncryptionKeyFromWebAuthn for biometric protection
  */
 export async function deriveEncryptionKey(
   credentialId: string,
@@ -150,10 +150,10 @@ export async function deriveEncryptionKey(
 }
 
 /**
- * Derives encryption key from a raw signature (for testing/legacy)
+ * Derives encryption key from raw signature (testing/legacy fallback)
  *
- * WARNING: This is a fallback method that doesn't require WebAuthn.
- * Use deriveEncryptionKeyFromWebAuthn in production for true biometric protection.
+ * WARNING: Does not require WebAuthn.
+ * Use deriveEncryptionKeyFromWebAuthn for biometric protection.
  *
  * @param signature - Raw signature bytes
  * @param credentialId - Credential ID for salt
