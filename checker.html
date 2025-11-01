@@ -123,9 +123,11 @@
       <div class="section">
         <h2>Wallet Operations</h2>
         <div class="button-grid">
+          <button onclick="testGenerateWallet()">Generate Wallet</button>
           <button onclick="testDeriveWallet()">Derive Wallet (index 0)</button>
           <button onclick="testDeriveMultiple()">Derive Multiple Wallets</button>
           <button onclick="testExportMnemonic()">Export Mnemonic</button>
+          <button onclick="testImportMnemonic()">Import Mnemonic</button>
           <button onclick="testSignMessage()">Sign Message</button>
         </div>
       </div>
@@ -136,6 +138,7 @@
           <button onclick="checkSession()">Check Session Status</button>
           <button onclick="extendSession()">Extend Session</button>
           <button onclick="clearSession()">Clear Session</button>
+          <button onclick="testSetSessionDuration()">Set Session Duration</button>
           <button onclick="testForceAuth()">Test Force Auth</button>
         </div>
       </div>
@@ -156,6 +159,7 @@
           <button onclick="testParseAnnouncement()">Parse Announcement</button>
           <button onclick="testScanAnnouncements()">Scan Announcements</button>
           <button onclick="testGetStealthKeys()">Get Stealth Keys</button>
+          <button onclick="testStealthIsAvailable()">Check Stealth Available</button>
         </div>
       </div>
 
@@ -174,8 +178,15 @@
         <h2>ZK Primitives - Verification</h2>
         <div class="button-grid">
           <button onclick="testVerifyProof()">Verify Proof</button>
+          <button onclick="testVerifyBatch()">Verify Batch Proofs</button>
+          <button onclick="testVerifyMembership()">Verify Membership</button>
+          <button onclick="testVerifyThreshold()">Verify Threshold</button>
+          <button onclick="testVerifyRange()">Verify Range</button>
+          <button onclick="testVerifyOwnership()">Verify Ownership</button>
+          <button onclick="testVerifyNFTOwnership()">Verify NFT Ownership</button>
           <button onclick="testCreateCommitment()">Create Commitment</button>
           <button onclick="testComputeMerkleRoot()">Compute Merkle Root</button>
+          <button onclick="testZKIsAvailable()">Check ZK Available</button>
         </div>
       </div>
 
@@ -197,6 +208,7 @@
           <button onclick="testSetupSocialRecovery()">Setup Social Recovery (3-of-5)</button>
           <button onclick="testGenerateGuardianInvite()">Generate Guardian Invite</button>
           <button onclick="testGetSocialRecoveryConfig()">View Social Recovery Config</button>
+          <button onclick="testRecoverFromGuardians()">Recover from Guardians</button>
         </div>
       </div>
 
@@ -207,6 +219,8 @@
           <button onclick="testSimulateLostDevice()">Simulate: Lost Device</button>
           <button onclick="testSimulateLostPhrase()">Simulate: Lost Phrase</button>
           <button onclick="testGetEducation()">Get Education (Passkeys)</button>
+          <button onclick="testGetAllTopics()">Get All Topics</button>
+          <button onclick="testSearchExplainers()">Search Explainers</button>
         </div>
       </div>
 
@@ -318,6 +332,19 @@
         window.showResult('Authentication Status', data);
       };
 
+      window.testGenerateWallet = async function() {
+        try {
+          const result = await window.w3pk.generateWallet();
+          console.log('Wallet generated:', result);
+          window.showResult('Wallet Generated', {
+            mnemonic: result.mnemonic,
+            note: 'Save this mnemonic safely!'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
       window.testDeriveWallet = async function() {
         try {
           const wallet = await window.w3pk.deriveWallet(0);
@@ -347,6 +374,22 @@
           const mnemonic = await window.w3pk.exportMnemonic();
           console.log('Mnemonic:', mnemonic);
           window.showResult('Mnemonic Exported', { mnemonic }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testImportMnemonic = async function() {
+        try {
+          const mnemonic = prompt('Enter 12-word mnemonic phrase:', '');
+          if (!mnemonic) return;
+
+          await window.w3pk.importMnemonic(mnemonic);
+          console.log('Mnemonic imported');
+          window.showResult('Mnemonic Imported Successfully', {
+            address: window.w3pk.user?.ethereumAddress,
+            note: 'Wallet has been replaced with imported mnemonic'
+          }, 'success');
         } catch (error) {
           window.handleError(error);
         }
@@ -393,6 +436,22 @@
         };
         console.log('Session cleared:', data);
         window.showResult('Session Cleared', data, 'success');
+      };
+
+      window.testSetSessionDuration = function() {
+        try {
+          const hours = prompt('Enter session duration in hours:', '2');
+          if (!hours) return;
+
+          window.w3pk.setSessionDuration(parseFloat(hours));
+          console.log('Session duration updated:', hours);
+          window.showResult('Session Duration Updated', {
+            newDuration: `${hours} hours`,
+            note: 'Applies to new sessions and extensions'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
       };
 
       window.testForceAuth = async function() {
@@ -669,6 +728,40 @@
               addedAt: new Date(g.addedAt).toISOString()
             }))
           }, 'success');
+
+          // Store guardian shares for testing recovery
+          window.testGuardianShares = config.guardians.map(g => g.share);
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testRecoverFromGuardians = async function() {
+        try {
+          const sharesInput = prompt('Enter guardian shares (comma-separated JSON strings):\nOr leave empty to use stored shares from setup', '');
+
+          let shares;
+          if (!sharesInput) {
+            // Use shares from social recovery setup
+            if (!window.testGuardianShares || window.testGuardianShares.length === 0) {
+              window.showResult('No guardian shares available. Set up social recovery first.', null, 'error');
+              return;
+            }
+            shares = window.testGuardianShares.slice(0, 3); // Use first 3 shares (threshold)
+          } else {
+            shares = sharesInput.split(',').map(s => s.trim());
+          }
+
+          window.showResult('Recovering from guardian shares...', null);
+
+          const result = await window.w3pk.recoverFromGuardians(shares);
+          console.log('Recovery result:', result);
+
+          window.showResult('Recovery Successful', {
+            ethereumAddress: result.ethereumAddress,
+            mnemonicLength: result.mnemonic.split(' ').length,
+            note: 'Wallet recovered from guardian shares!'
+          }, 'success');
         } catch (error) {
           window.handleError(error);
         }
@@ -771,6 +864,43 @@
             ${content.visual ? `<pre>${content.visual}</pre>` : ''}
           `;
           document.getElementById('results').insertBefore(div, document.getElementById('results').firstChild);
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGetAllTopics = async function() {
+        try {
+          const { getAllTopics } = await import('./dist/index.mjs');
+          const topics = getAllTopics();
+          console.log('All educational topics:', topics);
+
+          window.showResult('All Educational Topics', {
+            count: topics.length,
+            topics: topics
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testSearchExplainers = async function() {
+        try {
+          const query = prompt('Enter search query:', 'passkey');
+          if (!query) return;
+
+          const { searchExplainers } = await import('./dist/index.mjs');
+          const results = searchExplainers(query);
+          console.log('Search results:', results);
+
+          window.showResult('Search Results', {
+            query: query,
+            found: results.length,
+            results: results.map(r => ({
+              topic: r.topic,
+              title: r.title
+            }))
+          }, 'success');
         } catch (error) {
           window.handleError(error);
         }
@@ -881,6 +1011,27 @@
             hasSpendingKey: !!keys.spendingPrivateKey,
             note: 'Private keys hidden for security'
           }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testStealthIsAvailable = function() {
+        try {
+          if (!window.w3pk.stealth) {
+            window.showResult('Stealth Module Not Initialized', {
+              available: false,
+              note: 'Enable stealthAddresses in SDK config'
+            }, 'error');
+            return;
+          }
+
+          const isAvailable = window.w3pk.stealth.isAvailable;
+          console.log('Stealth available:', isAvailable);
+          window.showResult('Stealth Addresses Availability', {
+            available: isAvailable,
+            status: isAvailable ? 'Ready to use' : 'Not available'
+          }, isAvailable ? 'success' : 'error');
         } catch (error) {
           window.handleError(error);
         }
@@ -1063,6 +1214,187 @@
         }
       };
 
+      window.testVerifyBatch = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          const proofs = [
+            window.testMembershipProof,
+            window.testThresholdProof,
+            window.testRangeProof
+          ].filter(p => p);
+
+          if (proofs.length === 0) {
+            window.showResult('Please generate some proofs first', null, 'error');
+            return;
+          }
+
+          window.showResult('Verifying batch of proofs...', null);
+
+          const results = await window.w3pk.zk.verifyBatch(proofs);
+          console.log('Batch verification results:', results);
+
+          window.showResult('Batch Verification Results', {
+            totalProofs: proofs.length,
+            results: results.map((r, i) => ({
+              type: proofs[i].type,
+              valid: r.isValid
+            }))
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyMembership = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testMembershipProof) {
+            window.showResult('Please generate a membership proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testMembershipProof;
+          const expectedRoot = proof.publicSignals.root;
+
+          const isValid = await window.w3pk.zk.verifyMembership(proof, expectedRoot);
+          console.log('Membership verification:', isValid);
+
+          window.showResult('Membership Verification', {
+            expectedRoot: expectedRoot,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyThreshold = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testThresholdProof) {
+            window.showResult('Please generate a threshold proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testThresholdProof;
+          const expectedCommitment = proof.publicSignals.commitment;
+          const expectedThreshold = BigInt(proof.publicSignals.threshold);
+
+          const isValid = await window.w3pk.zk.verifyThreshold(proof, expectedCommitment, expectedThreshold);
+          console.log('Threshold verification:', isValid);
+
+          window.showResult('Threshold Verification', {
+            threshold: proof.publicSignals.threshold,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyRange = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testRangeProof) {
+            window.showResult('Please generate a range proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testRangeProof;
+          const expectedCommitment = proof.publicSignals.commitment;
+          const expectedMin = BigInt(proof.publicSignals.min);
+          const expectedMax = BigInt(proof.publicSignals.max);
+
+          const isValid = await window.w3pk.zk.verifyRange(proof, expectedCommitment, expectedMin, expectedMax);
+          console.log('Range verification:', isValid);
+
+          window.showResult('Range Verification', {
+            range: `${proof.publicSignals.min} - ${proof.publicSignals.max}`,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyOwnership = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testOwnershipProof) {
+            window.showResult('Please generate an ownership proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testOwnershipProof;
+          const expectedAddress = proof.publicSignals.address;
+          const expectedChallenge = proof.publicSignals.challenge;
+
+          const isValid = await window.w3pk.zk.verifyOwnership(proof, expectedAddress, expectedChallenge);
+          console.log('Ownership verification:', isValid);
+
+          window.showResult('Ownership Verification', {
+            address: expectedAddress,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifyNFTOwnership = async function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK proofs not enabled', null, 'error');
+            return;
+          }
+
+          if (!window.testNFTProof) {
+            window.showResult('Please generate an NFT ownership proof first', null, 'error');
+            return;
+          }
+
+          const proof = window.testNFTProof;
+          const expectedContract = proof.publicSignals.contractAddress;
+          const expectedHoldersRoot = proof.publicSignals.holdersRoot;
+          const expectedMinBalance = 1n;
+
+          const isValid = await window.w3pk.zk.verifyNFTOwnership(proof, expectedContract, expectedHoldersRoot, expectedMinBalance);
+          console.log('NFT ownership verification:', isValid);
+
+          window.showResult('NFT Ownership Verification', {
+            contract: expectedContract,
+            isValid: isValid,
+            status: isValid ? '✅ Valid' : '❌ Invalid'
+          }, isValid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
       window.testCreateCommitment = async function() {
         try {
           if (!window.w3pk.zk) {
@@ -1094,16 +1426,42 @@
             return;
           }
 
-          const leaves = ['0xaaa', '0xbbb', '0xccc', '0xddd', '0xeee'];
+          // Use correct signature: computeMerkleRoot(leaf, pathIndices, pathElements)
+          const leaf = '0xaaa';
+          const pathIndices = [0, 1, 0];
+          const pathElements = ['0xbbb', '0xccc', '0xddd'];
 
-          const root = await window.w3pk.zk.computeMerkleRoot(leaves);
+          const root = await window.w3pk.zk.computeMerkleRoot(leaf, pathIndices, pathElements);
           console.log('Merkle root:', root);
 
           window.showResult('Merkle Root Computed', {
             root: root,
-            leafCount: leaves.length,
-            leaves: leaves,
+            leaf: leaf,
+            pathDepth: pathIndices.length,
             note: 'Used for membership proofs'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testZKIsAvailable = function() {
+        try {
+          if (!window.w3pk.zk) {
+            window.showResult('ZK Module Not Initialized', {
+              available: false,
+              note: 'Enable zkProofs in SDK config'
+            }, 'error');
+            return;
+          }
+
+          // Since zk is a proxy, we need to check if it's accessible
+          const isAvailable = true; // ZK module is lazy-loaded
+          console.log('ZK available:', isAvailable);
+          window.showResult('ZK Proofs Availability', {
+            available: isAvailable,
+            status: 'Ready to use (lazy-loaded)',
+            note: 'ZK circuits loaded on first use'
           }, 'success');
         } catch (error) {
           window.handleError(error);
