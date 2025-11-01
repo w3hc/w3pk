@@ -10,12 +10,6 @@ import { CryptoError } from "../core/errors";
 import { arrayBufferToBase64Url, safeAtob } from "../utils/base64";
 
 /**
- * Fixed message used for deterministic signature generation
- * This ensures the same signature is produced every time for encryption/decryption
- */
-const ENCRYPTION_MESSAGE = "w3pk-wallet-encryption-v3";
-
-/**
  * Derives an encryption key from WebAuthn credential (RECOMMENDED)
  *
  * SECURITY: This provides authentication-gated encryption:
@@ -91,15 +85,15 @@ export async function deriveEncryptionKeyFromWebAuthn(
 }
 
 /**
- * Derives an encryption key from credential ID (FALLBACK - WEAKER SECURITY)
+ * Derives an encryption key from credential ID (FALLBACK)
  *
- * WARNING: This method does NOT require biometric authentication for decryption.
+ * WARNING: Does NOT require biometric authentication for decryption.
  * An attacker with file system access can decrypt the wallet.
  * Use only as fallback for unsupported platforms.
  *
  * @param credentialId - Unique credential identifier
- * @param publicKey - Public key from the credential (optional, for additional entropy)
- * @deprecated Use deriveEncryptionKeyFromWebAuthn for true biometric protection
+ * @param publicKey - Public key from the credential (optional)
+ * @deprecated Use deriveEncryptionKeyFromWebAuthn for biometric protection
  */
 export async function deriveEncryptionKey(
   credentialId: string,
@@ -137,58 +131,6 @@ export async function deriveEncryptionKey(
         name: "PBKDF2",
         salt: new Uint8Array(salt),
         iterations: 210000, // OWASP 2023 recommendation
-        hash: "SHA-256",
-      },
-      importedKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt", "decrypt"]
-    );
-  } catch (error) {
-    throw new CryptoError("Failed to derive encryption key", error);
-  }
-}
-
-/**
- * Derives encryption key from a raw signature (for testing/legacy)
- *
- * WARNING: This is a fallback method that doesn't require WebAuthn.
- * Use deriveEncryptionKeyFromWebAuthn in production for true biometric protection.
- *
- * @param signature - Raw signature bytes
- * @param credentialId - Credential ID for salt
- */
-export async function deriveEncryptionKeyFromSignature(
-  signature: ArrayBuffer,
-  credentialId: string
-): Promise<CryptoKey> {
-  try {
-    // Try WebAuthn first if available
-    if (typeof window !== "undefined" && window.PublicKeyCredential) {
-      return deriveEncryptionKeyFromWebAuthn(credentialId);
-    }
-
-    // Fallback: Derive from provided signature (for testing/Node.js)
-    const signatureHash = await crypto.subtle.digest("SHA-256", signature);
-
-    const importedKey = await crypto.subtle.importKey(
-      "raw",
-      signatureHash,
-      { name: "PBKDF2" },
-      false,
-      ["deriveKey"]
-    );
-
-    const salt = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode("w3pk-salt-v3:" + credentialId)
-    );
-
-    return crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: new Uint8Array(salt),
-        iterations: 210000,
         hash: "SHA-256",
       },
       importedKey,

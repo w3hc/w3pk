@@ -10,7 +10,7 @@ import {
   deriveWalletFromMnemonic,
 } from "../src/wallet/generate";
 import {
-  deriveEncryptionKeyFromSignature,
+  deriveEncryptionKeyFromWebAuthn,
   encryptData,
   decryptData,
 } from "../src/wallet/crypto";
@@ -67,18 +67,14 @@ async function runTests() {
     logDetail(`Index 1: ${derived1.address}`);
   });
 
-  // Test 4: Encryption/Decryption with Signature-Based Keys
+  // Test 4: Encryption/Decryption with WebAuthn-Based Keys
   await runTest("Data Encryption/Decryption", async () => {
     const testData = "secret mnemonic phrase here";
     const credentialId = "test-credential-id";
+    const publicKey = "test-public-key";
 
-    // Simulate a WebAuthn signature (mock for testing)
-    const mockSignature = crypto.getRandomValues(new Uint8Array(64)).buffer;
-
-    const key = await deriveEncryptionKeyFromSignature(
-      mockSignature,
-      credentialId
-    );
+    // Derive key from WebAuthn credential metadata (secure method)
+    const key = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
     const encrypted = await encryptData(testData, key);
     const decrypted = await decryptData(encrypted, key);
 
@@ -86,8 +82,8 @@ async function runTests() {
     passTest("Encryption/decryption successful");
     logDetail(`Original length: ${testData.length}`);
     logDetail(`Encrypted length: ${encrypted.length}`);
-    logDetail("Security: Key derived from WebAuthn signature");
-    logDetail("Requires: Biometric/PIN authentication");
+    logDetail("Security: Key derived from WebAuthn credential");
+    logDetail("Method: Authentication-gated encryption");
   });
 
   // Test 5: SDK Initialization

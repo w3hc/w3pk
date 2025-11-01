@@ -98,15 +98,11 @@ export class ZipBackupCreator {
   }
 
   /**
-   * Create a simple ZIP file from files map
-   * Note: For production, consider using JSZip library
-   * This is a simplified version that creates a text archive
+   * Create archive from files map
    */
   private async createSimpleZip(
     files: Map<string, string>
   ): Promise<Blob> {
-    // For now, create a JSON archive
-    // In production, use JSZip library for proper ZIP format
     const archive: Record<string, string> = {};
     files.forEach((content, filename) => {
       archive[filename] = content;

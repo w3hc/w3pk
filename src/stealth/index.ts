@@ -31,8 +31,6 @@ export interface StealthAddressResult {
   ephemeralPublicKey: string;
   /** View tag (1 byte) for efficient scanning */
   viewTag: string;
-  /** @deprecated Legacy field - sender doesn't get the private key in ERC-5564 */
-  stealthPrivateKey?: string;
 }
 
 /**

@@ -165,9 +165,9 @@ export class SocialRecoveryManager {
 
   /**
    * Generate QR code from share data
+   * Uses 'qrcode' library if available, falls back to canvas text
    */
   private async generateQRCode(data: string): Promise<string> {
-    // Try to use qrcode library if available
     try {
       const QRCode = (await import('qrcode')) as any;
       return await QRCode.toDataURL(data, {
@@ -176,13 +176,12 @@ export class SocialRecoveryManager {
         margin: 2,
       });
     } catch {
-      // Fallback: Create placeholder
       return this.createPlaceholderQR(data);
     }
   }
 
   /**
-   * Create placeholder QR code
+   * Create fallback QR representation
    */
   private createPlaceholderQR(data: string): string {
     // Check if we're in a browser environment

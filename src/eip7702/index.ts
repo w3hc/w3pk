@@ -9,10 +9,8 @@
  */
 
 /**
- * EIP-7702 supported chain IDs
- * Source: https://github.com/w3hc/eip7702-playground/blob/main/eip7702-networks.ts
- * Generated: 2025-10-15 10:51:18 UTC
- * Total: 329 chains
+ * EIP-7702 supported chain IDs (329 chains as of Oct 2025)
+ * Source: https://github.com/w3hc/eip7702-playground
  */
 const EIP7702_SUPPORTED_CHAINS = new Set([
   1, 10, 8453, 42161, 57073, 100, 42220, 137, 42, 15, 40, 41, 44, 46, 47, 50,

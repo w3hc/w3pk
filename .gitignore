@@ -46,6 +46,7 @@ coverage/
 /zhankai
 NOTES.md
 TODO.md
+/misc
 
 # ZK Circuit Build Artifacts
 src/zk/templates/*.r1cs

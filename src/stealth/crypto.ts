@@ -23,8 +23,6 @@ export interface StealthKeys {
   viewingKey: string;
   /** Spending private key (32 bytes) */
   spendingKey: string;
-  /** @deprecated Legacy meta-address format (kept for backward compatibility) */
-  metaAddress?: string;
 }
 
 /**
@@ -37,10 +35,6 @@ export interface StealthAddressResult {
   ephemeralPubKey: string;
   /** View tag (1 byte) for efficient scanning */
   viewTag: string;
-  /** @deprecated Use ephemeralPubKey instead */
-  ephemeralPubkey?: string;
-  /** @deprecated Sender doesn't get the private key in ERC-5564 */
-  stealthPrivkey?: string;
 }
 
 /**
@@ -81,13 +75,7 @@ export function deriveStealthKeys(mnemonic: string): StealthKeys {
     const viewingPubKey = viewingWallet.signingKey.compressedPublicKey;
 
     // ERC-5564 stealth meta-address: 66 bytes (spending + viewing pubkeys)
-    const stealthMetaAddress = spendingPubKey + viewingPubKey.slice(2); // Remove 0x from second key
-
-    // Legacy meta-address for backward compatibility
-    const legacyMetaAddress = computeLegacyMetaAddress(
-      viewingWallet.signingKey.publicKey,
-      spendingWallet.signingKey.publicKey
-    );
+    const stealthMetaAddress = spendingPubKey + viewingPubKey.slice(2);
 
     return {
       stealthMetaAddress,
@@ -95,7 +83,6 @@ export function deriveStealthKeys(mnemonic: string): StealthKeys {
       viewingPubKey,
       viewingKey: viewingWallet.privateKey,
       spendingKey: spendingWallet.privateKey,
-      metaAddress: legacyMetaAddress, // For backward compatibility
     };
   } catch (error) {
     throw new CryptoError("Failed to derive stealth keys", error);
@@ -156,8 +143,6 @@ export function generateStealthAddress(
       stealthAddress,
       ephemeralPubKey,
       viewTag,
-      // Backward compatibility
-      ephemeralPubkey: ephemeralPubKey,
     };
   } catch (error) {
     throw new CryptoError("Failed to generate stealth address", error);
@@ -219,9 +204,6 @@ export function checkStealthAddress(
       return { isForUser: false };
     }
 
-    // Compute stealth private key: privkey_stealth = spending_privkey + s_h
-    // We need the spending private key for this, which should be passed separately
-    // For now, we just return that it's for the user
     return {
       isForUser: true,
       stealthAddress: derivedAddress,
@@ -410,37 +392,3 @@ function publicKeyToAddress(compressedPubKey: string): string {
   }
 }
 
-/**
- * Legacy meta address computation (for backward compatibility)
- */
-function computeLegacyMetaAddress(
-  viewingPubkey: string,
-  spendingPubkey: string
-): string {
-  const combined = ethers.solidityPackedKeccak256(
-    ["bytes", "bytes"],
-    [viewingPubkey, spendingPubkey]
-  );
-
-  // Take first 20 bytes as address
-  return ethers.getAddress("0x" + combined.slice(26));
-}
-
-/**
- * @deprecated Use checkStealthAddress instead
- */
-export function canControlStealthAddress(
-  viewingKey: string,
-  spendingKey: string,
-  ephemeralPubkey: string,
-  targetAddress: string
-): boolean {
-  const spendingWallet = new ethers.Wallet(spendingKey);
-  const result = checkStealthAddress(
-    viewingKey,
-    spendingWallet.signingKey.compressedPublicKey,
-    ephemeralPubkey,
-    targetAddress
-  );
-  return result.isForUser;
-}

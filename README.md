@@ -5,7 +5,8 @@
 
 Passwordless Web3 authentication SDK with encrypted wallets and privacy features.
 
-**Demo: [w3pk.w3hc.org](https://w3pk.w3hc.org)**
+- **Live demo: [w3pk.w3hc.org](https://w3pk.w3hc.org)**
+- [Quick start](./docs/QUICK_START.md)
 
 ## Install
 ```bash
@@ -39,7 +40,6 @@ const rpcUrl = endpoints[0]
 
 ## Features
 
-**Core (Included)**
 - 🔐 Passwordless authentication (WebAuthn/FIDO2)
 - 🔒 Client-only biometric-gated wallet encryption (AES-GCM-256)
 - ⏱️ Session management (configurable duration, prevents repeated prompts)
@@ -289,14 +289,9 @@ See [Recovery Guide](./docs/RECOVERY.md) for complete documentation.
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
-- [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
-- [Browser Compatibility](./docs/BROWSER_COMPATIBILITY.md) - Supported browsers, devices, and OS versions
+- [API Reference](./docs/API_REFERENCE.md) - Complete API documentation
 - [Security Architecture](./docs/SECURITY.md) - Integration best practices
-- [ERC-5564 Stealth Addresses](./docs/ERC5564_STEALTH_ADDRESSES.md) - Complete guide with examples
-- [ERC-5564 Flow Diagrams](./docs/ERC5564_FLOW_DIAGRAM.md) - Visual explanations of how stealth addresses work
-- [RPC Endpoints](./docs/CHAINLIST.md) - Chainlist integration guide
-- [ZK Integration Guide](./docs/ZK_INTEGRATION_GUIDE.md) - Zero-knowledge proofs (optional)
-- [Bundle Size Comparison](./docs/BUNDLE_SIZES.md) - Core vs ZK bundle sizes
+- [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
 
 ## Contributing
 

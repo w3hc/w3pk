@@ -1,301 +1,117 @@
-# w3pk Quick Start Guide
+# Quick Start
+
+A simple step-by-step guide to get started with w3pk.
+
+Example integration in a Next.js app: [w3pk.w3hc.org](https://w3pk.w3hc.org)
 
 ## Installation
 
-### Choose Your Installation
-
-w3pk has two configurations based on your needs:
-
-#### Option 1: Core Features Only (Recommended)
-
-**Size**: ~5MB | **Install time**: ~10 seconds
 ```bash
 npm install w3pk ethers
 ```
 
-**Includes:**
-- ✅ WebAuthn passwordless authentication
-- ✅ Encrypted wallet management
-- ✅ BIP39 HD wallet generation  
-- ✅ Message signing
-- ✅ Stealth addresses (privacy-preserving transactions)
+## 1. Import
 
-**Best for:** Most dApps, authentication systems, standard Web3 applications
-
-#### Option 2: With Zero-Knowledge Proofs
-
-**Size**: ~75MB | **Install time**: ~60 seconds
-```bash
-npm install w3pk ethers
-npm install snarkjs circomlibjs  # Optional ZK dependencies
-```
-
-**Additional features:**
-- ✅ Anonymous membership proofs
-- ✅ Private balance threshold proofs
-- ✅ Age/value range proofs
-- ✅ Anonymous NFT ownership proofs
-
-**Best for:** Privacy-focused dApps, anonymous voting, confidential credential systems
-
----
-
-## Quick Decision Guide
-
-**Start with core features.** You can always add ZK later if needed.
-```mermaid
-graph TD
-    A[Need w3pk?] --> B{Need Zero-Knowledge Proofs?}
-    B -->|No| C[npm install w3pk ethers]
-    B -->|Yes| D[npm install w3pk ethers<br/>snarkjs circomlibjs]
-    B -->|Not Sure| C
-    C --> E[âœ… 5MB bundle<br/>Fast install]
-    D --> F[âš ï¸ 75MB bundle<br/>Slower install<br/>Advanced privacy features]
-```
-
----
-
-## Usage Examples
-
-### 1. Basic Authentication (Core Features)
 ```typescript
 import { createWeb3Passkey } from 'w3pk'
+```
 
-const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org'
+*Loads the w3pk SDK into your application.*
+
+## 2. Instantiate
+
+Create a new w3pk instance:
+
+```typescript
+const w3pk = createWeb3Passkey()
+```
+
+When you instantiate w3pk, the SDK initializes a connection to your browser's IndexedDB for secure local storage and sets up the WebAuthn configuration tailored to your device. 
+
+It also prepares the session management system with a default duration of 1 hour, meaning you won't be repeatedly prompted for biometric authentication during that time. Everything happens client-side—no server connection is needed, keeping your wallet truly under your control.
+
+## 3. Register
+
+Register a new user (this auto-generates a wallet and stores it securely):
+
+```typescript
+const { address, username } = await w3pk.register({
+  username: 'alice'
 })
 
-// Register new user
-await w3pk.register({
-  username: 'alice',
-  ethereumAddress: '0x...'  // Generated automatically
-})
+console.log('Registered:', username)
+console.log('Address:', address)
+```
 
-// Login
+Registration is where the magic happens. First, w3pk generates a fresh BIP39 mnemonic—a 12-word recovery phrase that serves as the master key to your wallet. Then your device's biometric prompt appears (Face ID, Touch ID, Windows Hello, or similar), creating a WebAuthn credential tied to your hardware. The SDK derives your Ethereum wallet from the mnemonic using the standard BIP44 path (m/44'/60'/0'/0/0), giving you a proper Ethereum address.
+
+Here's the security layer: the mnemonic gets encrypted using AES-GCM-256 with the WebAuthn credential as the encryption key, meaning only your biometric authentication can decrypt it. The encrypted wallet is stored safely in your browser's IndexedDB. To make your experience smooth, w3pk immediately starts a session by caching the decrypted mnemonic in memory for 1 hour, so you won't need to authenticate again right away. Finally, it returns your Ethereum address and username: you're ready to go!
+
+### 4. Sign a Message
+
+```typescript
+const message = 'Hello world!'
+const signature = await w3pk.signMessage(message)
+
+console.log('Signature:', signature)
+```
+
+When you sign a message, w3pk first checks if you have an active session. If your session is still valid (within the 1-hour window), it uses the cached mnemonic from memory, making the process seamless and instant. If your session has expired, you'll see the biometric prompt again to decrypt your wallet.
+
+Once the mnemonic is accessible, the SDK derives the private key from it and signs your message using ECDSA (Elliptic Curve Digital Signature Algorithm), following the EIP-191 standard for Ethereum message signatures. The result is a hex signature string that proves you control the wallet without exposing your private key.
+
+### 5. Logout
+
+```typescript
+await w3pk.logout()
+console.log('Logged out')
+```
+
+Logout is all about security housekeeping. The SDK immediately clears the active session by removing the cached mnemonic from memory. But it doesn't just delete it—it overwrites the memory locations with zeros to prevent any possibility of the sensitive data being recovered. The authentication state change is triggered, notifying any listeners in your application that the user is no longer authenticated. From this point forward, any wallet operation will require fresh biometric authentication, ensuring your wallet stays protected when you're done using it.
+
+### 6. Login
+
+For subsequent sessions, just login:
+
+```typescript
 await w3pk.login()
-
-// Sign message
-const signature = await w3pk.signMessage('Hello World')
+console.log('Logged in')
 ```
 
-### 2. Wallet Management (Core Features)
-```typescript
-// Generate new wallet
-const wallet = await w3pk.generateWallet()
-console.log(wallet.address)   // 0x...
-console.log(wallet.mnemonic)  // 12-word phrase
+Login is a beautifully streamlined process. The SDK retrieves your credential ID from IndexedDB and triggers WebAuthn authentication—this is when your biometric prompt appears. Notice there's no username or password to remember; your device recognizes you through your biometric data.
 
-// Export wallet after login
-const mnemonic = await w3pk.exportMnemonic()
+Once authenticated, w3pk retrieves your encrypted wallet from IndexedDB and uses the WebAuthn signature as the decryption key to unlock your mnemonic. A fresh session starts immediately, caching the decrypted mnemonic in memory for 1 hour (this is configurable and balances security with user experience—long enough to avoid annoying prompts, short enough to stay secure). The method returns your user info (address and username), and you're good to go. For the next hour, all wallet operations will use this cached session without bothering you with repeated biometric prompts—smooth, secure, and user-friendly.
 
-// Derive HD wallet at index
-const derived = await w3pk.deriveWallet(1)
-console.log(derived.address)
-console.log(derived.privateKey)
-```
-
-### 3. ERC-5564 Stealth Addresses (Core Features)
-
-Stealth addresses enable privacy-preserving payments using unlinkable, one-time addresses.
+## Complete Example
 
 ```typescript
-const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org',
-  stealthAddresses: {}  // Enable ERC-5564 stealth addresses
-})
+// 1. Import
+import { createWeb3Passkey } from 'w3pk'
 
-await w3pk.login()
+async function main() {
+  // 2. Instantiate
+  const w3pk = createWeb3Passkey()
 
-// RECIPIENT: Get your stealth meta-address to share publicly
-const metaAddress = await w3pk.stealth?.getStealthMetaAddress()
-console.log(metaAddress)  // 0x03f2e32f... (66 bytes, ERC-5564 compliant)
-// Share this publicly - it's safe! Senders need it to generate stealth addresses.
+  // 3. Register
+  const { address, username } = await w3pk.register({
+    username: 'alice'
+  })
+  console.log('Registered:', username, 'with address:', address)
 
-// SENDER: Generate stealth address for recipient
-const announcement = await w3pk.stealth?.generateStealthAddress()
-console.log(announcement.stealthAddress)      // 0x1234... (send funds here)
-console.log(announcement.ephemeralPublicKey)  // 0x02abcd... (33 bytes, publish on-chain)
-console.log(announcement.viewTag)             // 0xa4 (1 byte, for efficient scanning)
+  // 4. Sign a message
+  const signature = await w3pk.signMessage('Hello World')
+  console.log('Signature:', signature)
 
-// RECIPIENT: Check if an announcement is for you
-const result = await w3pk.stealth?.parseAnnouncement({
-  stealthAddress: announcement.stealthAddress,
-  ephemeralPublicKey: announcement.ephemeralPublicKey,
-  viewTag: announcement.viewTag
-})
+  // 5. Logout
+  await w3pk.logout()
+  console.log('Logged out')
 
-if (result.isForUser) {
-  console.log('Payment found!', result.stealthAddress)
-  console.log('Private key:', result.stealthPrivateKey)
-  // Use this private key to spend the funds
+  // 6. Login (for next session)
+  await w3pk.login()
+  console.log('Logged in successfully')
 }
 
-// RECIPIENT: Efficiently scan many announcements
-const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
-console.log(`Found ${myPayments.length} payments`)
-// View tags enable ~99% skip rate - extremely efficient!
+main()
 ```
 
-**See [ERC-5564 Stealth Addresses Guide](./ERC5564_STEALTH_ADDRESSES.md) for complete documentation.**
-
-### 4. Zero-Knowledge Proofs (Requires Optional Dependencies)
-
-**First, install ZK dependencies:**
-```bash
-npm install snarkjs circomlibjs
-```
-
-**Then use ZK features:**
-```typescript
-import { createWeb3Passkey } from 'w3pk'
-import { buildMerkleTree, generateBlinding } from 'w3pk/zk/utils'
-
-const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org',
-  zkProofs: {
-    enabledProofs: ['membership', 'threshold', 'range']
-  }
-})
-
-// Wait for ZK module to initialize
-if (!w3pk.zk) {
-  console.error('ZK dependencies not installed. Run: npm install snarkjs circomlibjs')
-  process.exit(1)
-}
-
-try {
-  // Membership Proof - Prove you're in a set without revealing which member
-  const users = ['0x111...', '0x222...', '0x333...']
-  const myIndex = 1
-  
-  // Build merkle tree
-  const leaves = users.map(addr => BigInt(addr).toString())
-  const { root, tree } = await buildMerkleTree(leaves)
-  
-  // Generate proof
-  const { pathIndices, pathElements } = generateMerkleProof(tree, myIndex)
-  const proof = await w3pk.zk.proveMembership({
-    value: leaves[myIndex],
-    pathIndices,
-    pathElements,
-    root
-  })
-  
-  // Verify proof
-  const isValid = await w3pk.zk.verifyMembership(proof, root)
-  console.log('Membership verified:', isValid)
-  // ✅ Proved you're in the set without revealing you're user #1!
-
-  // Threshold Proof - Prove balance > $1000 without revealing exact amount
-  const balance = 5000n
-  const threshold = 1000n
-  const blinding = generateBlinding()
-  const commitment = await w3pk.zk.createCommitment(balance, blinding)
-  
-  const thresholdProof = await w3pk.zk.proveThreshold({
-    value: balance,
-    blinding,
-    threshold,
-    commitment
-  })
-  
-  const meetsThreshold = await w3pk.zk.verifyThreshold(
-    thresholdProof,
-    commitment,
-    threshold
-  )
-  console.log('Balance > $1000:', meetsThreshold)
-  // ✅ Proved balance > $1000 without revealing $5000!
-
-  // Range Proof - Prove age 18-65 without revealing exact age
-  const age = 25n
-  const ageBlinding = generateBlinding()
-  const ageCommitment = await w3pk.zk.createCommitment(age, ageBlinding)
-  
-  const rangeProof = await w3pk.zk.proveRange({
-    value: age,
-    blinding: ageBlinding,
-    min: 18n,
-    max: 65n,
-    commitment: ageCommitment
-  })
-  
-  const inRange = await w3pk.zk.verifyRange(rangeProof, ageCommitment, 18n, 65n)
-  console.log('Age 18-65:', inRange)
-  // ✅ Proved age in range without revealing 25!
-
-} catch (error) {
-  if (error.message.includes('snarkjs') || error.message.includes('circomlibjs')) {
-    console.error('ZK dependencies missing. Install: npm install snarkjs circomlibjs')
-  } else {
-    console.error('Error:', error)
-  }
-}
-```
-
-### 5. NFT Ownership Proof (Zero-Knowledge)
-```typescript
-import { createWeb3Passkey } from 'w3pk'
-import { 
-  buildNFTHoldersMerkleTree,
-  generateNFTOwnershipProofInputs 
-} from 'w3pk/zk/utils'
-
-const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org',
-  zkProofs: { enabledProofs: ['nft'] }
-})
-
-// Prove you own an NFT without revealing which one or your exact address
-const nftContract = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D' // e.g., BAYC
-const allHolders = ['0x111...', '0x222...', '0x333...'] // All NFT holders
-const yourAddress = '0x222...'
-
-const { nftProofInput } = await generateNFTOwnershipProofInputs(
-  yourAddress,
-  nftContract,
-  allHolders
-)
-
-const proof = await w3pk.zk.proveNFTOwnership(nftProofInput)
-const isValid = await w3pk.zk.verifyNFTOwnership(
-  proof,
-  nftContract,
-  nftProofInput.holdersRoot,
-  1n // Prove ownership of at least 1 NFT
-)
-
-console.log('NFT ownership verified:', isValid)
-// ✅ Proved NFT ownership without revealing which NFT or exact address!
-```
-
----
-
-## Adding ZK to an Existing Project
-
-If you started with core features and now need ZK:
-```bash
-# 1. Install ZK dependencies
-npm install snarkjs circomlibjs
-
-# 2. Update your imports
-# Before:
-import { createWeb3Passkey } from 'w3pk'
-
-# After (add ZK imports):
-import { createWeb3Passkey } from 'w3pk'
-import { ZKProofModule } from 'w3pk/zk'
-import { buildMerkleTree, generateBlinding } from 'w3pk/zk/utils'
-
-# 3. Enable ZK in config
-const w3pk = createWeb3Passkey({
-  apiBaseUrl: 'https://webauthn.w3hc.org',
-  zkProofs: {
-    enabledProofs: ['membership', 'threshold']
-  }
-})
-```
-
----
-
-##
+And that's it! Users can now enjoy passwordless Web3 authentication with secure, biometric-gated wallets - no passwords, no seed phrase management headaches, just simple and secure authentication.

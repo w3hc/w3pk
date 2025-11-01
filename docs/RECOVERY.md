@@ -8,6 +8,50 @@
 
 ---
 
+## 🔑 Key Concepts: Passkey vs. Mnemonic
+
+Before diving into the recovery system, it's crucial to understand the difference between your **passkey** and your **mnemonic**:
+
+### **Passkey (WebAuthn Credential)**
+- Your biometric authentication method (Face ID, fingerprint, Windows Hello, etc.)
+- **Syncs automatically** via platform services (iCloud Keychain, Google Password Manager)
+- Used to **unlock and decrypt** your locally stored encrypted mnemonic
+- Platform-specific (Apple ↔ Apple, Google ↔ Google, etc.)
+- **Cannot** be exported or transferred to different ecosystems
+- Think of it as: **"Your key to the safe"**
+
+### **Mnemonic (Recovery Phrase)**
+- Your actual wallet seed phrase (12 words following BIP39 standard)
+- **Does NOT sync automatically** - stored locally in encrypted form
+- **Must be manually backed up** using the methods described below
+- Universal - works with any BIP39-compatible wallet (MetaMask, Ledger, etc.)
+- Platform-agnostic - can be imported anywhere
+- Think of it as: **"Your safe's combination"**
+
+### **How They Work Together**
+```
+┌─────────────────────────────────────────────────────────┐
+│  1. You authenticate with Passkey (Face ID/Touch ID)   │
+│  2. Passkey decrypts your locally stored mnemonic       │
+│  3. Mnemonic generates your wallet private keys         │
+│  4. You can now sign transactions                       │
+└─────────────────────────────────────────────────────────┘
+```
+
+### **Critical Understanding**
+
+| Scenario | What Syncs | What Doesn't Sync |
+|----------|------------|-------------------|
+| New iPhone (same iCloud) | ✅ Passkey syncs | ⚠️ Mnemonic stays on old device |
+| New Android (same Google account) | ✅ Passkey syncs | ⚠️ Mnemonic stays on old device |
+| Switch from iPhone to Android | ❌ Passkey doesn't sync | ❌ Mnemonic doesn't sync |
+
+**Why this matters:**
+- If you lose your device but have passkey sync enabled, you can authenticate on a new device, BUT you still need the encrypted mnemonic from your old device to recover your wallet
+- This is why **manual mnemonic backup** (Layers 2 & 3 below) is essential for true recovery
+
+---
+
 ## 🎯 Overview
 
 The w3pk Recovery System provides **three independent layers** of wallet backup and recovery, ensuring users never lose access to their funds while maintaining strong security guarantees.
@@ -17,65 +61,93 @@ The w3pk Recovery System provides **three independent layers** of wallet backup 
 │                    🔐 RECOVERY VAULT                        │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  Layer 1: 🔑 Passkey (Device)        [Auto-Sync]           │
-│  ├─ WebAuthn credential                                    │
-│  ├─ Syncs via iCloud/Google                                │
+│  Layer 1: 🔑 Passkey (Credential)    [Auto-Sync ✅]        │
+│  ├─ WebAuthn credential (Face ID/fingerprint)             │
+│  ├─ Syncs via iCloud/Google automatically                 │
+│  ├─ Unlocks wallet, doesn't store wallet                  │
 │  └─ Status: 🟢 Active on 3 devices                         │
 │                                                             │
-│  Layer 2: 🌱 Recovery Phrase          [Manual Backup]      │
-│  ├─ 12-word mnemonic                                       │
+│  📦 Encrypted Wallet Data            [LOCAL ONLY ⚠️]       │
+│  ├─ Stored in browser IndexedDB (encrypted)               │
+│  ├─ Does NOT sync automatically                           │
+│  └─ Needs manual backup via Layers 2 or 3 below           │
+│                                                             │
+│  Layer 2: 🌱 Mnemonic Backup          [Manual Backup]      │
+│  ├─ 12-word recovery phrase                               │
 │  ├─ Encrypted ZIP backup (password-protected)             │
 │  └─ Status: ⚠️  Not backed up                              │
 │                                                             │
 │  Layer 3: 🔗 Social Recovery          [Friend Network]     │
-│  ├─ 3-of-5 guardian shares                                 │
+│  ├─ 3-of-5 guardian shares (Shamir Secret Sharing)        │
 │  ├─ Encrypted with guardian keys                           │
 │  └─ Status: 🟢 2/5 guardians active                        │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
+
+⚠️  IMPORTANT: Only the passkey syncs automatically!
+    Your wallet data requires manual backup (Layer 2 or 3).
 ```
 
 ---
 
 ## 📚 Three Recovery Layers Explained
 
-### **Layer 1: Passkey Auto-Sync** (Easiest)
+### **Layer 1: Passkey Auto-Sync** (Easiest - But Not Complete Recovery)
 
 **What it is:**
 - Your WebAuthn credential (fingerprint/Face ID) automatically syncs across your devices
 - Platform-dependent (iCloud Keychain, Google Password Manager, etc.)
+- **Important:** Only the passkey syncs, NOT the encrypted wallet data itself
 
 **How it works:**
 ```
 Device 1 (iPhone)          iCloud Keychain          Device 2 (Mac)
      |                            |                         |
      |-- Passkey Created -------->|                         |
-     |                            |                         |
+     |   (Encrypted mnemonic      |                         |
+     |    stored locally)         |                         |
      |                            |<----- Login on Mac -----|
      |                            |                         |
-     |                     Passkey Synced                   |
-     |                            |------- Decrypt -------->|
-     |                            |        Wallet           |
+     |                     Passkey Synced ✅                 |
+     |                            |                         |
+     |-- Transfer encrypted --------------------> Device 2  |
+     |   wallet data manually                (via backup or |
+     |   OR via Layer 2/3 backup              cloud sync)   |
 ```
 
+**What Actually Syncs:**
+- ✅ Your passkey (biometric credential)
+- ❌ Your encrypted wallet data (mnemonic) - this stays on the device
+
+**Complete Recovery Requires:**
+1. Passkey (synced automatically via platform)
+2. **AND** encrypted wallet data (from backup or device-to-device transfer)
+
 **Pros:**
-- ✅ Automatic (no user action needed)
-- ✅ Instant recovery on new device
+- ✅ Automatic passkey sync (no user action needed)
+- ✅ Quick authentication on new device
 - ✅ Hardware-protected security
-- ✅ Works immediately after setup
+- ✅ Works immediately after setup for authentication
 
 **Cons:**
 - ⚠️ Platform-specific (Apple/Google/Microsoft)
 - ⚠️ Requires cloud account
 - ⚠️ May not work across different ecosystems
+- ⚠️ **Does NOT sync your actual wallet** - only the authentication credential
 
 **Recovery scenarios:**
 | Scenario | Can Recover? | How |
 |----------|--------------|-----|
-| Lost iPhone (iCloud enabled) | ✅ Yes | Sign in on new iPhone → Passkey auto-syncs |
-| Lost iPhone (iCloud disabled) | ❌ No | Need Layer 2 (mnemonic) |
-| New Mac (same iCloud) | ✅ Yes | Passkey available immediately |
-| Switch to Android | ❌ No | Need Layer 2 (mnemonic) |
+| Lost iPhone (iCloud enabled) + wallet backed up | ✅ Yes | Passkey syncs + restore from encrypted backup |
+| Lost iPhone (iCloud enabled) + NO backup | ❌ No | Passkey syncs but encrypted mnemonic is lost |
+| Lost iPhone (iCloud disabled) | ❌ No | Need Layer 2 or 3 (mnemonic backup) |
+| New Mac (same iCloud) + same browser profile | ✅ Yes | Passkey + local data may transfer |
+| Switch to Android | ❌ No | Need Layer 2 or 3 (mnemonic backup) |
+
+**⚠️ Critical Note:** Passkey sync alone is NOT sufficient for wallet recovery. You must also have your encrypted wallet data through one of these methods:
+- Browser profile/data transfer (same device ecosystem)
+- Encrypted backup (Layer 2)
+- Social recovery (Layer 3)
 
 ---
 
@@ -950,11 +1022,17 @@ Compatible with:
 - [Shamir's Secret Sharing](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing)
 - [WebAuthn Specification](https://www.w3.org/TR/webauthn-2/)
 - [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
-- [NIST Digital Identity Guidelines](hhttps://pages.nist.gov/800-63-4/)
+- [NIST Digital Identity Guidelines](https://pages.nist.gov/800-63-4/)
 
 ---
 
 ## ❓ FAQ
+
+**Q: Does my passkey sync mean my wallet is backed up?**
+A: **No!** This is a critical distinction. Your passkey (Face ID/Touch ID credential) syncs via iCloud/Google, but your encrypted wallet data does NOT automatically sync. You MUST create a manual backup (Layer 2 or 3) to ensure full wallet recovery. Passkey sync only helps with authentication, not wallet recovery.
+
+**Q: If I get a new iPhone and sign into iCloud, will my wallet be there?**
+A: Only if you also transferred your browser data or created an encrypted backup. The passkey will sync automatically, allowing you to authenticate, but the encrypted wallet data needs to be restored separately from a backup.
 
 **Q: Can I use multiple backup methods?**
 A: Yes! We recommend using at least 2 methods for redundancy.

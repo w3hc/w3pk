@@ -23,16 +23,364 @@ For better user experience, w3pk implements **secure sessions** that cache the d
 1. **Physical coercion** - Forcing user to authenticate
 2. **Compromised authenticator** - If hardware is backdoored
 3. **Active browser session** - If wallet is in memory and user is authenticated
+4. **Offline mnemonic theft** - If attacker has browser storage files (see Threat Model below)
+5. **XSS with active session** - Code injection during authenticated session
+
+## Threat Model
+
+Understanding w3pk's security boundaries is critical for proper deployment. The security model relies on **multiple layers of protection**, not just encryption.
+
+### Security Layers (Strongest to Weakest)
+
+#### 1. WebAuthn Authentication (Strongest Boundary) ✅
+
+**What it protects:**
+- Unauthorized access via w3pk SDK
+- Remote attacks without physical device access
+- Phishing attacks (domain-scoped credentials)
+- Cross-site attacks (origin isolation)
+
+**How it works:**
+- Browser enforces biometric/PIN authentication
+- Cannot be bypassed without physical access + user authentication
+- User sees domain in authentication prompt
+- Credentials are cryptographically bound to domain
+
+**Limitations:**
+- Requires user interaction (can be socially engineered)
+- User must verify domain in prompt (many users don't)
+- Doesn't protect against session hijacking after authentication
+
+#### 2. Deterministic Encryption (Strong Protection) ⚠️
+
+**What it protects:**
+- Casual file system access (encrypted at rest)
+- Database theft without credential metadata
+- Quick opportunistic attacks
+
+**How it works:**
+- Wallet encrypted with AES-256-GCM
+- Key derived from credential ID + public key (PBKDF2, 210k iterations)
+- Requires both localStorage (metadata) AND IndexedDB (encrypted wallet)
+
+**Limitations:**
+- **Key is deterministic** - same metadata = same key
+- An attacker with BOTH localStorage AND IndexedDB can decrypt offline
+- Does NOT require fresh authentication to derive the key
+- Protection is authentication-gating by SDK, not cryptographic impossibility
+
+**Honest assessment:**
+```typescript
+// What an attacker with file access CAN do:
+const key = deriveEncryptionKeyFromWebAuthn(stolenCredentialId, stolenPublicKey)
+const mnemonic = decryptData(stolenEncryptedWallet, key)
+// ✅ SUCCESS - Attacker now has the mnemonic
+
+// What they CANNOT do (without further attacks):
+await w3pk.login()  // ❌ Requires WebAuthn authentication
+await w3pk.signTransaction(...)  // ❌ Requires WebAuthn authentication
+
+// What they CAN do (outside w3pk):
+// Import mnemonic into MetaMask, Ledger Live, etc.
+// ✅ Full wallet access if they have the mnemonic
+```
+
+**This is why device security is critical:**
+- Use device encryption (FileVault, BitLocker)
+- Use strong device passwords
+- Don't leave device unlocked
+- Browser storage is NOT enough protection alone
+
+#### 3. Session Management (Moderate Protection) ⚠️
+
+**What it protects:**
+- Time-limited exposure after authentication
+- Automatic expiration of cached credentials
+- Cleared on browser close
+
+**How it works:**
+- Decrypted mnemonic cached in memory only
+- Expires after configured duration (default: 1 hour)
+- Never written to disk
+
+**Limitations:**
+- **Active session = mnemonic in memory**
+- Code injection during session can access wallet
+- `requireAuth` flag can be bypassed by attacker with JS execution
+- Session is in the same JavaScript context as page code
+
+**Attack window:**
+```typescript
+// Attacker with XSS access during active session:
+if (w3pk.hasActiveSession()) {
+  const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
+  // ⚠️ SUCCESS - Session allows access, requireAuth is bypassable
+  sendToAttacker(mnemonic)
+}
+
+// After session expires:
+const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
+// ❌ BLOCKED - Session expired, triggers authentication prompt
+```
+
+**Mitigation:**
+- Use short sessions (`sessionDuration: 0.1` = 6 minutes)
+- Or disable sessions entirely (`sessionDuration: 0`)
+- Prevent XSS (CSP, input sanitization)
+
+#### 4. `requireAuth` Flag (Weak - UX Only) ❌
+
+**What it protects:**
+- User mistakes (accidental clicks)
+- Application-level policy enforcement
+- User experience (confirmation for sensitive actions)
+
+**How it works:**
+- Developer sets `requireAuth: true` for sensitive operations
+- SDK triggers fresh authentication prompt
+
+**Limitations:**
+- **NOT a security boundary**
+- Can be trivially bypassed by code injection:
+  ```typescript
+  // Attacker bypasses requireAuth
+  await w3pk.exportMnemonic({ requireAuth: false })  // ✅ Bypassed
+  ```
+- Only protects against honest mistakes, not malicious attacks
+- Think: seatbelt reminder, not bulletproof vest
+
+**When it helps:**
+- Preventing accidental high-value transactions
+- Compliance requirements (audit trails showing authentication)
+- User education (prompting awareness of sensitive operations)
+
+**When it doesn't help:**
+- XSS attacks (attacker controls the JavaScript)
+- Malicious browser extensions
+- Compromised dependencies
+- Any scenario where attacker has code execution
+
+### Threat Scenarios Matrix
+
+| Threat | Layer 1 (WebAuthn) | Layer 2 (Encryption) | Layer 3 (Session) | Layer 4 (requireAuth) | Overall |
+|--------|-------------------|---------------------|------------------|----------------------|---------|
+| **File system access** | ✅ Blocks SDK use | ⚠️ Can decrypt offline | N/A | N/A | ⚠️ Mnemonic exposed |
+| **Malware (no session)** | ✅ Blocks SDK | ⚠️ Can decrypt offline | ✅ No cache | N/A | ⚠️ Mnemonic exposed |
+| **Malware (active session)** | ✅ Blocks new auth | ⚠️ Can decrypt offline | ❌ Cache accessible | ❌ Bypassable | ❌ Full access |
+| **XSS (no session)** | ⚠️ Phishable | ⚠️ Can decrypt offline | ✅ No cache | N/A | ⚠️ Needs auth prompt |
+| **XSS (active session)** | ⚠️ Phishable | ⚠️ Can decrypt offline | ❌ Cache accessible | ❌ Bypassable | ❌ Full access |
+| **Phishing attack** | ✅ Domain isolation | ✅ Different RP ID | N/A | N/A | ✅ Protected |
+| **Database theft only** | ✅ No metadata | ✅ Need metadata | N/A | N/A | ✅ Protected |
+| **Credential theft only** | ✅ Need encrypted wallet | ✅ No wallet | N/A | N/A | ✅ Protected |
+| **Physical coercion** | ❌ Can force auth | N/A | ❌ Can establish session | ❌ Bypassable | ❌ Vulnerable |
+| **Device theft (locked)** | ✅ Need device unlock | ✅ Device encryption helps | N/A | N/A | ✅ Protected |
+| **Device theft (unlocked)** | ⚠️ Can auth | ⚠️ Can access files | ⚠️ May have session | ❌ Bypassable | ❌ Vulnerable |
+| **Remote network attack** | ✅ Need physical access | ✅ Need physical access | ✅ Not over network | N/A | ✅ Protected |
+
+### Key Takeaways
+
+**What w3pk IS:**
+- ✅ Protection against remote attacks without device access
+- ✅ Protection against credential theft from other domains (phishing)
+- ✅ Protection against accidental leaks (encryption at rest)
+- ✅ Protection against keyloggers (no password needed)
+- ✅ Better than password-based wallets for online threats
+
+**What w3pk IS NOT:**
+- ❌ Protection against offline mnemonic extraction (if attacker has storage files)
+- ❌ Protection against code injection with active session (XSS during session)
+- ❌ Protection against physical device compromise (need device encryption + strong password)
+- ❌ Immune to social engineering (user can be tricked into authenticating)
+
+**Comparison to other approaches:**
+
+| Security Model | w3pk | MetaMask | Hardware Wallet |
+|---------------|------|----------|-----------------|
+| Remote attack protection | ✅ Strong | ⚠️ Password-dependent | ✅ Strong |
+| Local file access | ⚠️ Can decrypt | ⚠️ Can decrypt | ✅ Cannot decrypt |
+| Active session compromise | ❌ Vulnerable | ❌ Vulnerable | ⚠️ Per-tx approval |
+| Physical theft (locked) | ✅ Protected | ⚠️ Password-dependent | ✅ Protected |
+| User experience | ✅ Biometric | ⚠️ Password typing | ⚠️ Hardware required |
+
+**Recommendation:** w3pk is best suited for:
+- Applications where user convenience is important
+- Scenarios where remote attacks are the primary threat
+- Use cases with short sessions or disabled sessions for sensitive operations
+- Combined with device encryption and strong device passwords
+- Not as a replacement for hardware wallets for high-value holdings (>$10k)
+
+## Security Changelog
+
+This section tracks major security-related changes to w3pk's implementation.
+
+### v0.7.0+ (Current)
+
+#### Removed: `deriveEncryptionKeyFromSignature()` (Commit 182740c)
+**Impact:** Security improvement
+
+**What changed:**
+- Removed the `deriveEncryptionKeyFromSignature()` function
+- This was a testing/legacy fallback for signature-based key derivation
+- Code comment warned: "Does NOT require biometric authentication for decryption"
+
+**Why this improves security:**
+- Eliminates a weaker encryption path that could have been misused
+- Reduces code complexity and potential for developer errors
+- Single clear encryption method (`deriveEncryptionKeyFromWebAuthn()`)
+- Prevents accidental use of signature-based approach without proper session management
+
+**Migration:** No action needed. This function was never the primary method and was only used for testing.
+
+#### Current Encryption Method
+**Primary:** `deriveEncryptionKeyFromWebAuthn(credentialId, publicKey)`
+- Deterministic key derivation from credential metadata
+- PBKDF2 with 210,000 iterations (OWASP 2023)
+- Fixed salt: `"w3pk-salt-v4"`
+- Security relies on SDK authentication-gating
+
+**Status:** Working as intended. This approach enables session management while maintaining security through WebAuthn authentication requirements.
+
+### v0.7.0 - RP ID Auto-Detection (Security Hardening)
+
+**What changed:**
+- Removed manual `rpId` configuration option
+- RP ID now automatically set to `window.location.hostname`
+- Cannot be overridden by developers
+
+**Why this improves security:**
+- Prevents misconfiguration that could lead to security vulnerabilities
+- Enforces domain isolation (credentials can't be shared across origins)
+- Eliminates risk of developers setting overly broad RP IDs
+- Simplifies API and reduces surface for errors
+
+**Migration:**
+```typescript
+// v0.6.0 (old - REMOVED)
+const w3pk = createWeb3Passkey({
+  rpId: 'example.com',  // Manual configuration (now removed)
+})
+
+// v0.7.0+ (current - REQUIRED)
+const w3pk = createWeb3Passkey({
+  // rpId is auto-detected from window.location.hostname
+  // Cannot be overridden
+})
+```
+
+**Impact:** Breaking change for v0.6.0 users. Credentials created with custom RP IDs may not work. Users must re-register or import mnemonic.
+
+### Backup Encryption Standards
+
+#### Current: PBKDF2 Iterations
+
+**Wallet encryption:** 210,000 iterations (OWASP 2023)
+- Primary threat: Online attacks (SDK authentication required)
+- PBKDF2 slows down brute force but not primary security boundary
+- 210k iterations balance security and performance
+
+**Backup encryption:** 310,000 iterations (OWASP 2025)
+- Primary threat: Offline attacks (backups may be on USB/cloud)
+- Higher iterations protect against GPU-based brute force
+- Performance less critical (one-time backup creation)
+
+**Why different?**
+Different threat models require different protections. Backups may be stored offline and face brute force attacks, while wallets are protected by device security and SDK authentication.
+
+**Recommendation:** OWASP updates iteration counts yearly. We plan to update these values as standards evolve, with careful consideration for backward compatibility.
+
+### Password Validation Enhancement
+
+**Added:** `isStrongPassword()` utility
+- Minimum 12 characters
+- Requires: uppercase, lowercase, numbers, special characters
+- Checks against common passwords (password, 123456, qwerty, etc.)
+- Score-based validation (≥50/100 required)
+
+**Location:** `src/utils/validation.ts` (exported from main package)
+
+**Usage:**
+```typescript
+import { isStrongPassword } from 'w3pk'
+
+if (!isStrongPassword(userPassword)) {
+  throw new Error('Password too weak')
+}
+```
+
+**Note:** Password validation is client-side only. Applications should implement server-side validation for production use.
+
+### Known Limitations & Future Improvements
+
+#### Current Limitations
+
+1. **Deterministic Encryption**
+   - Current: Key derived deterministically from credential metadata
+   - Limitation: Attacker with storage access can decrypt offline
+   - Mitigation: SDK authentication-gating + device encryption
+
+2. **Fixed Salt**
+   - Current: Uses fixed salt `"w3pk-salt-v4"`
+   - Limitation: Not unique per user (though credential ID provides uniqueness)
+   - Trade-off: Simplifies implementation, doesn't significantly weaken security
+
+3. **Session Security**
+   - Current: Mnemonic cached in JavaScript memory during sessions
+   - Limitation: XSS during session can access wallet
+   - Mitigation: Short sessions, XSS prevention (CSP)
+
+#### Under Consideration
+
+1. **Web Workers for Session Isolation**
+   - Investigate running wallet operations in dedicated Web Worker
+   - Would isolate mnemonic from page JavaScript context
+   - Challenge: WebAuthn API not available in Workers (requires postMessage)
+
+2. **Per-User Salt Generation**
+   - Consider deriving unique salt from credential metadata
+   - Would eliminate fixed salt
+   - Trade-off: Adds complexity, marginal security benefit
+
+3. **Signature-Based Encryption Option**
+   - Consider optional mode that requires fresh signature per operation
+   - Would eliminate deterministic key derivation
+   - Trade-off: No sessions, biometric prompt every operation
+   - Best for ultra-high-security applications
+
+4. **Rate Limiting**
+   - Add built-in rate limiting for authentication attempts
+   - Track failed attempts, exponential backoff
+   - Protection against brute force via authentication
+
+### Reporting Security Issues
+
+If you discover a security vulnerability in w3pk, please report it responsibly:
+
+**Do NOT:**
+- Open a public GitHub issue
+- Discuss on social media or public forums
+- Attempt to exploit in production systems
+
+**Do:**
+- Email security details to the maintainers (see README.md)
+- Provide detailed reproduction steps
+- Wait for confirmation before public disclosure
+- Follow responsible disclosure timeline (typically 90 days)
+
+**We will:**
+- Acknowledge receipt within 48 hours
+- Investigate and provide updates
+- Work on a fix and coordinate disclosure
+- Credit you in security advisories (if desired)
 
 ## How It Works
 
 ### 1. Encryption Key Derivation
 
-**The encryption key is derived from a WebAuthn signature:**
+**The encryption key is derived deterministically from WebAuthn credential metadata:**
 
 ```typescript
-// SECURE: Signature requires biometric/PIN authentication
-const signature = await navigator.credentials.get({
+// During registration, a WebAuthn credential is created
+const credential = await navigator.credentials.create({
   publicKey: {
     challenge: crypto.getRandomValues(new Uint8Array(32)),
     rpId: window.location.hostname,
@@ -40,24 +388,93 @@ const signature = await navigator.credentials.get({
   }
 })
 
-// Derive encryption key from signature
-const key = await deriveEncryptionKeyFromSignature(
-  signature.response.signature,
-  credentialId
+// Store credential metadata (public information)
+const credentialId = credential.id
+const publicKey = credential.response.getPublicKey()
+
+// Derive encryption key from credential metadata (deterministic)
+const key = await deriveEncryptionKeyFromWebAuthn(
+  credentialId,  // Unique identifier for this credential
+  publicKey      // Public key (safe to store)
 )
 
-// Encrypt wallet
+// Encrypt wallet with derived key
 const encryptedWallet = await encryptData(mnemonic, key)
 ```
 
-**Why this is secure:**
+**How the key derivation works:**
 
-- The `signature` can **only** be obtained by:
-  1. User providing biometric (fingerprint/face) OR
-  2. User entering device PIN/password
-- The signature is **different every time** (fresh challenge)
-- Cannot be replayed or stolen from storage
-- Signature never leaves the browser
+```typescript
+// PBKDF2 key derivation
+const keyMaterial = credentialId + publicKey  // Concatenate metadata
+const salt = "w3pk-salt-v4"                   // Fixed salt (version identifier)
+const iterations = 210000                      // OWASP 2023 recommendation
+
+const encryptionKey = await crypto.subtle.deriveKey(
+  {
+    name: "PBKDF2",
+    salt: new TextEncoder().encode(salt),
+    iterations: iterations,
+    hash: "SHA-256"
+  },
+  keyMaterial,
+  { name: "AES-GCM", length: 256 },
+  false,
+  ["encrypt", "decrypt"]
+)
+```
+
+**Important security properties:**
+
+- The encryption key is **deterministic** - the same credential metadata always produces the same key
+- An attacker with both localStorage (credential metadata) AND IndexedDB (encrypted wallet) **can derive the encryption key**
+- **The actual security boundary is SDK-enforced authentication** - the SDK requires WebAuthn authentication before allowing any operations
+- This is **authentication-gated encryption**, not signature-based encryption
+
+**Why this approach is still secure:**
+
+1. **SDK enforces WebAuthn authentication** before any operation:
+   ```typescript
+   // User must authenticate before the SDK allows decryption
+   await w3pk.login()  // ✅ Triggers biometric/PIN prompt
+   // Now SDK will decrypt wallet internally
+   ```
+
+2. **WebAuthn authentication cannot be bypassed** without:
+   - Physical device access AND
+   - User's biometric (fingerprint/face) OR device PIN/password
+   - Browser shows authentication prompt (user can verify domain)
+
+3. **Even with file access, attacker must authenticate:**
+   ```typescript
+   // Attacker steals files
+   const stolenCredentialId = "..."
+   const stolenPublicKey = "..."
+   const stolenEncryptedWallet = "..."
+
+   // Can derive the encryption key
+   const key = deriveEncryptionKeyFromWebAuthn(stolenCredentialId, stolenPublicKey)
+
+   // Can decrypt the wallet
+   const mnemonic = decryptData(stolenEncryptedWallet, key)
+
+   // BUT: To use the wallet via w3pk SDK, must authenticate
+   await w3pk.login()  // ❌ BLOCKED: Requires user's biometric/PIN
+   ```
+
+4. **Protection from offline attacks:**
+   - PBKDF2 with 210,000 iterations slows down brute force
+   - But the real protection is that the attacker needs the actual credential metadata (not guessable)
+   - Credential IDs are 32+ byte random values (256+ bits of entropy)
+
+**Trade-off: Security vs Usability**
+
+This approach enables **secure sessions**:
+- After authentication, the SDK can cache the decrypted mnemonic in memory
+- Operations work without repeated biometric prompts for the session duration
+- Sessions expire after configured time (default: 1 hour)
+
+An alternative approach (signature-based encryption) would require biometric authentication for every single operation, which is more secure but less usable.
 
 ### 2. What's Stored (All Safe to Expose)
 
@@ -88,74 +505,448 @@ const encryptedWallet = await encryptData(mnemonic, key)
 - No decryption keys
 - Only public identifiers + encrypted data
 
-### 3. Attack Scenario Analysis
+### 3. Storage Architecture
 
-#### ❌ Attack: Copy files and decrypt offline
+Understanding where w3pk stores data and how browser security mechanisms protect it is critical for threat modeling.
+
+#### Storage Layers
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Browser (Origin: https://example.com)                       │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ localStorage (Origin-Scoped)                           │ │
+│  │ Key: w3pk_credential_<credentialId>                    │ │
+│  │                                                          │ │
+│  │ {                                                        │ │
+│  │   "id": "credential-abc123",          // PUBLIC        │ │
+│  │   "publicKey": "MFkw...AQAB",         // PUBLIC        │ │
+│  │   "username": "alice",                 // PUBLIC        │ │
+│  │   "ethereumAddress": "0x1234...",     // PUBLIC        │ │
+│  │   "createdAt": 1234567890              // PUBLIC        │ │
+│  │ }                                                        │ │
+│  │                                                          │ │
+│  │ ⚠️  All data here is PUBLIC - no secrets               │ │
+│  │ ⚠️  Can be read by JavaScript on same origin           │ │
+│  │ ⚠️  Stored in plaintext on disk                         │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ IndexedDB (Origin-Scoped)                              │ │
+│  │ Database: w3pk                                          │ │
+│  │ Store: wallets                                          │ │
+│  │                                                          │ │
+│  │ {                                                        │ │
+│  │   "ethereumAddress": "0x1234...",     // PUBLIC        │ │
+│  │   "encryptedMnemonic": "v1kT...x3Zp", // ENCRYPTED     │ │
+│  │   "credentialId": "credential-abc123", // PUBLIC        │ │
+│  │   "createdAt": 1234567890              // PUBLIC        │ │
+│  │ }                                                        │ │
+│  │                                                          │ │
+│  │ ⚠️  Encrypted mnemonic requires decryption key          │ │
+│  │ ⚠️  Key can be derived from localStorage metadata       │ │
+│  │ ⚠️  Both needed for offline decryption                  │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Memory (JavaScript Heap) - During Active Session       │ │
+│  │                                                          │ │
+│  │ Session Object {                                        │ │
+│  │   mnemonic: "word1 word2 ... word12",  // PLAINTEXT    │ │
+│  │   expiresAt: 1234567890,               // Timestamp    │ │
+│  │   credentialId: "credential-abc123"    // Reference    │ │
+│  │ }                                                        │ │
+│  │                                                          │ │
+│  │ ⚠️  Plaintext mnemonic in JavaScript memory             │ │
+│  │ ⚠️  Accessible to all JavaScript in same context        │ │
+│  │ ⚠️  Cleared on logout, browser close, or expiration     │ │
+│  │ ⚠️  Never written to disk (unless OS swap/hibernate)    │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ Operating System / Hardware                                  │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Secure Enclave / TPM / Hardware Authenticator          │ │
+│  │                                                          │ │
+│  │ WebAuthn Credential {                                   │ │
+│  │   privateKey: <HARDWARE_PROTECTED>,    // SECRET       │ │
+│  │   rpId: "example.com",                  // Bound       │ │
+│  │   credentialId: "credential-abc123",    // PUBLIC      │ │
+│  │   userHandle: "alice"                   // PUBLIC      │ │
+│  │ }                                                        │ │
+│  │                                                          │ │
+│  │ ✅ Private key CANNOT be exported                       │ │
+│  │ ✅ Operations happen inside secure hardware             │ │
+│  │ ✅ Requires biometric/PIN for each signature            │ │
+│  │ ✅ Survives OS reinstall (on some platforms)            │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ File System (Browser Profile Directory)                │ │
+│  │                                                          │ │
+│  │ ~/Library/Application Support/Google/Chrome/Default/   │ │
+│  │   ├─ Local Storage/                                    │ │
+│  │   │   └─ https_example.com_0.localstorage              │ │
+│  │   │       → Contains credential metadata (plaintext)   │ │
+│  │   │                                                      │ │
+│  │   └─ IndexedDB/                                        │ │
+│  │       └─ https_example.com_0/w3pk/                     │ │
+│  │           → Contains encrypted wallet                   │ │
+│  │                                                          │ │
+│  │ ⚠️  Files stored on disk (not encrypted by browser)     │ │
+│  │ ⚠️  OS-level encryption (FileVault/BitLocker) needed    │ │
+│  │ ⚠️  Attacker with file access can copy both             │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Browser Security Mechanisms
+
+**Origin Isolation:**
+- localStorage and IndexedDB are **automatically scoped** to origin
+- `https://example.com` cannot access `https://attacker.com` storage
+- Even subdomains are isolated: `app.example.com` ≠ `example.com`
+- Protocol matters: `http://example.com` ≠ `https://example.com`
+
+**WebAuthn Security:**
+- Credentials are **cryptographically bound** to RP ID (domain)
+- Browser enforces that credentials for `example.com` can only be used on `example.com`
+- Even with stolen credential metadata, cannot use on different domain
+- User sees domain in authentication prompt
+
+**JavaScript Context:**
+- All w3pk code runs in the same JavaScript context as page code
+- No process isolation (unlike browser extensions)
+- XSS or code injection has full access to w3pk API
+- This is why XSS prevention is critical
+
+#### Security Boundaries
+
+**Strong Boundaries (Browser-Enforced):**
+1. ✅ **Origin isolation** - Cannot access other domains' storage
+2. ✅ **WebAuthn RP ID binding** - Credentials domain-locked
+3. ✅ **Secure hardware** - Private keys cannot be exported
+
+**Weak Boundaries (Application-Enforced):**
+1. ⚠️ **SDK authentication gating** - Requires honest JavaScript
+2. ⚠️ **Session management** - Can be bypassed by code injection
+3. ⚠️ **requireAuth flag** - Trivially bypassable
+
+#### Attack Surface by Storage Layer
+
+| Storage Layer | What's Stored | Protection | Attack Surface |
+|---------------|---------------|------------|----------------|
+| **localStorage** | Credential metadata (public) | Origin isolation | ⚠️ XSS, file access |
+| **IndexedDB** | Encrypted wallet | Origin isolation + AES-256-GCM | ⚠️ XSS, file access + decryption |
+| **Memory** | Plaintext mnemonic (during session) | Process isolation (weak) | ❌ XSS, memory dumps |
+| **Secure Enclave** | WebAuthn private key | Hardware protection | ✅ Very strong (HW attacks only) |
+| **File System** | Browser profile directory | OS permissions | ⚠️ Malware, physical access |
+
+#### Data Flow
+
+**Registration:**
+```
+1. User clicks "Register"
+2. SDK calls navigator.credentials.create()
+3. Browser shows WebAuthn prompt → User provides biometric
+4. Secure Enclave generates key pair
+5. Browser returns: credentialId, publicKey
+6. SDK generates mnemonic
+7. SDK derives encryption key from credentialId + publicKey
+8. SDK encrypts mnemonic with AES-256-GCM
+9. SDK stores:
+   - localStorage: credentialId, publicKey, address (plaintext)
+   - IndexedDB: encryptedMnemonic (ciphertext)
+10. Secure Enclave stores: privateKey (hardware-protected)
+```
+
+**Login (First Time):**
+```
+1. User clicks "Login"
+2. SDK calls navigator.credentials.get()
+3. Browser shows WebAuthn prompt → User provides biometric
+4. Secure Enclave signs challenge with privateKey
+5. Browser returns: signature
+6. SDK verifies signature matches publicKey
+7. SDK derives encryption key from credentialId + publicKey
+8. SDK decrypts wallet from IndexedDB
+9. SDK stores plaintext mnemonic in memory (session)
+10. Session expires after configured duration
+```
+
+**Login (With Active Session):**
+```
+1. User clicks "Sign Transaction"
+2. SDK checks: hasActiveSession() → true
+3. SDK retrieves mnemonic from memory (no prompt)
+4. SDK derives private key from mnemonic
+5. SDK signs transaction
+6. Transaction sent to network
+(No biometric prompt - session is active)
+```
+
+**Login (Session Expired):**
+```
+1. User clicks "Sign Transaction"
+2. SDK checks: hasActiveSession() → false
+3. SDK triggers WebAuthn authentication
+4. Browser shows prompt → User provides biometric
+5. SDK decrypts wallet, creates new session
+6. SDK signs transaction
+```
+
+#### File System Locations by Browser
+
+**Chrome/Chromium (macOS):**
+```
+~/Library/Application Support/Google/Chrome/Default/
+  ├─ Local Storage/leveldb/
+  │   └─ https_example.com_0.localstorage
+  └─ IndexedDB/
+      └─ https_example.com_0/
+```
+
+**Chrome/Chromium (Windows):**
+```
+%LOCALAPPDATA%\Google\Chrome\User Data\Default\
+  ├─ Local Storage\leveldb\
+  └─ IndexedDB\
+```
+
+**Firefox (macOS):**
+```
+~/Library/Application Support/Firefox/Profiles/<profile>/
+  ├─ webappsstore.sqlite  (localStorage)
+  └─ storage/default/https+++example.com/  (IndexedDB)
+```
+
+**Safari (macOS):**
+```
+~/Library/Safari/LocalStorage/
+~/Library/Safari/Databases/
+```
+
+**Security Implications:**
+- Browser profile directories are **user-accessible** (not encrypted by browser)
+- An attacker with user-level file access can copy these directories
+- OS-level encryption (FileVault, BitLocker) is essential
+- Malware running as user can access these files
+- Cloud backup of browser profiles may expose data
+
+#### Defense in Depth
+
+**Layer 1: Browser Security**
+- Origin isolation (strong)
+- WebAuthn RP ID binding (strong)
+- Process sandboxing (moderate)
+
+**Layer 2: w3pk SDK**
+- Authentication gating (moderate - requires honest JS)
+- AES-256-GCM encryption (strong - but key is derivable)
+- Session management (weak - bypassable)
+
+**Layer 3: Operating System**
+- File system permissions (moderate)
+- Full disk encryption (strong - FileVault, BitLocker)
+- User authentication (moderate - password quality varies)
+
+**Layer 4: Hardware**
+- Secure Enclave / TPM (very strong)
+- Physical security (depends on user)
+
+**Recommendation:**
+- ✅ Enable full disk encryption (FileVault on macOS, BitLocker on Windows)
+- ✅ Use strong device password (not just PIN)
+- ✅ Lock device when away (auto-lock enabled)
+- ✅ Keep browser updated (security patches)
+- ✅ Use Content Security Policy to prevent XSS
+- ✅ Consider dedicated browser profile for financial apps
+- ✅ Don't sync browser profile to cloud for high-security use
+
+### 4. Attack Scenario Analysis
+
+#### ⚠️ Attack: Copy files and decrypt offline (Partial Success)
 
 ```javascript
 // Attacker steals browser storage
 const stolen = {
   encryptedMnemonic: "v1kT...x3Zp",
-  credentialId: "credential-abc123"
+  credentialId: "credential-abc123",
+  publicKey: "MFkw...EwYH...AQAB"
 }
 
-// Try to decrypt
-const key = deriveEncryptionKeyFromSignature(???, credentialId)
-//                                           ^^^
-//                                           BLOCKED: Cannot get signature
-//                                           Requires user's biometric/PIN
+// Derive the encryption key (deterministic)
+const key = deriveEncryptionKeyFromWebAuthn(credentialId, publicKey)
+//          ✅ SUCCESS - Key derivation works offline
+
+// Decrypt the wallet
+const mnemonic = await decryptData(stolen.encryptedMnemonic, key)
+//               ✅ SUCCESS - Wallet is now decrypted
 ```
 
-**Result:** ❌ **Attack fails** - Cannot obtain signature without authentication
+**Result:** ⚠️ **Attack partially succeeds** - Attacker can decrypt the wallet offline
+
+**However, to actually USE the wallet via w3pk SDK:**
+
+```javascript
+// Attacker tries to use the stolen mnemonic via SDK
+const w3pk = new Web3Passkey()
+await w3pk.login()
+//         ^^^^^^
+//         ❌ BLOCKED: Requires WebAuthn authentication
+//         Browser shows authentication prompt
+//         Attacker cannot provide user's biometric/PIN
+```
+
+**Key point:** The encryption protects data at rest, but the real security boundary is **SDK-enforced authentication**. An attacker who steals files can decrypt the mnemonic offline, but:
+1. They still need to authenticate to use the SDK
+2. Or they could import the mnemonic into another wallet (which is why users should protect their devices)
+
+**Mitigation:** Use device encryption (FileVault, BitLocker) and strong device passwords as an additional layer.
 
 #### ❌ Attack: JavaScript injection to read wallet
 
 ```javascript
-// Malicious script tries to decrypt wallet
-const signature = await navigator.credentials.get({...})
-//                      ^^^^^^^^^^^^^^^^^^^
-//                      BLOCKED: Browser shows authentication prompt
-//                      User sees malicious domain
-//                      User denies (or doesn't recognize the request)
+// Malicious script tries to access wallet via SDK
+const w3pk = new Web3Passkey()
+
+// Try to login and access wallet
+await w3pk.login()
+//         ^^^^^^
+//         BLOCKED: Browser shows WebAuthn authentication prompt
+//         User sees requesting domain in the prompt
+//         If domain is malicious, user should deny
+//         User must explicitly provide biometric/PIN
+
+// Even if user authenticates (phished), credentials are domain-scoped
+// The attacker's malicious.com credential cannot decrypt
+// wallets encrypted with legitimate.com credentials
 ```
 
-**Result:** ❌ **Attack fails** - User must explicitly authenticate
+**Result:** ❌ **Attack fails** - WebAuthn is domain-scoped, preventing cross-origin attacks
 
-#### ❌ Attack: Replay old signature
+**However, if attack happens on the SAME domain (XSS):**
 
 ```javascript
-// Attacker records a signature from network traffic
-const oldSignature = capturedFromNetwork()
-
-// Try to use it
-const key = await deriveEncryptionKeyFromSignature(oldSignature, credentialId)
-const decrypted = await decryptData(encryptedWallet, key)
-//                      ^^^^^^^^^^^
-//                      BLOCKED: Signatures are tied to fresh random challenges
-//                      Old signature won't decrypt (different challenge = different signature)
+// XSS attack on legitimate.com
+if (w3pk.hasActiveSession()) {
+  // If session is active, attacker can access wallet
+  const mnemonic = await w3pk.exportMnemonic()
+  sendToAttacker(mnemonic)  // ⚠️ SUCCESS during active session
+}
 ```
 
-**Result:** ❌ **Attack fails** - Signatures cannot be replayed
+**Result:** ⚠️ **Attack succeeds if session is active** - This is why:
+- Short session durations are critical (`sessionDuration: 0.1` for 6 minutes)
+- XSS prevention is essential (CSP, input sanitization)
+- The `requireAuth` flag is important but not a security boundary (can be bypassed by XSS)
+
+#### ❌ Attack: Steal credential metadata from another domain
+
+```javascript
+// Attacker creates phishing site: examp1e.com (note the "1")
+// User has legitimate credential on: example.com
+
+// Attacker steals credential metadata from example.com
+const stolenCredentialId = "..."
+const stolenPublicKey = "..."
+const stolenEncryptedWallet = "..."
+
+// Attacker can derive key and decrypt on their own server
+const key = deriveEncryptionKeyFromWebAuthn(stolenCredentialId, stolenPublicKey)
+const mnemonic = decryptData(stolenEncryptedWallet, key)
+
+// BUT: To use via WebAuthn, attacker tries to authenticate on examp1e.com
+await navigator.credentials.get({
+  publicKey: {
+    challenge: randomChallenge,
+    rpId: "examp1e.com",  // Attacker's domain
+    allowCredentials: [{
+      id: stolenCredentialId,
+      type: "public-key"
+    }]
+  }
+})
+//  ❌ BLOCKED: Browser enforces RP ID matching
+//  Credential created for "example.com" cannot be used on "examp1e.com"
+//  WebAuthn will not find any matching credentials
+```
+
+**Result:** ❌ **Attack fails** - WebAuthn credentials are cryptographically bound to the domain (RP ID)
 
 ## Encryption Strength
 
-### Key Derivation
-- **Algorithm:** PBKDF2
+### Wallet Encryption (At Rest)
+
+**Key Derivation:**
+- **Algorithm:** PBKDF2-SHA256
 - **Iterations:** 210,000 (OWASP 2023 recommendation)
 - **Hash:** SHA-256
-- **Salt:** Unique per credential (credentialId)
+- **Salt:** Fixed value `"w3pk-salt-v4"` (version identifier)
+- **Key Material:** Credential ID (32+ bytes) + Public Key (65-91 bytes)
+- **Output:** 256-bit AES key
 
-### Encryption
-- **Algorithm:** AES-GCM
+**Encryption:**
+- **Algorithm:** AES-256-GCM
 - **Key Size:** 256 bits
 - **IV:** Random 12 bytes per encryption
-- **Authentication:** Built-in (GCM mode)
+- **Authentication Tag:** 16 bytes (automatic with GCM)
+- **Additional Authenticated Data:** Ethereum address (for integrity)
 
-### Signature Entropy
-- WebAuthn signatures are typically **ECDSA P-256**
-- **256 bits** of entropy from signature
-- **256 bits** additional entropy from challenge
-- Combined: **512 bits** of key material
+**Entropy Analysis:**
+- Credential IDs are cryptographically random (256+ bits of entropy)
+- Public keys are derived from private keys (256 bits of entropy)
+- Combined key material: ~512 bits of entropy
+- PBKDF2 with 210k iterations provides protection against brute force
+
+**Note on Fixed Salt:**
+The salt is fixed (`"w3pk-salt-v4"`) rather than random per user. This is acceptable because:
+- The credential ID itself provides uniqueness (32+ random bytes)
+- Preimage attacks against PBKDF2-SHA256 are not practical
+- The primary threat model is online authentication bypass, not offline brute force
+- An attacker needs the actual credential metadata (not guessable)
+
+### Backup Encryption (User-Controlled)
+
+**Key Derivation:**
+- **Algorithm:** PBKDF2-SHA256
+- **Iterations:** 310,000 (OWASP 2025 recommendation) - **stronger than wallet encryption**
+- **Hash:** SHA-256
+- **Salt:** Random 32 bytes per backup (unique per backup)
+- **Key Material:** User-chosen password
+- **Output:** 256-bit AES key
+
+**Encryption:**
+- **Algorithm:** AES-256-GCM
+- **Key Size:** 256 bits
+- **IV:** Random 12 bytes per encryption
+- **Authentication Tag:** 16 bytes (automatic with GCM)
+- **Additional Authenticated Data:** Ethereum address (for integrity)
+
+**Password Requirements:**
+Enforced by `isStrongPassword()` utility:
+- Minimum 12 characters
+- Must include: uppercase, lowercase, numbers, special characters
+- Not in common password list (password, 123456, qwerty, etc.)
+- Strength score ≥ 50/100
+
+**Why Higher Iterations for Backups:**
+Backups are designed for offline storage and face different threat models:
+- Wallet encryption: Protected by device security + SDK authentication
+- Backup encryption: May be stored on USB drives, cloud, paper - offline brute force is the primary threat
+- 310,000 iterations (OWASP 2025) provides additional protection against GPU-based attacks
+
+**Brute Force Resistance:**
+Assuming attacker has access to encrypted backup and modern GPU (RTX 4090):
+- ~100,000 attempts/second at 310k iterations
+- Weak password (40 bits entropy): Hours to days
+- Strong password (60 bits entropy): Years to centuries
+- Random 16 char password (100 bits entropy): Universe lifetime
 
 ## Session Management
 
@@ -1639,21 +2430,72 @@ console.log('Write this down:', mnemonic)
 
 | Feature | w3pk | MetaMask | Hardware Wallet |
 |---------|------|----------|-----------------|
-| Password required | ❌ No | ✅ Yes | ❌ No |
+| Password required | ❌ No | ✅ Yes | ❌ No (PIN on device) |
 | Biometric auth | ✅ Yes | ❌ No | ❌ No |
 | Seed phrase backup | ✅ Required | ✅ Required | ✅ Required |
-| File access = theft? | ❌ **No** | ✅ **Yes** | ❌ No |
+| File access = theft? | ⚠️ **Partial*** | ⚠️ **Partial*** | ❌ No |
 | Keylogger risk | ❌ **No** | ✅ **Yes** | ❌ No |
+| XSS risk (active session) | ⚠️ **Yes** | ⚠️ **Yes** | ⚠️ Limited (per-tx) |
+| Remote attack protection | ✅ Strong | ⚠️ Password-dependent | ✅ Strong |
+| Offline brute force | ⚠️ Possible† | ⚠️ Possible† | ❌ Not possible |
 | Hardware required | ❌ No | ❌ No | ✅ Yes |
 | Cost | Free | Free | $50-200 |
+| Best for | Convenience + Security | General use | High-value holdings |
+
+**\*File access = theft?**
+- **w3pk:** Can decrypt mnemonic with localStorage + IndexedDB. Requires device encryption for full protection.
+- **MetaMask:** Can decrypt vault with password. Weak passwords are vulnerable to brute force.
+- **Hardware Wallet:** Private keys never leave device. File access doesn't help attacker.
+
+**†Offline brute force:**
+- **w3pk:** Attacker needs actual credential metadata (32+ byte random ID). Not guessable, but if stolen with encrypted wallet, can decrypt offline.
+- **MetaMask:** Attacker needs password. Weak passwords can be brute-forced. Strong passwords with vault encryption are resistant.
+- **Hardware Wallet:** Private keys in secure element. Cannot be extracted even with physical access (except advanced hardware attacks).
 
 ## Conclusion
 
-w3pk's security model ensures that **even with full file system access, an attacker cannot decrypt your wallet** without your biometric or device PIN. The encryption key is derived from WebAuthn signatures, which can only be obtained through hardware-protected authentication.
+w3pk's security model combines **WebAuthn authentication** with **deterministic encryption** to provide strong protection against remote attacks and convenient biometric access. Understanding both the strengths and limitations is critical for secure deployment.
 
-**Key Takeaway:** Your wallet is protected by the same hardware security that protects your phone/computer unlock. An attacker would need:
-1. Physical access to your device, AND
-2. Your fingerprint/face/PIN, AND
-3. Active browser session
+**Key Security Properties:**
 
-This makes w3pk significantly more secure than traditional password-protected wallets while maintaining the same recovery mechanism (mnemonic phrase).
+1. **Strong Protection Against Remote Attacks**
+   - WebAuthn authentication required for SDK operations
+   - Domain-scoped credentials prevent phishing
+   - No keylogger risk (biometric, not password)
+   - Better than password-based wallets for online threats
+
+2. **Encryption At Rest (with caveats)**
+   - Wallet encrypted with AES-256-GCM
+   - Key derived from credential metadata (deterministic)
+   - **Important:** An attacker with file system access CAN decrypt offline
+   - Real protection comes from SDK authentication-gating, not cryptographic impossibility
+
+3. **Defense in Depth Required**
+   - Use device encryption (FileVault, BitLocker, etc.)
+   - Use strong device passwords
+   - Keep sessions short or disabled for sensitive apps
+   - Implement XSS prevention (CSP, input sanitization)
+   - Don't rely solely on w3pk encryption for protection
+
+**What You Need to Know:**
+
+An attacker would need different things depending on their goal:
+
+**To decrypt the wallet offline (outside w3pk):**
+- Access to browser storage files (localStorage + IndexedDB)
+- Can then import mnemonic into any wallet
+
+**To use the wallet via w3pk SDK:**
+- Physical access to your device, AND
+- Your fingerprint/face/PIN to authenticate, OR
+- Code execution during active session (XSS)
+
+**Best Practices:**
+- ✅ Save your mnemonic securely (ultimate recovery)
+- ✅ Use device encryption + strong device password
+- ✅ Short sessions for sensitive applications (`sessionDuration: 0.1` or `0`)
+- ✅ Implement XSS prevention (this is critical)
+- ✅ Understand that w3pk provides convenience + authentication gating, not cryptographic impossibility
+- ✅ Use hardware wallets for very high-value holdings (>$10k)
+
+w3pk provides a strong balance between **security and usability** for most web3 applications. It's significantly more secure than password-based wallets against online threats, while providing biometric convenience. However, it should be deployed with proper device security and XSS prevention for maximum protection.
