@@ -138,7 +138,7 @@ async function runNFTOwnershipTests() {
     passTest('Main SDK initialized (no ZK dependencies)');
 
     // Step 2: Initialize ZK module separately when needed
-    const { ZKProofModule } = await import('../src/zk/proof-module');
+    const { ZKProofModule } = await import('../src/zk/index');
     const zkModule = new ZKProofModule({
       enabledProofs: ['nft']
     });
