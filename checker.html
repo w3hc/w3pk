@@ -10,20 +10,21 @@
         max-width: 1200px;
         margin: 20px auto;
         padding: 20px;
-        background: #f5f5f5;
+        background: #000000;
+        color: #FFFFFF;
       }
       .container {
-        background: white;
+        background: #000000;
         padding: 30px;
         border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 8px rgba(140, 28, 132, 0.3);
       }
       h1 {
-        color: #333;
+        color: #FFFFFF;
         margin-bottom: 10px;
       }
       .subtitle {
-        color: #666;
+        color: #45a2f8;
         margin-bottom: 30px;
       }
       .button-grid {
@@ -35,41 +36,56 @@
       button {
         padding: 12px 20px;
         font-size: 14px;
-        border: none;
-        border-radius: 4px;
+        border: 2px solid #8c1c84;
+        border-radius: 6px;
         cursor: pointer;
-        background: #007bff;
-        color: white;
-        transition: background 0.2s;
+        background: #000000;
+        color: #FFFFFF;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(140, 28, 132, 0.3);
+        font-weight: 500;
       }
       button:hover {
-        background: #0056b3;
+        background: #000000;
+        border-color: #45a2f8;
+        box-shadow: 0 6px 12px rgba(69, 162, 248, 0.4);
+        transform: translateY(-2px);
+      }
+      button:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(69, 162, 248, 0.3);
       }
       button:disabled {
-        background: #6c757d;
+        background: #000000;
+        border-color: #333;
+        color: #666;
         cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
       }
       .result {
         margin-top: 20px;
         padding: 15px;
-        background: #f8f9fa;
+        background: #1a1a1a;
         border-radius: 4px;
-        border-left: 4px solid #007bff;
+        border-left: 4px solid #45a2f8;
+        color: #FFFFFF;
       }
       .error {
         border-left-color: #dc3545;
-        background: #f8d7da;
+        background: #2a0a0a;
       }
       .success {
-        border-left-color: #28a745;
-        background: #d4edda;
+        border-left-color: #8c1c84;
+        background: #1a0a1a;
       }
       .empty {
-        border-left-color: #6c757d;
+        border-left-color: #666;
+        background: #1a1a1a;
       }
       pre {
-        background: #272822;
-        color: #f8f8f2;
+        background: #0a0a0a;
+        color: #FFFFFF;
         padding: 15px;
         border-radius: 4px;
         overflow-x: auto;
@@ -77,25 +93,27 @@
         word-wrap: break-word;
         max-height: 400px;
         overflow-y: auto;
+        border: 1px solid #333;
       }
       .section {
         margin-bottom: 30px;
       }
       .section h2 {
-        color: #333;
+        color: #45a2f8;
         margin-bottom: 15px;
         font-size: 18px;
       }
       .info {
-        background: #e7f3ff;
-        border-left: 4px solid #2196f3;
+        background: #0a0a1a;
+        border-left: 4px solid #8c1c84;
         padding: 15px;
         margin-bottom: 20px;
         border-radius: 4px;
+        color: #FFFFFF;
       }
       .key {
         font-weight: bold;
-        color: #007bff;
+        color: #8c1c84;
         margin-top: 15px;
       }
     </style>
@@ -587,7 +605,7 @@
           const img = new Image();
           img.src = result.qrCodeDataURL;
           img.style.maxWidth = '400px';
-          img.style.border = '2px solid #007bff';
+          img.style.border = '2px solid #8c1c84';
           img.style.borderRadius = '8px';
           img.style.marginTop = '10px';
 
@@ -678,7 +696,7 @@
           const img = new Image();
           img.src = invite.qrCode;
           img.style.maxWidth = '300px';
-          img.style.border = '2px solid #28a745';
+          img.style.border = '2px solid #8c1c84';
           img.style.borderRadius = '8px';
 
           const div = document.createElement('div');
