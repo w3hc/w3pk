@@ -63,6 +63,109 @@ export async function sha256Hash(data: string | Uint8Array): Promise<string> {
 }
 
 /**
+ * Stretch a key using PBKDF2
+ * Use case: Password hashing, deterministic key derivation
+ *
+ * @param input - The input string to stretch (e.g., password)
+ * @param salt - Salt value to prevent rainbow table attacks
+ * @param iterations - Number of iterations (default: 10000)
+ * @param keyLength - Output key length in bytes (default: 32)
+ * @returns Hex-encoded stretched key
+ */
+export async function stretchKey(
+  input: string,
+  salt: string,
+  iterations: number = 10000,
+  keyLength: number = 32
+): Promise<string> {
+  try {
+    const encoder = new TextEncoder();
+    const inputBuffer = encoder.encode(input);
+    const saltBuffer = encoder.encode(salt);
+
+    // Import the password as a key for PBKDF2
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      inputBuffer,
+      "PBKDF2",
+      false,
+      ["deriveBits"]
+    );
+
+    // Derive bits using PBKDF2
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: saltBuffer,
+        iterations: iterations,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      keyLength * 8 // Convert bytes to bits
+    );
+
+    // Convert to hex string
+    const hashArray = Array.from(new Uint8Array(derivedBits));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch (error) {
+    throw new CryptoError("Failed to stretch key", error);
+  }
+}
+
+/**
+ * Hash data with salt using SHA-256
+ * Use case: Creating deterministic identifiers
+ *
+ * @param data - The data to hash
+ * @param salt - Salt value for additional entropy
+ * @returns Hex-encoded hash
+ */
+export async function hashWithSalt(
+  data: string,
+  salt: string
+): Promise<string> {
+  try {
+    const combined = data + salt;
+    return await sha256Hash(combined);
+  } catch (error) {
+    throw new CryptoError("Failed to hash with salt", error);
+  }
+}
+
+/**
+ * Hash data multiple times (key stretching)
+ * Use case: Making brute-force attacks impractical
+ *
+ * @param data - The data to hash
+ * @param salt - Salt value to prevent rainbow table attacks
+ * @param iterations - Number of hash iterations
+ * @returns Hex-encoded hash after multiple iterations
+ */
+export async function iterativeHash(
+  data: string,
+  salt: string,
+  iterations: number
+): Promise<string> {
+  try {
+    if (iterations < 1) {
+      throw new Error("Iterations must be at least 1");
+    }
+
+    // Initial hash with salt
+    let hash = await hashWithSalt(data, salt);
+
+    // Iteratively hash the result
+    for (let i = 1; i < iterations; i++) {
+      hash = await sha256Hash(hash);
+    }
+
+    return hash;
+  } catch (error) {
+    throw new CryptoError("Failed to perform iterative hash", error);
+  }
+}
+
+/**
  * Build a merkle tree from leaves
  */
 export async function buildMerkleTree(leaves: string[]): Promise<{
