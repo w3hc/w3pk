@@ -527,7 +527,8 @@ Starting in v0.7.4, w3pk encrypts sensitive metadata (usernames and Ethereum add
   "id": "hashed-credential-id",               // SHA-256 hashed
   "encryptedUsername": "v1kT...x3Zp",        // AES-GCM encrypted
   "encryptedAddress": "w2sQ...y4Mp",         // AES-GCM encrypted
-  "publicKeyFingerprint": "fp1kT...x3Zp",    // SHA-256 hash only
+  "publicKey": "MFkw...EwYH...AQAB",          // Public key (needed for key derivation)
+  "publicKeyFingerprint": "fp1kT...x3Zp",    // SHA-256 hash for verification
   "createdAt": 1234567890,
   "lastUsed": 1234567890
 }
@@ -536,7 +537,7 @@ Starting in v0.7.4, w3pk encrypts sensitive metadata (usernames and Ethereum add
 **Security improvements:**
 - ✅ **XSS attacks cannot correlate** usernames to addresses without credential ID
 - ✅ **Credential IDs are hashed** - attackers cannot easily enumerate credentials
-- ✅ **Public keys replaced with fingerprints** - reduces information leakage
+- ✅ **Public key still stored** - needed for encryption key derivation (public keys are non-sensitive)
 - ✅ **Defense in depth** - Even if XSS reads localStorage, sensitive data is encrypted
 
 **Encryption details:**

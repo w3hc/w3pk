@@ -26,7 +26,8 @@ export interface EncryptedCredential {
   id: string; // Hashed credential ID
   encryptedUsername: string; // AES-GCM encrypted
   encryptedAddress: string; // AES-GCM encrypted
-  publicKeyFingerprint: string; // SHA-256 hash only
+  publicKey: string; // Public key (needed for encryption key derivation)
+  publicKeyFingerprint: string; // SHA-256 hash for verification
   createdAt: number;
   lastUsed: number;
 }
@@ -95,6 +96,7 @@ export class CredentialStorage {
           credential.ethereumAddress,
           metadataKey
         ),
+        publicKey: credential.publicKey, // Store public key (needed for key derivation)
         publicKeyFingerprint: await hashPublicKey(credential.publicKey),
         createdAt: credential.createdAt,
         lastUsed: credential.lastUsed,
@@ -125,7 +127,7 @@ export class CredentialStorage {
 
       return {
         id,
-        publicKey: "", // Public key is not stored, only fingerprint
+        publicKey: encrypted.publicKey, // Return the stored public key
         username: await decryptMetadata(encrypted.encryptedUsername, metadataKey),
         ethereumAddress: await decryptMetadata(
           encrypted.encryptedAddress,
