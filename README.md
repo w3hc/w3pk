@@ -292,6 +292,7 @@ See [Recovery Guide](./docs/RECOVERY.md) for complete documentation.
 - [API Reference](./docs/API_REFERENCE.md) - Complete API documentation
 - [Security Architecture](./docs/SECURITY.md) - Integration best practices
 - [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
+- [ZK Proofs](./docs/ZK.md) - Zero-Knowledge cryptography utilities
 
 ## Contributing
 
