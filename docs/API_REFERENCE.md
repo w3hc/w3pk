@@ -65,7 +65,7 @@ Register a new user with WebAuthn passkey authentication.
 
 ```typescript
 {
-  username: string;  // 3-50 characters, alphanumeric + underscore
+  username: string;  // 3-50 characters, alphanumeric + underscore + hyphen (must start/end with alphanumeric)
 }
 ```
 
@@ -1486,11 +1486,14 @@ console.log('Valid address:', valid) // true
 
 #### `validateUsername(username: string): boolean`
 
-Validate username (3-50 characters, alphanumeric + underscore).
+Validate username (3-50 characters, alphanumeric + underscore + hyphen). Must start and end with a letter or number.
 
 ```typescript
-const valid = validateUsername('alice_123')
+const valid = validateUsername('alice-123')
 console.log('Valid username:', valid) // true
+
+// Also valid: alice_123, web3-user, my-user_name
+// Invalid: -alice, alice-, _alice, alice_
 ```
 
 ---
