@@ -274,18 +274,6 @@ console.log('Can recover:', result.canRecover)
 
 See [Recovery Guide](./docs/RECOVERY.md) for complete documentation.
 
-## Browser Compatibility
-
-**Supported (95%+ of users):**
-- Chrome 67+ (May 2018), Edge 18+ (Nov 2018), Firefox 60+ (May 2018), Safari 14+ (Sep 2020)
-- iOS 14.5+ (April 2021), Android 9+ (August 2018)
-- Windows Hello, Touch ID, Face ID, platform authenticators
-
-**Not Supported:**
-- Safari < 14, Chrome/Firefox < 2018, IE11, Android < 9, iOS < 14.5
-- Private/Incognito mode (credentials don't persist)
-- WebView/embedded browsers (often disabled)
-
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
@@ -293,6 +281,7 @@ See [Recovery Guide](./docs/RECOVERY.md) for complete documentation.
 - [Security Architecture](./docs/SECURITY.md) - Integration best practices
 - [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
 - [ZK Proofs](./docs/ZK.md) - Zero-Knowledge cryptography utilities
+- [Browser compatibility](./docs/BROWSER_COMPATIBILITY.md)
 
 ## Contributing
 
