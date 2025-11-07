@@ -96,8 +96,8 @@ async function runTests() {
       publicKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...", // Mock public key
       username: "alice",
       ethereumAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-      createdAt: Date.now(),
-      lastUsed: Date.now(),
+      createdAt: new Date().toISOString(),
+      lastUsed: new Date().toISOString(),
     };
 
     // Save credential (should encrypt username/address)

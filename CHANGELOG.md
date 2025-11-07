@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING:** Standardized date format to ISO 8601 (e.g., `2025-11-07T10:37:00Z`) across entire codebase
+  - All timestamp fields now use ISO 8601 string format instead of millisecond numbers
+  - Affects: `createdAt`, `lastUsed`, `lastActive`, `expiresAt`, `updatedAt`, `addedAt`, `lastVerified`, `lastSyncTime`, and all other timestamp fields
+  - Updated type definitions in: `StoredCredential`, `EncryptedCredential`, `EncryptedWalletData`, `SessionData`, `SyncVault`, `DeviceInfo`, `Guardian`, `SocialRecoveryConfig`, `BackupMetadata`, `ZKProof`, `VerificationResult`, and all backup types
+  - Session management, device tracking, backup metadata, and ZK proofs now use ISO 8601 format
+  - **No backward compatibility** - existing stored data with numeric timestamps will need to be cleared
+  - Date comparisons updated to handle ISO 8601 string format throughout the codebase
+
 ### Fixed
 
 - Improved login compatibility on Firefox Mobile and other browsers with discoverable credential issues
@@ -15,13 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enhanced error messages to guide users when credentials are not available on device
   - Graceful fallback maintains compatibility with browsers that support discoverable credentials
 
-### Changed
+### Migration from Previous Versions
 
-- Updated `src/auth/authenticate.ts`:
-  - Retrieves stored credentials from localStorage before authentication
-  - Builds `allowCredentials` array with all transport types for maximum compatibility
-  - Improved error handling for "NotAllowedError" and credential not found scenarios
-  - Better user-facing error messages distinguishing between "no credentials exist" vs "credentials not available on this device"
+Users upgrading to this version will need to:
+1. Clear all stored credentials and wallets
+2. Re-register their accounts
+3. Reconfigure social recovery (if previously set up)
+4. Recreate backups
+
+This is necessary because the timestamp format has changed from numeric to ISO 8601 string format.
 
 ## [0.7.5] - 2025-11-01
 

@@ -10,8 +10,8 @@ export interface Guardian {
   publicKey?: string; // For encrypting their share
   shareEncrypted: string;
   status: 'pending' | 'active' | 'revoked';
-  addedAt: number;
-  lastVerified?: number;
+  addedAt: string;
+  lastVerified?: string;
 }
 
 export interface GuardianInvite {
@@ -26,7 +26,7 @@ export interface SocialRecoveryConfig {
   threshold: number; // M in M-of-N
   totalGuardians: number; // N in M-of-N
   guardians: Guardian[];
-  createdAt: number;
+  createdAt: string;
   ethereumAddress: string;
 }
 

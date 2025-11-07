@@ -70,8 +70,8 @@ export async function register(
       publicKey,
       username,
       ethereumAddress,
-      createdAt: Date.now(),
-      lastUsed: Date.now(),
+      createdAt: new Date().toISOString(),
+      lastUsed: new Date().toISOString(),
     });
 
     // Extract attestation signature for wallet encryption

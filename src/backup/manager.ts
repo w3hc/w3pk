@@ -97,7 +97,7 @@ export class BackupManager {
     return {
       enabled: supportsResidentKeys,
       deviceCount,
-      lastSyncTime: supportsResidentKeys ? Date.now() : undefined,
+      lastSyncTime: supportsResidentKeys ? new Date().toISOString() : undefined,
       platform,
     };
   }
@@ -201,7 +201,7 @@ export class BackupManager {
       id: crypto.randomUUID(),
       ethereumAddress,
       method: 'qr',
-      createdAt: Date.now(),
+      createdAt: new Date().toISOString(),
       addressChecksum: JSON.parse(rawData).checksum,
     };
 

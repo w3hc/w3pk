@@ -188,7 +188,7 @@ export class Web3Passkey {
         ethereumAddress: this.currentUser.ethereumAddress,
         encryptedMnemonic,
         credentialId,
-        createdAt: Date.now(),
+        createdAt: new Date().toISOString(),
       });
 
       this.sessionManager.startSession(mnemonic, credentialId);
@@ -411,7 +411,7 @@ export class Web3Passkey {
         ethereumAddress: this.currentUser.ethereumAddress,
         encryptedMnemonic,
         credentialId,
-        createdAt: Date.now(),
+        createdAt: new Date().toISOString(),
       });
 
       this.currentWallet = {

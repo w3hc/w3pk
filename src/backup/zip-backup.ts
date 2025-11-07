@@ -49,7 +49,7 @@ export class ZipBackupCreator {
       id: crypto.randomUUID(),
       ethereumAddress,
       method: 'zip',
-      createdAt: Date.now(),
+      createdAt: new Date().toISOString(),
       deviceFingerprint,
       addressChecksum: await deriveAddressChecksum(ethereumAddress),
     };
@@ -77,7 +77,7 @@ export class ZipBackupCreator {
       JSON.stringify(
         {
           address: ethereumAddress,
-          createdAt: new Date(metadata.createdAt).toISOString(),
+          createdAt: metadata.createdAt,
           backupId: metadata.id,
           addressChecksum: metadata.addressChecksum,
         },

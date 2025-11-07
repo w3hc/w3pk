@@ -82,7 +82,7 @@ export class SocialRecoveryManager {
       phone: g.phone,
       shareEncrypted: bytesToHex(shares[index]),
       status: 'pending' as const,
-      addedAt: Date.now(),
+      addedAt: new Date().toISOString(),
     }));
 
     // Store config
@@ -90,7 +90,7 @@ export class SocialRecoveryManager {
       threshold,
       totalGuardians: guardians.length,
       guardians: guardianObjects,
-      createdAt: Date.now(),
+      createdAt: new Date().toISOString(),
       ethereumAddress,
     };
 
@@ -430,7 +430,7 @@ Visit: https://docs.w3pk.org/social-recovery
     }
 
     guardian.status = 'active';
-    guardian.lastVerified = Date.now();
+    guardian.lastVerified = new Date().toISOString();
 
     this.setItem(this.storageKey, JSON.stringify(config));
   }

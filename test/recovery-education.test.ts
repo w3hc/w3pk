@@ -15,7 +15,7 @@ const mockBackupStatus: BackupStatus = {
   passkeySync: {
     enabled: true,
     deviceCount: 2,
-    lastSyncTime: Date.now(),
+    lastSyncTime: new Date().toISOString(),
     platform: 'apple'
   },
   recoveryPhrase: {
@@ -26,7 +26,7 @@ const mockBackupStatus: BackupStatus = {
         id: 'backup-1',
         method: 'zip',
         location: 'local',
-        createdAt: Date.now()
+        createdAt: new Date().toISOString()
       }
     ]
   },

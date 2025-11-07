@@ -10,7 +10,7 @@
 
 export interface SessionData {
   mnemonic: string;
-  expiresAt: number;
+  expiresAt: string;
   credentialId: string;
 }
 
@@ -26,7 +26,7 @@ export class SessionManager {
    * Start a new session with the decrypted mnemonic
    */
   startSession(mnemonic: string, credentialId: string): void {
-    const expiresAt = Date.now() + this.sessionDuration;
+    const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
     this.session = {
       mnemonic,
       expiresAt,
@@ -44,7 +44,7 @@ export class SessionManager {
     }
 
     // Check if session expired
-    if (Date.now() > this.session.expiresAt) {
+    if (new Date() > new Date(this.session.expiresAt)) {
       this.clearSession();
       return null;
     }
@@ -60,7 +60,7 @@ export class SessionManager {
       return null;
     }
 
-    if (Date.now() > this.session.expiresAt) {
+    if (new Date() > new Date(this.session.expiresAt)) {
       this.clearSession();
       return null;
     }
@@ -83,12 +83,12 @@ export class SessionManager {
       return 0;
     }
 
-    if (Date.now() > this.session.expiresAt) {
+    if (new Date() > new Date(this.session.expiresAt)) {
       this.clearSession();
       return 0;
     }
 
-    return Math.floor((this.session.expiresAt - Date.now()) / 1000);
+    return Math.floor((new Date(this.session.expiresAt).getTime() - Date.now()) / 1000);
   }
 
   /**
@@ -99,12 +99,12 @@ export class SessionManager {
       throw new Error("No active session to extend");
     }
 
-    if (Date.now() > this.session.expiresAt) {
+    if (new Date() > new Date(this.session.expiresAt)) {
       this.clearSession();
       throw new Error("Session expired, cannot extend");
     }
 
-    this.session.expiresAt = Date.now() + this.sessionDuration;
+    this.session.expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
   }
 
   /**

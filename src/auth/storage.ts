@@ -14,8 +14,8 @@ export interface StoredCredential {
   publicKey: string;
   username: string;
   ethereumAddress: string;
-  createdAt: number;
-  lastUsed: number;
+  createdAt: string;
+  lastUsed: string;
 }
 
 /**
@@ -28,8 +28,8 @@ export interface EncryptedCredential {
   encryptedAddress: string; // AES-GCM encrypted
   publicKey: string; // Public key (needed for encryption key derivation)
   publicKeyFingerprint: string; // SHA-256 hash for verification
-  createdAt: number;
-  lastUsed: number;
+  createdAt: string;
+  lastUsed: string;
 }
 
 /**
@@ -205,7 +205,7 @@ export class CredentialStorage {
     try {
       const credential = await this.getCredentialById(id);
       if (credential) {
-        credential.lastUsed = Date.now();
+        credential.lastUsed = new Date().toISOString();
         await this.saveCredential(credential);
       }
     } catch (error) {
