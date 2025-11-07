@@ -5,6 +5,24 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Improved login compatibility on Firefox Mobile and other browsers with discoverable credential issues
+  - Added `allowCredentials` list to authentication options as a hint when stored credentials exist
+  - Browsers can now locate credentials even when discoverable credential discovery fails
+  - Enhanced error messages to guide users when credentials are not available on device
+  - Graceful fallback maintains compatibility with browsers that support discoverable credentials
+
+### Changed
+
+- Updated `src/auth/authenticate.ts`:
+  - Retrieves stored credentials from localStorage before authentication
+  - Builds `allowCredentials` array with all transport types for maximum compatibility
+  - Improved error handling for "NotAllowedError" and credential not found scenarios
+  - Better user-facing error messages distinguishing between "no credentials exist" vs "credentials not available on this device"
+
 ## [0.7.5] - 2025-11-01
 
 ### Fixed

@@ -20,21 +20,73 @@ export async function login(): Promise<AuthResult> {
     const storage = new CredentialStorage();
     const challenge = generateChallenge();
 
-    const authOptions = {
+    // Get all stored credentials to build allowCredentials list
+    // This provides a hint to the browser about which credentials to look for
+    // Helps when discoverable credentials aren't working properly
+    let allowCredentials: Array<{ id: string; type: "public-key"; transports?: AuthenticatorTransport[] }> = [];
+
+    try {
+      const allCredentials = await storage.getAllCredentials();
+      if (allCredentials.length > 0) {
+        allowCredentials = allCredentials.map(cred => ({
+          id: cred.id,
+          type: "public-key" as const,
+          // Include all possible transports to maximize compatibility
+          transports: ["internal", "hybrid", "usb", "nfc", "ble"] as AuthenticatorTransport[],
+        }));
+        console.log(`[login] Found ${allowCredentials.length} stored credential(s)`);
+      } else {
+        console.log("[login] No stored credentials found, using discoverable credentials flow");
+      }
+    } catch (storageError) {
+      console.warn("[login] Failed to retrieve stored credentials:", storageError);
+      // Continue with empty allowCredentials (discoverable credentials flow)
+    }
+
+    const authOptions: any = {
       challenge,
       rpId: window.location.hostname,
       userVerification: "required" as const,
       timeout: 60000,
     };
 
-    const assertion = await startAuthentication({
-      optionsJSON: authOptions,
-    });
+    // Add allowCredentials if we have stored credentials
+    // This helps browsers find the right credential even if discoverable credentials fail
+    if (allowCredentials.length > 0) {
+      authOptions.allowCredentials = allowCredentials;
+    }
+
+    let assertion;
+    try {
+      assertion = await startAuthentication({
+        optionsJSON: authOptions,
+      });
+    } catch (error: any) {
+      // Handle the specific case where no credentials are available
+      if (error?.name === "NotAllowedError" ||
+          error?.message?.toLowerCase().includes("no credentials available") ||
+          error?.message?.toLowerCase().includes("no access key")) {
+
+        // Check if we have credentials in storage but not in authenticator
+        const storedCreds = await storage.getAllCredentials();
+        if (storedCreds.length > 0) {
+          throw new AuthenticationError(
+            "Your passkey is not available on this device. You may need to restore your wallet from a backup, or login on the device where you registered."
+          );
+        } else {
+          throw new AuthenticationError(
+            "No passkey found. Please register first or restore from a backup."
+          );
+        }
+      }
+      // Re-throw other errors
+      throw error;
+    }
 
     const credential = await storage.getCredentialById(assertion.id);
 
     if (!credential) {
-      throw new Error("Credential not found");
+      throw new Error("Credential not found in storage. This shouldn't happen - the passkey was authenticated but metadata is missing.");
     }
 
     const isValid = await verifyAssertion(assertion, credential);
