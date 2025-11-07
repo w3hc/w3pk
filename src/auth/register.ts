@@ -31,6 +31,12 @@ export async function register(
 
     const challenge = generateChallenge();
 
+    // Convert username to base64url for user.id (WebAuthn requirement)
+    // user.id must be base64url-encoded, as SimpleWebAuthn will decode it to bytes
+    const encoder = new TextEncoder();
+    const usernameBytes = encoder.encode(username);
+    const userIdBase64url = arrayBufferToBase64Url(usernameBytes);
+
     const registrationOptions = {
       challenge,
       rp: {
@@ -38,7 +44,7 @@ export async function register(
         id: window.location.hostname,
       },
       user: {
-        id: username,
+        id: userIdBase64url, // base64url-encoded username
         name: username,
         displayName: username,
       },

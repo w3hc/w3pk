@@ -7,7 +7,18 @@ export function validateEthereumAddress(address: string): boolean {
 }
 
 export function validateUsername(username: string): boolean {
-  return username.length >= 3 && username.length <= 50;
+  // Length check: 3-50 characters
+  if (username.length < 3 || username.length > 50) {
+    return false;
+  }
+
+  // Character check: alphanumeric, underscore, and hyphen
+  // Must start and end with alphanumeric (not hyphen or underscore)
+  // For 3+ char usernames: ^[a-zA-Z0-9] (start) + [a-zA-Z0-9_-]* (middle) + [a-zA-Z0-9]$ (end)
+  // This allows patterns like: "abc", "a-b", "a_b", "user-name", etc.
+  const validUsernamePattern = /^[a-zA-Z0-9]([a-zA-Z0-9_-]*[a-zA-Z0-9])?$/;
+
+  return validUsernamePattern.test(username);
 }
 
 export function validateMnemonic(mnemonic: string): boolean {
@@ -23,7 +34,9 @@ export function assertEthereumAddress(address: string): void {
 
 export function assertUsername(username: string): void {
   if (!validateUsername(username)) {
-    throw new Error("Username must be between 3 and 50 characters");
+    throw new Error(
+      "Username must be 3-50 characters long and contain only letters, numbers, underscores, and hyphens. Must start and end with a letter or number."
+    );
   }
 }
 

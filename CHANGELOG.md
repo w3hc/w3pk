@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **WebAuthn Registration**: Fixed user.id encoding issue that caused registration failures
+  - `user.id` now properly base64url-encoded before passing to WebAuthn
+  - Previously passed plain string was being incorrectly decoded by SimpleWebAuthn
+  - Fixes registration issues with usernames of all lengths (particularly noticeable with 9-character usernames)
+  - No impact on existing credentials or encrypted metadata
+
+### Added
+
+- **Username Validation**: Usernames now support hyphens in addition to alphanumeric and underscores
+  - Valid characters: letters (a-z, A-Z), numbers (0-9), underscores (_), hyphens (-)
+  - Must start and end with alphanumeric character (not hyphen or underscore)
+  - Examples: `web3-user`, `my-user_123`, `test-user-9`
+  - Updated validation error message to reflect new rules
+  - Added comprehensive test suite for username validation (32 test cases)
+  - Added username encoding tests (12 test cases)
+
 ### Changed
+
+- **Username Validation**: Updated to enforce character restrictions
+  - Previous: Only checked length (3-50 characters)
+  - Now: Checks length AND allowed characters with proper start/end validation
+- Updated API documentation to reflect new username rules
+- Improved login compatibility on Firefox Mobile and other browsers with discoverable credential issues
+  - Added `allowCredentials` list to authentication options as a hint when stored credentials exist
+  - Browsers can now locate credentials even when discoverable credential discovery fails
+  - Enhanced error messages to guide users when credentials are not available on device
+  - Graceful fallback maintains compatibility with browsers that support discoverable credentials
 
 - **BREAKING:** Standardized date format to ISO 8601 (e.g., `2025-11-07T10:37:00Z`) across entire codebase
   - All timestamp fields now use ISO 8601 string format instead of millisecond numbers
@@ -16,14 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Session management, device tracking, backup metadata, and ZK proofs now use ISO 8601 format
   - **No backward compatibility** - existing stored data with numeric timestamps will need to be cleared
   - Date comparisons updated to handle ISO 8601 string format throughout the codebase
-
-### Fixed
-
-- Improved login compatibility on Firefox Mobile and other browsers with discoverable credential issues
-  - Added `allowCredentials` list to authentication options as a hint when stored credentials exist
-  - Browsers can now locate credentials even when discoverable credential discovery fails
-  - Enhanced error messages to guide users when credentials are not available on device
-  - Graceful fallback maintains compatibility with browsers that support discoverable credentials
 
 ### Migration from Previous Versions
 
