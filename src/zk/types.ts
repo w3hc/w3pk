@@ -46,14 +46,14 @@ export interface ZKProof {
     curve: string;
   };
   publicSignals: string[];
-  timestamp: number;
+  timestamp: string;
 }
 
 export interface VerificationResult {
   valid: boolean;
   type: ProofType;
   publicSignals: Record<string, any>;
-  timestamp: number;
+  timestamp: string;
 }
 
 /**

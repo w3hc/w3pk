@@ -17,7 +17,7 @@ export class DeviceManager {
       id: await getDeviceFingerprint(),
       name: this.getDeviceName(),
       platform: this.detectPlatform(),
-      lastActive: Date.now(),
+      lastActive: new Date().toISOString(),
       trusted: true,
       canRevoke: false, // Current device cannot be revoked
     };
@@ -31,7 +31,7 @@ export class DeviceManager {
       localStorage.setItem(this.storageKey, JSON.stringify(devices));
     } else {
       // Update last active
-      existing.lastActive = Date.now();
+      existing.lastActive = new Date().toISOString();
       localStorage.setItem(this.storageKey, JSON.stringify(devices));
     }
 
@@ -67,10 +67,12 @@ export class DeviceManager {
     });
 
     // Sort by last active (most recent first)
-    devices.sort((a, b) => b.lastActive - a.lastActive);
+    devices.sort((a, b) => new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime());
 
     const platform = this.detectPlatform();
-    const lastSyncTime = devices.length > 1 ? Math.max(...devices.map((d) => d.lastActive)) : undefined;
+    const lastSyncTime = devices.length > 1
+      ? new Date(Math.max(...devices.map((d) => new Date(d.lastActive).getTime()))).toISOString()
+      : undefined;
 
     return {
       enabled: devices.length > 1,
@@ -106,7 +108,7 @@ export class DeviceManager {
 
     const device = devices.find((d) => d.id === currentDeviceId);
     if (device) {
-      device.lastActive = Date.now();
+      device.lastActive = new Date().toISOString();
       localStorage.setItem(this.storageKey, JSON.stringify(devices));
     }
   }
@@ -208,7 +210,7 @@ export class DeviceManager {
     let output = `Your Devices (${status.devices.length}):\n\n`;
 
     status.devices.forEach((device, index) => {
-      const lastActiveDiff = Date.now() - device.lastActive;
+      const lastActiveDiff = Date.now() - new Date(device.lastActive).getTime();
       const lastActiveStr = this.formatTimeDiff(lastActiveDiff);
 
       output += `${index + 1}. ${device.name}\n`;

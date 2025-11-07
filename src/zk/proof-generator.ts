@@ -194,7 +194,7 @@ export class ZKProofGenerator {
           curve: proof.curve || "bn128",
         },
         publicSignals: publicSignals.map((x: any) => x.toString()),
-        timestamp: Date.now(),
+        timestamp: new Date().toISOString(),
       };
     } catch (error) {
       throw new CryptoError(

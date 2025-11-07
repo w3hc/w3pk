@@ -12,14 +12,14 @@ export interface BackupStatus {
 export interface PasskeySyncStatus {
   enabled: boolean;
   deviceCount: number;
-  lastSyncTime?: number;
+  lastSyncTime?: string;
   platform: 'apple' | 'google' | 'microsoft' | 'unknown';
 }
 
 export interface RecoveryPhraseStatus {
   verified: boolean;
   verificationCount: number;
-  lastVerified?: number;
+  lastVerified?: string;
   encryptedBackups: EncryptedBackupInfo[];
 }
 
@@ -27,7 +27,7 @@ export interface EncryptedBackupInfo {
   id: string;
   method: 'zip' | 'qr' | 'file';
   location: string;
-  createdAt: number;
+  createdAt: string;
   deviceFingerprint?: string;
 }
 
@@ -46,8 +46,8 @@ export interface Guardian {
   publicKey?: string;
   shareEncrypted: string;
   status: 'pending' | 'active' | 'revoked';
-  addedAt: number;
-  lastVerified?: number;
+  addedAt: string;
+  lastVerified?: string;
 }
 
 export interface SecurityScore {
@@ -67,7 +67,7 @@ export interface BackupMetadata {
   id: string;
   ethereumAddress: string;
   method: 'zip' | 'qr' | 'file';
-  createdAt: number;
+  createdAt: string;
   deviceFingerprint?: string;
   addressChecksum: string; // For verification
 }

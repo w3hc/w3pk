@@ -40,7 +40,7 @@ export class VaultSync {
       deviceFingerprints: [deviceFingerprint],
       syncMethod,
       version: 1,
-      updatedAt: Date.now(),
+      updatedAt: new Date().toISOString(),
     };
   }
 
@@ -99,7 +99,7 @@ export class VaultSync {
     const deviceFingerprint = await getDeviceFingerprint();
     if (!vault.deviceFingerprints.includes(deviceFingerprint)) {
       vault.deviceFingerprints.push(deviceFingerprint);
-      vault.updatedAt = Date.now();
+      vault.updatedAt = new Date().toISOString();
     }
 
     return mnemonic;

@@ -12,7 +12,7 @@ export interface EncryptedWalletData {
   encryptedMnemonic: string;
   credentialId: string;
   // Challenge is NOT stored - generated fresh for each operation
-  createdAt: number;
+  createdAt: string;
 }
 
 export interface WalletStorage {

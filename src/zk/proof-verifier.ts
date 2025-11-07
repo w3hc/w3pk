@@ -278,7 +278,7 @@ export class ZKProofVerifier {
    * Check if proof is expired (optional time validation)
    */
   isProofExpired(proof: ZKProof, maxAgeMs: number = 3600000): boolean {
-    const age = Date.now() - proof.timestamp;
+    const age = Date.now() - new Date(proof.timestamp).getTime();
     return age > maxAgeMs;
   }
 }

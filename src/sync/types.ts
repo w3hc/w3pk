@@ -8,14 +8,14 @@ export interface SyncVault {
   deviceFingerprints: string[]; // Devices that can decrypt
   syncMethod: 'icloud' | 'google' | 'microsoft' | 'custom';
   version: number;
-  updatedAt: number;
+  updatedAt: string;
 }
 
 export interface DeviceInfo {
   id: string;
   name: string;
   platform: 'ios' | 'android' | 'macos' | 'windows' | 'linux' | 'unknown';
-  lastActive: number;
+  lastActive: string;
   trusted: boolean;
   canRevoke: boolean; // False for current device
 }
@@ -30,7 +30,7 @@ export interface SyncCapabilities {
 export interface SyncStatus {
   enabled: boolean;
   devices: DeviceInfo[];
-  lastSyncTime?: number;
+  lastSyncTime?: string;
   platform: string;
 }
 
