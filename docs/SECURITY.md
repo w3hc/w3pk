@@ -209,6 +209,306 @@ const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
 - Combined with device encryption and strong device passwords
 - Not as a replacement for hardware wallets for high-value holdings (>$10k)
 
+---
+
+## EIP-7702 Authorization Security
+
+EIP-7702 allows EOAs to delegate code execution to smart contracts through authorization signatures. This is a powerful feature that enables gasless transactions, but requires careful security considerations.
+
+### What is EIP-7702?
+
+EIP-7702 authorizations allow an EOA to **permanently delegate** its code execution to a contract until explicitly revoked. This enables:
+- Gasless transactions (sponsor pays gas)
+- Smart contract wallet features on regular EOAs
+- Account abstraction without deployment
+
+**Critical: Authorizations are PERSISTENT** - they remain active until revoked, not just for a single transaction.
+
+### Security Model
+
+#### Authorization Lifecycle
+
+1. **Sign Authorization (Offline)** - User signs authorization with `signAuthorization()`
+2. **First Transaction** - Authorization included in transaction, establishes permanent delegation
+3. **All Future Transactions** - Delegation persists, no new authorization needed
+4. **Revocation (Manual)** - User must explicitly sign new authorization to revoke
+
+#### Threat Analysis
+
+**✅ Protected Against:**
+- Unauthorized signing (requires WebAuthn or active session)
+- Phishing (authorization bound to specific contract address + chain ID)
+- Replay attacks (nonce-based protection)
+- Cross-chain attacks (chain ID binding)
+
+**⚠️ Requires Careful Handling:**
+- **Permanent delegation** - User authorizes contract INDEFINITELY
+- **Contract security** - If contract is malicious/buggy, user's EOA is compromised
+- **No automatic expiration** - Delegation persists until manual revocation
+- **Contract upgrades** - If delegated contract is upgradeable, consider upgrade risks
+
+**❌ NOT Protected Against:**
+- Malicious contracts (user must verify contract is trustworthy)
+- Social engineering (user can be tricked into authorizing bad contracts)
+- XSS during active session (can call `signAuthorization()` without auth)
+
+### Security Best Practices
+
+#### 1. Contract Verification (CRITICAL)
+
+**DO:**
+- ✅ Only authorize audited, verified contracts
+- ✅ Verify contract address matches expected contract
+- ✅ Check contract is not upgradeable, or understand upgrade mechanism
+- ✅ Understand what the contract can do with your account
+- ✅ Test with small amounts first
+- ✅ Monitor authorization usage on-chain
+
+**DON'T:**
+- ❌ Authorize unknown or unaudited contracts
+- ❌ Sign authorizations from untrusted UIs
+- ❌ Assume authorization is "temporary" or "one-time"
+- ❌ Ignore warnings about permanent delegation
+
+**Example - Safe Authorization:**
+
+```typescript
+// GOOD: Verify contract before authorizing
+const VERIFIED_GOV_CONTRACT = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1'
+const AUDIT_REPORT = 'https://audits.example.com/gov-v1.pdf'
+
+// Show user what they're authorizing
+console.log(`
+⚠️  AUTHORIZATION WARNING
+You are about to PERMANENTLY delegate your account to:
+Contract: ${VERIFIED_GOV_CONTRACT}
+Purpose: Gasless governance voting
+Audit: ${AUDIT_REPORT}
+
+This delegation will persist until you explicitly revoke it.
+`)
+
+// Only proceed with user confirmation
+if (await getUserConfirmation()) {
+  const auth = await w3pk.signAuthorization({
+    contractAddress: VERIFIED_GOV_CONTRACT,
+    chainId: 11155111,
+    requireAuth: true  // Force fresh authentication
+  })
+}
+```
+
+#### 2. Session Management
+
+**For sensitive operations, force fresh authentication:**
+
+```typescript
+// GOOD: Require fresh biometric authentication
+const authorization = await w3pk.signAuthorization({
+  contractAddress: govContract,
+  chainId: 1
+}, {
+  requireAuth: true  // User must authenticate
+})
+
+// BAD: Uses cached session (vulnerable to XSS)
+const authorization = await w3pk.signAuthorization({
+  contractAddress: govContract,
+  chainId: 1
+  // No requireAuth - uses session if available
+})
+```
+
+**Recommendation:** Always use `requireAuth: true` for EIP-7702 authorizations to ensure user consciously approves the permanent delegation.
+
+#### 3. Monitoring and Revocation
+
+**Check if account is already authorized:**
+
+```typescript
+import { publicClient } from 'viem'
+
+// Check if EOA has delegated code
+const code = await publicClient.getCode({ address: userAddress })
+const isAuthorized = code && code.length > 2
+
+if (isAuthorized) {
+  console.log('⚠️  Account already has active delegation')
+  // Show user current delegation details
+  // Offer to revoke if desired
+}
+```
+
+**Revoke delegation when no longer needed:**
+
+```typescript
+// Revoke by delegating to zero address
+const revocation = await w3pk.signAuthorization({
+  contractAddress: '0x0000000000000000000000000000000000000000',
+  chainId: 11155111,
+  nonce: currentNonce + 1n
+}, {
+  requireAuth: true  // Require authentication to revoke
+})
+
+await walletClient.sendTransaction({
+  to: userAddress,
+  value: 0n,
+  authorizationList: [revocation]
+})
+```
+
+#### 4. Private Key Handling
+
+**For derived and stealth addresses:**
+
+```typescript
+// GOOD: Derive key only when needed, clear immediately
+const mnemonic = await w3pk.exportMnemonic({ requireAuth: true })
+const { privateKey } = deriveWalletFromMnemonic(mnemonic, 5)
+
+const auth = await w3pk.signAuthorization({
+  contractAddress: govContract,
+  chainId: 1,
+  privateKey
+})
+
+// Clear sensitive data (JS engine will garbage collect)
+privateKey = null
+mnemonic = null
+
+// BAD: Store private keys long-term
+localStorage.setItem('privateKey', privateKey)  // ❌ NEVER DO THIS
+```
+
+#### 5. User Education
+
+**Always inform users about permanent delegation:**
+
+```typescript
+// Show clear warning before authorization
+const WARNING = `
+⚠️  PERMANENT DELEGATION WARNING
+
+You are signing an EIP-7702 authorization that will:
+• PERMANENTLY delegate your account to a smart contract
+• Allow the contract to execute transactions on your behalf
+• Persist until you explicitly revoke it
+• Cannot be automatically expired or cancelled
+
+Only proceed if you trust this contract and understand the risks.
+
+Contract: ${contractAddress}
+Chain: ${chainId}
+`
+
+console.warn(WARNING)
+await displayWarningModal(WARNING)
+```
+
+### Integration Security
+
+#### Recommended Pattern
+
+```typescript
+import { createWeb3Passkey } from 'w3pk'
+
+async function authorizeGovernanceContract() {
+  const sdk = createWeb3Passkey({
+    sessionDuration: 15,  // Short sessions for security
+    onError: (error) => {
+      logSecurityEvent('authorization_error', error)
+    }
+  })
+
+  try {
+    // 1. Verify contract (offchain)
+    const contractInfo = await fetchContractInfo(GOV_CONTRACT)
+    if (!contractInfo.verified || !contractInfo.audited) {
+      throw new Error('Contract not verified')
+    }
+
+    // 2. Check if already authorized
+    const code = await publicClient.getCode({ address: userAddress })
+    if (code && code.length > 2) {
+      console.log('Already authorized')
+      return
+    }
+
+    // 3. Show warning to user
+    const confirmed = await showAuthorizationWarning(contractInfo)
+    if (!confirmed) return
+
+    // 4. Sign with fresh authentication
+    const authorization = await sdk.signAuthorization({
+      contractAddress: GOV_CONTRACT,
+      chainId: CHAIN_ID,
+      nonce: 0n
+    }, {
+      requireAuth: true  // Force biometric/PIN
+    })
+
+    // 5. Submit first transaction
+    const hash = await walletClient.sendTransaction({
+      to: GOV_CONTRACT,
+      data: firstActionData,
+      authorizationList: [authorization]
+    })
+
+    // 6. Monitor transaction
+    const receipt = await publicClient.waitForTransactionReceipt({ hash })
+
+    // 7. Log successful authorization
+    logSecurityEvent('authorization_success', {
+      contract: GOV_CONTRACT,
+      chainId: CHAIN_ID,
+      txHash: hash
+    })
+
+    // 8. Store authorization record for user
+    await storeAuthorizationRecord({
+      contract: GOV_CONTRACT,
+      chainId: CHAIN_ID,
+      timestamp: Date.now(),
+      txHash: hash
+    })
+
+  } catch (error) {
+    logSecurityEvent('authorization_failed', error)
+    throw error
+  }
+}
+```
+
+### Comparison to Other Signing Methods
+
+| Security Aspect | `signMessage()` | `signAuthorization()` |
+|----------------|-----------------|----------------------|
+| **Scope** | One message | Permanent delegation |
+| **Duration** | Single use | Until revoked |
+| **Risk level** | Low | High |
+| **Requires fresh auth** | Optional | Recommended (always) |
+| **Contract verification** | N/A | Critical |
+| **Can be phished** | Signature only | Entire account |
+| **Revocation needed** | N/A | Yes |
+
+### Key Takeaways
+
+1. **EIP-7702 is NOT temporary** - Delegation persists indefinitely
+2. **Always verify contracts** - Malicious contract = compromised account
+3. **Use `requireAuth: true`** - Force fresh authentication for authorizations
+4. **Monitor authorizations** - Check on-chain code regularly
+5. **Educate users** - Make delegation persistence crystal clear
+6. **Implement revocation** - Provide easy way to revoke when needed
+7. **Log security events** - Track authorizations for security monitoring
+
+**For more details, see:**
+- [EIP-7702 Complete Guide](./EIP_7702.md)
+- [signAuthorization() API Reference](./API_REFERENCE.md#signauthorization)
+- [EIP-7702 Specification](https://eips.ethereum.org/EIPS/eip-7702)
+
+---
+
 ## Security Changelog
 
 This section tracks major security-related changes to w3pk's implementation.

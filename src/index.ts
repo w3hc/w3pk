@@ -13,6 +13,7 @@ export function createWeb3Passkey(config: Web3PasskeyConfig = {}): Web3Passkey {
 export type { Web3PasskeyConfig, StealthAddressConfig } from "./core/config";
 export type { UserInfo, WalletInfo } from "./types";
 export type { StealthKeys, StealthAddressResult } from "./stealth";
+export type { EIP7702Authorization, SignAuthorizationParams } from "./wallet/types";
 
 export {
   Web3PasskeyError,
