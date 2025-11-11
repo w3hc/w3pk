@@ -459,6 +459,136 @@ export class Web3Passkey {
   }
 
   /**
+   * Sign an EIP-7702 authorization for gasless transactions
+   *
+   * This allows your EOA to temporarily delegate code execution to a contract,
+   * enabling the contract to sponsor gas costs for your transactions.
+   *
+   * SECURITY: Uses active session or prompts for authentication if session expired
+   *
+   * @param params - Authorization parameters
+   * @param params.contractAddress - The contract address to authorize
+   * @param params.chainId - Optional chain ID (defaults to 1 for mainnet)
+   * @param params.nonce - Optional nonce (defaults to 0)
+   * @param params.privateKey - Optional private key to sign with (for derived or stealth addresses)
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
+   *
+   * @returns EIP-7702 authorization object with signature components
+   *
+   * @example
+   * ```typescript
+   * // Sign authorization with default address (index 0)
+   * const authorization = await sdk.signAuthorization({
+   *   contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
+   *   chainId: 11155111, // Sepolia
+   * });
+   *
+   * // Sign from a derived address
+   * const { privateKey } = deriveWalletFromMnemonic(mnemonic, 5);
+   * const authFromDerived = await sdk.signAuthorization({
+   *   contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
+   *   chainId: 11155111,
+   *   privateKey, // Use private key from derived index
+   * });
+   *
+   * // Sign from a stealth address
+   * const stealthPrivKey = computeStealthPrivateKey(viewingKey, spendingKey, ephemeralPubKey);
+   * const authFromStealth = await sdk.signAuthorization({
+   *   contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
+   *   chainId: 11155111,
+   *   privateKey: stealthPrivKey, // Use computed stealth private key
+   * });
+   *
+   * // Use with viem or ethers to submit gasless transaction
+   * await walletClient.sendTransaction({
+   *   to: govContractAddress,
+   *   data: encodeFunctionData({
+   *     abi: govAbi,
+   *     functionName: 'propose',
+   *     args: [targets, values, calldatas, description]
+   *   }),
+   *   authorizationList: [authorization]
+   * });
+   * ```
+   */
+  async signAuthorization(
+    params: {
+      contractAddress: string;
+      chainId?: number;
+      nonce?: bigint;
+      privateKey?: string;
+    },
+    options?: { requireAuth?: boolean }
+  ): Promise<{
+    chainId: bigint;
+    address: string;
+    nonce: bigint;
+    yParity: number;
+    r: string;
+    s: string;
+  }> {
+    try {
+      if (!this.currentUser) {
+        throw new WalletError("Must be authenticated to sign authorization");
+      }
+
+      const { Wallet, keccak256, concat, toBeHex, Signature } = await import("ethers");
+
+      let wallet: any;
+      let signerAddress: string;
+
+      // If privateKey is provided, use it directly (for derived or stealth addresses)
+      if (params.privateKey) {
+        wallet = new Wallet(params.privateKey);
+        signerAddress = wallet.address;
+      } else {
+        // Use default wallet (index 0) from mnemonic
+        const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
+        wallet = Wallet.fromPhrase(mnemonic);
+        signerAddress = wallet.address;
+      }
+
+      // Get chain ID (default to 1 for mainnet)
+      const chainId = BigInt(params.chainId || 1);
+
+      // Get nonce (default to 0)
+      const nonce = params.nonce || 0n;
+
+      // Construct EIP-7702 authorization message
+      // Format: 0x05 || rlp([chain_id, address, nonce])
+      const authorizationMessage = concat([
+        "0x05", // EIP-7702 magic byte
+        toBeHex(chainId, 32),
+        params.contractAddress.toLowerCase(),
+        toBeHex(nonce, 32)
+      ]);
+
+      // Hash the authorization message
+      const messageHash = keccak256(authorizationMessage);
+
+      // Sign the message hash
+      const signature = wallet.signingKey.sign(messageHash);
+
+      // Parse signature into components
+      const sig = Signature.from(signature);
+
+      // Return EIP-7702 authorization object
+      return {
+        chainId,
+        address: signerAddress.toLowerCase(),
+        nonce,
+        yParity: sig.yParity,
+        r: sig.r,
+        s: sig.s
+      };
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to sign authorization", error);
+    }
+  }
+
+  /**
    * Get RPC endpoints for a chain
    */
   async getEndpoints(chainId: number): Promise<string[]> {

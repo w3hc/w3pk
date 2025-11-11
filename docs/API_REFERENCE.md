@@ -320,6 +320,183 @@ const highValueSig = await w3pk.signMessage(
 
 ---
 
+### `signAuthorization(params: SignAuthorizationParams, options?: { requireAuth?: boolean }): Promise<EIP7702Authorization>`
+
+Sign an EIP-7702 authorization for gasless transactions.
+
+**Parameters:**
+
+```typescript
+params: {
+  contractAddress: string;  // Contract to delegate to
+  chainId?: number;         // Chain ID (default: 1)
+  nonce?: bigint;           // Nonce (default: 0n)
+  privateKey?: string;      // Optional: private key for derived/stealth addresses
+}
+
+options?: {
+  requireAuth?: boolean;    // Force fresh authentication (default: false)
+}
+```
+
+**Returns:**
+
+```typescript
+interface EIP7702Authorization {
+  chainId: bigint;     // Chain ID
+  address: string;     // Signer's address
+  nonce: bigint;       // Nonce value
+  yParity: number;     // Signature y parity (0 or 1)
+  r: string;           // Signature r value (hex)
+  s: string;           // Signature s value (hex)
+}
+```
+
+**What is EIP-7702?**
+
+EIP-7702 allows EOAs (Externally Owned Accounts) to **permanently delegate** code execution to a contract through authorization signatures. This enables:
+- **Zero ETH required** - DAO treasury or sponsor pays all gas
+- **Gasless transactions** - Users don't need gas tokens
+- **One-time authorization** - Sign ONCE, use forever (until revoked)
+- **Native protocol support** - Works on 329+ EVM chains
+
+**What happens:**
+1. User signs authorization offline (free)
+2. Authorization is included in **first transaction** - establishes permanent delegation
+3. All future transactions use the delegated contract code (no new authorization needed)
+4. Sponsor pays gas costs for all transactions
+
+**Security:** Uses active session or prompts for authentication if session expired.
+
+**Example (Default Address):**
+
+```typescript
+// Sign with default address (account #0)
+const authorization = await w3pk.signAuthorization({
+  contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
+  chainId: 11155111,  // Sepolia
+  nonce: 0n
+})
+
+console.log('Authorization:', authorization)
+// { chainId: 11155111n, address: '0x...', nonce: 0n, yParity: 1, r: '0x...', s: '0x...' }
+
+// First transaction - establishes delegation permanently
+import { walletClient } from 'viem'
+const hash = await walletClient.sendTransaction({
+  to: govContract,
+  data: proposeData,
+  authorizationList: [authorization]  // Only needed first time!
+})
+
+// All future transactions - NO authorization needed!
+const hash2 = await walletClient.sendTransaction({
+  to: govContract,
+  data: voteData
+  // No authorizationList - delegation persists!
+})
+```
+
+**Example (Derived Address):**
+
+```typescript
+import { deriveWalletFromMnemonic } from 'w3pk'
+
+// Get mnemonic from session
+const mnemonic = await w3pk.exportMnemonic()
+
+// Derive wallet at index 5
+const { address, privateKey } = deriveWalletFromMnemonic(mnemonic, 5)
+
+// Sign from derived address
+const authorization = await w3pk.signAuthorization({
+  contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
+  chainId: 1,
+  privateKey  // Use derived private key
+})
+
+console.log('Signed from:', authorization.address)
+// Output: derived address at index 5
+```
+
+**Example (Stealth Address):**
+
+```typescript
+import { computeStealthPrivateKey, deriveStealthKeys } from 'w3pk'
+
+// Get stealth keys
+const mnemonic = await w3pk.exportMnemonic()
+const { viewingKey, spendingKey } = deriveStealthKeys(mnemonic)
+
+// Get ephemeral key from ERC-5564 announcement
+const ephemeralPubKey = '0x...'  // From blockchain event
+
+// Compute stealth private key
+const stealthPrivateKey = computeStealthPrivateKey(
+  viewingKey,
+  spendingKey,
+  ephemeralPubKey
+)
+
+// Sign from stealth address
+const authorization = await w3pk.signAuthorization({
+  contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
+  chainId: 1,
+  privateKey: stealthPrivateKey
+})
+
+console.log('Anonymous authorization from:', authorization.address)
+```
+
+**Example (Force Authentication):**
+
+```typescript
+// Force fresh biometric authentication for sensitive operations
+const authorization = await w3pk.signAuthorization({
+  contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
+  chainId: 1
+}, {
+  requireAuth: true  // Prompt for WebAuthn even if session is active
+})
+```
+
+**Revoking Authorization:**
+
+```typescript
+// To revoke delegation, sign new authorization to zero address
+const revocation = await w3pk.signAuthorization({
+  contractAddress: '0x0000000000000000000000000000000000000000',
+  chainId: 11155111,
+  nonce: currentNonce + 1n
+})
+
+// Send transaction with revocation
+await walletClient.sendTransaction({
+  to: userAddress,  // Send to self
+  value: 0n,
+  authorizationList: [revocation]
+})
+
+console.log('Delegation revoked!')
+```
+
+**Important Notes:**
+
+⚠️ **CRITICAL:** EIP-7702 authorizations are **PERMANENT** until explicitly revoked!
+
+- Only authorize audited, verified, trusted contracts
+- Delegation persists across all transactions until revoked
+- Verify contract address carefully before signing
+- Use appropriate nonce values
+- Monitor authorization usage on-chain
+
+**Related Documentation:**
+- [EIP-7702 Complete Guide](../docs/EIP_7702.md)
+- [EIP-7702 Specification](https://eips.ethereum.org/EIPS/eip-7702)
+- [Integration Examples](../examples/eip7702-authorization.ts)
+
+---
+
 ## Stealth Addresses (ERC-5564)
 
 Enable stealth addresses in configuration:
