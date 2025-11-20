@@ -1,46 +1,28 @@
 /**
  * Cryptographic utilities for wallet encryption
  *
- * SECURITY: Encryption keys are derived from WebAuthn signatures of a fixed message.
- * This requires biometric/PIN authentication and provides true hardware-backed security.
- * Even with file system access, an attacker cannot decrypt without biometric authentication.
+ * SECURITY:
+ * - Encryption keys derived from WebAuthn credentials
+ * - Requires biometric/PIN authentication
+ * - Hardware-backed security
  */
 
 import { CryptoError } from "../core/errors";
 import { arrayBufferToBase64Url, safeAtob } from "../utils/base64";
 
 /**
- * Derives an encryption key from WebAuthn credential (RECOMMENDED)
+ * Derive encryption key from WebAuthn credential
  *
- * SECURITY: This provides authentication-gated encryption:
- * - Requires biometric/PIN to prove identity before decryption
- * - Uses credential ID + public key as deterministic key material
- * - WebAuthn authentication verifies user identity
- * - Session caching prevents repeated prompts (1 hour default)
- *
- * IMPORTANT: This is authentication-gated, not signature-encrypted.
- * An attacker with both localStorage AND IndexedDB access could decrypt,
- * BUT WebAuthn authentication is still required before SDK allows access.
- *
- * For stronger security at rest, consider server-based architecture.
- *
- * BROWSER SUPPORT:
- * ✅ Chrome 67+, Edge 18+, Firefox 60+, Safari 14+
- * ✅ iOS 14.5+, Android 9+
- * ❌ Older browsers/devices - will throw NotSupportedError
- *
- * @param credentialId - The credential ID (base64url encoded)
- * @param publicKey - The public key (base64url encoded, optional)
- * @returns Encryption key derived from credential metadata
- * @throws CryptoError if derivation fails
+ * SECURITY:
+ * - Authentication-gated encryption via biometric/PIN
+ * - Uses PBKDF2 with 210,000 iterations (OWASP 2023)
+ * - Session caching prevents repeated prompts
  */
 export async function deriveEncryptionKeyFromWebAuthn(
   credentialId: string,
   publicKey?: string
 ): Promise<CryptoKey> {
   try {
-    // Use credential ID + public key as deterministic key material
-    // This is the same every time for a given credential
     const keyMaterial = publicKey
       ? `w3pk-v4:${credentialId}:${publicKey}`
       : `w3pk-v4:${credentialId}`;
@@ -58,7 +40,6 @@ export async function deriveEncryptionKeyFromWebAuthn(
       ["deriveKey"]
     );
 
-    // Use a fixed salt for deterministic derivation
     const salt = await crypto.subtle.digest(
       "SHA-256",
       new TextEncoder().encode("w3pk-salt-v4")
@@ -68,7 +49,7 @@ export async function deriveEncryptionKeyFromWebAuthn(
       {
         name: "PBKDF2",
         salt: new Uint8Array(salt),
-        iterations: 210000, // OWASP 2023 recommendation
+        iterations: 210000,
         hash: "SHA-256",
       },
       importedKey,
@@ -85,22 +66,14 @@ export async function deriveEncryptionKeyFromWebAuthn(
 }
 
 /**
- * Derives an encryption key from credential ID (FALLBACK)
- *
- * WARNING: Does NOT require biometric authentication for decryption.
- * An attacker with file system access can decrypt the wallet.
- * Use only as fallback for unsupported platforms.
- *
- * @param credentialId - Unique credential identifier
- * @param publicKey - Public key from the credential (optional)
- * @deprecated Use deriveEncryptionKeyFromWebAuthn for biometric protection
+ * Derive encryption key from credential ID (fallback)
+ * @deprecated Use deriveEncryptionKeyFromWebAuthn
  */
 export async function deriveEncryptionKey(
   credentialId: string,
   publicKey?: string
 ): Promise<CryptoKey> {
   try {
-    // Create deterministic key material from credential ID and optional public key
     const keyMaterial = publicKey
       ? `w3pk-v2:${credentialId}:${publicKey}`
       : `w3pk-v2:${credentialId}`;
@@ -110,7 +83,6 @@ export async function deriveEncryptionKey(
       new TextEncoder().encode(keyMaterial)
     );
 
-    // Import as key material
     const importedKey = await crypto.subtle.importKey(
       "raw",
       keyMaterialHash,
@@ -119,18 +91,16 @@ export async function deriveEncryptionKey(
       ["deriveKey"]
     );
 
-    // Use a fixed salt for deterministic derivation
     const salt = await crypto.subtle.digest(
       "SHA-256",
       new TextEncoder().encode("w3pk-salt-v2")
     );
 
-    // Derive the actual encryption key with strong parameters
     return crypto.subtle.deriveKey(
       {
         name: "PBKDF2",
         salt: new Uint8Array(salt),
-        iterations: 210000, // OWASP 2023 recommendation
+        iterations: 210000,
         hash: "SHA-256",
       },
       importedKey,
@@ -143,18 +113,12 @@ export async function deriveEncryptionKey(
   }
 }
 
-/**
- * Generates a cryptographic challenge for WebAuthn authentication
- */
 export function generateChallenge(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return arrayBufferToBase64Url(array);
 }
 
-/**
- * Encrypts data using AES-GCM
- */
 export async function encryptData(
   data: string,
   key: CryptoKey
@@ -183,9 +147,6 @@ export async function encryptData(
   }
 }
 
-/**
- * Decrypts data using AES-GCM
- */
 export async function decryptData(
   encryptedData: string,
   key: CryptoKey
@@ -229,10 +190,6 @@ export async function decryptData(
   }
 }
 
-/**
- * Hashes a credential ID using SHA-256
- * Used to obscure credential IDs in localStorage
- */
 export async function hashCredentialId(credentialId: string): Promise<string> {
   try {
     const hash = await crypto.subtle.digest(
@@ -245,10 +202,6 @@ export async function hashCredentialId(credentialId: string): Promise<string> {
   }
 }
 
-/**
- * Hashes a public key using SHA-256
- * Creates a fingerprint for public key identification
- */
 export async function hashPublicKey(publicKey: string): Promise<string> {
   try {
     const hash = await crypto.subtle.digest(
@@ -261,10 +214,6 @@ export async function hashPublicKey(publicKey: string): Promise<string> {
   }
 }
 
-/**
- * Encrypts metadata (username, address, etc.) using AES-GCM
- * Similar to encryptData but specifically for credential metadata
- */
 export async function encryptMetadata(
   data: string,
   key: CryptoKey
@@ -272,10 +221,6 @@ export async function encryptMetadata(
   return encryptData(data, key);
 }
 
-/**
- * Decrypts metadata using AES-GCM
- * Similar to decryptData but specifically for credential metadata
- */
 export async function decryptMetadata(
   encryptedData: string,
   key: CryptoKey
