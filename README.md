@@ -29,9 +29,10 @@ await w3pk.login()
 // Sign message
 const signature = await w3pk.signMessage('Hello World')
 
-// Derive addresses
-const wallet0 = await w3pk.deriveWallet(0)
-const wallet1 = await w3pk.deriveWallet(1)
+// Derive addresses (3 modes)
+const wallet0 = await w3pk.deriveWallet(0) // By index
+const gamingWallet = await w3pk.deriveWallet('GAMING') // By tag (current origin)
+const mainWallet = await w3pk.deriveWallet() // Auto (current origin + MAIN tag)
 
 // Get RPC endpoints for any chain
 const endpoints = await w3pk.getEndpoints(1) // Ethereum
@@ -45,6 +46,7 @@ const rpcUrl = endpoints[0]
 - ⏱️ Session management (configurable duration, prevents repeated prompts)
 - 🌱 HD wallet generation (BIP39/BIP44)
 - 🔢 Multi-address derivation
+- 🌐 Origin-specific addresses (deterministic derivation per website with tag support)
 - 🥷 ERC-5564 stealth addresses (privacy-preserving transactions with view tags)
 - 🧮 ZK primitives (zero-knowledge proof generation and verification)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
@@ -87,10 +89,26 @@ const qrBackup = await w3pk.createQRBackup('optional-password')
 
 ### Wallet Operations
 
+`deriveWallet()` supports three modes for maximum flexibility:
+
 ```typescript
-// Derive addresses
+// 1. Classic index-based derivation (BIP44)
 const wallet0 = await w3pk.deriveWallet(0)
+const wallet1 = await w3pk.deriveWallet(1)
 // Returns: { address, privateKey }
+
+// 2. Origin-specific with custom tag (auto-detects current website)
+const gamingWallet = await w3pk.deriveWallet('GAMING')
+const tradingWallet = await w3pk.deriveWallet('TRADING')
+// Returns: { address, privateKey, index, origin, tag }
+
+// 3. Origin-specific with MAIN tag (auto-detect, no params)
+const mainWallet = await w3pk.deriveWallet()
+// Returns: { address, privateKey, index, origin, tag: 'MAIN' }
+
+// Each mode generates different addresses
+console.log(wallet0.address !== gamingWallet.address) // true
+console.log(gamingWallet.address !== tradingWallet.address) // true
 
 // Export mnemonic
 const mnemonic = await w3pk.exportMnemonic()

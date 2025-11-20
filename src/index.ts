@@ -42,6 +42,14 @@ export {
   deriveWalletFromMnemonic,
 } from "./wallet/generate";
 
+export {
+  getOriginSpecificAddress,
+  deriveIndexFromOriginAndTag,
+  normalizeOrigin,
+  getCurrentOrigin,
+  DEFAULT_TAG,
+} from "./wallet/origin-derivation";
+
 // Backup and Recovery
 export { BackupManager, BackupStorage } from "./backup";
 export { SocialRecoveryManager } from "./recovery";

@@ -7,6 +7,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
 - [Installation & Initialization](#installation--initialization)
 - [Core Authentication](#core-authentication)
 - [Wallet Management](#wallet-management)
+  - [Origin-Specific Address Derivation](#origin-specific-address-derivation)
 - [Stealth Addresses (ERC-5564)](#stealth-addresses-erc-5564)
 - [Zero-Knowledge Proofs](#zero-knowledge-proofs)
 - [Backup & Recovery](#backup--recovery)
@@ -202,20 +203,28 @@ console.log('New wallet:', mnemonic)
 
 ---
 
-### `deriveWallet(index: number, options?: { requireAuth?: boolean }): Promise<WalletInfo>`
+### `deriveWallet(indexOrTag?: number | string, options?: { requireAuth?: boolean; origin?: string }): Promise<WalletInfo>`
 
-Derive HD wallet at specific index using BIP44 path: `m/44'/60'/0'/0/{index}`.
+Unified wallet derivation supporting three modes:
+
+1. **By index (number)**: Classic BIP44 derivation at `m/44'/60'/0'/0/{index}`
+2. **By tag (string)**: Origin-specific derivation with custom tag (auto-detects current origin)
+3. **Auto-detect (undefined)**: Origin-specific with MAIN tag (no parameters)
 
 **Parameters:**
-- `index: number` - HD derivation index (0, 1, 2, ...)
+- `indexOrTag?: number | string` - HD index (number), tag (string), or undefined for auto
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
+- `options.origin?: string` - Override origin URL (only for tag/auto modes, default: current origin)
 
 **Returns:**
 
 ```typescript
 interface WalletInfo {
-  address: string;    // Ethereum address
-  privateKey?: string; // Private key (if available)
+  address: string;      // Ethereum address
+  privateKey?: string;  // Private key (if available)
+  index?: number;       // BIP44 index (for tag/auto modes)
+  origin?: string;      // Origin URL (for tag/auto modes)
+  tag?: string;         // Tag name (for tag/auto modes)
 }
 ```
 
@@ -224,16 +233,172 @@ interface WalletInfo {
 **Example:**
 
 ```typescript
-// Derive account #0
+// Mode 1: Classic index-based derivation
 const wallet0 = await w3pk.deriveWallet(0)
-console.log('Account 0:', wallet0.address)
-
-// Derive account #1
 const wallet1 = await w3pk.deriveWallet(1)
+console.log('Account 0:', wallet0.address)
 console.log('Account 1:', wallet1.address)
 
+// Mode 2: Origin-specific with custom tag (auto-detects current website)
+const gamingWallet = await w3pk.deriveWallet('GAMING')
+console.log('Gaming wallet:', gamingWallet.address)
+console.log('Tag:', gamingWallet.tag) // 'GAMING'
+console.log('Origin:', gamingWallet.origin) // e.g., 'https://example.com'
+
+const tradingWallet = await w3pk.deriveWallet('TRADING')
+console.log('Trading wallet:', tradingWallet.address) // Different address
+
+// Mode 3: Origin-specific with MAIN tag (no params)
+const mainWallet = await w3pk.deriveWallet()
+console.log('Main wallet:', mainWallet.address)
+console.log('Tag:', mainWallet.tag) // 'MAIN'
+
 // Force fresh authentication
-const wallet2 = await w3pk.deriveWallet(2, { requireAuth: true })
+const secureWallet = await w3pk.deriveWallet('SECURE', { requireAuth: true })
+
+// Override origin (advanced use case)
+const customWallet = await w3pk.deriveWallet('GAMING', {
+  origin: 'https://custom-domain.com'
+})
+```
+
+**Benefits:**
+- Same API for both classic and origin-specific derivation
+- Auto-detects current website origin
+- Privacy-preserving by default (each origin gets unique addresses)
+- Deterministic (same origin + tag = same address every time)
+
+---
+
+### Origin-Specific Address Derivation
+
+Generate deterministic addresses per origin/website with optional tag support for different use cases.
+
+#### `getOriginSpecificAddress(mnemonic: string, origin: string, tag?: string): Promise<OriginWalletInfo>`
+
+Derives an origin-specific address from mnemonic with optional tag support.
+
+**Parameters:**
+- `mnemonic: string` - The BIP39 mnemonic phrase
+- `origin: string` - The origin URL (e.g., "https://example.com")
+- `tag?: string` - Optional tag to generate different addresses for same origin (default: "MAIN")
+
+**Returns:**
+
+```typescript
+interface OriginWalletInfo {
+  address: string;    // Ethereum address
+  privateKey: string; // Private key
+  index: number;      // BIP44 derivation index
+  origin: string;     // Normalized origin
+  tag: string;        // Normalized tag (uppercase)
+}
+```
+
+**How it works:**
+1. Normalizes the origin URL (lowercase, removes trailing slash, handles standard ports)
+2. Combines origin and tag: `${origin}:${TAG}`
+3. SHA-256 hashes the combined string
+4. Derives deterministic index from hash (0 to 2^31-1)
+5. Derives wallet at BIP44 path: `m/44'/60'/0'/0/{index}`
+
+**Example:**
+
+```typescript
+import { getOriginSpecificAddress } from 'w3pk'
+
+const mnemonic = 'test test test test test test test test test test test junk'
+
+// Get MAIN address (default tag)
+const mainWallet = await getOriginSpecificAddress(
+  mnemonic,
+  'https://example.com'
+)
+console.log('Main:', mainWallet.address)
+// Returns: { address, privateKey, index: 33906495, origin: 'https://example.com', tag: 'MAIN' }
+
+// Get GAMING-specific address
+const gamingWallet = await getOriginSpecificAddress(
+  mnemonic,
+  'https://example.com',
+  'GAMING'
+)
+console.log('Gaming:', gamingWallet.address)
+// Different address from MAIN
+
+// Get TRADING-specific address
+const tradingWallet = await getOriginSpecificAddress(
+  mnemonic,
+  'https://example.com',
+  'TRADING'
+)
+console.log('Trading:', tradingWallet.address)
+// Different address from both MAIN and GAMING
+
+// Same origin + same tag = same address (deterministic)
+const wallet2 = await getOriginSpecificAddress(
+  mnemonic,
+  'https://example.com',
+  'GAMING'
+)
+console.log(gamingWallet.address === wallet2.address) // true
+```
+
+**Use Cases:**
+- **Privacy**: Each website gets unique addresses by default
+- **Compartmentalization**: Separate gaming, trading, social, etc. on same site
+- **Deterministic**: Reproducible addresses, no storage needed
+- **Tags**: MAIN, GAMING, TRADING, SOCIAL, SIMPLE, or custom tags
+
+**Tag Normalization:**
+- Tags are case-insensitive: "gaming", "GAMING", "GaMiNg" all produce same address
+- Tags are stored uppercase in the return value
+- Default tag when not specified: "MAIN"
+
+**Origin Isolation:**
+- `https://example.com` and `http://example.com` are different origins
+- `https://example.com` and `https://app.example.com` are different origins
+- Standard ports are normalized: `https://example.com:443` → `https://example.com`
+- Non-standard ports are preserved: `https://example.com:8443` stays as-is
+
+---
+
+#### Helper Functions
+
+##### `deriveIndexFromOriginAndTag(origin: string, tag?: string): Promise<number>`
+
+Derives deterministic index from origin and tag.
+
+**Example:**
+```typescript
+import { deriveIndexFromOriginAndTag } from 'w3pk'
+
+const index = await deriveIndexFromOriginAndTag('https://example.com', 'GAMING')
+console.log('Index:', index) // 1870479373
+```
+
+##### `normalizeOrigin(origin: string): string`
+
+Normalizes an origin URL for consistent derivation.
+
+**Example:**
+```typescript
+import { normalizeOrigin } from 'w3pk'
+
+const normalized = normalizeOrigin('https://EXAMPLE.COM/')
+console.log(normalized) // 'https://example.com'
+```
+
+##### `getCurrentOrigin(): string`
+
+Gets current browser origin (browser only).
+
+**Example:**
+```typescript
+import { getCurrentOrigin } from 'w3pk'
+
+const origin = getCurrentOrigin()
+console.log('Current origin:', origin) // e.g., 'https://app.example.com'
 ```
 
 ---
