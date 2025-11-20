@@ -80,3 +80,4 @@ secrets/
 *.key
 wallet_*.json
 credentials/
+docs/.internal
