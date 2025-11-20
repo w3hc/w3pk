@@ -11,6 +11,11 @@ import {
   deriveWalletFromMnemonic,
 } from "../wallet/generate";
 import {
+  getOriginSpecificAddress,
+  getCurrentOrigin,
+  DEFAULT_TAG,
+} from "../wallet/origin-derivation";
+import {
   deriveEncryptionKeyFromWebAuthn,
   encryptData,
   decryptData,
@@ -316,18 +321,35 @@ export class Web3Passkey {
   }
 
   /**
-   * Derive an HD wallet at a specific index
+   * Derive wallet - supports three modes:
+   *
+   * 1. By index (number): deriveWallet(0) - Classic BIP44 derivation at m/44'/60'/0'/0/{index}
+   * 2. By tag (string): deriveWallet('GAMING') - Origin-specific with custom tag
+   * 3. Auto-detect: deriveWallet() - Origin-specific with MAIN tag
    *
    * SECURITY: Uses active session or prompts for authentication if session expired
    *
-   * @param index - The HD wallet derivation index
+   * @param indexOrTag - Optional HD index (number), tag (string), or undefined for auto-detect
    * @param options - Optional configuration
    * @param options.requireAuth - If true, force fresh authentication even if session is active
+   * @param options.origin - Override origin URL (only used with string tag or undefined)
+   *
+   * @example
+   * // Classic index-based derivation
+   * const wallet0 = await sdk.deriveWallet(0)
+   * const wallet1 = await sdk.deriveWallet(1)
+   *
+   * // Origin-specific with custom tag
+   * const gamingWallet = await sdk.deriveWallet('GAMING')
+   * const tradingWallet = await sdk.deriveWallet('TRADING')
+   *
+   * // Origin-specific with default MAIN tag
+   * const mainWallet = await sdk.deriveWallet()
    */
   async deriveWallet(
-    index: number,
-    options?: { requireAuth?: boolean }
-  ): Promise<WalletInfo> {
+    indexOrTag?: number | string,
+    options?: { requireAuth?: boolean; origin?: string }
+  ): Promise<WalletInfo & { index?: number; origin?: string; tag?: string }> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to derive wallet");
@@ -335,11 +357,27 @@ export class Web3Passkey {
 
       const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
 
-      const derived = deriveWalletFromMnemonic(mnemonic, index);
+      // Mode 1: Number provided - classic index-based derivation
+      if (typeof indexOrTag === 'number') {
+        const derived = deriveWalletFromMnemonic(mnemonic, indexOrTag);
+        return {
+          address: derived.address,
+          privateKey: derived.privateKey,
+        };
+      }
+
+      // Mode 2 & 3: String tag or undefined - origin-specific derivation
+      const tag = typeof indexOrTag === 'string' ? indexOrTag : DEFAULT_TAG;
+      const origin = options?.origin || getCurrentOrigin();
+
+      const derived = await getOriginSpecificAddress(mnemonic, origin, tag);
 
       return {
         address: derived.address,
         privateKey: derived.privateKey,
+        index: derived.index,
+        origin: derived.origin,
+        tag: derived.tag,
       };
     } catch (error) {
       this.config.onError?.(error as any);
