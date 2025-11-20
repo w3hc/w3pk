@@ -1570,7 +1570,59 @@ const w3pk = new Web3Passkey({ sessionDuration: 0 })
 
 Since `requireAuth` and sessions can be bypassed by code execution, here are **essential security measures** to prevent attacks:
 
-### 1. Prevent XSS Attacks
+### 1. Build Verification
+
+Verify the integrity of the w3pk package before using it in production:
+
+```typescript
+import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
+
+// On application startup
+const TRUSTED_HASH = 'bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi' // From GitHub releases
+
+async function verifyW3pkIntegrity() {
+  try {
+    const currentHash = await getCurrentBuildHash()
+    const isValid = await verifyBuildHash(TRUSTED_HASH)
+
+    if (!isValid) {
+      console.error('⚠️  W3PK build verification failed!')
+      console.error('Expected:', TRUSTED_HASH)
+      console.error('Got:', currentHash)
+
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('W3PK package integrity check failed')
+      }
+    } else {
+      console.log('✅ W3PK build verified')
+    }
+  } catch (error) {
+    console.error('Build verification error:', error)
+  }
+}
+
+await verifyW3pkIntegrity()
+```
+
+**Best practices:**
+- ✅ Store trusted hashes in your backend or secure configuration
+- ✅ Verify on application startup
+- ✅ Fail securely in production if verification fails
+- ✅ Compare hashes from multiple sources (npm, CDN, GitHub releases)
+- ✅ Use HTTPS when fetching build files
+- ✅ Monitor for unexpected hash changes
+
+**Where to get trusted hashes:**
+1. GitHub releases (check signed release notes)
+2. Official documentation
+3. Multiple CDN sources for comparison
+4. Build locally and compare: `pnpm build && pnpm build:hash`
+
+See [Build Verification Guide](./BUILD_VERIFICATION.md) for detailed documentation.
+
+---
+
+### 2. Prevent XSS Attacks
 
 #### Content Security Policy (CSP)
 
@@ -1649,7 +1701,7 @@ function showTransaction(recipient: string) {
 <div v-html="userInput"></div>
 ```
 
-### 2. Defend Against Malicious Browser Extensions
+### 3. Defend Against Malicious Browser Extensions
 
 #### Extension Isolation Strategies
 
@@ -1716,7 +1768,7 @@ const securityMessage = `
 `
 ```
 
-### 3. Prevent Compromised Dependencies (Supply Chain)
+### 4. Prevent Compromised Dependencies (Supply Chain)
 
 #### Package Auditing
 
@@ -1798,7 +1850,7 @@ pnpm list --depth=1
 npx bundlephobia lodash
 ```
 
-### 4. Prevent Code Injection
+### 5. Prevent Code Injection
 
 #### Secure Build Pipeline
 
