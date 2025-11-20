@@ -42,7 +42,6 @@ const rpcUrl = endpoints[0]
 ## Features
 
 - 🔐 Passwordless authentication (WebAuthn/FIDO2)
-- 🔒 **Enhanced Security Model**: Applications cannot access master mnemonic or MAIN tag private keys
 - 🛡️ Origin-specific key isolation with tag-based access control
 - ⏱️ Session management (configurable duration, prevents repeated prompts)
 - 🌱 HD wallet generation (BIP39/BIP44)
