@@ -492,6 +492,107 @@ The browser tester provides buttons for testing:
 
 All results are displayed in real-time with detailed logs in the browser console.
 
+## Build Verification
+
+w3pk uses IPFS CIDv1 hashing to create deterministic build fingerprints for supply chain security.
+
+### Computing Build Hash
+
+After building the project:
+
+```bash
+# Build the project
+pnpm build
+
+# Compute IPFS hash
+pnpm build:hash
+```
+
+This outputs the build hash and saves it to `dist/BUILD_HASH.txt`.
+
+### Testing Build Verification
+
+```typescript
+// Test verification programmatically
+pnpm tsx examples/verify-build-hash.ts
+
+// Or run build hash tests
+pnpm test  # Includes build-hash.test.ts
+```
+
+### Build Verification API
+
+```typescript
+import { getCurrentBuildHash, verifyBuildHash } from 'w3pk';
+
+// Get hash of installed version
+const hash = await getCurrentBuildHash();
+
+// Verify against trusted hash
+const isValid = await verifyBuildHash('bafybei...');
+```
+
+See [docs/BUILD_VERIFICATION.md](./docs/BUILD_VERIFICATION.md) for complete documentation.
+
+## Release Process
+
+### ⚠️ Important: When to Update Build Hash
+
+**The build hash in README.md should ONLY be updated when publishing to npm.**
+
+- ✅ **Release to npm** → Update README hash
+- ❌ **Regular development** → Don't update README hash
+- The README hash should always match the **latest published npm version**, not git HEAD
+
+### Regular Development (NO hash update)
+
+For bug fixes, features, improvements that aren't being released:
+
+```bash
+# Make changes
+git add .
+git commit -m "feat: add cool feature"
+git push
+
+# Create PR, merge to main
+# ❌ DO NOT update README hash
+# ❌ DO NOT update version
+```
+
+### Publishing a New Release (WITH hash update)
+
+When ready to publish a new version to npm:
+
+```bash
+# 1. Bump version
+npm version patch  # or minor/major
+
+# 2. Build and compute hash
+pnpm build
+pnpm build:hash
+
+# 3. Update README.md
+# Edit the "Security & Verification" section with new version and hash
+
+# 4. Generate release notes
+pnpm release:notes
+
+# 5. Commit changes
+git add package.json README.md
+git commit -m "chore: release v0.7.7"
+git push
+
+# 6. Create GitHub release
+# - Go to: https://github.com/w3hc/w3pk/releases/new
+# - Auto-generate release notes
+# - Append content from .github/release-notes-addon.md
+
+# 7. Publish to npm
+pnpm publish
+```
+
+See [.github/RELEASE_WORKFLOW.md](./.github/RELEASE_WORKFLOW.md) for complete release documentation.
+
 ## Common Tasks
 
 ### Adding a New SDK Method

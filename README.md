@@ -1,5 +1,6 @@
 [![npm version](https://img.shields.io/npm/v/w3pk.svg)](https://www.npmjs.com/package/w3pk)
 [![npm downloads](https://img.shields.io/npm/dm/w3pk.svg)](https://www.npmjs.com/package/w3pk)
+[![Reproducible Build](https://img.shields.io/badge/reproducible-builds-blue?logo=ipfs)](https://github.com/w3hc/w3pk/blob/main/docs/BUILD_VERIFICATION.md)
 
 # w3pk
 
@@ -51,6 +52,7 @@ const rpcUrl = endpoints[0]
 - 🧮 ZK primitives (zero-knowledge proof generation and verification)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
 - ⚡ EIP-7702 network detection (329+ supported networks)
+- 🔍 Build verification (IPFS CIDv1 hashing for package integrity)
 - 🛡️ Three-layer backup & recovery system
   - Passkey auto-sync (iCloud/Google/Microsoft)
   - Encrypted backups (ZIP/QR with password protection)
@@ -292,10 +294,61 @@ console.log('Can recover:', result.canRecover)
 
 See [Recovery Guide](./docs/RECOVERY.md) for complete documentation.
 
+### Build Verification
+
+```typescript
+import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
+
+// Get IPFS hash of installed w3pk build
+const hash = await getCurrentBuildHash()
+console.log('Build hash:', hash)
+// => bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi
+
+// Verify against trusted hash (from GitHub releases)
+const trusted = 'bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi'
+const isValid = await verifyBuildHash(trusted)
+if (isValid) {
+  console.log('✅ Build integrity verified!')
+}
+```
+
+See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete documentation.
+
+## Security & Verification
+
+### Current Build Hash (v0.7.6)
+
+```
+bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi
+```
+
+**Verify package integrity:**
+
+```typescript
+import { verifyBuildHash } from 'w3pk'
+
+const TRUSTED_HASH = 'bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi'
+const isValid = await verifyBuildHash(TRUSTED_HASH)
+
+if (!isValid) {
+  throw new Error('Package integrity check failed!')
+}
+```
+
+**Multi-source verification:**
+- **GitHub:** Check release notes for official hash
+- **On-chain:** Verify via DAO-maintained registry (coming soon)
+- **Local build:** `pnpm build && pnpm build:hash`
+
+See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete documentation.
+
+---
+
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
 - [API Reference](./docs/API_REFERENCE.md) - Complete API documentation
+- [Build Verification](./docs/BUILD_VERIFICATION.md) - Package integrity verification
 - [Security Architecture](./docs/SECURITY.md) - Integration best practices
 - [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
 - [ZK Proofs](./docs/ZK.md) - Zero-Knowledge cryptography utilities

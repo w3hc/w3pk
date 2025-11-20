@@ -67,6 +67,14 @@ export {
   assertMnemonic,
 } from "./utils/validation";
 
+// Build verification utilities
+export {
+  getW3pkBuildHash,
+  getCurrentBuildHash,
+  verifyBuildHash,
+  getPackageVersion,
+} from "./utils/build-hash";
+
 // Backup and Recovery Types
 export type {
   BackupStatus,

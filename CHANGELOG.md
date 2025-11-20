@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Build Verification**: IPFS CIDv1 hash computation for package integrity verification
+  - `getCurrentBuildHash()` - Get hash for installed version from CDN
+  - `getW3pkBuildHash(url)` - Compute hash from any dist URL
+  - `verifyBuildHash(hash)` - Verify against trusted hash
+  - `getPackageVersion()` - Get current package version
+  - CLI script: `pnpm build:hash` to compute build hash
+  - Uses official IPFS libraries (`ipfs-unixfs-importer`, `blockstore-core`)
+  - Generates proper IPFS CIDv1 with UnixFS format
+  - Browser-compatible (Web Crypto API)
+  - Optional dependencies - won't bloat projects that don't need verification
+  - Comprehensive documentation in [BUILD_VERIFICATION.md](./docs/BUILD_VERIFICATION.md)
+  - Example usage in [examples/verify-build-hash.ts](./examples/verify-build-hash.ts)
+
 ### Fixed
 
 - **WebAuthn Registration**: Fixed user.id encoding issue that caused registration failures

@@ -15,6 +15,9 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
 - [Session Management](#session-management)
 - [Blockchain Utilities](#blockchain-utilities)
 - [Standalone Utilities](#standalone-utilities)
+  - [Validation Utilities](#validation-utilities)
+  - [Build Verification Utilities](#build-verification-utilities)
+  - [Wallet Generation Utilities](#wallet-generation-utilities)
 - [Error Types](#error-types)
 - [Type Definitions](#type-definitions)
 
@@ -1896,6 +1899,76 @@ Assert username is valid (throws if invalid).
 #### `assertMnemonic(mnemonic: string): void`
 
 Assert mnemonic is valid (throws if invalid).
+
+---
+
+### Build Verification Utilities
+
+```typescript
+import {
+  getCurrentBuildHash,
+  getW3pkBuildHash,
+  verifyBuildHash,
+  getPackageVersion
+} from 'w3pk'
+```
+
+#### `getCurrentBuildHash(): Promise<string>`
+
+Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
+
+```typescript
+const hash = await getCurrentBuildHash()
+console.log('Build hash:', hash)
+// => bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi
+```
+
+---
+
+#### `getW3pkBuildHash(distUrl: string): Promise<string>`
+
+Compute IPFS hash for w3pk build from any URL.
+
+```typescript
+// From unpkg
+const hash = await getW3pkBuildHash('https://unpkg.com/w3pk@0.7.6/dist')
+
+// From your CDN
+const hash = await getW3pkBuildHash('https://cdn.example.com/w3pk/dist')
+
+// From local dev server
+const hash = await getW3pkBuildHash('http://localhost:3000/dist')
+```
+
+---
+
+#### `verifyBuildHash(expectedHash: string): Promise<boolean>`
+
+Verify if the current build matches an expected hash.
+
+```typescript
+const trustedHash = 'bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi'
+const isValid = await verifyBuildHash(trustedHash)
+
+if (isValid) {
+  console.log('✅ Build integrity verified!')
+} else {
+  console.error('⚠️  Build hash mismatch - possible tampering')
+}
+```
+
+---
+
+#### `getPackageVersion(): string`
+
+Get the current w3pk package version.
+
+```typescript
+const version = getPackageVersion()
+console.log('Version:', version) // => 0.7.6
+```
+
+See [Build Verification Guide](./BUILD_VERIFICATION.md) for detailed documentation and integration examples.
 
 ---
 
