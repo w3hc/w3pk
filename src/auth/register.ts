@@ -31,8 +31,6 @@ export async function register(
 
     const challenge = generateChallenge();
 
-    // Convert username to base64url for user.id (WebAuthn requirement)
-    // user.id must be base64url-encoded, as SimpleWebAuthn will decode it to bytes
     const encoder = new TextEncoder();
     const usernameBytes = encoder.encode(username);
     const userIdBase64url = arrayBufferToBase64Url(usernameBytes);
@@ -44,7 +42,7 @@ export async function register(
         id: window.location.hostname,
       },
       user: {
-        id: userIdBase64url, // base64url-encoded username
+        id: userIdBase64url,
         name: username,
         displayName: username,
       },
@@ -80,8 +78,6 @@ export async function register(
       lastUsed: new Date().toISOString(),
     });
 
-    // Extract attestation signature for wallet encryption
-    // The attestationObject contains the authenticator's signature
     console.log("[register] Credential response:", credential.response);
     const attestationObject = credential.response.attestationObject;
     console.log("[register] Attestation object:", attestationObject);
@@ -90,15 +86,12 @@ export async function register(
       throw new Error("Attestation object not returned from authenticator");
     }
 
-    // Decode the attestationObject (it's base64url encoded CBOR)
     const attestationBuffer = base64UrlToArrayBuffer(attestationObject);
     console.log(
       "[register] Attestation buffer length:",
       attestationBuffer.byteLength
     );
 
-    // For now, we'll use the raw attestation data as our signature material
-    // This is cryptographically signed by the authenticator during registration
     return { signature: attestationBuffer };
   } catch (error) {
     throw new RegistrationError(

@@ -1,8 +1,3 @@
-/**
- * Web3 Passkey SDK
- * Passwordless authentication with encrypted wallets
- */
-
 import { Web3Passkey } from "./core/sdk";
 import type { Web3PasskeyConfig } from "./core/config";
 
@@ -29,34 +24,13 @@ export { Web3Passkey } from "./core/sdk";
 export { StealthAddressModule } from "./stealth";
 
 export {
-  canControlStealthAddress,
-  generateStealthAddress,
-  checkStealthAddress,
-  computeStealthPrivateKey,
-  deriveStealthKeys
-} from "./stealth/crypto";
-
-export {
-  generateBIP39Wallet,
-  createWalletFromMnemonic,
-  deriveWalletFromMnemonic,
-} from "./wallet/generate";
-
-export {
-  getOriginSpecificAddress,
-  deriveIndexFromOriginAndTag,
   normalizeOrigin,
   getCurrentOrigin,
   DEFAULT_TAG,
 } from "./wallet/origin-derivation";
 
-// Backup and Recovery
-export { BackupManager, BackupStorage } from "./backup";
-export { SocialRecoveryManager } from "./recovery";
-export { VaultSync, DeviceManager, PlatformDetector } from "./sync";
 export { RecoverySimulator, getExplainer, getAllTopics, searchExplainers } from "./education";
 
-// Validation utilities
 export {
   validateEthereumAddress,
   validateUsername,
@@ -67,7 +41,6 @@ export {
   assertMnemonic,
 } from "./utils/validation";
 
-// Build verification utilities
 export {
   getW3pkBuildHash,
   getCurrentBuildHash,
@@ -75,7 +48,6 @@ export {
   getPackageVersion,
 } from "./utils/build-hash";
 
-// Backup and Recovery Types
 export type {
   BackupStatus,
   SecurityScore,

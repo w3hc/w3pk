@@ -1,7 +1,3 @@
-/**
- * SDK Configuration
- */
-
 import type { UserInfo } from "../types";
 import type { Web3PasskeyError } from "./errors";
 
@@ -27,19 +23,11 @@ export interface Web3PasskeyConfig {
   storage?: Storage;
 
   /**
-   * Session duration in hours
-   * After successful authentication, the decrypted mnemonic is cached for this duration
-   * This allows operations like deriveWallet(), exportMnemonic(), stealth addresses, etc.
-   * to work without repeated authentication prompts
-   *
-   * @default 1 (hour)
-   * Set to 0 to require authentication for every operation (most secure)
+   * Session duration in hours (default: 1)
+   * Set to 0 to require authentication for every operation
    */
   sessionDuration?: number;
 
-  /**
-   * Stealth address configuration (ERC-5564)
-   */
   stealthAddresses?: StealthAddressConfig;
 
   /**
@@ -49,13 +37,11 @@ export interface Web3PasskeyConfig {
   zkProofs?: ZKProofConfig;
 }
 
-export interface InternalConfig extends Required<Web3PasskeyConfig> {
-  // Normalized config with all defaults applied
-}
+export interface InternalConfig extends Required<Web3PasskeyConfig> {}
 
 export const DEFAULT_CONFIG: Partial<InternalConfig> = {
   debug: false,
-  sessionDuration: 1, // 1 hour default
+  sessionDuration: 1,
   onError: (error: Web3PasskeyError) => {
     if (DEFAULT_CONFIG.debug) {
       console.error("[w3pk]", error);

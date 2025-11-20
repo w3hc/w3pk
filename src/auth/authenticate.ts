@@ -20,9 +20,6 @@ export async function login(): Promise<AuthResult> {
     const storage = new CredentialStorage();
     const challenge = generateChallenge();
 
-    // Get all stored credentials to build allowCredentials list
-    // This provides a hint to the browser about which credentials to look for
-    // Helps when discoverable credentials aren't working properly
     let allowCredentials: Array<{ id: string; type: "public-key"; transports?: AuthenticatorTransport[] }> = [];
 
     try {
@@ -31,7 +28,6 @@ export async function login(): Promise<AuthResult> {
         allowCredentials = allCredentials.map(cred => ({
           id: cred.id,
           type: "public-key" as const,
-          // Include all possible transports to maximize compatibility
           transports: ["internal", "hybrid", "usb", "nfc", "ble"] as AuthenticatorTransport[],
         }));
         console.log(`[login] Found ${allowCredentials.length} stored credential(s)`);
@@ -40,7 +36,6 @@ export async function login(): Promise<AuthResult> {
       }
     } catch (storageError) {
       console.warn("[login] Failed to retrieve stored credentials:", storageError);
-      // Continue with empty allowCredentials (discoverable credentials flow)
     }
 
     const authOptions: any = {
@@ -50,8 +45,6 @@ export async function login(): Promise<AuthResult> {
       timeout: 60000,
     };
 
-    // Add allowCredentials if we have stored credentials
-    // This helps browsers find the right credential even if discoverable credentials fail
     if (allowCredentials.length > 0) {
       authOptions.allowCredentials = allowCredentials;
     }
@@ -62,12 +55,10 @@ export async function login(): Promise<AuthResult> {
         optionsJSON: authOptions,
       });
     } catch (error: any) {
-      // Handle the specific case where no credentials are available
       if (error?.name === "NotAllowedError" ||
           error?.message?.toLowerCase().includes("no credentials available") ||
           error?.message?.toLowerCase().includes("no access key")) {
 
-        // Check if we have credentials in storage but not in authenticator
         const storedCreds = await storage.getAllCredentials();
         if (storedCreds.length > 0) {
           throw new AuthenticationError(
@@ -79,7 +70,6 @@ export async function login(): Promise<AuthResult> {
           );
         }
       }
-      // Re-throw other errors
       throw error;
     }
 
@@ -97,8 +87,6 @@ export async function login(): Promise<AuthResult> {
 
     await storage.updateLastUsed(credential.id);
 
-    // SECURITY: Return the signature so it can be used to derive encryption keys
-    // The signature can ONLY be obtained through biometric/PIN authentication
     const signatureBuffer = base64UrlToArrayBuffer(
       assertion.response.signature
     );
@@ -141,16 +129,13 @@ async function verifyAssertion(
       assertion.response.authenticatorData
     );
 
-    // clientDataJSON comes as base64url string, need to decode it first
     const clientDataJSON = assertion.response.clientDataJSON;
     let clientDataJSONString: string;
 
-    // Check if it's already a JSON string or base64url encoded
     if (clientDataJSON.startsWith("eyJ")) {
       const decoded = safeAtob(clientDataJSON);
       clientDataJSONString = decoded;
     } else {
-      // It's already a JSON string
       clientDataJSONString = clientDataJSON;
     }
 

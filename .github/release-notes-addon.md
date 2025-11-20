@@ -2,7 +2,7 @@
 
 **IPFS CIDv1 Hash:**
 ```
-bafybeigvi2t7juchvhsk723fu2nuon2ks664k34653nnhar2fxaq4b2tba
+bafybeid4lxeev2nperciozegxexe6q22soz7pwhl234qoivt2ffbf3tbl4
 ```
 
 ### Verify This Release
@@ -11,7 +11,7 @@ bafybeigvi2t7juchvhsk723fu2nuon2ks664k34653nnhar2fxaq4b2tba
 ```typescript
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeigvi2t7juchvhsk723fu2nuon2ks664k34653nnhar2fxaq4b2tba'
+const TRUSTED_HASH = 'bafybeid4lxeev2nperciozegxexe6q22soz7pwhl234qoivt2ffbf3tbl4'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
 
 if (isValid) {
@@ -25,19 +25,19 @@ if (isValid) {
 ```bash
 git clone https://github.com/w3hc/w3pk.git
 cd w3pk
-git checkout v0.7.6
+git checkout v0.7.7
 pnpm install
 pnpm build
 pnpm build:hash
-# Should output: bafybeigvi2t7juchvhsk723fu2nuon2ks664k34653nnhar2fxaq4b2tba
+# Should output: bafybeid4lxeev2nperciozegxexe6q22soz7pwhl234qoivt2ffbf3tbl4
 ```
 
 **Option 3: Compare Multiple Sources**
 ```bash
 # Check hash from npm package
-npm view w3pk@0.7.6 dist.tarball | xargs curl -s | tar -xz
+npm view w3pk@0.7.7 dist.tarball | xargs curl -s | tar -xz
 cat package/dist/BUILD_HASH.txt
-# Should match: bafybeigvi2t7juchvhsk723fu2nuon2ks664k34653nnhar2fxaq4b2tba
+# Should match: bafybeid4lxeev2nperciozegxexe6q22soz7pwhl234qoivt2ffbf3tbl4
 ```
 
 ### Multi-Source Verification
@@ -49,7 +49,7 @@ For maximum security, verify the hash from multiple sources:
 3. ✅ **On-chain registry**: Coming soon - DAO-maintained hash registry
 4. ✅ **Local build**: Clone repo and build yourself
 
-All sources should report the same hash: `bafybeigvi2t7juchvhsk723fu2nuon2ks664k34653nnhar2fxaq4b2tba`
+All sources should report the same hash: `bafybeid4lxeev2nperciozegxexe6q22soz7pwhl234qoivt2ffbf3tbl4`
 
 ### What is Build Verification?
 

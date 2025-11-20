@@ -30,10 +30,9 @@ await w3pk.login()
 // Sign message
 const signature = await w3pk.signMessage('Hello World')
 
-// Derive addresses (3 modes)
-const wallet0 = await w3pk.deriveWallet(0) // By index
-const gamingWallet = await w3pk.deriveWallet('GAMING') // By tag (current origin)
-const mainWallet = await w3pk.deriveWallet() // Auto (current origin + MAIN tag)
+// Derive addresses (2 modes)
+const gamingWallet = await w3pk.deriveWallet('GAMING') // By tag - includes privateKey
+const mainWallet = await w3pk.deriveWallet() // Auto (MAIN tag) - public address only, no privateKey
 
 // Get RPC endpoints for any chain
 const endpoints = await w3pk.getEndpoints(1) // Ethereum
@@ -43,12 +42,12 @@ const rpcUrl = endpoints[0]
 ## Features
 
 - 🔐 Passwordless authentication (WebAuthn/FIDO2)
-- 🔒 Client-only biometric-gated wallet encryption (AES-GCM-256)
+- 🛡️ Origin-specific key isolation with tag-based access control
 - ⏱️ Session management (configurable duration, prevents repeated prompts)
 - 🌱 HD wallet generation (BIP39/BIP44)
 - 🔢 Multi-address derivation
 - 🌐 Origin-specific addresses (deterministic derivation per website with tag support)
-- 🥷 ERC-5564 stealth addresses (privacy-preserving transactions with view tags)
+- 🥷 ERC-5564 stealth addresses (opt-in, privacy-preserving transactions with view tags)
 - 🧮 ZK primitives (zero-knowledge proof generation and verification)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
 - ⚡ EIP-7702 network detection (329+ supported networks)
@@ -80,43 +79,38 @@ w3pk.user
 
 **Important: Backup your wallet!**
 ```typescript
-// After registration, users can create a backup
-const mnemonic = await w3pk.exportMnemonic({ requireAuth: true })
-console.log('⚠️  Save this recovery phrase:', mnemonic)
 
-// Or create encrypted backups:
+// Create encrypted backups:
 const zipBackup = await w3pk.createZipBackup('strong-password')
 const qrBackup = await w3pk.createQRBackup('optional-password')
 ```
 
 ### Wallet Operations
 
-`deriveWallet()` supports three modes for maximum flexibility:
+**SECURITY MODEL**: `deriveWallet()` supports two secure modes:
 
 ```typescript
-// 1. Classic index-based derivation (BIP44)
-const wallet0 = await w3pk.deriveWallet(0)
-const wallet1 = await w3pk.deriveWallet(1)
-// Returns: { address, privateKey }
+// 1. MAIN tag (default) - ADDRESS ONLY, NO PRIVATE KEY
+const mainWallet = await w3pk.deriveWallet()
+// Returns: { address, index, origin, tag: 'MAIN' }
+// ✅ Safe for display
+// ❌ No privateKey exposed
 
-// 2. Origin-specific with custom tag (auto-detects current website)
+// 2. Custom tag - INCLUDES PRIVATE KEY for app-specific use
 const gamingWallet = await w3pk.deriveWallet('GAMING')
-const tradingWallet = await w3pk.deriveWallet('TRADING')
+const funWallet = await w3pk.deriveWallet('FUN')
+const basicWallet = await w3pk.deriveWallet('BASIC')
 // Returns: { address, privateKey, index, origin, tag }
 
-// 3. Origin-specific with MAIN tag (auto-detect, no params)
-const mainWallet = await w3pk.deriveWallet()
-// Returns: { address, privateKey, index, origin, tag: 'MAIN' }
-
-// Each mode generates different addresses
-console.log(wallet0.address !== gamingWallet.address) // true
+// Different tags = different addresses
+console.log(mainWallet.address !== gamingWallet.address) // true
 console.log(gamingWallet.address !== tradingWallet.address) // true
 
-// Export mnemonic
-const mnemonic = await w3pk.exportMnemonic()
+// SECURITY: Applications CANNOT access master mnemonic
+// await w3pk.exportMnemonic() // ❌ Throws error
 
-// Sign message
-const signature = await w3pk.signMessage(message)
+// Sign message (works with any address - no key exposure needed)
+const signature = await w3pk.signMessage('Hello World')
 ```
 
 ### Session Management
@@ -133,10 +127,9 @@ const w3pk = createWeb3Passkey({
 await w3pk.login()
 
 // These operations use the cached session
-await w3pk.deriveWallet(0)
-await w3pk.exportMnemonic()
+await w3pk.deriveWallet('GAMING')
 await w3pk.signMessage('Hello')
-await w3pk.stealth.getKeys()
+await w3pk.stealth?.getKeys() // If stealth module enabled
 
 // Check session status
 w3pk.hasActiveSession() // true

@@ -1,18 +1,13 @@
-/**
- * BIP39 wallet generation
- */
-
 import { ethers } from "ethers";
 import { WalletError } from "../core/errors";
 import type { WalletData } from "./types";
 
 /**
- * Generates a new BIP39 wallet with HD derivation
- * Uses BIP44 path: m/44'/60'/0'/0/0 for Ethereum
+ * Generate BIP39 wallet with HD derivation
+ * Uses BIP44 path: m/44'/60'/0'/0/0
  */
 export function generateBIP39Wallet(): WalletData {
   try {
-    // Generate random mnemonic using ethers' utility
     const mnemonic = ethers.Wallet.createRandom().mnemonic;
 
     if (!mnemonic) {
@@ -20,8 +15,6 @@ export function generateBIP39Wallet(): WalletData {
     }
 
     const mnemonicPhrase = mnemonic.phrase;
-
-    // Create HD wallet from mnemonic phrase with derivation path
     const derivationPath = "m/44'/60'/0'/0/0";
     const hdWallet = ethers.HDNodeWallet.fromPhrase(
       mnemonicPhrase,
@@ -39,7 +32,7 @@ export function generateBIP39Wallet(): WalletData {
 }
 
 /**
- * Creates wallet from mnemonic phrase
+ * Create wallet from mnemonic
  * Uses BIP44 path: m/44'/60'/0'/0/0
  */
 export function createWalletFromMnemonic(
@@ -50,7 +43,6 @@ export function createWalletFromMnemonic(
       throw new Error("Invalid mnemonic: must be at least 12 words");
     }
 
-    // Create HD wallet with derivation path directly
     const derivationPath = "m/44'/60'/0'/0/0";
     const wallet = ethers.HDNodeWallet.fromPhrase(
       mnemonic.trim(),
@@ -70,7 +62,7 @@ export function createWalletFromMnemonic(
 }
 
 /**
- * Derives HD wallet address and private key at specific index
+ * Derive HD wallet at specific index
  * Uses BIP44 path: m/44'/60'/0'/0/{index}
  */
 export function deriveWalletFromMnemonic(
@@ -86,7 +78,6 @@ export function deriveWalletFromMnemonic(
       throw new Error("Index must be a non-negative integer");
     }
 
-    // Create HD wallet with derivation path including index
     const derivationPath = `m/44'/60'/0'/0/${index}`;
     const wallet = ethers.HDNodeWallet.fromPhrase(
       mnemonic.trim(),
