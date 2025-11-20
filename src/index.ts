@@ -28,32 +28,32 @@ export {
 export { Web3Passkey } from "./core/sdk";
 export { StealthAddressModule } from "./stealth";
 
-export {
-  canControlStealthAddress,
-  generateStealthAddress,
-  checkStealthAddress,
-  computeStealthPrivateKey,
-  deriveStealthKeys
-} from "./stealth/crypto";
+// SECURITY: Stealth address crypto functions are NOT exported
+// Applications should use the StealthAddressModule through the SDK
+// which properly manages authentication and sessions
 
-export {
-  generateBIP39Wallet,
-  createWalletFromMnemonic,
-  deriveWalletFromMnemonic,
-} from "./wallet/generate";
+// SECURITY: Wallet generation functions are NOT exported
+// Applications should use sdk.generateWallet() and sdk.deriveWallet()
+// which enforce origin-specific derivation and MAIN tag restrictions
 
+// SECURITY: Origin derivation utilities exported for advanced use cases
+// These are safe because they require the mnemonic to be passed in
+// (which apps don't have access to)
 export {
-  getOriginSpecificAddress,
-  deriveIndexFromOriginAndTag,
   normalizeOrigin,
   getCurrentOrigin,
   DEFAULT_TAG,
 } from "./wallet/origin-derivation";
 
-// Backup and Recovery
-export { BackupManager, BackupStorage } from "./backup";
-export { SocialRecoveryManager } from "./recovery";
-export { VaultSync, DeviceManager, PlatformDetector } from "./sync";
+// SECURITY: Backup, Recovery, and Sync managers are NOT exported
+// Applications should use SDK methods like:
+// - sdk.createZipBackup()
+// - sdk.createQRBackup()
+// - sdk.setupSocialRecovery()
+// - sdk.getBackupStatus()
+// which properly manage authentication and mnemonic access
+
+// Education utilities (safe to export - no key access)
 export { RecoverySimulator, getExplainer, getAllTopics, searchExplainers } from "./education";
 
 // Validation utilities

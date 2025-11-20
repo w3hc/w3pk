@@ -4,11 +4,48 @@ This document explains the security model of w3pk and how wallet protection work
 
 ## Overview
 
-w3pk uses **WebAuthn signatures** to derive encryption keys, ensuring that wallets can **only be decrypted with biometric/PIN authentication**. Even if an attacker gains full access to your computer, they **cannot steal your wallet** without your fingerprint/face/PIN.
+w3pk provides **multiple layers of security** to protect user wallets:
 
-For better user experience, w3pk implements **secure sessions** that cache the decrypted mnemonic in memory for a configurable duration (default 1 hour), allowing operations without repeated authentication prompts while maintaining security.
+1. **WebAuthn authentication** - Biometric/PIN gating for wallet access
+2. **Application isolation** - Apps cannot access master mnemonic or MAIN tag private keys
+3. **Origin-specific derivation** - Each website gets unique isolated addresses
+4. **Tag-based access control** - MAIN addresses are view-only, custom tags provide full access
+5. **Encrypted storage** - AES-256-GCM encryption at rest
+6. **Secure sessions** - Time-limited memory caching with automatic expiration
 
-## Security Guarantees
+## Enhanced Security Model (v0.7.6+)
+
+### Application Security Guarantees
+
+**What applications CANNOT access:**
+- ❌ Master mnemonic (permanently disabled via `exportMnemonic()`)
+- ❌ MAIN tag private keys (address only for display)
+- ❌ Private keys from other origins
+- ❌ Index-based wallet derivation
+- ❌ Direct backup/recovery manager access
+
+**What applications CAN access:**
+- ✅ Origin-specific MAIN address (read-only)
+- ✅ Private keys for non-MAIN tagged wallets (e.g., 'GAMING', 'TRADING')
+- ✅ Signatures via `signMessage()` (no key exposure)
+- ✅ Encrypted backups via SDK methods
+
+### Tag-Based Security
+
+```typescript
+// MAIN tag - Address only (no private key)
+const mainWallet = await w3pk.deriveWallet()
+// Returns: { address, index, origin, tag: 'MAIN' }
+// ✅ Safe for display
+// ❌ No privateKey in response
+
+// Custom tags - Full access for app features
+const gamingWallet = await w3pk.deriveWallet('GAMING')
+// Returns: { address, privateKey, index, origin, tag: 'GAMING' }
+// ✅ Full access for gaming transactions
+```
+
+## Traditional Security Guarantees
 
 ### ✅ Protected Against
 

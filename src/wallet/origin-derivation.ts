@@ -96,19 +96,22 @@ export async function deriveIndexFromOriginAndTag(
 /**
  * Derives an origin-specific address from mnemonic with optional tag support
  *
+ * SECURITY: Private key is NOT exposed for MAIN tag wallets to protect the primary wallet.
+ * Only non-MAIN tagged wallets can access their private keys.
+ *
  * @param mnemonic - The BIP39 mnemonic phrase
  * @param origin - The origin URL (e.g., "https://example.com")
  * @param tag - Optional tag to generate different addresses for same origin (default: "MAIN")
- * @returns Wallet with address, private key, index, origin, and tag
+ * @returns Wallet with address, optional private key (omitted for MAIN tag), index, origin, and tag
  *
  * @example
- * // Get main address for example.com
+ * // Get main address for example.com (privateKey will be undefined)
  * const mainWallet = await getOriginSpecificAddress(mnemonic, "https://example.com");
  *
- * // Get gaming-specific address for example.com
+ * // Get gaming-specific address for example.com (privateKey will be included)
  * const gamingWallet = await getOriginSpecificAddress(mnemonic, "https://example.com", "GAMING");
  *
- * // Get simple-specific address for example.com
+ * // Get simple-specific address for example.com (privateKey will be included)
  * const simpleWallet = await getOriginSpecificAddress(mnemonic, "https://example.com", "SIMPLE");
  */
 export async function getOriginSpecificAddress(
@@ -117,7 +120,7 @@ export async function getOriginSpecificAddress(
   tag?: string
 ): Promise<{
   address: string;
-  privateKey: string;
+  privateKey?: string;
   index: number;
   origin: string;
   tag: string;
@@ -135,13 +138,26 @@ export async function getOriginSpecificAddress(
     // Derive wallet at the computed index
     const { address, privateKey } = deriveWalletFromMnemonic(mnemonic, index);
 
-    return {
+    // SECURITY: Only expose private key for non-MAIN tagged wallets
+    const result: {
+      address: string;
+      privateKey?: string;
+      index: number;
+      origin: string;
+      tag: string;
+    } = {
       address,
-      privateKey,
       index,
       origin: normalizedOrigin,
       tag: effectiveTag,
     };
+
+    // Only include privateKey if tag is NOT "MAIN"
+    if (effectiveTag !== DEFAULT_TAG) {
+      result.privateKey = privateKey;
+    }
+
+    return result;
   } catch (error) {
     throw new WalletError(
       `Failed to derive origin-specific address for "${origin}" with tag "${tag || DEFAULT_TAG}"`,

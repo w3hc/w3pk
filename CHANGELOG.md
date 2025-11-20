@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **CRITICAL: Removed Dangerous Exports**: Fixed security vulnerabilities that allowed applications to access sensitive key material
+  - Removed `generateBIP39Wallet` export - prevented apps from generating raw mnemonics
+  - Removed `deriveWalletFromMnemonic` export - prevented arbitrary private key access
+  - Removed `createWalletFromMnemonic` export - prevented mnemonic manipulation
+  - Removed `deriveStealthKeys` export - prevented direct stealth key access
+  - Removed `getOriginSpecificAddress` export - prevented bypassing origin restrictions
+  - Removed `BackupManager`, `SocialRecoveryManager`, `VaultSync` exports - prevented direct manager access
+  - Applications now **CANNOT** access master mnemonic or MAIN tag private keys
+  - Applications can only access non-MAIN tagged wallet private keys (e.g., 'GAMING', 'TRADING')
+  - All sensitive operations must go through SDK methods with proper authentication
+
+- **Enhanced Security Model**:
+  - MAIN tag wallets: Address only (no private key exposure)
+  - Non-MAIN tag wallets: Full access for app-specific use cases
+  - Stealth addresses: Opt-in with documented security implications
+  - `exportMnemonic()`: Permanently disabled, throws error
+  - `deriveWallet()`: Removed index-based derivation, only supports origin-specific tags
+
 ### Added
 
 - **Build Verification**: IPFS CIDv1 hash computation for package integrity verification

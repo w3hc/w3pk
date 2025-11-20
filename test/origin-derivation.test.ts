@@ -23,7 +23,7 @@ async function runTests() {
     const wallet = await getOriginSpecificAddress(testMnemonic, origin);
 
     console.assert(wallet.address, "Should have an address");
-    console.assert(wallet.privateKey, "Should have a private key");
+    console.assert(wallet.privateKey === undefined, "MAIN tag should NOT expose private key");
     console.assert(wallet.index >= 0, "Should have a valid index");
     console.assert(wallet.origin === origin, "Should preserve origin");
     console.assert(wallet.tag === DEFAULT_TAG, "Should use MAIN tag by default");
@@ -32,7 +32,8 @@ async function runTests() {
     console.log(`  Tag: ${wallet.tag}`);
     console.log(`  Index: ${wallet.index}`);
     console.log(`  Address: ${wallet.address}`);
-    console.log("✅ Default MAIN tag working correctly");
+    console.log(`  Private Key: ${wallet.privateKey ? 'EXPOSED (ERROR!)' : 'HIDDEN (CORRECT)'}`);
+    console.log("✅ Default MAIN tag working correctly (private key hidden)");
   }
 
   // Test 2: Different tags generate different addresses
@@ -70,10 +71,24 @@ async function runTests() {
       "Different tags should have different indices"
     );
 
-    console.log(`  MAIN address:   ${mainWallet.address}`);
-    console.log(`  GAMING address: ${gamingWallet.address}`);
-    console.log(`  SIMPLE address: ${simpleWallet.address}`);
-    console.log("✅ Different tags generate different addresses");
+    // SECURITY: Check that MAIN tag doesn't expose private key
+    console.assert(
+      mainWallet.privateKey === undefined,
+      "MAIN tag should NOT expose private key"
+    );
+    console.assert(
+      gamingWallet.privateKey !== undefined,
+      "GAMING tag SHOULD expose private key"
+    );
+    console.assert(
+      simpleWallet.privateKey !== undefined,
+      "SIMPLE tag SHOULD expose private key"
+    );
+
+    console.log(`  MAIN address:   ${mainWallet.address} (privateKey: hidden)`);
+    console.log(`  GAMING address: ${gamingWallet.address} (privateKey: exposed)`);
+    console.log(`  SIMPLE address: ${simpleWallet.address} (privateKey: exposed)`);
+    console.log("✅ Different tags generate different addresses with correct security");
   }
 
   // Test 3: Same origin and tag always produce same address
@@ -398,11 +413,15 @@ async function runTests() {
     console.assert(wallet.address.startsWith("0x"), "Should start with 0x");
     console.assert(wallet.address.length === 42, "Should be 42 characters");
     console.assert(
-      wallet.privateKey.startsWith("0x"),
+      wallet.privateKey !== undefined,
+      "GAMING tag should expose private key"
+    );
+    console.assert(
+      wallet.privateKey!.startsWith("0x"),
       "Private key should start with 0x"
     );
     console.assert(
-      wallet.privateKey.length === 66,
+      wallet.privateKey!.length === 66,
       "Private key should be 66 characters"
     );
 

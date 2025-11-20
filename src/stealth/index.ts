@@ -3,19 +3,26 @@
  * Provides privacy-preserving stealth address generation capabilities
  * following the ERC-5564 standard
  *
+ * SECURITY NOTE:
+ * - Stealth addresses use SEPARATE derivation paths from the main wallet
+ * - Viewing key: m/44'/60'/1'/0/0 (for scanning announcements)
+ * - Spending key: m/44'/60'/1'/0/1 (for spending stealth funds)
+ * - Applications that opt-in to stealth addresses WILL have access to stealth private keys
+ * - This is REQUIRED for ERC-5564 compliance (to parse announcements and spend funds)
+ * - Stealth keys are NOT derived from the main wallet's MAIN tag
+ * - This module is OPT-IN only (must explicitly enable in SDK config)
+ *
  * @see https://eips.ethereum.org/EIPS/eip-5564
  */
 
-import { ethers } from "ethers";
 import { Web3PasskeyError } from "../core/errors";
 import {
   deriveStealthKeys,
   generateStealthAddress as generateERC5564StealthAddress,
   checkStealthAddress,
   computeStealthPrivateKey,
-  type ParseResult
 } from "./crypto";
-import type { StealthKeys, StealthAddressResult as CryptoStealthResult } from "./crypto";
+import type { StealthKeys } from "./crypto";
 
 export interface StealthAddressConfig {
   // Network-agnostic - no provider needed
@@ -60,11 +67,21 @@ export interface ParseAnnouncementResult {
 /**
  * ERC-5564 Stealth Address Module
  * Integrates with w3pk WebAuthn for seamless privacy-preserving stealth address generation
+ *
+ * SECURITY IMPLICATIONS:
+ * By using this module, applications will have access to:
+ * - Stealth meta-address (safe to share publicly)
+ * - Viewing private key (required for scanning announcements)
+ * - Spending private key (required for spending stealth funds)
+ * - Computed stealth private keys (required for accessing received stealth payments)
+ *
+ * This is INTENTIONAL and REQUIRED for ERC-5564 stealth address functionality.
+ * Stealth keys are derived from separate HD paths (not from main wallet).
  */
 export class StealthAddressModule {
   private getMnemonic: (requireAuth?: boolean) => Promise<string>;
 
-  constructor(config: StealthAddressConfig, getMnemonic: (requireAuth?: boolean) => Promise<string>) {
+  constructor(_config: StealthAddressConfig, getMnemonic: (requireAuth?: boolean) => Promise<string>) {
     this.getMnemonic = getMnemonic;
   }
 

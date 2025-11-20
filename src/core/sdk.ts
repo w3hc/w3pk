@@ -1,6 +1,23 @@
 /**
  * Main Web3Passkey SDK class - Client-Only Version
  * No server required - all authentication happens locally
+ *
+ * SECURITY MODEL:
+ * This SDK provides strong security guarantees for applications using it:
+ * - Master mnemonic is NEVER exposed to applications (exportMnemonic() is disabled)
+ * - Applications can ONLY access origin-specific derived wallets
+ * - MAIN tag wallets do NOT expose private keys (address only for display)
+ * - Non-MAIN tag wallets (e.g., 'GAMING', 'TRADING') expose private keys for app-specific use
+ * - Each origin gets its own isolated set of addresses
+ * - Private keys are only accessible for wallets explicitly derived with custom tags
+ *
+ * STEALTH ADDRESSES (OPT-IN):
+ * If the stealth address module is enabled (config.stealthAddresses):
+ * - Applications WILL have access to stealth private keys (viewing & spending)
+ * - This is REQUIRED for ERC-5564 compliance (scanning announcements and spending funds)
+ * - Stealth keys use SEPARATE derivation paths: m/44'/60'/1'/0/0 and m/44'/60'/1'/0/1
+ * - Stealth keys are NOT derived from the main wallet's origin-specific addresses
+ * - Only enable stealth addresses for trusted applications that require privacy features
  */
 
 import { register } from "../auth/register";
@@ -8,7 +25,6 @@ import { login } from "../auth/authenticate";
 import { IndexedDBWalletStorage } from "../wallet/storage";
 import {
   generateBIP39Wallet,
-  deriveWalletFromMnemonic,
 } from "../wallet/generate";
 import {
   getOriginSpecificAddress,
@@ -321,33 +337,32 @@ export class Web3Passkey {
   }
 
   /**
-   * Derive wallet - supports three modes:
+   * Derive wallet - supports two modes:
    *
-   * 1. By index (number): deriveWallet(0) - Classic BIP44 derivation at m/44'/60'/0'/0/{index}
-   * 2. By tag (string): deriveWallet('GAMING') - Origin-specific with custom tag
-   * 3. Auto-detect: deriveWallet() - Origin-specific with MAIN tag
+   * 1. By tag (string): deriveWallet('GAMING') - Origin-specific with custom tag
+   * 2. Auto-detect: deriveWallet() - Origin-specific with MAIN tag
    *
-   * SECURITY: Uses active session or prompts for authentication if session expired
+   * SECURITY:
+   * - Uses active session or prompts for authentication if session expired
+   * - Private key is NOT exposed for MAIN tag wallets (default origin-specific derivation)
+   * - Non-MAIN tagged wallets (e.g., 'GAMING', 'TRADING') will include private key for application use
+   * - Index-based derivation is DISABLED to prevent applications from accessing arbitrary private keys
    *
-   * @param indexOrTag - Optional HD index (number), tag (string), or undefined for auto-detect
+   * @param tag - Optional tag (string) for custom origin-specific derivation (default: "MAIN")
    * @param options - Optional configuration
    * @param options.requireAuth - If true, force fresh authentication even if session is active
-   * @param options.origin - Override origin URL (only used with string tag or undefined)
+   * @param options.origin - Override origin URL (for testing purposes)
    *
    * @example
-   * // Classic index-based derivation
-   * const wallet0 = await sdk.deriveWallet(0)
-   * const wallet1 = await sdk.deriveWallet(1)
-   *
-   * // Origin-specific with custom tag
+   * // Origin-specific with custom tag (includes privateKey for non-MAIN tags)
    * const gamingWallet = await sdk.deriveWallet('GAMING')
    * const tradingWallet = await sdk.deriveWallet('TRADING')
    *
-   * // Origin-specific with default MAIN tag
+   * // Origin-specific with default MAIN tag (NO privateKey exposed for security)
    * const mainWallet = await sdk.deriveWallet()
    */
   async deriveWallet(
-    indexOrTag?: number | string,
+    tag?: string,
     options?: { requireAuth?: boolean; origin?: string }
   ): Promise<WalletInfo & { index?: number; origin?: string; tag?: string }> {
     try {
@@ -357,24 +372,16 @@ export class Web3Passkey {
 
       const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
 
-      // Mode 1: Number provided - classic index-based derivation
-      if (typeof indexOrTag === 'number') {
-        const derived = deriveWalletFromMnemonic(mnemonic, indexOrTag);
-        return {
-          address: derived.address,
-          privateKey: derived.privateKey,
-        };
-      }
-
-      // Mode 2 & 3: String tag or undefined - origin-specific derivation
-      const tag = typeof indexOrTag === 'string' ? indexOrTag : DEFAULT_TAG;
+      // Origin-specific derivation only
+      // privateKey only included for non-MAIN tags
+      const effectiveTag = tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
 
-      const derived = await getOriginSpecificAddress(mnemonic, origin, tag);
+      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveTag);
 
       return {
         address: derived.address,
-        privateKey: derived.privateKey,
+        privateKey: derived.privateKey, // Will be undefined for MAIN tag
         index: derived.index,
         origin: derived.origin,
         tag: derived.tag,
@@ -388,22 +395,19 @@ export class Web3Passkey {
   /**
    * Export the mnemonic phrase
    *
-   * SECURITY: Uses active session or prompts for authentication if session expired
+   * SECURITY RESTRICTION: This method is disabled to prevent applications from accessing
+   * the master mnemonic. Applications should use origin-specific derived wallets with
+   * non-MAIN tags to access private keys for their specific use cases.
    *
-   * @param options - Optional configuration
-   * @param options.requireAuth - If true, force fresh authentication even if session is active
+   * @deprecated This method has been removed for security. Use backup methods instead.
+   * @throws WalletError Always throws - method is disabled for security
    */
-  async exportMnemonic(options?: { requireAuth?: boolean }): Promise<string> {
-    try {
-      if (!this.currentUser) {
-        throw new WalletError("Must be authenticated to export mnemonic");
-      }
-
-      return await this.getMnemonicFromSession(options?.requireAuth);
-    } catch (error) {
-      this.config.onError?.(error as any);
-      throw new WalletError("Failed to export mnemonic", error);
-    }
+  async exportMnemonic(): Promise<string> {
+    throw new WalletError(
+      "exportMnemonic() is disabled for security. " +
+      "Applications cannot access the master mnemonic. " +
+      "Use createZipBackup() or createQRBackup() for wallet backup instead."
+    );
   }
 
   /**
