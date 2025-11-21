@@ -340,9 +340,10 @@ See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete docume
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
+- [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md) - Best practices for production apps
 - [API Reference](./docs/API_REFERENCE.md) - Complete API documentation
 - [Build Verification](./docs/BUILD_VERIFICATION.md) - Package integrity verification
-- [Security Architecture](./docs/SECURITY.md) - Integration best practices
+- [Security Architecture](./docs/SECURITY.md) - Security model and threat analysis
 - [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
 - [ZK Proofs](./docs/ZK.md) - Zero-Knowledge cryptography utilities
 - [Browser compatibility](./docs/BROWSER_COMPATIBILITY.md)
