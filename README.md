@@ -62,12 +62,19 @@ const rpcUrl = endpoints[0]
 ### Authentication Flow
 
 ```typescript
-// Register (generates and stores wallet securely)
-const { address, username } = await w3pk.register({ username: 'alice' })
-// Returns: { address, username } 
+// Check for existing wallet first (recommended)
+const hasWallet = await w3pk.hasExistingCredential()
+if (hasWallet) {
+  // Login to existing wallet
+  await w3pk.login()
+} else {
+  // Register new wallet (generates and stores wallet securely)
+  const { address, username } = await w3pk.register({ username: 'alice' })
+}
 
-// Subsequent sessions: just login
-await w3pk.login()
+// Advanced: List all wallets on device
+const wallets = await w3pk.listExistingCredentials()
+wallets.forEach(w => console.log(w.username, w.ethereumAddress))
 
 // Logout
 await w3pk.logout()

@@ -29,6 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Credential Checking Methods**: New methods to prevent accidental multiple wallet creation
+  - `hasExistingCredential()` - Check if any wallets exist on device (returns boolean)
+  - `getExistingCredentialCount()` - Get count of existing wallets (returns number)
+  - `listExistingCredentials()` - List all wallets with metadata (username, address, timestamps)
+  - Especially important for iOS/macOS where multiple passkeys can sync via iCloud and cause user confusion
+  - Applications can now implement warning dialogs before allowing multiple wallet creation
+  - Comprehensive test suite added ([test/credential-checking.test.ts](./test/credential-checking.test.ts)) with 12 passing tests
+  - Documentation added to [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md#check-for-existing-wallet-first), [API Reference](./docs/API_REFERENCE.md), [Security Architecture](./docs/SECURITY.md#multiple-wallet-management), and [CONTRIBUTING.md](./CONTRIBUTING.md)
+  - Recommended patterns for both simple auto-login and advanced warning flows
+
 - **Build Verification**: IPFS CIDv1 hash computation for package integrity verification
   - `getCurrentBuildHash()` - Get hash for installed version from CDN
   - `getW3pkBuildHash(url)` - Compute hash from any dist URL

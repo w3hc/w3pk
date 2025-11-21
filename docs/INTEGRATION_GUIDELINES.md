@@ -84,6 +84,22 @@ console.log(gaming.address !== social.address)  // true
 
 **Critical:** Before registering a new wallet, always check if one exists on the device.
 
+#### Available Methods
+
+w3pk provides three methods for checking existing credentials:
+
+1. **`hasExistingCredential(): Promise<boolean>`**
+   - Returns `true` if at least one wallet exists on the device
+   - Use for simple yes/no checks
+
+2. **`getExistingCredentialCount(): Promise<number>`**
+   - Returns the number of existing wallets
+   - Useful for showing counts in warning messages
+
+3. **`listExistingCredentials(): Promise<Array<{username, ethereumAddress, createdAt, lastUsed}>>`**
+   - Returns full list of wallets with metadata
+   - Use for showing users which wallets they have
+
 ```typescript
 // ✅ Correct registration flow
 async function handleUserOnboarding() {
@@ -129,7 +145,7 @@ async function handleUserOnboarding() {
    - Reduces attack surface (fewer credentials to manage)
    - Clearer security model for users
 
-**Example: Complete Onboarding UI**
+**Example 1: Simple Flow (Auto-Login if Wallet Exists)**
 
 ```typescript
 import { createWeb3Passkey } from 'w3pk'
@@ -157,6 +173,59 @@ async function onboardUser(email: string) {
   console.log(`✅ Wallet created: ${address}`)
 
   // 4. Immediately prompt for backup
+  await promptBackupOptions()
+
+  return { isNewUser: true, address }
+}
+```
+
+**Example 2: Advanced Flow with Warning (Allows Multiple Wallets)**
+
+For applications that want to support multiple wallets but warn users:
+
+```typescript
+async function onboardUserWithWarning(email: string) {
+  // 1. Check for existing credentials
+  const count = await w3pk.getExistingCredentialCount()
+
+  if (count > 0) {
+    // 2. List existing wallets
+    const existingWallets = await w3pk.listExistingCredentials()
+
+    // 3. Show warning dialog to user
+    const userChoice = await showWarningDialog({
+      title: 'Wallet Already Exists',
+      message: `You have ${count} wallet(s) on this device:
+
+${existingWallets.map((w, i) => `${i + 1}. ${w.username} (${w.ethereumAddress.slice(0, 10)}...)`).join('\n')}
+
+⚠️ Creating a NEW wallet will generate a DIFFERENT address.
+Funds sent to different addresses won't appear in the same wallet.
+
+What would you like to do?`,
+      options: [
+        { label: 'Login to Existing Wallet', value: 'login' },
+        { label: 'Create New Wallet', value: 'create', warning: true },
+        { label: 'Cancel', value: 'cancel' }
+      ]
+    })
+
+    if (userChoice === 'login') {
+      // Let user select which wallet to login to
+      await w3pk.login()
+      return { isNewUser: false }
+    } else if (userChoice === 'cancel') {
+      throw new Error('User cancelled registration')
+    }
+    // else: userChoice === 'create', continue with registration
+  }
+
+  // 4. Proceed with registration (user explicitly confirmed or no existing wallet)
+  const { address, username } = await w3pk.register({
+    username: email
+  })
+
+  console.log(`✅ New wallet created: ${address}`)
   await promptBackupOptions()
 
   return { isNewUser: true, address }
@@ -484,7 +553,8 @@ await wallet.onboard('user@example.com')
 
 Use this checklist to ensure proper integration:
 
-- [ ] Check for existing credentials before registration
+- [ ] Check for existing credentials before registration using `hasExistingCredential()`
+- [ ] Consider showing warning with `listExistingCredentials()` if allowing multiple wallets
 - [ ] Use MAIN-tagged wallet by default (no private key exposure)
 - [ ] Only use custom tags when you need private keys (and understand the implications)
 - [ ] Prompt users to set up backup immediately after registration
