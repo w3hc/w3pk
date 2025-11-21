@@ -62,12 +62,19 @@ const rpcUrl = endpoints[0]
 ### Authentication Flow
 
 ```typescript
-// Register (generates and stores wallet securely)
-const { address, username } = await w3pk.register({ username: 'alice' })
-// Returns: { address, username } 
+// Check for existing wallet first (recommended)
+const hasWallet = await w3pk.hasExistingCredential()
+if (hasWallet) {
+  // Login to existing wallet
+  await w3pk.login()
+} else {
+  // Register new wallet (generates and stores wallet securely)
+  const { address, username } = await w3pk.register({ username: 'alice' })
+}
 
-// Subsequent sessions: just login
-await w3pk.login()
+// Advanced: List all wallets on device
+const wallets = await w3pk.listExistingCredentials()
+wallets.forEach(w => console.log(w.username, w.ethereumAddress))
 
 // Logout
 await w3pk.logout()
@@ -340,9 +347,10 @@ See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete docume
 ## Documentation
 
 - [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
+- [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md) - Best practices for production apps
 - [API Reference](./docs/API_REFERENCE.md) - Complete API documentation
 - [Build Verification](./docs/BUILD_VERIFICATION.md) - Package integrity verification
-- [Security Architecture](./docs/SECURITY.md) - Integration best practices
+- [Security Architecture](./docs/SECURITY.md) - Security model and threat analysis
 - [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
 - [ZK Proofs](./docs/ZK.md) - Zero-Knowledge cryptography utilities
 - [Browser compatibility](./docs/BROWSER_COMPATIBILITY.md)

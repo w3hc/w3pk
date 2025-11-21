@@ -47,6 +47,9 @@ pnpm test:chainlist       # RPC endpoint tests
 pnpm test:eip7702         # EIP-7702 support tests
 pnpm test:erc5564         # Stealth address tests
 
+# Or run individual test files
+pnpm tsx test/credential-checking.test.ts  # Credential checking methods
+
 # Build
 pnpm build
 
@@ -155,6 +158,27 @@ const isAuth = w3pk.isAuthenticated // boolean
 Get current user info.
 ```typescript
 const user = w3pk.user // UserInfo | null
+```
+
+#### `hasExistingCredential()`
+Check if any wallets exist on this device.
+```typescript
+const hasWallet = await w3pk.hasExistingCredential()
+// Returns: boolean
+```
+
+#### `getExistingCredentialCount()`
+Get count of existing wallets.
+```typescript
+const count = await w3pk.getExistingCredentialCount()
+// Returns: number
+```
+
+#### `listExistingCredentials()`
+List all wallets with metadata.
+```typescript
+const wallets = await w3pk.listExistingCredentials()
+// Returns: Array<{ username, ethereumAddress, createdAt, lastUsed }>
 ```
 
 ### Session Management

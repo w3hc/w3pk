@@ -45,6 +45,57 @@ const gamingWallet = await w3pk.deriveWallet('GAMING')
 // ✅ Full access for gaming transactions
 ```
 
+### Multiple Wallet Management
+
+w3pk supports multiple wallets on a single device, but applications should implement safeguards to prevent accidental wallet creation:
+
+**Detection Methods:**
+
+```typescript
+// Check if any wallets exist
+const hasWallet = await w3pk.hasExistingCredential()
+
+// Get count of wallets
+const count = await w3pk.getExistingCredentialCount()
+
+// List all wallets with metadata
+const wallets = await w3pk.listExistingCredentials()
+// Returns: [{ username, ethereumAddress, createdAt, lastUsed }, ...]
+```
+
+**Security Implications:**
+
+1. **Platform Behavior (iOS/macOS):**
+   - Multiple passkeys sync via iCloud Keychain
+   - Can cause user confusion if not properly managed
+   - Each passkey has its own mnemonic (different wallets)
+
+2. **UX Best Practices:**
+   - Always check for existing wallets before registration
+   - Show warning if user attempts to create multiple wallets
+   - List existing wallets and allow selection during login
+
+3. **Valid Use Cases for Multiple Wallets:**
+   - Different personas (personal vs business)
+   - Testing and development
+   - Family members on shared device
+   - Migration scenarios
+
+**Recommended Pattern:**
+
+```typescript
+// Before registration
+const count = await w3pk.getExistingCredentialCount()
+if (count > 0) {
+  const wallets = await w3pk.listExistingCredentials()
+  // Show warning: "You have {count} wallet(s). Creating a new one will generate
+  // a DIFFERENT address. Funds sent to different addresses won't be accessible."
+  // Offer: [Login to Existing] [Create New Anyway] [Cancel]
+}
+```
+
+See [Integration Guidelines](./INTEGRATION_GUIDELINES.md#check-for-existing-wallet-first) for complete implementation patterns.
+
 ## Traditional Security Guarantees
 
 ### ✅ Protected Against

@@ -183,6 +183,90 @@ if (currentUser) {
 
 ---
 
+### `hasExistingCredential(): Promise<boolean>`
+
+Check if there are existing credentials (wallets) on this device.
+
+**Returns:** `boolean` - `true` if at least one credential exists
+
+**What happens:**
+1. Queries localStorage for stored credentials
+2. Returns `true` if any wallets are found
+3. Returns `false` if no wallets exist or storage fails
+
+**Use case:** Prevent accidental multiple wallet creation, especially on iOS/macOS where multiple passkeys can cause confusion.
+
+**Example:**
+
+```typescript
+const hasWallet = await w3pk.hasExistingCredential()
+if (hasWallet) {
+  // User already has a wallet - suggest login instead
+  await w3pk.login()
+} else {
+  // No wallet found - proceed with registration
+  await w3pk.register({ username: 'alice' })
+}
+```
+
+---
+
+### `getExistingCredentialCount(): Promise<number>`
+
+Get the number of existing credentials (wallets) on this device.
+
+**Returns:** `number` - Count of existing wallets
+
+**Use case:** Show warning messages with specific counts when user attempts to create multiple wallets.
+
+**Example:**
+
+```typescript
+const count = await w3pk.getExistingCredentialCount()
+if (count > 0) {
+  console.warn(`⚠️ You have ${count} wallet(s) on this device`)
+  console.warn('Creating another wallet will generate a DIFFERENT address')
+}
+```
+
+---
+
+### `listExistingCredentials(): Promise<Array<CredentialInfo>>`
+
+List all existing credentials (wallets) on this device with metadata.
+
+**Returns:**
+
+```typescript
+interface CredentialInfo {
+  username: string;        // Username
+  ethereumAddress: string; // Ethereum address
+  createdAt: string;       // ISO timestamp
+  lastUsed: string;        // ISO timestamp
+}
+```
+
+**Use case:** Allow users to see and select which wallet to login to when multiple wallets exist.
+
+**Example:**
+
+```typescript
+const wallets = await w3pk.listExistingCredentials()
+
+console.log('Available wallets:')
+wallets.forEach((wallet, i) => {
+  console.log(`${i + 1}. ${wallet.username}`)
+  console.log(`   Address: ${wallet.ethereumAddress}`)
+  console.log(`   Last used: ${wallet.lastUsed}`)
+})
+
+// Let user select which wallet to login to
+const selectedWallet = wallets[userSelection]
+await w3pk.login() // Will authenticate with selected credential
+```
+
+---
+
 ## Wallet Management
 
 ### `generateWallet(): Promise<{ mnemonic: string }>`

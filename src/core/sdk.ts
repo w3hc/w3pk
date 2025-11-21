@@ -275,6 +275,80 @@ export class Web3Passkey {
   }
 
   /**
+   * Check if there are existing credentials on this device
+   * Useful for preventing accidental multiple wallet creation
+   *
+   * @returns true if at least one credential exists
+   * @example
+   * const hasWallet = await w3pk.hasExistingCredential()
+   * if (hasWallet) {
+   *   // Prompt user to login instead of registering
+   *   await w3pk.login()
+   * }
+   */
+  async hasExistingCredential(): Promise<boolean> {
+    try {
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credentials = await storage.getAllCredentials();
+      return credentials.length > 0;
+    } catch (error) {
+      // If storage fails, assume no credentials
+      return false;
+    }
+  }
+
+  /**
+   * Get the number of existing credentials on this device
+   *
+   * @returns count of credentials
+   * @example
+   * const count = await w3pk.getExistingCredentialCount()
+   * if (count > 0) {
+   *   console.warn(`You have ${count} wallet(s) on this device`)
+   * }
+   */
+  async getExistingCredentialCount(): Promise<number> {
+    try {
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credentials = await storage.getAllCredentials();
+      return credentials.length;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  /**
+   * List existing credentials (usernames and addresses)
+   * Useful for allowing users to select which wallet to login to
+   *
+   * @returns array of credentials with username, address, and metadata
+   * @example
+   * const wallets = await w3pk.listExistingCredentials()
+   * wallets.forEach(w => {
+   *   console.log(`${w.username}: ${w.ethereumAddress}`)
+   * })
+   */
+  async listExistingCredentials(): Promise<Array<{
+    username: string;
+    ethereumAddress: string;
+    createdAt: string;
+    lastUsed: string;
+  }>> {
+    try {
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credentials = await storage.getAllCredentials();
+      return credentials.map(cred => ({
+        username: cred.username,
+        ethereumAddress: cred.ethereumAddress,
+        createdAt: cred.createdAt,
+        lastUsed: cred.lastUsed,
+      }));
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
    * Generate new BIP39 wallet with 12-word mnemonic
    */
   async generateWallet(): Promise<{ mnemonic: string }> {
