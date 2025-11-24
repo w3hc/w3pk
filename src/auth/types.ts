@@ -2,11 +2,6 @@
  * Authentication-related types
  */
 
-import type {
-  RegistrationResponseJSON,
-  AuthenticationResponseJSON,
-} from "@simplewebauthn/browser";
-
 export interface RegisterOptions {
   username: string;
   ethereumAddress: string;
@@ -24,8 +19,32 @@ export interface AuthResult {
   signature?: ArrayBuffer;
 }
 
-// Re-export SimpleWebAuthn types for convenience
-export type {
-  RegistrationResponseJSON,
-  AuthenticationResponseJSON,
-} from "@simplewebauthn/browser";
+/**
+ * Native WebAuthn credential response (registration)
+ */
+export interface RegistrationCredential {
+  id: string;
+  rawId: ArrayBuffer;
+  type: 'public-key';
+  response: {
+    clientDataJSON: ArrayBuffer;
+    attestationObject: ArrayBuffer;
+    publicKey?: ArrayBuffer;
+    publicKeyAlgorithm?: number;
+  };
+}
+
+/**
+ * Native WebAuthn credential response (authentication)
+ */
+export interface AuthenticationCredential {
+  id: string;
+  rawId: ArrayBuffer;
+  type: 'public-key';
+  response: {
+    clientDataJSON: ArrayBuffer;
+    authenticatorData: ArrayBuffer;
+    signature: ArrayBuffer;
+    userHandle?: ArrayBuffer;
+  };
+}

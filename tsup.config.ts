@@ -10,7 +10,7 @@ export default defineConfig([
     sourcemap: true,
     minify: true,
     splitting: false,
-    external: ["ethers", "@simplewebauthn/browser", "snarkjs", "circomlibjs"],
+    external: ["ethers", "snarkjs", "circomlibjs"],
     platform: "browser",
     target: "es2020",
     esbuildOptions(options) {

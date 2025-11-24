@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@simplewebauthn/browser':
-        specifier: ^13.2.2
-        version: 13.2.2
       ethers:
         specifier: ^6.0.0
         version: 6.15.0
@@ -484,9 +481,6 @@ packages:
     resolution: {integrity: sha512-xtSei8paPcLy3GzeeOjoRrllJn6EN8PB+/bXnhZ4R0AaviJsRwtKxFZRVnfFXNZTTp0nLeDo+BcEuIfdZS14/A==}
     cpu: [x64]
     os: [win32]
-
-  '@simplewebauthn/browser@13.2.2':
-    resolution: {integrity: sha512-FNW1oLQpTJyqG5kkDg5ZsotvWgmBaC6jCHR7Ej0qUNep36Wl9tj2eZu7J5rP+uhXgHaLk+QQ3lqcw2vS5MX1IA==}
 
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
@@ -1893,8 +1887,6 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.53.0':
     optional: true
-
-  '@simplewebauthn/browser@13.2.2': {}
 
   '@types/estree@1.0.8': {}
 
