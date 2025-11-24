@@ -1,12 +1,10 @@
-import { startAuthentication } from "@simplewebauthn/browser";
 import { AuthenticationError } from "../core/errors";
-import type { AuthResult } from "./types";
+import type { AuthResult, AuthenticationCredential } from "./types";
 import type { StoredCredential } from "./storage";
 import { CredentialStorage } from "./storage";
 import {
   arrayBufferToBase64Url,
   base64UrlToArrayBuffer,
-  safeAtob,
 } from "../utils/base64";
 
 function generateChallenge(): string {
@@ -38,22 +36,34 @@ export async function login(): Promise<AuthResult> {
       console.warn("[login] Failed to retrieve stored credentials:", storageError);
     }
 
-    const authOptions: any = {
-      challenge,
+    const challengeBuffer = base64UrlToArrayBuffer(challenge);
+
+    const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
+      challenge: challengeBuffer,
       rpId: window.location.hostname,
-      userVerification: "required" as const,
+      userVerification: "required",
       timeout: 60000,
     };
 
     if (allowCredentials.length > 0) {
-      authOptions.allowCredentials = allowCredentials;
+      publicKeyCredentialRequestOptions.allowCredentials = allowCredentials.map(cred => ({
+        id: base64UrlToArrayBuffer(cred.id),
+        type: cred.type,
+        transports: cred.transports,
+      }));
     }
 
-    let assertion;
+    let assertion: AuthenticationCredential;
     try {
-      assertion = await startAuthentication({
-        optionsJSON: authOptions,
-      });
+      const credential = await navigator.credentials.get({
+        publicKey: publicKeyCredentialRequestOptions,
+      }) as AuthenticationCredential | null;
+
+      if (!credential) {
+        throw new Error("Authentication failed - no credential returned");
+      }
+
+      assertion = credential;
     } catch (error: any) {
       if (error?.name === "NotAllowedError" ||
           error?.message?.toLowerCase().includes("no credentials available") ||
@@ -87,10 +97,6 @@ export async function login(): Promise<AuthResult> {
 
     await storage.updateLastUsed(credential.id);
 
-    const signatureBuffer = base64UrlToArrayBuffer(
-      assertion.response.signature
-    );
-
     return {
       verified: true,
       user: {
@@ -98,7 +104,7 @@ export async function login(): Promise<AuthResult> {
         ethereumAddress: credential.ethereumAddress,
         credentialId: credential.id,
       },
-      signature: signatureBuffer,
+      signature: assertion.response.signature,
     };
   } catch (error) {
     throw new AuthenticationError(
@@ -109,7 +115,7 @@ export async function login(): Promise<AuthResult> {
 }
 
 async function verifyAssertion(
-  assertion: any,
+  assertion: AuthenticationCredential,
   credential: StoredCredential
 ): Promise<boolean> {
   try {
@@ -125,23 +131,12 @@ async function verifyAssertion(
       ["verify"]
     );
 
-    const authenticatorData = base64UrlToArrayBuffer(
-      assertion.response.authenticatorData
-    );
-
+    const authenticatorData = assertion.response.authenticatorData;
     const clientDataJSON = assertion.response.clientDataJSON;
-    let clientDataJSONString: string;
-
-    if (clientDataJSON.startsWith("eyJ")) {
-      const decoded = safeAtob(clientDataJSON);
-      clientDataJSONString = decoded;
-    } else {
-      clientDataJSONString = clientDataJSON;
-    }
 
     const clientDataHash = await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(clientDataJSONString)
+      clientDataJSON
     );
 
     const signedData = new Uint8Array(
@@ -153,7 +148,7 @@ async function verifyAssertion(
       authenticatorData.byteLength
     );
 
-    const signature = base64UrlToArrayBuffer(assertion.response.signature);
+    const signature = assertion.response.signature;
     const rawSignature = derToRaw(new Uint8Array(signature));
 
     const isValid = await crypto.subtle.verify(
