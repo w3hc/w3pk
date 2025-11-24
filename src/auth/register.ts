@@ -236,6 +236,7 @@ export async function register(
       ethereumAddress,
       createdAt: new Date().toISOString(),
       lastUsed: new Date().toISOString(),
+      signCount: 0, // Initialize signature counter
     });
 
     console.log("[register] Credential response:", credential.response);

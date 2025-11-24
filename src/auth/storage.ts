@@ -16,6 +16,7 @@ export interface StoredCredential {
   ethereumAddress: string;
   createdAt: string;
   lastUsed: string;
+  signCount?: number; // Signature counter for authenticator cloning detection
 }
 
 /**
@@ -210,6 +211,23 @@ export class CredentialStorage {
       }
     } catch (error) {
       throw new StorageError("Failed to update timestamp", error);
+    }
+  }
+
+  /**
+   * Updates the signature counter for a credential
+   * Used to detect authenticator cloning attempts
+   */
+  async updateSignatureCounter(id: string, signCount: number): Promise<void> {
+    try {
+      const credential = await this.getCredentialById(id);
+      if (credential) {
+        credential.signCount = signCount;
+        credential.lastUsed = new Date().toISOString();
+        await this.saveCredential(credential);
+      }
+    } catch (error) {
+      throw new StorageError("Failed to update signature counter", error);
     }
   }
 
