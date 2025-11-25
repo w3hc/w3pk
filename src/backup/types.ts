@@ -25,7 +25,7 @@ export interface RecoveryPhraseStatus {
 
 export interface EncryptedBackupInfo {
   id: string;
-  method: 'zip' | 'qr' | 'file';
+  method: 'qr' | 'file';
   location: string;
   createdAt: string;
   deviceFingerprint?: string;
@@ -66,7 +66,7 @@ export interface SecurityScore {
 export interface BackupMetadata {
   id: string;
   ethereumAddress: string;
-  method: 'zip' | 'qr' | 'file';
+  method: 'qr' | 'file';
   createdAt: string;
   deviceFingerprint?: string;
   addressChecksum: string; // For verification
@@ -107,12 +107,6 @@ export interface EncryptedBackupData {
   verification: {
     addressChecksum: string;
   };
-}
-
-export interface ZipBackupOptions {
-  password: string;
-  includeInstructions?: boolean;
-  deviceBinding?: boolean;
 }
 
 export interface QRBackupOptions {

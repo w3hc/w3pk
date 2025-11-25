@@ -24,7 +24,7 @@ const mockBackupStatus: BackupStatus = {
     encryptedBackups: [
       {
         id: 'backup-1',
-        method: 'zip',
+        method: 'file',
         location: 'local',
         createdAt: new Date().toISOString()
       }

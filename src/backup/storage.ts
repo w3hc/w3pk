@@ -118,7 +118,7 @@ export class BackupStorage {
    * Get count of backups by method
    */
   async getBackupCountByMethod(
-    method: 'zip' | 'qr' | 'file'
+    method: 'qr' | 'file'
   ): Promise<number> {
     if (!this.db) await this.init();
     if (!this.db) return Promise.resolve(0); // Non-browser environment

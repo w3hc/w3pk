@@ -235,11 +235,7 @@ async function promptBackupOptions() {
   // Show modal/screen with backup options
   const userChoice = await showBackupModal()
 
-  if (userChoice === 'encrypted-backup') {
-    const password = await getPasswordFromUser()
-    const blob = await w3pk.createZipBackup(password)
-    downloadBlob(blob, 'wallet-backup.zip')
-  } else if (userChoice === 'qr-code') {
+  if (userChoice === 'qr-code') {
     const { qrCodeDataURL } = await w3pk.createQRBackup()
     displayQRCode(qrCodeDataURL)
   } else if (userChoice === 'social-recovery') {
@@ -305,11 +301,7 @@ async function createEncryptedBackup() {
     throw new Error('Password too weak. Need 12+ chars with mixed case, numbers, symbols')
   }
 
-  // Create ZIP backup
-  const blob = await w3pk.createZipBackup(password)
-  downloadFile(blob, 'wallet-backup.zip')
-
-  // OR create QR backup
+  // Create QR backup
   const { qrCodeDataURL } = await w3pk.createQRBackup(password)
   displayQRForPrinting(qrCodeDataURL)
 }

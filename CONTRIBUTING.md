@@ -67,7 +67,7 @@ w3pk/
 ├── src/
 │   ├── auth/           # WebAuthn authentication
 │   ├── wallet/         # Wallet generation & signing
-│   ├── backup/         # Backup system (ZIP, QR, encryption)
+│   ├── backup/         # Backup system (QR, backup files, encryption)
 │   ├── recovery/       # Social recovery (Shamir Secret Sharing)
 │   ├── sync/           # Cross-device sync detection
 │   ├── education/      # Recovery scenario simulators
@@ -330,20 +330,10 @@ Get current backup and security status.
 const status = await w3pk.getBackupStatus()
 // Returns: {
 //   passkeySync: { enabled, deviceCount, platform }
-//   backups: { zip, qr, total }
+//   backups: { qr, file, total }
 //   socialRecovery: { configured, guardians, threshold }
 //   securityScore: { score, level, breakdown }
 // }
-```
-
-#### `createZipBackup(password, options?)`
-Create encrypted ZIP backup.
-```typescript
-const blob = await w3pk.createZipBackup('MyS3cur3!Password@2024', {
-  includeInstructions: true,
-  deviceBinding: false
-})
-// Returns: Blob (save to file)
 ```
 
 #### `createQRBackup(password?, options?)`
@@ -510,7 +500,7 @@ The browser tester provides buttons for testing:
 - **Network**: Get RPC endpoints, check EIP-7702 support
 - **Stealth Addresses**: Generate stealth addresses, scan announcements (ERC-5564)
 - **ZK Proofs**: Generate and verify zero-knowledge proofs
-- **Backup & Recovery**: Create/restore ZIP and QR backups
+- **Backup & Recovery**: Create/restore QR backups and backup files
 - **Social Recovery**: Setup guardians, generate invites, recover from shares
 - **Storage**: View and manage localStorage and IndexedDB
 

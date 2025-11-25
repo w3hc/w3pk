@@ -54,7 +54,7 @@ const rpcUrl = endpoints[0]
 - 🔍 Build verification (IPFS CIDv1 hashing for package integrity)
 - 🛡️ Three-layer backup & recovery system
   - Passkey auto-sync (iCloud/Google/Microsoft)
-  - Encrypted backups (ZIP/QR with password protection)
+  - Encrypted backups (QR codes and backup files with password protection)
   - Social recovery (Shamir Secret Sharing)
 
 ## API
@@ -252,10 +252,6 @@ if (!isStrongPassword(password)) {
 // Get backup status
 const status = await w3pk.getBackupStatus()
 console.log('Security Score:', status.securityScore.score) // 0-100
-
-// Create encrypted ZIP backup
-const blob = await w3pk.createZipBackup(password)
-// Save blob to file system
 
 // Create QR backup
 const { qrCodeDataURL } = await w3pk.createQRBackup('password')
