@@ -51,7 +51,6 @@ export {
 export type {
   BackupStatus,
   SecurityScore,
-  ZipBackupOptions,
   QRBackupOptions,
   RecoveryScenario,
   SimulationResult,

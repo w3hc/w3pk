@@ -412,13 +412,13 @@ export class Web3Passkey {
 
   /**
    * Export mnemonic (disabled for security)
-   * Use createZipBackup() or createQRBackup() instead
+   * Use createBackupFile() instead
    * @deprecated
    * @throws WalletError
    */
   async exportMnemonic(): Promise<string> {
     throw new WalletError(
-      "exportMnemonic() disabled for security. Use createZipBackup() or createQRBackup() instead."
+      "exportMnemonic() disabled for security. Use createBackupFile() instead."
     );
   }
 
@@ -615,142 +615,473 @@ export class Web3Passkey {
   }
 
   /**
-   * Create password-protected ZIP backup
+   * Create simplified backup file
+   * This backup can be used to:
+   * - Restore wallet with existing passkey
+   * - Register new passkey with this wallet
+   * - Sync wallet across devices
+   * - Split among guardians for social recovery
+   *
+   * @param encryptionType - 'password' (default), 'passkey', or 'hybrid'
+   * @param password - Required for 'password' and 'hybrid' encryption
    */
-  async createZipBackup(
-    password: string,
-    options?: { includeInstructions?: boolean; deviceBinding?: boolean }
-  ): Promise<Blob> {
+  async createBackupFile(
+    encryptionType: 'password' | 'passkey' | 'hybrid' = 'password',
+    password?: string
+  ): Promise<{ blob: Blob; filename: string }> {
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated to create backup");
     }
 
     const mnemonic = await this.getMnemonicFromSession(true);
 
-    const { BackupManager } = await import("../backup");
-    const backupManager = new BackupManager();
+    const { BackupFileManager } = await import("../backup/backup-file");
+    const manager = new BackupFileManager();
 
-    return backupManager.createZipBackup(
-      mnemonic,
-      this.currentUser.ethereumAddress,
-      { password, ...options }
-    );
-  }
+    let result;
 
-  /**
-   * Create QR code backup
-   */
-  async createQRBackup(
-    password?: string,
-    options?: { errorCorrection?: "L" | "M" | "Q" | "H" }
-  ): Promise<{ qrCodeDataURL: string; instructions: string }> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to create backup");
+    if (encryptionType === 'password') {
+      if (!password) {
+        throw new WalletError("Password required for password-based backup");
+      }
+      const { backupFile } = await manager.createPasswordBackup(
+        mnemonic,
+        this.currentUser.ethereumAddress,
+        password
+      );
+      result = manager.createDownloadableBackup(backupFile);
+    } else if (encryptionType === 'passkey') {
+      // Get current credential info
+      const walletData = await this.walletStorage.retrieve(
+        this.currentUser.ethereumAddress
+      );
+      if (!walletData) {
+        throw new WalletError("No wallet data found");
+      }
+
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credential = await storage.getCredentialById(walletData.credentialId);
+      if (!credential) {
+        throw new WalletError("Credential not found");
+      }
+
+      const { backupFile } = await manager.createPasskeyBackup(
+        mnemonic,
+        this.currentUser.ethereumAddress,
+        credential.id,
+        credential.publicKey
+      );
+      result = manager.createDownloadableBackup(backupFile);
+    } else if (encryptionType === 'hybrid') {
+      if (!password) {
+        throw new WalletError("Password required for hybrid backup");
+      }
+
+      const walletData = await this.walletStorage.retrieve(
+        this.currentUser.ethereumAddress
+      );
+      if (!walletData) {
+        throw new WalletError("No wallet data found");
+      }
+
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credential = await storage.getCredentialById(walletData.credentialId);
+      if (!credential) {
+        throw new WalletError("Credential not found");
+      }
+
+      const { backupFile } = await manager.createHybridBackup(
+        mnemonic,
+        this.currentUser.ethereumAddress,
+        password,
+        credential.id,
+        credential.publicKey
+      );
+      result = manager.createDownloadableBackup(backupFile);
+    } else {
+      throw new WalletError(`Unknown encryption type: ${encryptionType}`);
     }
 
-    const mnemonic = await this.getMnemonicFromSession(true);
-
-    const { BackupManager } = await import("../backup");
-    const backupManager = new BackupManager();
-
-    return backupManager.createQRBackup(
-      mnemonic,
-      this.currentUser.ethereumAddress,
-      { password, ...options }
-    );
+    return result;
   }
 
   /**
-   * Set up social recovery with M-of-N guardian shares
-   * @param threshold - Number of guardians required to recover
+   * Set up social recovery by splitting backup file among guardians
+   * Uses Shamir Secret Sharing to split the backup - requires M-of-N guardians to recover
+   *
+   * @param guardians - List of guardian names/emails
+   * @param threshold - Number of guardians required to recover (M-of-N)
+   * @param password - Optional password for additional encryption layer
    */
   async setupSocialRecovery(
-    guardians: { name: string; email?: string; phone?: string }[],
-    threshold: number
-  ): Promise<any[]> {
+    guardians: { name: string; email?: string }[],
+    threshold: number,
+    password?: string
+  ): Promise<{
+    guardianShares: any[];
+    setupComplete: boolean;
+  }> {
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated to set up social recovery");
     }
 
     const mnemonic = await this.getMnemonicFromSession(true);
 
-    const { SocialRecoveryManager } = await import("../recovery");
-    const socialRecovery = new SocialRecoveryManager();
+    // Create backup file (password-protected if password provided)
+    const { BackupFileManager } = await import("../backup/backup-file");
+    const backupManager = new BackupFileManager();
 
-    return socialRecovery.setupSocialRecovery(
-      mnemonic,
-      this.currentUser.ethereumAddress,
+    const { backupFile } = password
+      ? await backupManager.createPasswordBackup(mnemonic, this.currentUser.ethereumAddress, password)
+      : await backupManager.createPasskeyBackup(
+          mnemonic,
+          this.currentUser.ethereumAddress,
+          (await this.walletStorage.retrieve(this.currentUser.ethereumAddress))!.credentialId,
+          (await (await import("../auth/storage")).CredentialStorage.prototype.getCredentialById.call(
+            new (await import("../auth/storage")).CredentialStorage(),
+            (await this.walletStorage.retrieve(this.currentUser.ethereumAddress))!.credentialId
+          ))!.publicKey
+        );
+
+    // Split backup among guardians
+    const { SocialRecovery } = await import("../recovery/backup-based-recovery");
+    const recovery = new SocialRecovery();
+
+    const setup = await recovery.splitAmongGuardians(
+      backupFile,
       guardians,
       threshold
     );
+
+    return {
+      guardianShares: setup.guardianShares,
+      setupComplete: true,
+    };
   }
 
   /**
-   * Generate guardian invitation with QR code
+   * Generate guardian invitation document and QR code
+   *
+   * @param guardianShare - The guardian's share data
+   * @param message - Optional custom message for the guardian
    */
-  async generateGuardianInvite(guardianId: string): Promise<any> {
-    const { SocialRecoveryManager } = await import("../recovery");
-    const socialRecovery = new SocialRecoveryManager();
+  async generateGuardianInvite(
+    guardianShare: any,
+    message?: string
+  ): Promise<{
+    qrCodeDataURL?: string;
+    shareDocument: string;
+    downloadBlob: Blob;
+    filename: string;
+  }> {
+    const { SocialRecovery } = await import("../recovery/backup-based-recovery");
+    const recovery = new SocialRecovery();
 
-    const config = socialRecovery.getSocialRecoveryConfig();
-    if (!config) {
-      throw new WalletError("Social recovery not configured");
-    }
+    const invitation = await recovery.createGuardianInvitation(guardianShare, message);
+    const download = recovery.createShareDownload(guardianShare);
 
-    const guardian = config.guardians.find((g) => g.id === guardianId);
-    if (!guardian) {
-      throw new WalletError("Guardian not found");
-    }
-
-    return socialRecovery.generateGuardianInvite(guardian);
+    return {
+      qrCodeDataURL: invitation.qrCodeDataURL,
+      shareDocument: invitation.shareDocument,
+      downloadBlob: download.blob,
+      filename: download.filename,
+    };
   }
 
   /**
    * Recover wallet from guardian shares
+   * Combines M-of-N guardian shares to reconstruct the backup file
+   *
+   * @param shares - Array of guardian share objects (JSON strings or parsed objects)
+   * @param password - Password to decrypt the backup (if password-protected)
    */
   async recoverFromGuardians(
-    shares: string[]
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { SocialRecoveryManager } = await import("../recovery");
-    const socialRecovery = new SocialRecoveryManager();
-
-    return socialRecovery.recoverFromGuardians(shares);
-  }
-
-  /**
-   * Restore wallet from encrypted backup
-   */
-  async restoreFromBackup(
-    backupData: string,
-    password: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { BackupManager } = await import("../backup");
-    const backupManager = new BackupManager();
-
-    return backupManager.restoreFromZipBackup(backupData, password);
-  }
-
-  /**
-   * Restore wallet from QR code
-   */
-  async restoreFromQR(
-    qrData: string,
+    shares: Array<string | any>,
     password?: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { BackupManager } = await import("../backup");
-    const backupManager = new BackupManager();
+    const { SocialRecovery } = await import("../recovery/backup-based-recovery");
+    const { BackupFileManager } = await import("../backup/backup-file");
 
-    return backupManager.restoreFromQR(qrData, password);
+    const recovery = new SocialRecovery();
+    const backupManager = new BackupFileManager();
+
+    // Parse shares if they're strings
+    const parsedShares = shares.map(share =>
+      typeof share === 'string' ? recovery.parseGuardianShare(share) : share
+    );
+
+    // Combine shares to recover backup file
+    const backupFile = await recovery.recoverFromShares(parsedShares);
+
+    // Decrypt backup file
+    if (backupFile.encryptionMethod === 'password') {
+      if (!password) {
+        throw new WalletError('Password required to decrypt password-protected backup');
+      }
+      return backupManager.restoreWithPassword(backupFile, password);
+    } else {
+      throw new WalletError(
+        'Passkey-encrypted backups not supported for guardian recovery. Use password-protected backups.'
+      );
+    }
+  }
+
+  /**
+   * Restore wallet from backup file with existing passkey
+   * Use case: User has passkey synced to this device
+   *
+   * After restoration, you can either:
+   * - Use importMnemonic() to associate with current logged-in user
+   * - Use registerWithBackupFile() to create new passkey for this wallet
+   */
+  async restoreFromBackupFile(
+    backupData: string | Blob,
+    password?: string
+  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+    const { BackupFileManager } = await import("../backup/backup-file");
+    const manager = new BackupFileManager();
+
+    const backupFile = await manager.parseBackupFile(backupData);
+
+    // Determine which restore method to use based on encryption type
+    if (backupFile.encryptionMethod === 'password') {
+      if (!password) {
+        throw new WalletError("Password required to restore password-encrypted backup");
+      }
+      return manager.restoreWithPassword(backupFile, password);
+    } else if (backupFile.encryptionMethod === 'passkey') {
+      // Need to authenticate with passkey first
+      if (!this.currentUser) {
+        throw new WalletError(
+          "Must be logged in with passkey to restore passkey-encrypted backup. Call login() first."
+        );
+      }
+
+      const walletData = await this.walletStorage.retrieve(
+        this.currentUser.ethereumAddress
+      );
+      if (!walletData) {
+        throw new WalletError("No wallet data found for current user");
+      }
+
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credential = await storage.getCredentialById(walletData.credentialId);
+      if (!credential) {
+        throw new WalletError("Credential not found");
+      }
+
+      return manager.restoreWithExistingPasskey(
+        backupFile,
+        credential.id,
+        credential.publicKey
+      );
+    } else if (backupFile.encryptionMethod === 'hybrid') {
+      if (!password) {
+        throw new WalletError("Password required to restore hybrid backup");
+      }
+
+      if (!this.currentUser) {
+        throw new WalletError(
+          "Must be logged in with passkey to restore hybrid backup. Call login() first."
+        );
+      }
+
+      const walletData = await this.walletStorage.retrieve(
+        this.currentUser.ethereumAddress
+      );
+      if (!walletData) {
+        throw new WalletError("No wallet data found for current user");
+      }
+
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credential = await storage.getCredentialById(walletData.credentialId);
+      if (!credential) {
+        throw new WalletError("Credential not found");
+      }
+
+      return manager.restoreWithHybrid(
+        backupFile,
+        password,
+        credential.id,
+        credential.publicKey
+      );
+    } else {
+      throw new WalletError(`Unknown encryption method: ${backupFile.encryptionMethod}`);
+    }
+  }
+
+  /**
+   * Register new passkey with wallet from backup file
+   * Use case: Fresh device, user has backup file but no passkey yet
+   *
+   * This creates a NEW passkey and associates it with the wallet from the backup
+   *
+   * @param backupData - Backup file (JSON string or Blob)
+   * @param password - Password to decrypt the backup
+   * @param username - Username for the new passkey
+   */
+  async registerWithBackupFile(
+    backupData: string | Blob,
+    password: string,
+    username: string
+  ): Promise<{ address: string; username: string }> {
+    const { BackupFileManager } = await import("../backup/backup-file");
+    const manager = new BackupFileManager();
+
+    // Parse and restore the backup
+    const backupFile = await manager.parseBackupFile(backupData);
+
+    if (backupFile.encryptionMethod !== 'password') {
+      throw new WalletError(
+        "Can only register with password-encrypted backups. Use restoreFromBackupFile() for passkey-encrypted backups."
+      );
+    }
+
+    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(
+      backupFile,
+      password
+    );
+
+    // Verify the mnemonic produces the expected address
+    const { Wallet } = await import("ethers");
+    const wallet = Wallet.fromPhrase(mnemonic);
+
+    if (wallet.address.toLowerCase() !== ethereumAddress.toLowerCase()) {
+      throw new WalletError("Backup verification failed: address mismatch");
+    }
+
+    // Set the current wallet
+    this.currentWallet = {
+      address: ethereumAddress,
+      mnemonic,
+    };
+
+    // Now register with the restored wallet
+    return this.register({ username });
   }
 
   /**
    * Get cross-device sync status
    */
   async getSyncStatus(): Promise<any> {
-    const { DeviceManager } = await import("../sync");
-    const deviceManager = new DeviceManager();
+    const { DeviceSyncManager } = await import("../sync/backup-sync");
+    const syncManager = new DeviceSyncManager();
 
-    return deviceManager.getSyncStatus();
+    return syncManager.getSyncInfo();
+  }
+
+  /**
+   * Export wallet for syncing to another device
+   * Uses passkey encryption so it works on devices where the passkey is synced
+   */
+  async exportForSync(): Promise<{ blob: Blob; filename: string; qrCode?: string }> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to export for sync");
+    }
+
+    const mnemonic = await this.getMnemonicFromSession(true);
+
+    const walletData = await this.walletStorage.retrieve(
+      this.currentUser.ethereumAddress
+    );
+    if (!walletData) {
+      throw new WalletError("No wallet data found");
+    }
+
+    const storage = new (await import("../auth/storage")).CredentialStorage();
+    const credential = await storage.getCredentialById(walletData.credentialId);
+    if (!credential) {
+      throw new WalletError("Credential not found");
+    }
+
+    const { DeviceSyncManager } = await import("../sync/backup-sync");
+    const syncManager = new DeviceSyncManager();
+
+    const { backupFile, blob } = await syncManager.exportForSync(
+      mnemonic,
+      this.currentUser.ethereumAddress,
+      credential.id,
+      credential.publicKey
+    );
+
+    const filename = `w3pk-sync-${this.currentUser.ethereumAddress.substring(0, 8)}.json`;
+
+    // Optionally generate QR code
+    let qrCode: string | undefined;
+    try {
+      qrCode = await syncManager.generateSyncQR(backupFile);
+    } catch (error) {
+      // QR code generation is optional
+      console.warn('QR code generation failed:', error);
+    }
+
+    return { blob, filename, qrCode };
+  }
+
+  /**
+   * Import wallet from another device (sync wallet to this device)
+   * Use case: User has passkey on both devices, wallet only on one
+   */
+  async importFromSync(
+    syncData: string | Blob
+  ): Promise<{ ethereumAddress: string; success: boolean }> {
+    if (!this.currentUser) {
+      throw new WalletError(
+        "Must be logged in to import from sync. Call login() first."
+      );
+    }
+
+    const { DeviceSyncManager } = await import("../sync/backup-sync");
+    const { BackupFileManager } = await import("../backup/backup-file");
+
+    const fileManager = new BackupFileManager();
+    const syncManager = new DeviceSyncManager();
+
+    const backupFile = await fileManager.parseBackupFile(syncData);
+
+    // Get current credential
+    const walletData = await this.walletStorage.retrieve(
+      this.currentUser.ethereumAddress
+    );
+    if (!walletData) {
+      throw new WalletError("No wallet data found for current user");
+    }
+
+    const storage = new (await import("../auth/storage")).CredentialStorage();
+    const credential = await storage.getCredentialById(walletData.credentialId);
+    if (!credential) {
+      throw new WalletError("Credential not found");
+    }
+
+    // Import and decrypt
+    const { mnemonic, ethereumAddress } = await syncManager.importFromSync(
+      backupFile,
+      credential.id,
+      credential.publicKey
+    );
+
+    // Store the wallet with current credential
+    const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyFromWebAuthn(
+      credential.id,
+      credential.publicKey
+    );
+
+    const encryptedMnemonic = await (await import("../wallet/crypto")).encryptData(
+      mnemonic,
+      encryptionKey
+    );
+
+    await this.walletStorage.store({
+      ethereumAddress,
+      encryptedMnemonic,
+      credentialId: credential.id,
+      createdAt: new Date().toISOString(),
+    });
+
+    return {
+      ethereumAddress,
+      success: true,
+    };
   }
 
   /**

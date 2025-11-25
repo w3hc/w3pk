@@ -5,8 +5,8 @@
 
 export { BackupManager } from './manager';
 export { BackupStorage } from './storage';
-export { ZipBackupCreator } from './zip-backup';
 export { QRBackupCreator } from './qr-backup';
+export { BackupFileManager } from './backup-file';
 
 export * from './types';
 export * from './encryption';

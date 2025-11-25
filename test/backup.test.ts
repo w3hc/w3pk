@@ -9,7 +9,6 @@
 
 import { Wallet } from 'ethers';
 import { BackupManager } from '../src/backup';
-import { ZipBackupCreator } from '../src/backup/zip-backup';
 import { QRBackupCreator } from '../src/backup/qr-backup';
 import {
   validatePasswordStrength,
@@ -110,66 +109,7 @@ async function runTests() {
     passTest('Address checksum generation working correctly');
   });
 
-  // Test 5: ZIP Backup Creation
-  await runTest('ZIP Backup Creation', async () => {
-    const zipCreator = new ZipBackupCreator();
-    const testMnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-    const testAddress = '0x1234567890123456789012345678901234567890';
-    const password = 'TestBackup123!NotReal';
-
-    const { blob, metadata } = await zipCreator.createZipBackup(
-      testMnemonic,
-      testAddress,
-      { password, includeInstructions: true }
-    );
-
-    assert(blob instanceof Blob, 'Should return Blob');
-    assert(blob.size > 0, 'Blob should have size');
-    assertTruthy(metadata.id, 'Metadata should have ID');
-    assertEqual(metadata.ethereumAddress, testAddress, 'Metadata should have correct address');
-    assertEqual(metadata.method, 'zip', 'Metadata should indicate ZIP method');
-
-    passTest(`ZIP backup created (${(blob.size / 1024).toFixed(2)} KB)`);
-  });
-
-  // Test 6: ZIP Backup Restoration
-  await runTest('ZIP Backup Restoration', async () => {
-    const zipCreator = new ZipBackupCreator();
-    const testMnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-
-    // Derive the actual address from the mnemonic
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    const password = 'TestRestore123!NotReal';
-
-    // Create backup
-    const { blob } = await zipCreator.createZipBackup(
-      testMnemonic,
-      testAddress,
-      { password }
-    );
-
-    // Read backup
-    const backupData = await blob.text();
-
-    // Parse the JSON archive
-    const archive = JSON.parse(backupData);
-    const encryptedFile = archive['recovery-phrase.txt.enc'];
-
-    // Restore from backup
-    const { mnemonic, metadata } = await zipCreator.restoreFromZipBackup(
-      encryptedFile,
-      password
-    );
-
-    assertEqual(mnemonic, testMnemonic, 'Restored mnemonic should match original');
-    assertEqual(metadata.ethereumAddress, testAddress, 'Restored address should match');
-
-    passTest('ZIP backup restoration working correctly');
-  });
-
-  // Test 7: QR Backup Creation (Encrypted)
+  // Test 5: QR Backup Creation (Encrypted)
   await runTest('QR Backup Creation (Encrypted)', async () => {
     try {
       const qrCreator = new QRBackupCreator();
@@ -207,7 +147,7 @@ async function runTests() {
     }
   });
 
-  // Test 8: QR Backup Creation (Plain)
+  // Test 6: QR Backup Creation (Plain)
   await runTest('QR Backup Creation (Plain)', async () => {
     const qrCreator = new QRBackupCreator();
     const testMnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
@@ -225,7 +165,7 @@ async function runTests() {
     passTest('QR plain backup working correctly');
   });
 
-  // Test 9: QR Backup Restoration
+  // Test 7: QR Backup Restoration
   await runTest('QR Backup Restoration', async () => {
     const qrCreator = new QRBackupCreator();
     const testMnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
@@ -255,7 +195,7 @@ async function runTests() {
     passTest('QR backup restoration working correctly');
   });
 
-  // Test 10: Backup Manager Status
+  // Test 8: Backup Manager Status
   await runTest('Backup Manager Status', async () => {
     const backupManager = new BackupManager();
     const testAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';
@@ -271,7 +211,7 @@ async function runTests() {
     passTest(`Backup status: ${status.securityScore.total}/100 (${status.securityScore.level})`);
   });
 
-  // Test 11: Security Score Calculation
+  // Test 9: Security Score Calculation
   await runTest('Security Score Calculation', async () => {
     const backupManager = new BackupManager();
     const testAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';

@@ -1406,51 +1406,6 @@ console.log('Social recovery:', status.socialRecovery?.enabled)
 
 ---
 
-### `createZipBackup(password: string, options?: ZipBackupOptions): Promise<Blob>`
-
-Create password-protected ZIP backup containing encrypted wallet.
-
-**Parameters:**
-- `password: string` - Strong password to encrypt backup
-- `options?: ZipBackupOptions`
-  ```typescript
-  interface ZipBackupOptions {
-    includeInstructions?: boolean;  // Include recovery instructions (default: true)
-    deviceBinding?: boolean;        // Bind to device fingerprint (default: false)
-  }
-  ```
-
-**Returns:** `Blob` - ZIP file containing encrypted backup
-
-**Security:**
-- Forces fresh authentication
-- Validates password strength
-- AES-GCM-256 encryption
-
-**Example:**
-
-```typescript
-import { isStrongPassword } from 'w3pk'
-
-const password = 'MyS3cur3!Password@2042'
-if (!isStrongPassword(password)) {
-  throw new Error('Password too weak')
-}
-
-const zipBlob = await w3pk.createZipBackup(password, {
-  includeInstructions: true
-})
-
-// Save to file system
-const url = URL.createObjectURL(zipBlob)
-const a = document.createElement('a')
-a.href = url
-a.download = 'w3pk-backup.zip'
-a.click()
-```
-
----
-
 ### `createQRBackup(password?: string, options?: QRBackupOptions): Promise<QRBackupResult>`
 
 Create QR code backup for easy recovery.
@@ -1594,39 +1549,6 @@ console.log('Wallet recovered:', ethereumAddress)
 console.log('Mnemonic:', mnemonic)
 
 // Now import the mnemonic
-await w3pk.importMnemonic(mnemonic)
-```
-
----
-
-### `restoreFromBackup(backupData: string, password: string): Promise<RecoveryResult>`
-
-Restore wallet from encrypted ZIP backup.
-
-**Parameters:**
-- `backupData: string` - Backup file contents (JSON string from ZIP)
-- `password: string` - Password used to encrypt the backup
-
-**Returns:**
-
-```typescript
-interface RecoveryResult {
-  mnemonic: string;
-  ethereumAddress: string;
-}
-```
-
-**Example:**
-
-```typescript
-// Read backup file
-const file = await fileInput.files[0].text()
-const password = prompt('Enter backup password')
-
-const { mnemonic, ethereumAddress } = await w3pk.restoreFromBackup(file, password)
-console.log('Wallet restored:', ethereumAddress)
-
-// Import the mnemonic
 await w3pk.importMnemonic(mnemonic)
 ```
 
@@ -2004,7 +1926,7 @@ Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
 ```typescript
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi
+// => bafybeicujqydugwds3yuuipeh6xgiphi342cb6eh7w5z3ryz2hijnrqezm
 ```
 
 ---
@@ -2031,7 +1953,7 @@ const hash = await getW3pkBuildHash('http://localhost:3000/dist')
 Verify if the current build matches an expected hash.
 
 ```typescript
-const trustedHash = 'bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi'
+const trustedHash = 'bafybeicujqydugwds3yuuipeh6xgiphi342cb6eh7w5z3ryz2hijnrqezm'
 const isValid = await verifyBuildHash(trustedHash)
 
 if (isValid) {

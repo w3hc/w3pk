@@ -231,7 +231,7 @@ ALTERNATIVE RECOVERY:
 -------------------
 
 If QR code is lost/damaged, you can still recover using:
-- Encrypted ZIP backup
+- Encrypted backup file
 - Social recovery
 - Passkey sync
 - Manual mnemonic entry (if you wrote down the words)

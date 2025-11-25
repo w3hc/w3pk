@@ -54,7 +54,7 @@ const rpcUrl = endpoints[0]
 - 🔍 Build verification (IPFS CIDv1 hashing for package integrity)
 - 🛡️ Three-layer backup & recovery system
   - Passkey auto-sync (iCloud/Google/Microsoft)
-  - Encrypted backups (ZIP/QR with password protection)
+  - Encrypted backups (QR codes and backup files with password protection)
   - Social recovery (Shamir Secret Sharing)
 
 ## API
@@ -253,10 +253,6 @@ if (!isStrongPassword(password)) {
 const status = await w3pk.getBackupStatus()
 console.log('Security Score:', status.securityScore.score) // 0-100
 
-// Create encrypted ZIP backup
-const blob = await w3pk.createZipBackup(password)
-// Save blob to file system
-
 // Create QR backup
 const { qrCodeDataURL } = await w3pk.createQRBackup('password')
 // Display QR code or save as image
@@ -302,10 +298,10 @@ import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 // Get IPFS hash of installed w3pk build
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi
+// => bafybeicujqydugwds3yuuipeh6xgiphi342cb6eh7w5z3ryz2hijnrqezm
 
 // Verify against trusted hash (from GitHub releases)
-const trusted = 'bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi'
+const trusted = 'bafybeicujqydugwds3yuuipeh6xgiphi342cb6eh7w5z3ryz2hijnrqezm'
 const isValid = await verifyBuildHash(trusted)
 if (isValid) {
   console.log('✅ Build integrity verified!')
@@ -319,7 +315,7 @@ See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete docume
 ### Current Build Hash (v0.7.6)
 
 ```
-bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi
+bafybeicujqydugwds3yuuipeh6xgiphi342cb6eh7w5z3ryz2hijnrqezm
 ```
 
 **Verify package integrity:**
@@ -327,7 +323,7 @@ bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi
 ```typescript
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeifysgwvsyog2akxjk4cjky2grqqyzfehamuwyk6zy56srgkc5jopi'
+const TRUSTED_HASH = 'bafybeicujqydugwds3yuuipeh6xgiphi342cb6eh7w5z3ryz2hijnrqezm'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
 
 if (!isValid) {

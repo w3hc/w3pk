@@ -4,5 +4,6 @@
  */
 
 export { SocialRecoveryManager } from './social';
+export { SocialRecovery } from './backup-based-recovery';
 export * from './shamir';
 export * from './types';

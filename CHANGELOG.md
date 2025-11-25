@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **ZIP Backup System**: Removed redundant ZIP backup functionality in favor of simpler backup file approach
+  - Removed `ZipBackupCreator` class and all ZIP-related code
+  - Removed `createZipBackup()` and `restoreFromZipBackup()` methods
+  - Removed `ZipBackupOptions` interface
+  - Updated backup types to remove `'zip'` from method unions
+  - The new `BackupFileManager` provides simpler JSON-based backup files with password/passkey/hybrid encryption
+  - QR code backups remain fully supported
+  - **Migration**: Users should use the new backup file system or QR codes for portable backups
+
+### Documentation
+
+- **Consolidated Backup Documentation**: Merged `docs/BACKUP_SYSTEM.md` and `docs/WORKFLOWS.md` into `docs/RECOVERY.md`
+  - Single comprehensive source for all backup and recovery workflows
+  - Clearer distinction between passkey sync and manual backup requirements
+  - Enhanced explanation of cross-device sync, password backups, and social recovery
+  - Updated all documentation references to use "portable" instead of outdated terminology
+
 ### Security
 
 - **W3C WebAuthn Compliance Improvements**: Enhanced security with signature counter validation and RP ID hash verification
@@ -270,7 +289,6 @@ No breaking changes. All existing code continues to work. The fixes are internal
 ### Added
 
 - Backup system with password-based encryption
-- ZIP backup creation and restoration
 - QR code backup support
 - Social recovery features
 - Security score calculation

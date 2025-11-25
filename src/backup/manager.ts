@@ -6,7 +6,6 @@
 import type {
   BackupStatus,
   SecurityScore,
-  ZipBackupOptions,
   QRBackupOptions,
   RecoveryScenario,
   SimulationResult,
@@ -14,17 +13,14 @@ import type {
   EncryptedBackupInfo,
 } from './types';
 import { BackupStorage } from './storage';
-import { ZipBackupCreator } from './zip-backup';
 import { QRBackupCreator } from './qr-backup';
 
 export class BackupManager {
   private storage: BackupStorage;
-  private zipCreator: ZipBackupCreator;
   private qrCreator: QRBackupCreator;
 
   constructor() {
     this.storage = new BackupStorage();
-    this.zipCreator = new ZipBackupCreator();
     this.qrCreator = new QRBackupCreator();
   }
 
@@ -163,26 +159,6 @@ export class BackupManager {
   }
 
   /**
-   * Create password-protected ZIP backup
-   */
-  async createZipBackup(
-    mnemonic: string,
-    ethereumAddress: string,
-    options: ZipBackupOptions
-  ): Promise<Blob> {
-    const { blob, metadata } = await this.zipCreator.createZipBackup(
-      mnemonic,
-      ethereumAddress,
-      options
-    );
-
-    // Store metadata
-    await this.storage.storeBackupMetadata(metadata);
-
-    return blob;
-  }
-
-  /**
    * Create QR code backup
    */
   async createQRBackup(
@@ -208,24 +184,6 @@ export class BackupManager {
     await this.storage.storeBackupMetadata(metadata);
 
     return { qrCodeDataURL, instructions };
-  }
-
-  /**
-   * Restore from ZIP backup
-   */
-  async restoreFromZipBackup(
-    backupData: string,
-    password: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { mnemonic, metadata } = await this.zipCreator.restoreFromZipBackup(
-      backupData,
-      password
-    );
-
-    return {
-      mnemonic,
-      ethereumAddress: metadata.ethereumAddress,
-    };
   }
 
   /**
@@ -261,7 +219,7 @@ export class BackupManager {
 
         if (currentStatus.recoveryPhrase.encryptedBackups.length > 0) {
           methods.push({
-            method: 'Encrypted ZIP Backup',
+            method: 'Encrypted Backup',
             success: true,
             time: '2 minutes',
             requirements: ['Backup file', 'Password'],

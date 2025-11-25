@@ -209,7 +209,7 @@ This ensures you can recover if:
         return [
           'Windows Hello sync is limited',
           'Consider using:',
-          '- Encrypted ZIP backup',
+          '- Encrypted backup file',
           '- Social recovery',
           '- Cloud backup (password-protected)',
         ];
@@ -218,7 +218,7 @@ This ensures you can recover if:
         return [
           'Platform sync not available',
           'Use alternative backup methods:',
-          '- Create encrypted ZIP backup',
+          '- Create encrypted backup file',
           '- Set up social recovery',
           '- Save recovery phrase securely',
         ];
