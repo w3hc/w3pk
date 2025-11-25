@@ -72,6 +72,32 @@ export interface BackupMetadata {
   addressChecksum: string; // For verification
 }
 
+/**
+ * Simplified backup file format - acts like a "floppy disk"
+ * Can be used to:
+ * 1. Restore wallet with existing passkey (same or synced device)
+ * 2. Register new passkey with this wallet (fresh device)
+ * 3. Sync wallet across devices
+ * 4. Split among guardians for social recovery
+ */
+export interface BackupFile {
+  createdAt: string; // ISO 8601 timestamp
+  ethereumAddress: string; // m/44'/60'/0'/0/0 address (index #0)
+  encryptedMnemonic: string; // AES-256-GCM encrypted with passkey-derived key OR password
+  encryptionMethod: 'passkey' | 'password' | 'hybrid';
+  // For passkey encryption (optional, used when encryptionMethod is 'passkey' or 'hybrid')
+  credentialId?: string;
+  publicKeyFingerprint?: string; // SHA-256 hash of public key for identification
+  // For password encryption (optional, used when encryptionMethod is 'password' or 'hybrid')
+  passwordEncryption?: {
+    salt: string;
+    iv: string;
+    iterations: number;
+  };
+  // Metadata for verification
+  addressChecksum: string; // For verification after decryption
+}
+
 export interface EncryptedBackupData {
   version: number;
   encryptedMnemonic: string;

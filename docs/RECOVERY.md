@@ -1,10 +1,16 @@
-# Recovery System Architecture
+# W3PK Backup & Recovery System
 
-> **Simple. Educational. Robust.**
-> A three-layer backup and recovery system for w3pk wallets.
+> **Simple. Universal. Secure.**
+> A unified backup file system for w3pk wallets with multiple recovery paths.
 
 > ✅ **Status: Fully Implemented & Production-Ready**
-> This system is complete with 35 passing tests covering backup encryption, social recovery, and educational features.
+> This system is complete with all tests passing, covering backup encryption, device sync, and social recovery.
+
+## Overview
+
+The W3PK backup system provides a simplified portable approach to wallet backups. A single backup file can be used for multiple purposes: restoration, registration, cross-device sync, and social recovery.
+
+W3PK uses a **universal backup file format** (BackupFile v2) as the foundation for all recovery workflows. Think of it as a portable encrypted file that can be used for multiple purposes.
 
 ---
 
@@ -48,252 +54,226 @@ Before diving into the recovery system, it's crucial to understand the differenc
 
 **Why this matters:**
 - If you lose your device but have passkey sync enabled, you can authenticate on a new device, BUT you still need the encrypted mnemonic from your old device to recover your wallet
-- This is why **manual mnemonic backup** (Layers 2 & 3 below) is essential for true recovery
+- This is why **manual mnemonic backup** is essential for true recovery
 
 ---
 
-## 🎯 Overview
+## 🎯 Backup File Format
 
-The w3pk Recovery System provides **three independent layers** of wallet backup and recovery, ensuring users never lose access to their funds while maintaining strong security guarantees.
+All workflows use the same universal format:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    🔐 RECOVERY VAULT                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Layer 1: 🔑 Passkey (Credential)    [Auto-Sync ✅]        │
-│  ├─ WebAuthn credential (Face ID/fingerprint)             │
-│  ├─ Syncs via iCloud/Google automatically                 │
-│  ├─ Unlocks wallet, doesn't store wallet                  │
-│  └─ Status: 🟢 Active on 3 devices                         │
-│                                                             │
-│  📦 Encrypted Wallet Data            [LOCAL ONLY ⚠️]       │
-│  ├─ Stored in browser IndexedDB (encrypted)               │
-│  ├─ Does NOT sync automatically                           │
-│  └─ Needs manual backup via Layers 2 or 3 below           │
-│                                                             │
-│  Layer 2: 🌱 Mnemonic Backup          [Manual Backup]      │
-│  ├─ 12-word recovery phrase                               │
-│  ├─ Encrypted ZIP backup (password-protected)             │
-│  └─ Status: ⚠️  Not backed up                              │
-│                                                             │
-│  Layer 3: 🔗 Social Recovery          [Friend Network]     │
-│  ├─ 3-of-5 guardian shares (Shamir Secret Sharing)        │
-│  ├─ Encrypted with guardian keys                           │
-│  └─ Status: 🟢 2/5 guardians active                        │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-
-⚠️  IMPORTANT: Only the passkey syncs automatically!
-    Your wallet data requires manual backup (Layer 2 or 3).
-```
-
----
-
-## 📚 Three Recovery Layers Explained
-
-### **Layer 1: Passkey Auto-Sync** (Easiest - But Not Complete Recovery)
-
-**What it is:**
-- Your WebAuthn credential (fingerprint/Face ID) automatically syncs across your devices
-- Platform-dependent (iCloud Keychain, Google Password Manager, etc.)
-- **Important:** Only the passkey syncs, NOT the encrypted wallet data itself
-
-**How it works:**
-```
-Device 1 (iPhone)          iCloud Keychain          Device 2 (Mac)
-     |                            |                         |
-     |-- Passkey Created -------->|                         |
-     |   (Encrypted mnemonic      |                         |
-     |    stored locally)         |                         |
-     |                            |<----- Login on Mac -----|
-     |                            |                         |
-     |                     Passkey Synced ✅                 |
-     |                            |                         |
-     |-- Transfer encrypted --------------------> Device 2  |
-     |   wallet data manually                (via backup or |
-     |   OR via Layer 2/3 backup              cloud sync)   |
-```
-
-**What Actually Syncs:**
-- ✅ Your passkey (biometric credential)
-- ❌ Your encrypted wallet data (mnemonic) - this stays on the device
-
-**Complete Recovery Requires:**
-1. Passkey (synced automatically via platform)
-2. **AND** encrypted wallet data (from backup or device-to-device transfer)
-
-**Pros:**
-- ✅ Automatic passkey sync (no user action needed)
-- ✅ Quick authentication on new device
-- ✅ Hardware-protected security
-- ✅ Works immediately after setup for authentication
-
-**Cons:**
-- ⚠️ Platform-specific (Apple/Google/Microsoft)
-- ⚠️ Requires cloud account
-- ⚠️ May not work across different ecosystems
-- ⚠️ **Does NOT sync your actual wallet** - only the authentication credential
-
-**Recovery scenarios:**
-| Scenario | Can Recover? | How |
-|----------|--------------|-----|
-| Lost iPhone (iCloud enabled) + wallet backed up | ✅ Yes | Passkey syncs + restore from encrypted backup |
-| Lost iPhone (iCloud enabled) + NO backup | ❌ No | Passkey syncs but encrypted mnemonic is lost |
-| Lost iPhone (iCloud disabled) | ❌ No | Need Layer 2 or 3 (mnemonic backup) |
-| New Mac (same iCloud) + same browser profile | ✅ Yes | Passkey + local data may transfer |
-| Switch to Android | ❌ No | Need Layer 2 or 3 (mnemonic backup) |
-
-**⚠️ Critical Note:** Passkey sync alone is NOT sufficient for wallet recovery. You must also have your encrypted wallet data through one of these methods:
-- Browser profile/data transfer (same device ecosystem)
-- Encrypted backup (Layer 2)
-- Social recovery (Layer 3)
-
----
-
-### **Layer 2: Encrypted Backup** (Universal)
-
-**What it is:**
-- Your 12-word recovery phrase encrypted and packaged for safe storage
-- Multiple backup formats: password-protected ZIP, QR code, encrypted file
-
-**How it works:**
 ```typescript
-1. User creates backup with password
-2. System generates encrypted package:
-   ├─ Mnemonic encrypted with AES-256-GCM
-   ├─ Password-derived key (PBKDF2, 310,000 iterations)
-   └─ Device fingerprint binding (optional)
-3. User saves encrypted file/QR code
-4. To recover: Provide password → Decrypt → Import mnemonic
+interface BackupFile {
+  createdAt: string;              // ISO 8601 timestamp
+  ethereumAddress: string;        // m/44'/60'/0'/0/0 (index #0)
+  encryptedMnemonic: string;      // AES-256-GCM encrypted
+  encryptionMethod: 'passkey' | 'password' | 'hybrid';
+  addressChecksum: string;        // For verification
+
+  // Optional fields based on encryption method
+  credentialId?: string;
+  publicKeyFingerprint?: string;
+  passwordEncryption?: {
+    salt: string;
+    iv: string;
+    iterations: number;
+  };
+}
 ```
 
-**Backup Methods:**
+### Example Backup File
 
-#### A. **Password-Protected ZIP File** (Recommended)
+```json
+{
+  "createdAt": "2025-11-25T17:02:43.393Z",
+  "ethereumAddress": "0x84Aa4D5c00D93CE377EfDc9b20b68C29C67E2c76",
+  "encryptedMnemonic": "+0ew4mo3jbsHGIJVb17eXsftc5Sqi710SW+h8EZ67I4...",
+  "encryptionMethod": "password",
+  "passwordEncryption": {
+    "salt": "KUA/RBWL8N1Y648K6IkHIaaps8vyR1H3BxZqQd5agyM=",
+    "iv": "4XBZgFB0Lek9PCtj",
+    "iterations": 310000
+  },
+  "addressChecksum": "OFVy+n2ehtgYy1Rq"
+}
+```
+
+---
+
+## 🔐 Encryption Methods
+
+### Password-based
+- **Use case**: Disaster recovery, social recovery, new device setup
+- **Security**: PBKDF2 (310,000 iterations) + AES-256-GCM
+- **Pros**: Platform-agnostic, works everywhere
+- **Cons**: Must remember password
+
+### Passkey-based
+- **Use case**: Cross-device sync (when passkey is synced)
+- **Security**: WebAuthn credential → PBKDF2 (210,000 iterations) → AES-256-GCM
+- **Pros**: No password needed, uses synced passkey
+- **Cons**: Requires passkey on target device
+
+### Hybrid
+- **Use case**: Maximum security scenarios
+- **Security**: Double encryption (passkey → password)
+- **Pros**: Two-factor protection
+- **Cons**: Requires both passkey AND password
+
+---
+
+## 📚 Core Workflows
+
+### **1. Backup/Restore (Disaster Recovery)**
+
+**Purpose**: Create portable encrypted backup for disaster recovery
+
+**Create Backup:**
 ```typescript
-await backupManager.createEncryptedZipBackup('my-strong-password')
-// Downloads: wallet-backup-2025-10-26.zip
-// Contains:
-//   - recovery-phrase.txt.enc (encrypted mnemonic)
-//   - metadata.json (wallet address, creation date)
-//   - instructions.txt (how to restore)
+const sdk = createWeb3Passkey();
+await sdk.login();
+
+// Password-protected backup (recommended)
+const { blob, filename } = await sdk.createBackupFile('password', 'MySecurePassword123!');
+// Downloads: w3pk-backup-0x1234abcd-2025-11-25.json
 ```
 
-**Security:**
-- Multi-layer encryption (AES-256-GCM)
-- PBKDF2 key derivation (310,000 iterations)
-- Optional device fingerprint binding
-- Verification checksum included
+**Restore on New Device:**
+```typescript
+const sdk = createWeb3Passkey();
+
+// Register new passkey with wallet from backup
+await sdk.registerWithBackupFile(backupFile, 'MySecurePassword123!', 'myusername');
+// Now logged in and ready to use
+```
+
+**Encryption**: Password → PBKDF2 (310k iterations) → AES-256-GCM
+
+**Use Cases:**
+1. **First backup after wallet creation** - Essential safety net
+2. **Switching devices/platforms** - Works everywhere
+3. **Long-term storage** - Store in password manager or encrypted cloud
+4. **Emergency recovery** - When all else fails
 
 **Pros:**
 - ✅ Works on any device/platform
-- ✅ Password protection
-- ✅ Can store in cloud (encrypted)
-- ✅ Universal wallet compatibility (BIP39)
+- ✅ No platform dependencies
+- ✅ Can store safely in cloud (already encrypted)
+- ✅ BIP39 compatible - works with other wallets
 
 **Cons:**
-- ⚠️ User must remember password
-- ⚠️ Can be lost if not stored properly
-- ⚠️ Manual backup creation required
-
-#### B. **QR Code Backup** (Offline/Paranoid Mode)
-```typescript
-await backupManager.createQRCodeBackup('optional-password')
-// Generates QR code containing encrypted mnemonic
-```
-
-**Pros:**
-- ✅ 100% offline
-- ✅ Can print and store physically
-- ✅ No cloud dependency
-- ✅ Scannable from any device
-
-**Cons:**
-- ⚠️ Can be lost/destroyed
-- ⚠️ QR code damage = data loss
-- ⚠️ Physical security concerns
-
-#### C. **Encrypted File Backup**
-```typescript
-await backupManager.createEncryptedFile(password, 'my-backup.enc')
-```
-
-**Pros:**
-- ✅ Simple file storage
-- ✅ Can copy to USB drive
-- ✅ Email to yourself (encrypted)
-
-**Cons:**
-- ⚠️ Requires password
-- ⚠️ File can be lost
+- ⚠️ Must remember password (can't be reset)
+- ⚠️ Manual creation required
+- ⚠️ File can be lost if not stored properly
 
 **Recovery scenarios:**
 | Scenario | Can Recover? | How |
 |----------|--------------|-----|
 | Lost all devices | ✅ Yes | Import backup file + password |
-| Forgot password | ❌ No | Cannot decrypt backup |
-| Backup file lost | ❌ No | Need Layer 3 (social recovery) |
-| Switch wallet apps | ✅ Yes | BIP39 works everywhere |
+| Forgot password | ❌ No | Cannot decrypt - need other method |
+| Backup file lost | ❌ No | Need passkey sync or social recovery |
+| Switch to different wallet app | ✅ Yes | BIP39 mnemonic works everywhere |
 
 ---
 
-### **Layer 3: Social Recovery** (Ultimate Safety Net)
+### **2. Cross-Device Sync**
 
-**What it is:**
-- Your recovery phrase split into encrypted shares
-- Distributed to trusted friends/family (guardians)
-- Requires M-of-N shares to recover (e.g., 3 out of 5)
+**Purpose**: Sync wallet to devices where passkey is already synced
 
-**How it works (Shamir Secret Sharing):**
+**Export from Device A:**
 ```typescript
-// Setup: Split mnemonic into 5 shares, require 3 to recover
-const guardians = [
-  { name: 'Alice', email: 'alice@example.com' },
-  { name: 'Bob', email: 'bob@example.com' },
-  { name: 'Charlie', email: 'charlie@example.com' },
-  { name: 'Diana', email: 'diana@example.com' },
-  { name: 'Eve', email: 'eve@example.com' }
-]
+const sdk = createWeb3Passkey();
+await sdk.login(); // On device with wallet
 
-await socialRecovery.setup(mnemonic, guardians, threshold: 3)
-
-// Generates 5 encrypted shares:
-// Share 1 → Alice (via QR code or encrypted email)
-// Share 2 → Bob
-// Share 3 → Charlie
-// Share 4 → Diana
-// Share 5 → Eve
-
-// To recover: Collect any 3 shares
-const shares = [aliceShare, bobShare, charlieShare]
-const recoveredMnemonic = await socialRecovery.recover(shares)
+const { blob, filename, qrCode } = await sdk.exportForSync();
+// Transfer via QR code, AirDrop, email, etc.
 ```
 
-**Mathematical Security:**
-- Uses Shamir's Secret Sharing algorithm
-- Any 3 shares = full recovery
-- Any 2 shares = mathematically impossible to recover
-- Each guardian only has an encrypted piece
+**Import on Device B:**
+```typescript
+const sdk = createWeb3Passkey();
+await sdk.login(); // Passkey must be synced to this device
 
-**Guardian Responsibilities:**
+await sdk.importFromSync(syncData);
+// Wallet now available on Device B
 ```
-🛡️ You are Guardian 2/5
 
-Your friend has entrusted you with a recovery share.
+**Encryption**: WebAuthn-derived key → AES-256-GCM
 
-What this means:
-- You hold 1 piece of a 3-piece puzzle
-- 3 guardians needed to recover wallet
-- Keep this safe but accessible
+**Use Case**: Wallet on desktop, want it on mobile (same passkey ecosystem)
 
-How to help recover:
-1. Friend will request your share
-2. Scan your QR code or enter share code
-3. System verifies and reconstructs wallet
+**Requirement**: Passkey must be synced via iCloud/Google Password Manager
 
-⚠️ Never share unless friend requests it!
+**Pros:**
+- ✅ No password needed
+- ✅ Leverages existing passkey sync
+- ✅ Fast and convenient
+
+**Cons:**
+- ⚠️ Requires passkey on target device
+- ⚠️ Platform-specific (iCloud or Google)
+
+---
+
+### **3. Social Recovery**
+
+**Purpose**: Distribute encrypted wallet data among trusted guardians using Shamir Secret Sharing (M-of-N)
+
+**Setup (3-of-5 example):**
+```typescript
+const sdk = createWeb3Passkey();
+await sdk.login();
+
+// Create encrypted backup and split among guardians
+const { guardianShares } = await sdk.setupSocialRecovery(
+  [
+    { name: 'Alice', email: 'alice@example.com' },
+    { name: 'Bob', email: 'bob@example.com' },
+    { name: 'Charlie', email: 'charlie@example.com' },
+    { name: 'David', email: 'david@example.com' },
+    { name: 'Eve', email: 'eve@example.com' },
+  ],
+  3, // threshold: need 3 shares to recover
+  'OptionalPassword' // encrypts backup before splitting
+);
+
+// Generate invitation for each guardian
+for (const share of guardianShares) {
+  const invitation = await sdk.generateGuardianInvite(share);
+  // Send invitation.downloadBlob or invitation.qrCodeDataURL to guardian
+}
 ```
+
+**Recover Wallet:**
+```typescript
+const sdk = createWeb3Passkey();
+
+// Collect shares from 3+ guardians
+const shares = [aliceShare, bobShare, charlieShare];
+
+// Combine shares and decrypt
+const { mnemonic, ethereumAddress } = await sdk.recoverFromGuardians(
+  shares,
+  'OptionalPassword' // if backup was password-protected
+);
+
+// Register new passkey with recovered wallet
+await sdk.registerWithBackupFile(
+  JSON.stringify({ /* backup file reconstructed from shares */ }),
+  password,
+  username
+);
+```
+
+**Encryption**:
+1. Create BackupFile (password/passkey encrypted)
+2. Serialize to JSON
+3. Split using Shamir Secret Sharing (M-of-N)
+4. Each guardian gets one share
+
+**Use Case**: Forgot password, lost all devices, ultimate safety net
+
+**Security**: No single guardian can recover wallet alone
 
 **Pros:**
 - ✅ No single point of failure
@@ -317,90 +297,25 @@ How to help recover:
 
 ---
 
-## 🔐 Security Architecture
+## 📊 Workflow Comparison
 
-### **Encrypted ZIP Backup Details**
+| Workflow | Encryption | Use Case | Requirements |
+|----------|------------|----------|--------------|
+| **Backup/Restore** | Password | Lost all devices, platform switch | Password only |
+| **Sync** | Passkey | Add wallet to synced device | Passkey synced to target |
+| **Social Recovery** | Password* | Forgot everything, ultimate backup | 3+ guardians available |
 
-When you create a password-protected ZIP backup, here's what happens:
-
-```typescript
-Input:
-- mnemonic: "test test test test test test test test test test test junk"
-- password: "my-super-secure-password-123"
-
-Process:
-1. Derive encryption key from password
-   ├─ Salt: Random 32 bytes
-   ├─ Algorithm: PBKDF2-SHA256
-   ├─ Iterations: 310,000 (OWASP 2025 recommendation)
-   └─ Output: 256-bit AES key
-
-2. Encrypt mnemonic
-   ├─ Algorithm: AES-256-GCM
-   ├─ IV: Random 12 bytes
-   ├─ Input: mnemonic plaintext
-   └─ Output: encrypted ciphertext + auth tag
-
-3. Optional: Add device fingerprint binding
-   ├─ Hash: SHA-256(browser + OS + device ID)
-   ├─ Purpose: Prevent copy/paste to different device
-   └─ Bypass: Can be disabled for portability
-
-4. Create ZIP package
-   ├─ recovery-phrase.txt.enc (encrypted mnemonic)
-   ├─ metadata.json (address, creation date, checksum)
-   ├─ salt.bin (for PBKDF2)
-   ├─ instructions.txt (recovery guide)
-   └─ verification.json (address checksum for verification)
-
-Output:
-- wallet-backup-2025-10-26.zip (password-protected)
-```
-
-**Security guarantees:**
-- ✅ **Cannot decrypt without password** (brute-force resistant with 310k iterations)
-- ✅ **Verification checksum** ensures correct recovery
-- ✅ **Metadata separate** from encrypted data
-- ✅ **Safe to store in cloud** (Dropbox, Google Drive, etc.)
-
-**Recovery verification:**
-```typescript
-After decryption:
-1. Derive Ethereum address from recovered mnemonic
-2. Compare with metadata.json checksum
-3. Match = ✅ Success
-4. No match = ❌ Wrong password or corrupted file
-```
+*Social recovery can use passkey encryption, but password is recommended for guardian scenarios.
 
 ---
 
-### **QR Code Backup Details**
+## 🔒 Security Features
 
-```typescript
-QR Code contains:
-{
-  "version": 1,
-  "type": "encrypted", // or "plain" (not recommended)
-  "data": "encrypted_mnemonic_base64",
-  "salt": "salt_base64",
-  "checksum": "address_checksum",
-  "iterations": 310000
-}
-
-Properties:
-- Error correction: Level H (30% damage tolerance)
-- Can be printed and stored physically
-- Scannable from any device with camera
-- Optional password protection
-```
-
-**Use cases:**
-- 📄 Print and store in safe deposit box
-- 🏦 Give to trusted family member (physical)
-- 💾 Offline cold storage
-- 🔒 Air-gapped backup
-
----
+1. **Never Exposes Mnemonic**: Mnemonic is always encrypted in backup files
+2. **Address Checksum**: Verification to detect corruption or wrong password
+3. **Version Control**: Future-proof format versioning
+4. **Shamir Secret Sharing**: No single guardian can recover wallet alone
+5. **Multiple Encryption Options**: Choose security/convenience tradeoff
 
 ### **Social Recovery Cryptography**
 
@@ -411,6 +326,7 @@ Example: 3-of-5 scheme
 - Split secret S into 5 shares: s1, s2, s3, s4, s5
 - Any 3 shares can reconstruct S
 - Any 2 shares reveal ZERO information about S
+- Each guardian only has an encrypted piece
 
 Mathematical basis:
 - Polynomial interpolation over finite field
@@ -447,353 +363,86 @@ Attacker:
 
 ---
 
-## 📊 Backup Status Dashboard
+## 🛠️ API Reference
 
-Users see their security status at a glance:
-
-```typescript
-┌────────────────────────────────────────────────┐
-│  🛡️ Your Security Status                      │
-├────────────────────────────────────────────────┤
-│                                                │
-│  Recovery Strength: ████████░░ 80%             │
-│                                                │
-│  🔑 Passkey Protection                         │
-│  ├─ 🟢 Active on 3 devices                    │
-│  ├─ Platform: Apple (iCloud Keychain)         │
-│  ├─ Last synced: 2 hours ago                  │
-│  └─ [View devices]                             │
-│                                                │
-│  🌱 Recovery Phrase Backup                     │
-│  ├─ ⚠️  No encrypted backup created           │
-│  ├─ 📦 Encrypted ZIP: None                    │
-│  ├─ 📱 QR Code: None                          │
-│  └─ [Create backup now]                        │
-│                                                │
-│  🔗 Social Recovery                            │
-│  ├─ 🟢 Configured (3-of-5)                    │
-│  ├─ 👥 5 guardians added                      │
-│  ├─ ✅ 5 shares distributed                   │
-│  ├─ ⚠️  2 guardians haven't verified          │
-│  └─ [Manage guardians]                         │
-│                                                │
-│  📊 Recovery Scenarios                         │
-│     [Test what happens if...]                  │
-│                                                │
-└────────────────────────────────────────────────┘
-```
-
----
-
-## 🎓 Educational Components
-
-### **Recovery Scenario Simulator**
-
-Interactive tool to educate users about recovery options:
+### Create Backup
 
 ```typescript
-Scenario 1: 📱 Lost Your Phone
-──────────────────────────────
-Your iPhone fell in the ocean.
+// Password-protected backup
+const { blob, filename } = await w3pk.createBackupFile('password', password);
 
-Can you recover your wallet?
+// Passkey-encrypted backup
+const { blob, filename } = await w3pk.createBackupFile('passkey');
 
-Available recovery options:
-✅ iCloud Passkey Sync       Time: ~5 min    Success: 100%
-✅ Encrypted ZIP Backup      Time: ~2 min    Success: 100% (if password remembered)
-✅ Social Recovery           Time: ~24 hrs   Success: 100% (if 3 guardians respond)
-
-Verdict: ✅ You're safe! 3 ways to recover
-
-──────────────────────────────
-
-Scenario 2: 🔥 Lost Recovery Phrase
-──────────────────────────────
-Your paper backup burned in a fire.
-
-Can you recover your wallet?
-
-Available recovery options:
-✅ Passkey (still on device)  Time: instant   Success: 100%
-✅ iCloud Passkey Sync        Time: ~5 min    Success: 100%
-✅ Social Recovery            Time: ~24 hrs   Success: 100%
-
-Verdict: ✅ You're safe! Passkey still works
-
-──────────────────────────────
-
-Scenario 3: 🚨 Lost Everything
-──────────────────────────────
-Phone stolen + forgot password + no guardians.
-
-Can you recover your wallet?
-
-Available recovery options:
-❌ Passkey                    (device lost)
-❌ Encrypted ZIP Backup       (password forgotten)
-❌ Social Recovery            (not set up)
-
-Verdict: ❌ Wallet is permanently lost
-
-Recommendation:
-Set up at least 2 backup methods to prevent total loss.
-
-[Set up Social Recovery Now]
+// Hybrid backup (both password and passkey)
+const { blob, filename } = await w3pk.createBackupFile('hybrid', password);
 ```
 
----
-
-### **Security Score Gamification**
+### Restore from Backup
 
 ```typescript
-Your Security Score: 65/100 (Protected)
+// With existing passkey
+await w3pk.login();
+const { mnemonic } = await w3pk.restoreFromBackupFile(backupData, password);
+await w3pk.importMnemonic(mnemonic);
 
-Breakdown:
-├─ Passkey Active:           +20 pts ✅
-├─ Multi-Device Sync:        +10 pts ✅
-├─ Encrypted ZIP Backup:     +20 pts ❌ (not created)
-├─ QR Code Backup:           +5 pts  ❌ (not created)
-├─ Social Recovery (3-of-5): +30 pts ✅
-└─ Guardian Verification:    +15 pts 🔶 (3/5 verified)
-
-Level: Protected 🟢
-
-Next milestone: Create encrypted backup → reach "Secured" (85 pts)
-
-───────────────────────────────────────
-
-Security Levels:
-0-20  pts: ⚠️  Vulnerable  (only passkey)
-21-50 pts: 🟡 Protected    (passkey + 1 backup)
-51-80 pts: 🟢 Secured      (passkey + 2 backups)
-81-100 pts: 🏆 Fort Knox   (all methods enabled)
+// Register new passkey
+await w3pk.registerWithBackupFile(backupData, password, username);
 ```
 
----
+### Cross-Device Sync
 
-## 🚀 Implementation Plan
-
-### **Phase 1: Foundation** (Weeks 1-2)
-
-**Files to create:**
-```
-src/backup/
-├── manager.ts              # Main backup orchestration
-├── types.ts                # TypeScript interfaces
-└── storage.ts              # IndexedDB for metadata
-
-src/backup/methods/
-├── zip.ts                  # Password-protected ZIP
-├── qr.ts                   # QR code generation
-└── file.ts                 # Encrypted file export
-```
-
-**Core classes:**
-- `BackupManager` - Main API for backup operations
-- `BackupStorage` - IndexedDB for tracking backup metadata
-- `BackupStatus` - Status tracking and reporting
-
-**Features:**
-- ✅ Get comprehensive backup status
-- ✅ Track which backup methods are enabled
-- ✅ Store backup metadata (when created, method, etc.)
-
----
-
-### **Phase 2: Cross-Device Sync** (Weeks 3-4)
-
-**Files to create:**
-```
-src/sync/
-├── vault.ts                # Encrypted vault for sync
-├── device-manager.ts       # Track trusted devices
-├── platform-detect.ts      # Detect iCloud/Google sync
-└── types.ts                # Sync-related interfaces
-```
-
-**Core classes:**
-- `VaultSync` - Encrypted wallet sync across devices
-- `DeviceManager` - Manage trusted devices
-- `PlatformDetector` - Detect sync capabilities
-
-**Features:**
-- ✅ Detect available sync platforms (iCloud/Google)
-- ✅ Estimate device count from passkey sync
-- ✅ Show sync status in dashboard
-- ✅ Educational messaging about platform sync
-
----
-
-### **Phase 3: Encrypted Backups** (Weeks 5-6)
-
-**Files to create:**
-```
-src/backup/methods/
-├── zip.ts                  # ZIP file creation with encryption
-├── qr.ts                   # QR code generation
-└── encryption.ts           # Encryption utilities
-```
-
-**Core classes:**
-- `ZipBackupCreator` - Create password-protected ZIP files
-- `QRBackupCreator` - Generate encrypted QR codes
-- `EncryptionHelper` - PBKDF2 + AES-256-GCM utilities
-
-**Features:**
-- ✅ Password-protected ZIP backup
-- ✅ QR code backup (encrypted/plain)
-- ✅ Encrypted file export
-- ✅ Verification checksums
-- ✅ Recovery instructions included
-
----
-
-### **Phase 4: Social Recovery** (Weeks 7-8)
-
-**Files to create:**
-```
-src/recovery/
-├── social.ts               # Social recovery manager
-├── shamir.ts               # Shamir Secret Sharing
-├── guardian.ts             # Guardian management
-└── types.ts                # Recovery types
-
-Dependencies to add:
-- secrets.js-grempe         # Shamir Secret Sharing
-- qrcode                    # QR code generation
-- jszip                     # ZIP file creation
-```
-
-**Core classes:**
-- `SocialRecoveryManager` - Orchestrate social recovery
-- `ShamirSplitter` - Split/combine secrets
-- `GuardianManager` - Manage guardian list
-
-**Features:**
-- ✅ Split mnemonic into M-of-N shares
-- ✅ Encrypt shares with guardian public keys
-- ✅ Generate guardian invitations (QR + link)
-- ✅ Recover from collected shares
-- ✅ Guardian verification system
-
----
-
-### **Phase 5: Educational UI** (Weeks 9-10)
-
-**Files to create:**
-```
-src/education/
-├── explainers.ts           # Educational content
-├── simulator.ts            # Recovery scenario testing
-├── gamification.ts         # Security score tracking
-└── types.ts                # Education types
-```
-
-**Components:**
-- `RecoverySimulator` - Test recovery scenarios
-- `SecurityScoreTracker` - Gamification system
-- `EducationalExplainers` - Content modules
-- `BackupWizard` - Step-by-step backup setup
-
-**Features:**
-- ✅ Interactive recovery scenario simulator
-- ✅ Security score with progression
-- ✅ Educational explainers (passkeys, mnemonic, sync)
-- ✅ Backup creation wizard
-- ✅ Device loss scenario testing
-
----
-
-### **Phase 6: SDK Integration** (Week 11)
-
-**Files to modify:**
-```
-src/core/sdk.ts             # Add backup methods to main SDK
-src/core/config.ts          # Add backup configuration options
-```
-
-**New SDK methods:**
 ```typescript
-class Web3Passkey {
-  // Backup status
-  async getBackupStatus(): Promise<BackupStatus>
+// Export for sync
+const { blob, qrCode } = await w3pk.exportForSync();
 
-  // Create backups
-  async createZipBackup(password: string): Promise<Blob>
-  async createQRBackup(password?: string): Promise<string>
-  async exportEncryptedFile(password: string): Promise<Blob>
+// Import on another device
+await w3pk.login(); // Must have passkey synced
+await w3pk.importFromSync(backupData);
+```
 
-  // Social recovery
-  async setupSocialRecovery(
-    guardians: GuardianInfo[],
-    threshold: number
-  ): Promise<Guardian[]>
+### Social Recovery
 
-  async recoverFromGuardians(shares: string[]): Promise<string>
+```typescript
+// Setup
+const { guardianShares } = await w3pk.setupSocialRecovery(guardians, threshold);
 
-  // Sync
-  async getSyncStatus(): Promise<DeviceSyncStatus>
-  async detectSyncCapabilities(): Promise<SyncCapabilities>
+// Generate invitations
+const invitation = await w3pk.generateGuardianInvite(guardianShare);
 
-  // Education
-  async simulateRecoveryScenario(
-    scenario: RecoveryScenario
-  ): Promise<SimulationResult>
-
-  getSecurityScore(): SecurityScore
-}
+// Recover
+const { mnemonic } = await w3pk.recoverFromGuardians(shares, password);
 ```
 
 ---
 
-### **Phase 7: Testing** (Week 12)
+## 📝 Best Practices
 
-**Test files to create:**
-```
-test/backup/
-├── zip-backup.test.ts      # ZIP backup tests
-├── qr-backup.test.ts       # QR code tests
-├── social-recovery.test.ts # Shamir sharing tests
-└── encryption.test.ts      # Encryption tests
+### Backup Creation
+1. **Always create a password backup** immediately after wallet creation
+2. **Use strong passwords** (12+ characters, mixed case, numbers, symbols)
+3. **Test recovery** on another device before relying on it
+4. **Store backups securely**:
+   - Password manager (1Password, Bitwarden) ✅ Recommended
+   - Encrypted cloud storage (Google Drive, Dropbox) ✅
+   - Physical safe ✅
+   - USB drive in safe ✅
+5. **Never expose mnemonic** - always use encrypted backups
 
-test/integration/
-├── full-recovery.test.ts   # End-to-end recovery tests
-└── cross-device.test.ts    # Multi-device scenarios
-```
+### Social Recovery Setup
+1. **Choose appropriate guardians**:
+   - Trustworthy people ✅
+   - Tech-savvy (can handle QR codes) ✅
+   - Geographically distributed ✅
+   - Long-term relationships ✅
+   - Available when needed ✅
+2. **Set appropriate threshold**:
+   - 2-of-3 minimum
+   - 3-of-5 recommended
+   - Higher for more security
+3. **Guardian verification**: Ensure guardians confirm receipt of shares
 
-**Test scenarios:**
-- ✅ Create ZIP backup → restore → verify mnemonic
-- ✅ Split into shares → combine → verify mnemonic
-- ✅ QR code generation → scan → decrypt → verify
-- ✅ Password strength validation
-- ✅ Encryption/decryption roundtrip
-- ✅ Guardian management (add/remove/revoke)
-- ✅ Security score calculation
-- ✅ Backup status tracking
-
----
-
-## 📦 Dependencies
-
-```json
-{
-  "dependencies": {
-    "secrets.js-grempe": "^2.0.0",    // Shamir Secret Sharing
-    "jszip": "^3.10.1",                // ZIP file creation
-    "qrcode": "^1.5.3",                // QR code generation
-    "buffer": "^6.0.3"                 // Buffer polyfill for browsers
-  },
-  "devDependencies": {
-    "@types/qrcode": "^1.5.2"
-  }
-}
-```
-
----
-
-## 🔒 Security Considerations
-
-### **Password Requirements**
+### Password Requirements
 
 For encrypted backups, enforce strong passwords:
 
@@ -803,11 +452,9 @@ import { isStrongPassword } from 'w3pk'
 // Validate password before creating backup
 const password = userInput
 if (!isStrongPassword(password)) {
-  // Show error to user
   throw new Error('Password does not meet security requirements')
 }
 
-// Password is strong - proceed with backup
 const blob = await w3pk.createZipBackup(password)
 ```
 
@@ -819,90 +466,81 @@ const blob = await w3pk.createZipBackup(password)
 - At least 1 special character
 - Not a common password (dictionary check)
 
-**Examples:**
-```typescript
-// Test fixtures - not real passwords!
-isStrongPassword('Test1234!@#$')     // ✅ Valid
-isStrongPassword('weak')             // ❌ Too short
-isStrongPassword('Password123!Foo')  // ❌ Contains "password"
-```
-
 **Strength indicator:**
 - 0-25%   : ❌ Weak (rejected)
 - 26-50%  : ⚠️  Fair (warning shown)
 - 51-75%  : 🟡 Good (accepted)
 - 76-100% : ✅ Strong (recommended)
 
-### **Backup Storage Best Practices**
+---
 
-Educate users on where to store backups:
+## 📖 Technical Implementation
 
-```typescript
-Recommended storage:
-✅ Password manager (1Password, Bitwarden)
-✅ Encrypted cloud (Dropbox, Google Drive) - file is already encrypted
-✅ USB drive in safe
-✅ Physical printout in safe deposit box
+### Files Created
+- [src/backup/backup-file.ts](src/backup/backup-file.ts) - Core backup file manager
+- [src/sync/backup-sync.ts](src/sync/backup-sync.ts) - Cross-device sync
+- [src/recovery/backup-based-recovery.ts](src/recovery/backup-based-recovery.ts) - Social recovery
+- [test/backup-file.test.ts](test/backup-file.test.ts) - Test suite
 
-NOT recommended:
-❌ Email (unencrypted transmission)
-❌ Plain text file on desktop
-❌ Cloud storage without password protection
-❌ Shared drives
+### Key Classes
+- `BackupFileManager` - Create and restore backup files
+- `DeviceSyncManager` - Handle cross-device sync
+- `SocialRecovery` - Split/combine guardian shares
+
+### Core Architecture
+
 ```
+src/backup/
+├── backup-file.ts              # Main backup orchestration
+├── types.ts                    # TypeScript interfaces
+├── encryption.ts               # PBKDF2 + AES-256-GCM utilities
+└── storage.ts                  # IndexedDB for metadata
 
-### **Guardian Selection Guidelines**
+src/sync/
+├── backup-sync.ts              # DeviceSyncManager class
+└── types.ts                    # Sync-related interfaces
 
-```typescript
-Good guardians:
-✅ Trusted family/friends
-✅ Tech-savvy (can handle QR codes)
-✅ Geographically distributed
-✅ Long-term relationships
-✅ Available when needed
+src/recovery/
+├── backup-based-recovery.ts    # SocialRecovery class
+├── shamir.ts                   # Shamir Secret Sharing
+└── types.ts                    # Recovery-related interfaces
 
-Bad guardians:
-❌ Strangers or acquaintances
-❌ Same physical location (house fire risk)
-❌ Not tech-savvy (cannot help)
-❌ Transient relationships
+src/core/
+└── sdk.ts                      # Main SDK with all workflow methods
 ```
 
 ---
 
-## 🎯 Success Metrics
+## 🧪 Testing
 
-Track user adoption and security:
+Run the test suite:
+```bash
+# Backup file tests
+pnpm tsx test/backup-file.test.ts
 
-```typescript
-Metrics to monitor:
-- % of users with encrypted backup
-- % of users with social recovery
-- Average security score
-- Recovery success rate
-- Time to recovery (by method)
-- Guardian response rate
-- Backup creation abandonment rate
-
-Goals:
-- 80% of users create encrypted backup within 7 days
-- 50% of users set up social recovery
-- Average security score > 65
-- Recovery success rate > 95%
+# All backup tests
+pnpm test:backup
 ```
+
+All tests pass:
+- ✅ Password backup creation and restoration
+- ✅ Social recovery with guardian shares (3-of-5)
+- ✅ Guardian invitation generation with QR codes
+- ✅ Downloadable backup file creation
+- ✅ Address checksum verification
 
 ---
 
 ## 📚 User Documentation
 
-### **Quick Start: Backup Your Wallet**
+### Quick Start: Backup Your Wallet
 
 ```markdown
-1. Create Encrypted ZIP Backup (Recommended)
+1. Create Password-Protected Backup (Recommended)
    - Click "Backup Wallet" in settings
-   - Choose "Encrypted ZIP"
+   - Choose "Password Backup"
    - Enter strong password (you MUST remember this!)
-   - Download wallet-backup-[date].zip
+   - Download w3pk-backup-[address]-[date].json
    - Store in password manager or encrypted cloud
 
 2. Optional: Set Up Social Recovery
@@ -916,26 +554,21 @@ Goals:
    - Try restoring in a different browser
    - Check that address matches
    - Delete test import (keep original)
-
-4. Test Recovery
-   - Use recovery scenario simulator
-   - Practice with test wallet first
-   - Ensure you understand the process
 ```
 
 ---
 
 ## 🚨 Recovery Guide
 
-### **How to Recover Your Wallet**
+### How to Recover Your Wallet
 
-#### **Method 1: Using Encrypted ZIP Backup**
+#### **Method 1: Using Password-Protected Backup**
 
 ```markdown
-1. Download your backup file (wallet-backup-[date].zip)
+1. Download your backup file (w3pk-backup-[address]-[date].json)
 2. Go to w3pk recovery page
-3. Click "Import from Backup"
-4. Select your ZIP file
+3. Click "Register with Backup"
+4. Select your backup file
 5. Enter your password
 6. System decrypts and verifies
 7. Wallet restored ✅
@@ -954,7 +587,8 @@ Verification:
 4. Click "Login"
 5. Authenticate with biometric
 6. Passkey syncs automatically
-7. Wallet decrypted ✅
+7. Import wallet data using sync backup
+8. Wallet decrypted ✅
 
 Platform-specific:
 - iOS → iCloud Keychain must be enabled
@@ -972,7 +606,8 @@ Platform-specific:
    - Scan QR code, OR
    - Enter share code manually
 5. After 3 shares collected:
-   - System reconstructs mnemonic
+   - System reconstructs backup file
+   - Enter password if used during setup
    - Wallet restored ✅
 
 Timeline: ~24-48 hours (depends on guardian availability)
@@ -1000,39 +635,13 @@ Compatible with:
 
 ---
 
-## 🔮 Future Enhancements
-
-**V2.0 Features:**
-- Biometric-encrypted cloud sync (no password needed)
-- Multi-sig social recovery (on-chain)
-- Dead man's switch (automatic guardian notification)
-- Encrypted backup to IPFS/Arweave
-- Hardware security module (HSM) integration
-- Recovery time-locks (prevent rushed recovery)
-- Guardian reputation system
-- Backup verification reminders
-- Encrypted backup versioning
-- Family accounts (shared guardians)
-
----
-
-## 📖 References
-
-- [BIP39 Mnemonic Specification](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki)
-- [Shamir's Secret Sharing](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing)
-- [WebAuthn Specification](https://www.w3.org/TR/webauthn-2/)
-- [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
-- [NIST Digital Identity Guidelines](https://pages.nist.gov/800-63-4/)
-
----
-
 ## ❓ FAQ
 
 **Q: Does my passkey sync mean my wallet is backed up?**
-A: **No!** This is a critical distinction. Your passkey (Face ID/Touch ID credential) syncs via iCloud/Google, but your encrypted wallet data does NOT automatically sync. You MUST create a manual backup (Layer 2 or 3) to ensure full wallet recovery. Passkey sync only helps with authentication, not wallet recovery.
+A: **No!** This is a critical distinction. Your passkey (Face ID/Touch ID credential) syncs via iCloud/Google, but your encrypted wallet data does NOT automatically sync. You MUST create a manual backup to ensure full wallet recovery. Passkey sync only helps with authentication, not wallet recovery.
 
 **Q: If I get a new iPhone and sign into iCloud, will my wallet be there?**
-A: Only if you also transferred your browser data or created an encrypted backup. The passkey will sync automatically, allowing you to authenticate, but the encrypted wallet data needs to be restored separately from a backup.
+A: Only if you also transferred your wallet data or created a backup. The passkey will sync automatically, allowing you to authenticate, but the encrypted wallet data needs to be restored separately from a backup.
 
 **Q: Can I use multiple backup methods?**
 A: Yes! We recommend using at least 2 methods for redundancy.
@@ -1047,7 +656,7 @@ A: You'll need to use another recovery method (passkey sync or social recovery).
 A: Mathematically secure with Shamir's Secret Sharing. Any 2 guardians cannot recover (need 3 of 5).
 
 **Q: Can guardians steal my wallet?**
-A: No, each guardian only has an encrypted piece. They need 3 pieces minimum, and even then, shares are encrypted.
+A: No, each guardian only has an encrypted piece. They need 3 pieces minimum, and even then, the backup may be password-protected.
 
 **Q: What happens if a guardian loses their share?**
 A: No problem! You only need 3 out of 5. As long as 3 guardians have their shares, you can recover.
@@ -1056,13 +665,46 @@ A: No problem! You only need 3 out of 5. As long as 3 guardians have their share
 A: Yes, you can add/remove/replace guardians anytime. You'll need to redistribute new shares.
 
 **Q: Does passkey sync work across Apple and Android?**
-A: No, passkey sync is ecosystem-specific. Use encrypted backup or social recovery for cross-platform.
+A: No, passkey sync is ecosystem-specific. Use password backup or social recovery for cross-platform.
 
 **Q: How often should I update my backup?**
 A: Your mnemonic never changes! One backup is enough. Only update if you change your mnemonic.
 
 **Q: Is this better than writing down 12 words on paper?**
 A: Paper backup is good! Our system adds encryption and multiple options for convenience and security.
+
+---
+
+## 📦 Dependencies
+
+```json
+{
+  "dependencies": {
+    "secrets.js-grempe": "^2.0.0",    // Shamir Secret Sharing
+    "qrcode": "^1.5.3"                 // QR code generation
+  }
+}
+```
+
+---
+
+## 📖 References
+
+- [BIP39 Mnemonic Specification](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki)
+- [Shamir's Secret Sharing](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing)
+- [WebAuthn Specification](https://www.w3.org/TR/webauthn-2/)
+- [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- [NIST Digital Identity Guidelines](https://pages.nist.gov/800-63-4/)
+
+---
+
+## 📝 Migration from Old Format
+
+The old backup format (version 1) is no longer supported. To migrate:
+
+1. Restore using old system
+2. Create new backup using `createBackupFile()`
+3. Update all stored backups and guardian shares
 
 ---
 

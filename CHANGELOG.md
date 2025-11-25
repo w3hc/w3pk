@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **Consolidated Backup Documentation**: Merged `docs/BACKUP_SYSTEM.md` and `docs/WORKFLOWS.md` into `docs/RECOVERY.md`
+  - Single comprehensive source for all backup and recovery workflows
+  - Clearer distinction between passkey sync and manual backup requirements
+  - Enhanced explanation of cross-device sync, password backups, and social recovery
+  - Updated all documentation references to use "portable" instead of outdated terminology
+
 ### Security
 
 - **W3C WebAuthn Compliance Improvements**: Enhanced security with signature counter validation and RP ID hash verification
