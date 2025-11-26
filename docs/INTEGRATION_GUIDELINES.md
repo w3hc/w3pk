@@ -411,7 +411,7 @@ async function sendHighValueTransaction(amount: number) {
 // ✅ Verify package integrity on app initialization
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeia7zk5yrwluoh7u6cwwvou7yermwi3qapdf2wyxgjckcy55dyucui'
+const TRUSTED_HASH = 'bafybeif5vae62gg5sj3d2nzieh4tk3rgqozsduhlwm7dqk4g3ba7bhr5tm'
 
 async function initializeApp() {
   const isValid = await verifyBuildHash(TRUSTED_HASH)
@@ -471,7 +471,7 @@ class WalletManager {
 
   async initialize() {
     // Verify package integrity
-    const TRUSTED_HASH = 'bafybeia7zk5yrwluoh7u6cwwvou7yermwi3qapdf2wyxgjckcy55dyucui'
+    const TRUSTED_HASH = 'bafybeif5vae62gg5sj3d2nzieh4tk3rgqozsduhlwm7dqk4g3ba7bhr5tm'
     const isValid = await verifyBuildHash(TRUSTED_HASH)
     if (!isValid) throw new Error('Package integrity check failed')
   }

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2025-11-26
+
+### Fixed
+
+- **Build Verification**: Fixed `getPackageVersion()` function to properly read version from package.json
+  - Now uses `require('../../package.json').version` to get actual package version at build time
+  - Removed hardcoded fallback version that was returning outdated '0.7.6' value
+  - Function now throws error if package.json cannot be read instead of silently returning wrong version
+  - Affects build hash verification and version checking functionality
+  - Updated documentation in [API_REFERENCE.md](./docs/API_REFERENCE.md), [BUILD_VERIFICATION.md](./docs/BUILD_VERIFICATION.md), [INTEGRATION_GUIDELINES.md](./docs/INTEGRATION_GUIDELINES.md), and [SECURITY.md](./docs/SECURITY.md)
+
+## [0.8.0] - 2025-11-01
+
 ### Removed
 
 - **ZIP Backup System**: Removed redundant ZIP backup functionality in favor of simpler backup file approach
@@ -314,7 +327,9 @@ No breaking changes. All existing code continues to work. The fixes are internal
 
 ## Version History
 
-- **0.7.5** - Critical fix for public key storage (current)
+- **0.8.1** - Fixed `getPackageVersion()` function (current)
+- **0.8.0** - Major cleanup: removed ZIP backups, simplified backup/recovery, removed dangerous exports
+- **0.7.5** - Critical fix for public key storage
 - **0.7.4** - Metadata encryption in localStorage (broken - do not use)
 - **0.7.3** - Base64 handling improvements
 - **0.7.2** - Backup system
