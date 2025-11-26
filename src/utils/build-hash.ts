@@ -97,11 +97,16 @@ export async function getW3pkBuildHash(distUrl: string): Promise<string> {
 
 /**
  * Gets the current package version from package.json
- * Note: This requires the package.json to be accessible
  */
 export function getPackageVersion(): string {
-  // This will be replaced at build time or runtime depending on usage
-  return '0.7.6'; // Default fallback
+  // Import version directly from package.json
+  // This will be resolved at build time by the bundler
+  try {
+    // @ts-ignore - package.json import may not have types
+    return require('../../package.json').version;
+  } catch {
+    throw new Error('Failed to read package version');
+  }
 }
 
 /**
