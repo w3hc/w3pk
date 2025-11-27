@@ -7,41 +7,77 @@ This document explains the security model of w3pk and how wallet protection work
 w3pk provides **multiple layers of security** to protect user wallets:
 
 1. **WebAuthn authentication** - Biometric/PIN gating for wallet access
-2. **Application isolation** - Apps cannot access master mnemonic or MAIN tag private keys
+2. **Application isolation** - Apps cannot access master mnemonic
 3. **Origin-specific derivation** - Each website gets unique isolated addresses
-4. **Tag-based access control** - MAIN addresses are view-only, custom tags provide full access
+4. **Mode-based access control** - STANDARD/STRICT modes are view-only, YOLO mode provides full access
 5. **Encrypted storage** - AES-256-GCM encryption at rest
-6. **Secure sessions** - Time-limited memory caching with automatic expiration
+6. **Secure sessions** - Time-limited memory caching with automatic expiration (disabled in STRICT mode)
 
-## Enhanced Security Model (v0.7.6+)
+## Enhanced Security Model (v0.8.0+)
+
+### Three Security Modes
+
+w3pk now uses **origin-centric security modes** for wallet derivation:
+
+**STANDARD mode (default):**
+- ✅ Address only (no private key)
+- ✅ Persistent sessions allowed
+- ✅ Best for most applications
+
+**STRICT mode:**
+- ✅ Address only (no private key)
+- ❌ Persistent sessions NOT allowed
+- ✅ Requires biometric/PIN authentication every time
+- ✅ Best for high-security applications
+
+**YOLO mode:**
+- ✅ Full access (address + private key)
+- ✅ Persistent sessions allowed
+- ⚠️ Use only when private key access is required
 
 ### Application Security Guarantees
 
 **What applications CANNOT access:**
 - ❌ Master mnemonic (permanently disabled via `exportMnemonic()`)
-- ❌ MAIN tag private keys (address only for display)
+- ❌ Private keys in STANDARD mode
+- ❌ Private keys in STRICT mode
 - ❌ Private keys from other origins
-- ❌ Index-based wallet derivation
+- ❌ Private keys from other modes
 - ❌ Direct backup/recovery manager access
 
 **What applications CAN access:**
-- ✅ Origin-specific MAIN address (read-only)
-- ✅ Private keys for non-MAIN tagged wallets (e.g., 'GAMING', 'TRADING')
+- ✅ Origin-specific address (all modes)
+- ✅ Private keys in YOLO mode only
 - ✅ Signatures via `signMessage()` (no key exposure)
 - ✅ Encrypted backups via SDK methods
 
-### Tag-Based Security
+### Mode-Based Security Examples
 
 ```typescript
-// MAIN tag - Address only (no private key)
-const mainWallet = await w3pk.deriveWallet()
-// Returns: { address, index, origin, tag: 'MAIN' }
+// STANDARD mode (default) - Address only, persistent sessions
+const wallet = await w3pk.deriveWallet()
+// Returns: { address, index, origin, mode: 'STANDARD', tag: 'MAIN' }
 // ✅ Safe for display
 // ❌ No privateKey in response
+// ✅ Uses cached session (no repeated auth)
 
-// Custom tags - Full access for app features
-const gamingWallet = await w3pk.deriveWallet('GAMING')
-// Returns: { address, privateKey, index, origin, tag: 'GAMING' }
+// STRICT mode - Address only, NO persistent sessions
+const strictWallet = await w3pk.deriveWallet('STRICT')
+// Returns: { address, index, origin, mode: 'STRICT', tag: 'MAIN' }
+// ✅ Safe for display
+// ❌ No privateKey in response
+// ⚠️ Requires biometric/PIN authentication EVERY time
+
+// YOLO mode - Full access with private key
+const yoloWallet = await w3pk.deriveWallet('YOLO')
+// Returns: { address, privateKey, index, origin, mode: 'YOLO', tag: 'MAIN' }
+// ✅ Full access for transactions
+// ⚠️ Application has access to private key
+
+// YOLO mode with custom tag for specific features
+const gamingWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
+// Returns: { address, privateKey, index, origin, mode: 'YOLO', tag: 'GAMING' }
+// ✅ Different address from MAIN
 // ✅ Full access for gaming transactions
 ```
 
@@ -95,6 +131,140 @@ if (count > 0) {
 ```
 
 See [Integration Guidelines](./INTEGRATION_GUIDELINES.md#check-for-existing-wallet-first) for complete implementation patterns.
+
+## Message Signing with Mode Selection
+
+The `signMessage()` method now supports **mode and tag selection**, allowing developers to sign messages from specific derived addresses.
+
+### Default Behavior
+
+By default, `signMessage()` uses **STANDARD mode + MAIN tag** (origin-centric):
+
+```typescript
+// Default: Sign with STANDARD + MAIN address
+const result = await w3pk.signMessage("Hello World")
+
+console.log(result.signature)  // The signature
+console.log(result.address)    // Origin-specific STANDARD+MAIN address
+console.log(result.mode)       // 'STANDARD'
+console.log(result.tag)        // 'MAIN'
+console.log(result.origin)     // Current origin
+```
+
+### Mode-Based Signing
+
+Choose the appropriate security mode for each signing operation:
+
+```typescript
+// STANDARD mode: View-only, persistent sessions
+const standard = await w3pk.signMessage("Display balance", {
+  mode: 'STANDARD'
+})
+
+// STRICT mode: View-only, requires auth every time
+const strict = await w3pk.signMessage("Transfer $10000", {
+  mode: 'STRICT'
+})
+// User will be prompted for biometric/PIN authentication
+
+// YOLO mode: Sign from address with private key access
+const yolo = await w3pk.signMessage("Gaming transaction", {
+  mode: 'YOLO',
+  tag: 'GAMING'
+})
+```
+
+### Multi-Address Signing
+
+Sign from different addresses for different purposes:
+
+```typescript
+// Different tags for different features
+const mainSig = await w3pk.signMessage("msg", {
+  tag: 'MAIN'
+})
+
+const gamingSig = await w3pk.signMessage("msg", {
+  mode: 'YOLO',
+  tag: 'GAMING'
+})
+
+const tradingSig = await w3pk.signMessage("msg", {
+  mode: 'YOLO',
+  tag: 'TRADING'
+})
+
+// Each signature comes from a different address!
+console.log(mainSig.address !== gamingSig.address)      // true
+console.log(gamingSig.address !== tradingSig.address)   // true
+```
+
+### Security Best Practices
+
+**When to use each mode:**
+
+| Mode | Use Case | Private Key Exposed | Sessions |
+|------|----------|---------------------|----------|
+| STANDARD | Most applications | ❌ No | ✅ Yes |
+| STRICT | Banking, high-value | ❌ No | ❌ No |
+| YOLO | Gaming, low-value | ✅ Yes | ✅ Yes |
+
+**Examples:**
+
+```typescript
+// Financial application: Use STRICT mode
+async function signTransfer(amount: number, recipient: string) {
+  const result = await w3pk.signMessage(
+    `Transfer ${amount} to ${recipient}`,
+    { mode: 'STRICT' }  // Always requires auth
+  )
+  return result.signature
+}
+
+// Gaming application: Use YOLO mode with custom tag
+async function signGameAction(action: string) {
+  const result = await w3pk.signMessage(action, {
+    mode: 'YOLO',
+    tag: 'GAMING'
+  })
+  return {
+    signature: result.signature,
+    fromAddress: result.address  // Gaming-specific address
+  }
+}
+
+// Display/view operations: Use STANDARD mode (default)
+async function signProof() {
+  const result = await w3pk.signMessage("Prove ownership")
+  return result.signature
+}
+```
+
+### Address Verification
+
+Always verify which address signed a message:
+
+```typescript
+const result = await w3pk.signMessage("Important message", {
+  mode: 'YOLO',
+  tag: 'TRADING'
+})
+
+// Verify the signature is from the expected address
+const wallet = await w3pk.deriveWallet('YOLO', 'TRADING')
+console.assert(
+  result.address === wallet.address,
+  "Signature must be from trading address"
+)
+
+// Use ethers to verify the signature
+import { verifyMessage } from 'ethers'
+const recovered = verifyMessage("Important message", result.signature)
+console.assert(
+  recovered.toLowerCase() === result.address.toLowerCase(),
+  "Signature verification failed"
+)
+```
 
 ## Traditional Security Guarantees
 
@@ -1529,15 +1699,15 @@ await w3pk.stealth.getKeys({ requireAuth: true })
 
 // Example: Context-based security
 async function transferFunds(amount: number, recipient: string) {
-  // Require fresh auth for high-value transactions
-  const requireAuth = amount > 100
+  // Use STRICT mode for high-value transactions
+  const mode = amount > 100 ? 'STRICT' : 'STANDARD'
 
-  const signature = await w3pk.signMessage(
+  const result = await w3pk.signMessage(
     `Transfer ${amount} to ${recipient}`,
-    { requireAuth }
+    { mode }
   )
 
-  // ... submit transaction
+  // ... submit transaction with result.signature
 }
 
 // Example: Time-based security

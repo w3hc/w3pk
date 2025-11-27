@@ -13,31 +13,57 @@ This guide covers essential best practices for integrating w3pk into your applic
 
 ## Wallet Derivation Strategy
 
-### Default: Use MAIN-tagged Wallets
+### Default: Use STANDARD Mode
 
-**Best Practice:** For most applications, use the default MAIN-tagged wallet derivation.
+**Best Practice:** For most applications, use the default STANDARD mode wallet derivation.
 
 ```typescript
 // ✅ Recommended for most use cases
 const wallet = await w3pk.deriveWallet()
-// Returns: { address, index, origin, tag: 'MAIN' }
+// Returns: { address, index, origin, mode: 'STANDARD', tag: 'MAIN' }
 // No private key exposed
+// Persistent sessions allowed
 ```
 
-**Why MAIN tag?**
+**Why STANDARD mode?**
 - **Security:** Private keys are never exposed to your application
 - **User Control:** Users retain full custody of their wallet
 - **Signing:** You can still sign messages and transactions via `w3pk.signMessage()`
 - **Trust:** Users don't need to trust your application with key material
+- **Convenience:** Persistent sessions reduce authentication friction
 
-### Custom Tags: When You Need Private Keys
+### STRICT Mode: Maximum Security
 
-**Use custom tags ONLY when your application requires direct access to private keys.**
+**Use STRICT mode for high-security applications that need extra protection.**
+
+```typescript
+// ✅ For banking, high-value DeFi, or sensitive operations
+const strictWallet = await w3pk.deriveWallet('STRICT')
+// Returns: { address, index, origin, mode: 'STRICT', tag: 'MAIN' }
+// No private key exposed
+// Requires biometric/PIN authentication every time (no persistent sessions)
+```
+
+**When to use STRICT mode:**
+- Banking and financial applications
+- High-value DeFi protocols
+- Enterprise/corporate wallets
+- Compliance-focused applications
+- Applications handling sensitive assets
+
+### YOLO Mode: When You Need Private Keys
+
+**Use YOLO mode ONLY when your application requires direct access to private keys.**
 
 ```typescript
 // ⚠️ Use only when necessary (non-financial apps, games, etc.)
-const gamingWallet = await w3pk.deriveWallet('GAMING')
-// Returns: { address, privateKey, index, origin, tag: 'GAMING' }
+const yoloWallet = await w3pk.deriveWallet('YOLO')
+// Returns: { address, privateKey, index, origin, mode: 'YOLO', tag: 'MAIN' }
+// Private key exposed
+// Persistent sessions allowed
+
+// With custom tag for specific features
+const gamingWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
 ```
 
 **Valid Use Cases:**
@@ -48,7 +74,7 @@ const gamingWallet = await w3pk.deriveWallet('GAMING')
 
 **Important Security Implications:**
 
-When you use custom tags, **you control the user's private key** for that specific derived wallet. This means:
+When you use YOLO mode, **you control the user's private key** for that specific derived wallet. This means:
 
 1. **Custody Risk:** Your application has full access to the private key
 2. **User Trust:** Users must trust your application not to misuse their keys
@@ -56,25 +82,29 @@ When you use custom tags, **you control the user's private key** for that specif
 4. **Regulatory:** May have compliance implications depending on jurisdiction
 
 ```typescript
-// Custom tags create different addresses
-const main = await w3pk.deriveWallet()          // MAIN - no private key
-const gaming = await w3pk.deriveWallet('GAMING') // Has private key
-const social = await w3pk.deriveWallet('SOCIAL') // Has private key
+// Different modes create different addresses
+const standard = await w3pk.deriveWallet()                    // STANDARD - no private key
+const strict = await w3pk.deriveWallet('STRICT')              // STRICT - no private key, no sessions
+const yolo = await w3pk.deriveWallet('YOLO')                  // YOLO - has private key
+const gaming = await w3pk.deriveWallet('YOLO', 'GAMING')      // YOLO + custom tag
 
-console.log(main.address !== gaming.address)    // true
-console.log(gaming.address !== social.address)  // true
+console.log(standard.address !== strict.address)    // true (different modes)
+console.log(standard.address !== yolo.address)      // true (different modes)
+console.log(yolo.address !== gaming.address)        // true (different tags)
 ```
 
 **Decision Matrix:**
 
-| Use Case | Recommended Approach |
-|----------|---------------------|
-| Financial transactions | MAIN tag (no private key) |
-| DeFi applications | MAIN tag (no private key) |
-| NFT purchases | MAIN tag (no private key) |
-| Gaming (low value) | Custom tag acceptable |
-| Social features | Custom tag acceptable |
-| Testing/development | Custom tag acceptable |
+| Use Case | Recommended Mode |
+|----------|------------------|
+| Financial transactions | STANDARD mode |
+| DeFi applications | STANDARD mode |
+| NFT purchases | STANDARD mode |
+| Banking/high-value | STRICT mode |
+| Enterprise wallets | STRICT mode |
+| Gaming (low value) | YOLO mode |
+| Social features | YOLO mode |
+| Testing/development | YOLO mode |
 
 ---
 
@@ -512,14 +542,17 @@ class WalletManager {
   }
 
   async getWallet() {
-    // ✅ Use MAIN tag by default (no private key exposure)
+    // ✅ Use STANDARD mode by default (no private key exposure)
     return await this.w3pk.deriveWallet()
   }
 
   async signTransaction(message: string, amount?: number) {
     // Force auth for high-value transactions
     const requireAuth = amount && amount > 1000
-    return await this.w3pk.signMessage(message, { requireAuth })
+
+    // Sign with STANDARD mode by default
+    const result = await this.w3pk.signMessage(message, { requireAuth })
+    return result.signature
   }
 
   private async getStrongPassword(): Promise<string> {
@@ -547,8 +580,9 @@ Use this checklist to ensure proper integration:
 
 - [ ] Check for existing credentials before registration using `hasExistingCredential()`
 - [ ] Consider showing warning with `listExistingCredentials()` if allowing multiple wallets
-- [ ] Use MAIN-tagged wallet by default (no private key exposure)
-- [ ] Only use custom tags when you need private keys (and understand the implications)
+- [ ] Use STANDARD mode by default (no private key exposure)
+- [ ] Only use YOLO mode when you need private keys (and understand the implications)
+- [ ] Use STRICT mode for high-security or compliance-focused applications
 - [ ] Prompt users to set up backup immediately after registration
 - [ ] Verify package integrity on app initialization
 - [ ] Configure appropriate session duration for your use case

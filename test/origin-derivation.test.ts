@@ -5,10 +5,12 @@
 
 import {
   getOriginSpecificAddress,
-  deriveIndexFromOriginAndTag,
+  deriveIndexFromOriginModeAndTag,
   normalizeOrigin,
   DEFAULT_TAG,
+  DEFAULT_MODE,
 } from "../src/wallet/origin-derivation";
+import type { SecurityMode } from "../src/types";
 
 async function runTests() {
   console.log("\n🧪 Running Origin-Specific Address Derivation Tests...\n");
@@ -16,101 +18,97 @@ async function runTests() {
   const testMnemonic =
     "test test test test test test test test test test test junk";
 
-  // Test 1: Basic domain derivation with default MAIN tag
-  console.log("Test 1: Default MAIN tag derivation");
+  // Test 1: Basic domain derivation with default STANDARD mode and MAIN tag
+  console.log("Test 1: Default STANDARD mode + MAIN tag derivation");
   {
     const origin = "https://example.com";
     const wallet = await getOriginSpecificAddress(testMnemonic, origin);
 
     console.assert(wallet.address, "Should have an address");
-    console.assert(wallet.privateKey === undefined, "MAIN tag should NOT expose private key");
+    console.assert(wallet.privateKey === undefined, "STANDARD mode should NOT expose private key");
     console.assert(wallet.index >= 0, "Should have a valid index");
     console.assert(wallet.origin === origin, "Should preserve origin");
+    console.assert(wallet.mode === DEFAULT_MODE, "Should use STANDARD mode by default");
     console.assert(wallet.tag === DEFAULT_TAG, "Should use MAIN tag by default");
 
     console.log(`  Origin: ${wallet.origin}`);
+    console.log(`  Mode: ${wallet.mode}`);
     console.log(`  Tag: ${wallet.tag}`);
     console.log(`  Index: ${wallet.index}`);
     console.log(`  Address: ${wallet.address}`);
     console.log(`  Private Key: ${wallet.privateKey ? 'EXPOSED (ERROR!)' : 'HIDDEN (CORRECT)'}`);
-    console.log("✅ Default MAIN tag working correctly (private key hidden)");
+    console.log("✅ Default STANDARD mode + MAIN tag working correctly (private key hidden)");
   }
 
-  // Test 2: Different tags generate different addresses
-  console.log("\nTest 2: Different tags for same origin");
+  // Test 2: Different modes and tags generate different addresses
+  console.log("\nTest 2: Different modes and tags for same origin");
   {
     const origin = "https://example.com";
 
-    const mainWallet = await getOriginSpecificAddress(testMnemonic, origin);
-    const gamingWallet = await getOriginSpecificAddress(
-      testMnemonic,
-      origin,
-      "GAMING"
-    );
-    const simpleWallet = await getOriginSpecificAddress(
-      testMnemonic,
-      origin,
-      "SIMPLE"
-    );
+    const standardMain = await getOriginSpecificAddress(testMnemonic, origin);
+    const strictMain = await getOriginSpecificAddress(testMnemonic, origin, 'STRICT');
+    const yoloMain = await getOriginSpecificAddress(testMnemonic, origin, 'YOLO');
+    const standardGaming = await getOriginSpecificAddress(testMnemonic, origin, 'STANDARD', 'GAMING');
 
     console.assert(
-      mainWallet.address !== gamingWallet.address,
-      "MAIN and GAMING should have different addresses"
+      standardMain.address !== strictMain.address,
+      "STANDARD and STRICT modes should have different addresses"
     );
     console.assert(
-      mainWallet.address !== simpleWallet.address,
-      "MAIN and SIMPLE should have different addresses"
+      standardMain.address !== yoloMain.address,
+      "STANDARD and YOLO modes should have different addresses"
     );
     console.assert(
-      gamingWallet.address !== simpleWallet.address,
-      "GAMING and SIMPLE should have different addresses"
+      standardMain.address !== standardGaming.address,
+      "MAIN and GAMING tags should have different addresses"
     );
 
+    // SECURITY: Check mode-based private key exposure
     console.assert(
-      mainWallet.index !== gamingWallet.index,
-      "Different tags should have different indices"
+      standardMain.privateKey === undefined,
+      "STANDARD mode should NOT expose private key"
+    );
+    console.assert(
+      strictMain.privateKey === undefined,
+      "STRICT mode should NOT expose private key"
+    );
+    console.assert(
+      yoloMain.privateKey !== undefined,
+      "YOLO mode SHOULD expose private key"
+    );
+    console.assert(
+      standardGaming.privateKey === undefined,
+      "STANDARD mode should NOT expose private key (even with custom tag)"
     );
 
-    // SECURITY: Check that MAIN tag doesn't expose private key
-    console.assert(
-      mainWallet.privateKey === undefined,
-      "MAIN tag should NOT expose private key"
-    );
-    console.assert(
-      gamingWallet.privateKey !== undefined,
-      "GAMING tag SHOULD expose private key"
-    );
-    console.assert(
-      simpleWallet.privateKey !== undefined,
-      "SIMPLE tag SHOULD expose private key"
-    );
-
-    console.log(`  MAIN address:   ${mainWallet.address} (privateKey: hidden)`);
-    console.log(`  GAMING address: ${gamingWallet.address} (privateKey: exposed)`);
-    console.log(`  SIMPLE address: ${simpleWallet.address} (privateKey: exposed)`);
-    console.log("✅ Different tags generate different addresses with correct security");
+    console.log(`  STANDARD+MAIN: ${standardMain.address} (privateKey: hidden)`);
+    console.log(`  STRICT+MAIN:   ${strictMain.address} (privateKey: hidden)`);
+    console.log(`  YOLO+MAIN:     ${yoloMain.address} (privateKey: exposed)`);
+    console.log(`  STANDARD+GAMING: ${standardGaming.address} (privateKey: hidden)`);
+    console.log("✅ Different modes and tags generate different addresses with correct security");
   }
 
-  // Test 3: Same origin and tag always produce same address
+  // Test 3: Same origin, mode, and tag always produce same address
   console.log("\nTest 3: Deterministic derivation");
   {
     const origin = "https://example.com";
+    const mode: SecurityMode = "YOLO";
     const tag = "GAMING";
 
-    const wallet1 = await getOriginSpecificAddress(testMnemonic, origin, tag);
-    const wallet2 = await getOriginSpecificAddress(testMnemonic, origin, tag);
+    const wallet1 = await getOriginSpecificAddress(testMnemonic, origin, mode, tag);
+    const wallet2 = await getOriginSpecificAddress(testMnemonic, origin, mode, tag);
 
     console.assert(
       wallet1.address === wallet2.address,
-      "Same origin and tag should produce same address"
+      "Same origin, mode, and tag should produce same address"
     );
     console.assert(
       wallet1.privateKey === wallet2.privateKey,
-      "Same origin and tag should produce same private key"
+      "Same origin, mode, and tag should produce same private key"
     );
     console.assert(
       wallet1.index === wallet2.index,
-      "Same origin and tag should produce same index"
+      "Same origin, mode, and tag should produce same index"
     );
 
     console.log(`  Address: ${wallet1.address}`);

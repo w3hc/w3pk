@@ -1,6 +1,8 @@
 import { deriveWalletFromMnemonic } from "./generate";
 import { WalletError } from "../core/errors";
+import type { SecurityMode } from "../types";
 
+export const DEFAULT_MODE: SecurityMode = "STANDARD";
 export const DEFAULT_TAG = "MAIN";
 
 const MAX_INDEX = 0x7fffffff;
@@ -30,16 +32,17 @@ export function normalizeOrigin(origin: string): string {
 }
 
 /**
- * Derive deterministic index from origin and tag using SHA-256
+ * Derive deterministic index from origin, mode, and tag using SHA-256
  * Ensures valid BIP32 non-hardened index in range [0, 2^31-1]
  */
-export async function deriveIndexFromOriginAndTag(
+export async function deriveIndexFromOriginModeAndTag(
   origin: string,
+  mode: SecurityMode = DEFAULT_MODE,
   tag: string = DEFAULT_TAG
 ): Promise<number> {
   try {
     const normalizedOrigin = normalizeOrigin(origin);
-    const combined = `${normalizedOrigin}:${tag.toUpperCase()}`;
+    const combined = `${normalizedOrigin}:${mode}:${tag.toUpperCase()}`;
 
     const encoder = new TextEncoder();
     const data = encoder.encode(combined);
@@ -52,34 +55,38 @@ export async function deriveIndexFromOriginAndTag(
     return index;
   } catch (error) {
     throw new WalletError(
-      `Failed to derive index from origin "${origin}" and tag "${tag}"`,
+      `Failed to derive index from origin "${origin}", mode "${mode}", and tag "${tag}"`,
       error
     );
   }
 }
 
 /**
- * Derive origin-specific address with tag support
+ * Derive origin-specific address with mode and tag support
  *
  * SECURITY:
- * - MAIN tag: Private key NOT exposed
- * - Custom tags: Private key included
+ * - STANDARD mode: Private key NOT exposed, persistent sessions allowed
+ * - STRICT mode: Private key NOT exposed, persistent sessions NOT allowed
+ * - YOLO mode: Private key exposed, persistent sessions allowed
  */
 export async function getOriginSpecificAddress(
   mnemonic: string,
   origin: string,
+  mode?: SecurityMode,
   tag?: string
 ): Promise<{
   address: string;
   privateKey?: string;
   index: number;
   origin: string;
+  mode: SecurityMode;
   tag: string;
 }> {
   try {
+    const effectiveMode = mode || DEFAULT_MODE;
     const effectiveTag = (tag || DEFAULT_TAG).toUpperCase();
     const normalizedOrigin = normalizeOrigin(origin);
-    const index = await deriveIndexFromOriginAndTag(normalizedOrigin, effectiveTag);
+    const index = await deriveIndexFromOriginModeAndTag(normalizedOrigin, effectiveMode, effectiveTag);
     const { address, privateKey } = deriveWalletFromMnemonic(mnemonic, index);
 
     const result: {
@@ -87,22 +94,25 @@ export async function getOriginSpecificAddress(
       privateKey?: string;
       index: number;
       origin: string;
+      mode: SecurityMode;
       tag: string;
     } = {
       address,
       index,
       origin: normalizedOrigin,
+      mode: effectiveMode,
       tag: effectiveTag,
     };
 
-    if (effectiveTag !== DEFAULT_TAG) {
+    // YOLO mode exposes private key
+    if (effectiveMode === 'YOLO') {
       result.privateKey = privateKey;
     }
 
     return result;
   } catch (error) {
     throw new WalletError(
-      `Failed to derive origin-specific address for "${origin}" with tag "${tag || DEFAULT_TAG}"`,
+      `Failed to derive origin-specific address for "${origin}" with mode "${mode || DEFAULT_MODE}" and tag "${tag || DEFAULT_TAG}"`,
       error
     );
   }

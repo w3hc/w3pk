@@ -4,8 +4,10 @@
  * SECURITY MODEL:
  * - Master mnemonic never exposed to applications
  * - Applications access only origin-specific derived wallets
- * - MAIN tag wallets expose address only (no private key)
- * - Custom tag wallets (e.g., 'GAMING', 'TRADING') include private keys
+ * - Three security modes for origin-centric derivation:
+ *   - STANDARD: Address only (no private key), persistent sessions allowed
+ *   - STRICT: Address only (no private key), no persistent sessions
+ *   - YOLO: Full access (address + private key), persistent sessions allowed
  * - Each origin receives isolated address derivation
  *
  * STEALTH ADDRESSES (opt-in via config.stealthAddresses):
@@ -25,6 +27,7 @@ import {
   getOriginSpecificAddress,
   getCurrentOrigin,
   DEFAULT_TAG,
+  DEFAULT_MODE,
 } from "../wallet/origin-derivation";
 import {
   deriveEncryptionKeyFromWebAuthn,
@@ -36,7 +39,7 @@ import { SessionManager } from "./session";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import { DEFAULT_CONFIG } from "./config";
-import type { UserInfo, WalletInfo } from "../types";
+import type { UserInfo, WalletInfo, SecurityMode } from "../types";
 import { AuthenticationError, WalletError } from "./errors";
 import { getEndpoints } from "../chainlist";
 import { supportsEIP7702 } from "../eip7702";
@@ -372,36 +375,53 @@ export class Web3Passkey {
   /**
    * Derive origin-specific wallet
    *
-   * SECURITY:
-   * - MAIN tag: Returns address only (no private key)
-   * - Custom tags (e.g., 'GAMING', 'TRADING'): Include private key
-   * - Uses active session or prompts for authentication
+   * SECURITY MODES:
+   * - STANDARD (default): Address only (no private key), persistent sessions allowed
+   * - STRICT: Address only (no private key), no persistent sessions (requires auth each time)
+   * - YOLO: Full access (address + private key), persistent sessions allowed
    *
+   * @param mode - Security mode for derivation (default: "STANDARD")
    * @param tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
    * @param options.origin - Override origin URL (testing only)
+   *
+   * @example
+   * // Default: STANDARD mode with MAIN tag
+   * const wallet = await w3pk.deriveWallet()
+   *
+   * // STRICT mode (no sessions)
+   * const strictWallet = await w3pk.deriveWallet('STRICT')
+   *
+   * // YOLO mode with custom tag
+   * const yoloWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
    */
   async deriveWallet(
+    mode?: SecurityMode,
     tag?: string,
     options?: { requireAuth?: boolean; origin?: string }
-  ): Promise<WalletInfo & { index?: number; origin?: string; tag?: string }> {
+  ): Promise<WalletInfo & { index?: number; origin?: string; mode?: SecurityMode; tag?: string }> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to derive wallet");
       }
 
-      const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
-
+      const effectiveMode = mode || DEFAULT_MODE;
       const effectiveTag = tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
 
-      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveTag);
+      // STRICT mode: always require authentication (no persistent sessions)
+      const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+
+      const mnemonic = await this.getMnemonicFromSession(requireAuth);
+
+      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
 
       return {
         address: derived.address,
         privateKey: derived.privateKey,
         index: derived.index,
         origin: derived.origin,
+        mode: derived.mode,
         tag: derived.tag,
       };
     } catch (error) {
@@ -478,25 +498,91 @@ export class Web3Passkey {
 
   /**
    * Sign message with wallet
+   *
+   * By default, signs with STANDARD mode + MAIN tag (origin-centric address).
+   * You can specify a different mode and tag to sign from a specific derived address.
+   *
+   * @param message - Message to sign
+   * @param options.mode - Security mode for derivation (default: "STANDARD")
+   * @param options.tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
+   * @param options.origin - Override origin URL (testing only)
+   * @returns Signature result with address, mode, and tag information
+   *
+   * @example
+   * // Default: Sign with STANDARD + MAIN address
+   * const result = await w3pk.signMessage("Hello World")
+   * console.log(result.signature) // The signature
+   * console.log(result.address)   // Address that signed
+   * console.log(result.mode)      // 'STANDARD'
+   * console.log(result.tag)       // 'MAIN'
+   *
+   * // Sign with YOLO + GAMING address
+   * const gamingResult = await w3pk.signMessage("Hello World", {
+   *   mode: 'YOLO',
+   *   tag: 'GAMING'
+   * })
+   * console.log(gamingResult.address) // Different address!
+   *
+   * // Sign with STRICT mode (requires auth every time)
+   * const strictResult = await w3pk.signMessage("Hello World", {
+   *   mode: 'STRICT'
+   * })
    */
   async signMessage(
     message: string,
-    options?: { requireAuth?: boolean }
-  ): Promise<string> {
+    options?: {
+      mode?: SecurityMode;
+      tag?: string;
+      requireAuth?: boolean;
+      origin?: string;
+    }
+  ): Promise<{
+    signature: string;
+    address: string;
+    mode: SecurityMode;
+    tag: string;
+    origin: string;
+  }> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to sign message");
       }
 
-      const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
+      const effectiveMode = options?.mode || DEFAULT_MODE;
+      const effectiveTag = options?.tag || DEFAULT_TAG;
+      const origin = options?.origin || getCurrentOrigin();
+
+      // STRICT mode: always require authentication (no persistent sessions)
+      const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+
+      const mnemonic = await this.getMnemonicFromSession(requireAuth);
+
+      // Derive the wallet from the specified mode and tag
+      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
 
       const { Wallet } = await import("ethers");
-      const wallet = Wallet.fromPhrase(mnemonic);
+
+      // If YOLO mode, we have the private key available
+      let wallet: any;
+      if (derived.privateKey) {
+        wallet = new Wallet(derived.privateKey);
+      } else {
+        // For STANDARD/STRICT modes, derive from mnemonic at the specific index
+        const { deriveWalletFromMnemonic } = await import("../wallet/generate");
+        const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
+        wallet = new Wallet(privateKey);
+      }
 
       const signature = await wallet.signMessage(message);
 
-      return signature;
+      return {
+        signature,
+        address: derived.address,
+        mode: derived.mode,
+        tag: derived.tag,
+        origin: derived.origin,
+      };
     } catch (error) {
       this.config.onError?.(error as any);
       throw new WalletError("Failed to sign message", error);

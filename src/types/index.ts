@@ -10,17 +10,34 @@ export interface UserInfo {
 }
 
 /**
+ * Security modes for origin-centric derivation
+ *
+ * STANDARD:
+ * - App does NOT have access to private key
+ * - Persistent sessions allowed
+ *
+ * STRICT:
+ * - App does NOT have access to private key
+ * - Persistent sessions NOT allowed
+ *
+ * YOLO:
+ * - App CAN use private key
+ * - Persistent sessions allowed
+ */
+export type SecurityMode = 'STANDARD' | 'STRICT' | 'YOLO';
+
+/**
  * Wallet information returned by SDK methods
  *
  * SECURITY GUARANTEES:
  * - `mnemonic` is ONLY included during wallet generation (generateWallet())
  *   and is NEVER exposed through any other SDK method
- * - `privateKey` is conditionally included based on derivation method:
- *   - NEVER exposed for MAIN tag origin-specific derivation (e.g., deriveWallet())
- *   - ONLY exposed for non-MAIN tag derivation (e.g., deriveWallet('GAMING'))
- * - Applications CANNOT access the master mnemonic or private keys except through
- *   origin-specific derived wallets with non-MAIN tags
- * - This ensures apps can only access keys specifically intended for their origin
+ * - `privateKey` is conditionally included based on security mode:
+ *   - STANDARD mode: Address only (no private key), persistent sessions allowed
+ *   - STRICT mode: Address only (no private key), no persistent sessions
+ *   - YOLO mode: Full access (address + private key), persistent sessions allowed
+ * - Applications CANNOT access the master mnemonic
+ * - This ensures apps can only access keys based on the security mode
  */
 export interface WalletInfo {
   address: string;
