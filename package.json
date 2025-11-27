@@ -1,6 +1,6 @@
 {
   "name": "w3pk",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "WebAuthn SDK for passwordless authentication, encrypted wallets, ERC-5564 stealth addresses, and zero-knowledge proofs",
   "author": "Julien Béranger",
   "license": "GPL-3.0",
@@ -78,7 +78,7 @@
     "build:zk": "npm run build && npm run compile:circuits",
     "compile:circuits": "node scripts/compile-circuits.js",
     "dev": "tsup --watch",
-    "test": "tsx test/test.ts && tsx test/comprehensive.test.ts && tsx test/backup.test.ts && tsx test/social-recovery.test.ts && tsx test/recovery-education.test.ts && tsx test/zk/zk.test.ts && tsx test/nft-ownership.test.ts && tsx test/chainlist.test.ts && tsx test/eip7702.test.ts && tsx test/erc5564.test.ts && tsx test/zk/key-stretching.test.ts && tsx test/username-encoding.test.ts && tsx test/username-validation.test.ts && tsx test/origin-derivation.test.ts && tsx test/build-hash.test.ts && tsx test/credential-checking.test.ts && tsx test/webauthn-native.test.ts",
+    "test": "tsx test/test.ts && tsx test/comprehensive.test.ts && tsx test/backup.test.ts && tsx test/social-recovery.test.ts && tsx test/recovery-education.test.ts && tsx test/zk/zk.test.ts && tsx test/nft-ownership.test.ts && tsx test/chainlist.test.ts && tsx test/eip7702.test.ts && tsx test/erc5564.test.ts && tsx test/zk/key-stretching.test.ts && tsx test/username-encoding.test.ts && tsx test/username-validation.test.ts && tsx test/origin-derivation.test.ts && tsx test/build-hash.test.ts && tsx test/credential-checking.test.ts && tsx test/webauthn-native.test.ts && tsx test/persistent-session.test.ts && tsx test/sign-message.test.ts && tsx test/requirereauth.test.ts",
     "test:basic": "tsx test/test.ts",
     "test:comprehensive": "tsx test/comprehensive.test.ts",
     "test:backup": "tsx test/backup.test.ts",

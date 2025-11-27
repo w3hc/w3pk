@@ -4,8 +4,10 @@
  * SECURITY MODEL:
  * - Master mnemonic never exposed to applications
  * - Applications access only origin-specific derived wallets
- * - MAIN tag wallets expose address only (no private key)
- * - Custom tag wallets (e.g., 'GAMING', 'TRADING') include private keys
+ * - Three security modes for origin-centric derivation:
+ *   - STANDARD: Address only (no private key), persistent sessions allowed
+ *   - STRICT: Address only (no private key), no persistent sessions
+ *   - YOLO: Full access (address + private key), persistent sessions allowed
  * - Each origin receives isolated address derivation
  *
  * STEALTH ADDRESSES (opt-in via config.stealthAddresses):
@@ -25,6 +27,7 @@ import {
   getOriginSpecificAddress,
   getCurrentOrigin,
   DEFAULT_TAG,
+  DEFAULT_MODE,
 } from "../wallet/origin-derivation";
 import {
   deriveEncryptionKeyFromWebAuthn,
@@ -36,7 +39,7 @@ import { SessionManager } from "./session";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import { DEFAULT_CONFIG } from "./config";
-import type { UserInfo, WalletInfo } from "../types";
+import type { UserInfo, WalletInfo, SecurityMode } from "../types";
 import { AuthenticationError, WalletError } from "./errors";
 import { getEndpoints } from "../chainlist";
 import { supportsEIP7702 } from "../eip7702";
@@ -47,6 +50,7 @@ export class Web3Passkey {
   private currentUser: UserInfo | null = null;
   private currentWallet: WalletInfo | null = null;
   private sessionManager: SessionManager;
+  private currentSecurityMode: SecurityMode = 'STANDARD'; // Track current security mode
 
   public stealth?: StealthAddressModule;
   private zkModule?: any;
@@ -54,7 +58,16 @@ export class Web3Passkey {
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
     this.walletStorage = new IndexedDBWalletStorage();
-    this.sessionManager = new SessionManager(config.sessionDuration || 1);
+
+    // Initialize session manager with persistent session config
+    const persistentSessionConfig = {
+      ...DEFAULT_CONFIG.persistentSession,
+      ...config.persistentSession,
+    };
+    this.sessionManager = new SessionManager(
+      config.sessionDuration || 1,
+      persistentSessionConfig
+    );
 
     if (config.stealthAddresses !== undefined) {
       this.stealth = new StealthAddressModule(
@@ -88,10 +101,14 @@ export class Web3Passkey {
   /**
    * Retrieve mnemonic from active session or trigger authentication
    * @param forceAuth - Bypass session cache and require fresh authentication
+   * @param securityMode - Security mode to use for session persistence
    */
   private async getMnemonicFromSession(
-    forceAuth: boolean = false
+    forceAuth: boolean = false,
+    securityMode?: SecurityMode
   ): Promise<string> {
+    const effectiveMode = securityMode || this.currentSecurityMode;
+
     if (!forceAuth) {
       const cachedMnemonic = this.sessionManager.getMnemonic();
       if (cachedMnemonic) {
@@ -130,7 +147,13 @@ export class Web3Passkey {
       encryptionKey
     );
 
-    this.sessionManager.startSession(mnemonic, walletData.credentialId);
+    await this.sessionManager.startSession(
+      mnemonic,
+      walletData.credentialId,
+      this.currentUser.ethereumAddress,
+      publicKey,
+      effectiveMode
+    );
 
     return mnemonic;
   }
@@ -186,7 +209,13 @@ export class Web3Passkey {
         createdAt: new Date().toISOString(),
       });
 
-      this.sessionManager.startSession(mnemonic, credentialId);
+      await this.sessionManager.startSession(
+        mnemonic,
+        credentialId,
+        ethereumAddress,
+        publicKey,
+        'STANDARD' // Default security mode for register
+      );
 
       this.currentWallet = {
         address: ethereumAddress,
@@ -205,9 +234,49 @@ export class Web3Passkey {
   /**
    * Login with WebAuthn using resident credentials
    * Starts session with decrypted mnemonic
+   * Attempts to restore from persistent session if enabled
+   *
+   * If requireReauth is false and a valid persistent session exists,
+   * the user will be logged in silently without a WebAuthn prompt.
    */
   async login(): Promise<UserInfo> {
     try {
+      // STEP 1: Try silent restore if requireReauth is false
+      const silentRestore = await this.sessionManager.attemptSilentRestore();
+
+      if (silentRestore) {
+        // Successfully restored session without WebAuthn prompt
+        this.currentUser = {
+          id: silentRestore.ethereumAddress,
+          username: silentRestore.ethereumAddress, // We don't have username from silent restore
+          displayName: silentRestore.ethereumAddress,
+          ethereumAddress: silentRestore.ethereumAddress,
+        };
+
+        // Verify wallet exists
+        const walletData = await this.walletStorage.retrieve(
+          this.currentUser.ethereumAddress
+        );
+
+        if (!walletData) {
+          // Wallet was deleted but session still exists - clear session and retry with auth
+          await this.sessionManager.clearSession();
+          return this.login(); // Retry with authentication
+        }
+
+        // Update username from credential storage
+        const storage = new (await import("../auth/storage")).CredentialStorage();
+        const credential = await storage.getCredentialById(silentRestore.credentialId);
+        if (credential) {
+          this.currentUser.username = credential.username;
+          this.currentUser.displayName = credential.username;
+        }
+
+        this.config.onAuthStateChanged?.(true, this.currentUser);
+        return this.currentUser;
+      }
+
+      // STEP 2: No silent restore - proceed with WebAuthn authentication
       const result = await login();
 
       if (!result.verified || !result.user) {
@@ -235,17 +304,38 @@ export class Web3Passkey {
       const credential = await storage.getCredentialById(walletData.credentialId);
       const publicKey = credential?.publicKey;
 
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+      // Try to restore from persistent session first (if requireReauth is true)
+      const restoredMnemonic = await this.sessionManager.restoreFromPersistentStorage(
+        this.currentUser.ethereumAddress,
         walletData.credentialId,
-        publicKey
+        publicKey || ''
       );
 
-      const mnemonic = await decryptData(
-        walletData.encryptedMnemonic,
-        encryptionKey
-      );
+      let mnemonic: string;
+      if (restoredMnemonic) {
+        // Successfully restored from persistent session
+        mnemonic = restoredMnemonic;
+      } else {
+        // Decrypt from wallet storage (requires WebAuthn authentication)
+        const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+          walletData.credentialId,
+          publicKey
+        );
 
-      this.sessionManager.startSession(mnemonic, walletData.credentialId);
+        mnemonic = await decryptData(
+          walletData.encryptedMnemonic,
+          encryptionKey
+        );
+
+        // Start new session with persistence
+        await this.sessionManager.startSession(
+          mnemonic,
+          walletData.credentialId,
+          this.currentUser.ethereumAddress,
+          publicKey,
+          'STANDARD' // Default security mode
+        );
+      }
 
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
@@ -262,7 +352,7 @@ export class Web3Passkey {
   async logout(): Promise<void> {
     this.currentUser = null;
     this.currentWallet = null;
-    this.sessionManager.clearSession();
+    await this.sessionManager.clearSession();
     this.config.onAuthStateChanged?.(false, undefined);
   }
 
@@ -372,36 +462,56 @@ export class Web3Passkey {
   /**
    * Derive origin-specific wallet
    *
-   * SECURITY:
-   * - MAIN tag: Returns address only (no private key)
-   * - Custom tags (e.g., 'GAMING', 'TRADING'): Include private key
-   * - Uses active session or prompts for authentication
+   * SECURITY MODES:
+   * - STANDARD (default): Address only (no private key), persistent sessions allowed
+   * - STRICT: Address only (no private key), no persistent sessions (requires auth each time)
+   * - YOLO: Full access (address + private key), persistent sessions allowed
    *
+   * @param mode - Security mode for derivation (default: "STANDARD")
    * @param tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
    * @param options.origin - Override origin URL (testing only)
+   *
+   * @example
+   * // Default: STANDARD mode with MAIN tag
+   * const wallet = await w3pk.deriveWallet()
+   *
+   * // STRICT mode (no sessions)
+   * const strictWallet = await w3pk.deriveWallet('STRICT')
+   *
+   * // YOLO mode with custom tag
+   * const yoloWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
    */
   async deriveWallet(
+    mode?: SecurityMode,
     tag?: string,
     options?: { requireAuth?: boolean; origin?: string }
-  ): Promise<WalletInfo & { index?: number; origin?: string; tag?: string }> {
+  ): Promise<WalletInfo & { index?: number; origin?: string; mode?: SecurityMode; tag?: string }> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to derive wallet");
       }
 
-      const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
-
+      const effectiveMode = mode || DEFAULT_MODE;
       const effectiveTag = tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
 
-      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveTag);
+      // Track security mode for session management
+      this.currentSecurityMode = effectiveMode;
+
+      // STRICT mode: always require authentication (no persistent sessions)
+      const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+
+      const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
+
+      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
 
       return {
         address: derived.address,
         privateKey: derived.privateKey,
         index: derived.index,
         origin: derived.origin,
+        mode: derived.mode,
         tag: derived.tag,
       };
     } catch (error) {
@@ -469,7 +579,13 @@ export class Web3Passkey {
         mnemonic: mnemonic.trim(),
       };
 
-      this.sessionManager.startSession(mnemonic.trim(), credentialId);
+      await this.sessionManager.startSession(
+        mnemonic.trim(),
+        credentialId,
+        this.currentUser.ethereumAddress,
+        publicKey,
+        'STANDARD' // Default security mode for importMnemonic
+      );
     } catch (error) {
       this.config.onError?.(error as any);
       throw new WalletError("Failed to import mnemonic", error);
@@ -478,25 +594,94 @@ export class Web3Passkey {
 
   /**
    * Sign message with wallet
+   *
+   * By default, signs with STANDARD mode + MAIN tag (origin-centric address).
+   * You can specify a different mode and tag to sign from a specific derived address.
+   *
+   * @param message - Message to sign
+   * @param options.mode - Security mode for derivation (default: "STANDARD")
+   * @param options.tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
+   * @param options.origin - Override origin URL (testing only)
+   * @returns Signature result with address, mode, and tag information
+   *
+   * @example
+   * // Default: Sign with STANDARD + MAIN address
+   * const result = await w3pk.signMessage("Hello World")
+   * console.log(result.signature) // The signature
+   * console.log(result.address)   // Address that signed
+   * console.log(result.mode)      // 'STANDARD'
+   * console.log(result.tag)       // 'MAIN'
+   *
+   * // Sign with YOLO + GAMING address
+   * const gamingResult = await w3pk.signMessage("Hello World", {
+   *   mode: 'YOLO',
+   *   tag: 'GAMING'
+   * })
+   * console.log(gamingResult.address) // Different address!
+   *
+   * // Sign with STRICT mode (requires auth every time)
+   * const strictResult = await w3pk.signMessage("Hello World", {
+   *   mode: 'STRICT'
+   * })
    */
   async signMessage(
     message: string,
-    options?: { requireAuth?: boolean }
-  ): Promise<string> {
+    options?: {
+      mode?: SecurityMode;
+      tag?: string;
+      requireAuth?: boolean;
+      origin?: string;
+    }
+  ): Promise<{
+    signature: string;
+    address: string;
+    mode: SecurityMode;
+    tag: string;
+    origin: string;
+  }> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to sign message");
       }
 
-      const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
+      const effectiveMode = options?.mode || DEFAULT_MODE;
+      const effectiveTag = options?.tag || DEFAULT_TAG;
+      const origin = options?.origin || getCurrentOrigin();
+
+      // Track security mode for session management
+      this.currentSecurityMode = effectiveMode;
+
+      // STRICT mode: always require authentication (no persistent sessions)
+      const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+
+      const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
+
+      // Derive the wallet from the specified mode and tag
+      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
 
       const { Wallet } = await import("ethers");
-      const wallet = Wallet.fromPhrase(mnemonic);
+
+      // If YOLO mode, we have the private key available
+      let wallet: any;
+      if (derived.privateKey) {
+        wallet = new Wallet(derived.privateKey);
+      } else {
+        // For STANDARD/STRICT modes, derive from mnemonic at the specific index
+        const { deriveWalletFromMnemonic } = await import("../wallet/generate");
+        const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
+        wallet = new Wallet(privateKey);
+      }
 
       const signature = await wallet.signMessage(message);
 
-      return signature;
+      return {
+        signature,
+        address: derived.address,
+        mode: derived.mode,
+        tag: derived.tag,
+        origin: derived.origin,
+      };
     } catch (error) {
       this.config.onError?.(error as any);
       throw new WalletError("Failed to sign message", error);
@@ -1168,9 +1353,10 @@ export class Web3Passkey {
 
   /**
    * Clear active session
+   * Also clears ALL persistent sessions from IndexedDB
    */
-  clearSession(): void {
-    this.sessionManager.clearSession();
+  async clearSession(): Promise<void> {
+    await this.sessionManager.clearSession();
   }
 
   /**

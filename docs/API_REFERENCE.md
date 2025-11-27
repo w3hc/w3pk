@@ -38,8 +38,15 @@ interface Web3PasskeyConfig {
   onAuthStateChanged?: (isAuthenticated: boolean, user?: UserInfo) => void;  // Auth state callback
   storage?: Storage;                  // Custom storage backend (default: IndexedDB)
   sessionDuration?: number;           // Session duration in hours (default: 1)
+  persistentSession?: Partial<PersistentSessionConfig>;  // Enable "Remember Me" functionality
   stealthAddresses?: StealthAddressConfig;  // Enable stealth addresses
   zkProofs?: ZKProofConfig;          // Enable ZK proofs
+}
+
+interface PersistentSessionConfig {
+  enabled: boolean;       // Enable persistent sessions (default: false)
+  duration: number;       // Duration in hours (default: 168 = 7 days)
+  requireReauth: boolean; // Require re-auth on page refresh (default: true)
 }
 ```
 
@@ -48,11 +55,30 @@ interface Web3PasskeyConfig {
 ```typescript
 import { createWeb3Passkey } from 'w3pk'
 
+// Basic configuration
 const w3pk = createWeb3Passkey({
   debug: false,
   sessionDuration: 2,
   onAuthStateChanged: (isAuthenticated, user) => {
     console.log('Auth state:', isAuthenticated, user)
+  }
+})
+
+// With persistent sessions enabled (7 days, requires reauth on refresh)
+const w3pkWithRememberMe = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,           // Enable "Remember Me"
+    duration: 168,           // 7 days (in hours)
+    requireReauth: true      // Prompt for biometric on page refresh
+  }
+})
+
+// Full "Remember Me" experience (30 days, auto-restore)
+const w3pkAutoRestore = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,
+    duration: 30 * 24,       // 30 days
+    requireReauth: false     // Silent session restore (no prompt)
   }
 })
 ```
@@ -290,104 +316,113 @@ console.log('New wallet:', mnemonic)
 
 ---
 
-### `deriveWallet(indexOrTag?: number | string, options?: { requireAuth?: boolean; origin?: string }): Promise<WalletInfo>`
+### `deriveWallet(mode?: SecurityMode, tag?: string, options?: { requireAuth?: boolean; origin?: string }): Promise<WalletInfo>`
 
-Unified wallet derivation supporting three modes:
+Origin-centric wallet derivation with three security modes:
 
-1. **By index (number)**: Classic BIP44 derivation at `m/44'/60'/0'/0/{index}`
-2. **By tag (string)**: Origin-specific derivation with custom tag (auto-detects current origin)
-3. **Auto-detect (undefined)**: Origin-specific with MAIN tag (no parameters)
+**Security Modes:**
+- **`STANDARD` (default)**: Address only (no private key), persistent sessions allowed
+- **`STRICT`**: Address only (no private key), no persistent sessions (requires auth each time)
+- **`YOLO`**: Full access (address + private key), persistent sessions allowed
 
 **Parameters:**
-- `indexOrTag?: number | string` - HD index (number), tag (string), or undefined for auto
+- `mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
+- `tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
-- `options.origin?: string` - Override origin URL (only for tag/auto modes, default: current origin)
+- `options.origin?: string` - Override origin URL (default: current origin)
 
 **Returns:**
 
 ```typescript
 interface WalletInfo {
-  address: string;      // Ethereum address
-  privateKey?: string;  // Private key (if available)
-  index?: number;       // BIP44 index (for tag/auto modes)
-  origin?: string;      // Origin URL (for tag/auto modes)
-  tag?: string;         // Tag name (for tag/auto modes)
+  address: string;       // Ethereum address
+  privateKey?: string;   // Private key (only in YOLO mode)
+  index?: number;        // BIP32 derivation index
+  origin?: string;       // Origin URL
+  mode?: SecurityMode;   // Security mode used
+  tag?: string;          // Tag name
 }
 ```
-
-**Security:** Uses active session or prompts for authentication if session expired.
 
 **Example:**
 
 ```typescript
-// Mode 1: Classic index-based derivation
-const wallet0 = await w3pk.deriveWallet(0)
-const wallet1 = await w3pk.deriveWallet(1)
-console.log('Account 0:', wallet0.address)
-console.log('Account 1:', wallet1.address)
+// Default: STANDARD mode with MAIN tag
+const wallet = await w3pk.deriveWallet()
+console.log('Address:', wallet.address)
+console.log('Private key:', wallet.privateKey) // undefined (STANDARD mode)
 
-// Mode 2: Origin-specific with custom tag (auto-detects current website)
-const gamingWallet = await w3pk.deriveWallet('GAMING')
+// STRICT mode: No persistent sessions
+const strictWallet = await w3pk.deriveWallet('STRICT')
+// This will require biometric/PIN authentication every time
+
+// YOLO mode: Full access with private key
+const yoloWallet = await w3pk.deriveWallet('YOLO')
+console.log('Address:', yoloWallet.address)
+console.log('Private key:', yoloWallet.privateKey) // Available!
+
+// YOLO mode with custom tag
+const gamingWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
 console.log('Gaming wallet:', gamingWallet.address)
 console.log('Tag:', gamingWallet.tag) // 'GAMING'
-console.log('Origin:', gamingWallet.origin) // e.g., 'https://example.com'
 
-const tradingWallet = await w3pk.deriveWallet('TRADING')
-console.log('Trading wallet:', tradingWallet.address) // Different address
-
-// Mode 3: Origin-specific with MAIN tag (no params)
-const mainWallet = await w3pk.deriveWallet()
-console.log('Main wallet:', mainWallet.address)
-console.log('Tag:', mainWallet.tag) // 'MAIN'
+// STANDARD mode with custom tag
+const tradingWallet = await w3pk.deriveWallet('STANDARD', 'TRADING')
+console.log('Trading wallet:', tradingWallet.address)
+console.log('Private key:', tradingWallet.privateKey) // undefined
 
 // Force fresh authentication
-const secureWallet = await w3pk.deriveWallet('SECURE', { requireAuth: true })
+const secureWallet = await w3pk.deriveWallet('STANDARD', 'MAIN', { requireAuth: true })
 
 // Override origin (advanced use case)
-const customWallet = await w3pk.deriveWallet('GAMING', {
+const customWallet = await w3pk.deriveWallet('YOLO', 'GAMING', {
   origin: 'https://custom-domain.com'
 })
 ```
 
-**Benefits:**
-- Same API for both classic and origin-specific derivation
-- Auto-detects current website origin
-- Privacy-preserving by default (each origin gets unique addresses)
-- Deterministic (same origin + tag = same address every time)
+**Security Benefits:**
+- Origin-centric: Each origin gets unique addresses
+- Mode-based private key access control
+- STRICT mode prevents session-based attacks
+- Deterministic (same origin + mode + tag = same address every time)
+- Privacy-preserving by default
 
 ---
 
 ### Origin-Specific Address Derivation
 
-Generate deterministic addresses per origin/website with optional tag support for different use cases.
+Generate deterministic addresses per origin/website with security mode and tag support.
 
-#### `getOriginSpecificAddress(mnemonic: string, origin: string, tag?: string): Promise<OriginWalletInfo>`
+#### `getOriginSpecificAddress(mnemonic: string, origin: string, mode?: SecurityMode, tag?: string): Promise<OriginWalletInfo>`
 
-Derives an origin-specific address from mnemonic with optional tag support.
+Derives an origin-specific address from mnemonic with mode and tag support.
 
 **Parameters:**
 - `mnemonic: string` - The BIP39 mnemonic phrase
 - `origin: string` - The origin URL (e.g., "https://example.com")
+- `mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
 - `tag?: string` - Optional tag to generate different addresses for same origin (default: "MAIN")
 
 **Returns:**
 
 ```typescript
 interface OriginWalletInfo {
-  address: string;    // Ethereum address
-  privateKey: string; // Private key
-  index: number;      // BIP44 derivation index
-  origin: string;     // Normalized origin
-  tag: string;        // Normalized tag (uppercase)
+  address: string;        // Ethereum address
+  privateKey?: string;    // Private key (only in YOLO mode)
+  index: number;          // BIP32 derivation index
+  origin: string;         // Normalized origin
+  mode: SecurityMode;     // Security mode used
+  tag: string;            // Normalized tag (uppercase)
 }
 ```
 
 **How it works:**
 1. Normalizes the origin URL (lowercase, removes trailing slash, handles standard ports)
-2. Combines origin and tag: `${origin}:${TAG}`
+2. Combines origin, mode, and tag: `${origin}:${MODE}:${TAG}`
 3. SHA-256 hashes the combined string
 4. Derives deterministic index from hash (0 to 2^31-1)
-5. Derives wallet at BIP44 path: `m/44'/60'/0'/0/{index}`
+5. Derives wallet at BIP32 path: `m/44'/60'/0'/0/{index}`
+6. Exposes private key only in YOLO mode
 
 **Example:**
 
@@ -396,21 +431,31 @@ import { getOriginSpecificAddress } from 'w3pk'
 
 const mnemonic = 'test test test test test test test test test test test junk'
 
-// Get MAIN address (default tag)
-const mainWallet = await getOriginSpecificAddress(
+// STANDARD mode (default) - no private key
+const standardWallet = await getOriginSpecificAddress(
   mnemonic,
   'https://example.com'
 )
-console.log('Main:', mainWallet.address)
-// Returns: { address, privateKey, index: 33906495, origin: 'https://example.com', tag: 'MAIN' }
+console.log('Standard:', standardWallet.address)
+console.log('Private key:', standardWallet.privateKey) // undefined
 
-// Get GAMING-specific address
-const gamingWallet = await getOriginSpecificAddress(
+// STRICT mode - no private key, no persistent sessions
+const strictWallet = await getOriginSpecificAddress(
   mnemonic,
   'https://example.com',
-  'GAMING'
+  'STRICT'
 )
-console.log('Gaming:', gamingWallet.address)
+console.log('Strict:', strictWallet.address)
+console.log('Private key:', strictWallet.privateKey) // undefined
+
+// YOLO mode - includes private key
+const yoloWallet = await getOriginSpecificAddress(
+  mnemonic,
+  'https://example.com',
+  'YOLO'
+)
+console.log('YOLO:', yoloWallet.address)
+console.log('Private key:', yoloWallet.privateKey) // Available!
 // Different address from MAIN
 
 // Get TRADING-specific address
@@ -539,36 +584,82 @@ console.log('Wallet restored')
 
 ---
 
-### `signMessage(message: string, options?: { requireAuth?: boolean }): Promise<string>`
+### `signMessage(message: string, options?: SignMessageOptions): Promise<SignatureResult>`
 
 Sign a message with the wallet using ECDSA (EIP-191 compliant).
 
+By default, signs with **STANDARD mode + MAIN tag** (origin-centric address).
+You can specify a different mode and tag to sign from a specific derived address.
+
 **Parameters:**
 - `message: string` - Message to sign
+- `options.mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
+- `options.tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
+- `options.origin?: string` - Override origin URL (testing only)
 
-**Returns:** `string` - Ethereum signature (hex string)
+**Returns:** `SignatureResult`
+
+```typescript
+interface SignatureResult {
+  signature: string;     // Ethereum signature (hex string)
+  address: string;       // Address that signed the message
+  mode: SecurityMode;    // Security mode used
+  tag: string;           // Tag used
+  origin: string;        // Origin used
+}
+```
 
 **What happens:**
-1. Checks for active session - uses cached mnemonic if available
-2. If no session - prompts for biometric authentication
-3. Derives private key from mnemonic
+1. Derives wallet based on mode and tag
+2. Checks for active session (unless STRICT mode forces auth)
+3. If no session - prompts for biometric authentication
 4. Signs message using ECDSA (EIP-191)
-5. Returns hex signature
+5. Returns signature with metadata
 
 **Example:**
 
 ```typescript
-// Using session
-const signature = await w3pk.signMessage('Hello World')
-console.log('Signature:', signature)
+// Default: Sign with STANDARD + MAIN address
+const result = await w3pk.signMessage('Hello World')
+console.log('Signature:', result.signature)
+console.log('Signed by:', result.address)
+console.log('Mode:', result.mode)        // 'STANDARD'
+console.log('Tag:', result.tag)          // 'MAIN'
+
+// Sign with YOLO + GAMING address
+const gamingResult = await w3pk.signMessage('Hello World', {
+  mode: 'YOLO',
+  tag: 'GAMING'
+})
+console.log('Gaming address:', gamingResult.address)  // Different address!
+
+// Sign with STRICT mode (requires auth every time)
+const strictResult = await w3pk.signMessage('Transfer $10000', {
+  mode: 'STRICT'
+})
+// User will be prompted for biometric/PIN
+
+// Sign with custom tag in STANDARD mode
+const tradingResult = await w3pk.signMessage('Trade order', {
+  tag: 'TRADING'
+})
+console.log('Trading address:', tradingResult.address)
 
 // Force authentication for sensitive operation
-const highValueSig = await w3pk.signMessage(
-  'Transfer $10000 to 0x...',
-  { requireAuth: true }
-)
+const secureResult = await w3pk.signMessage('Critical operation', {
+  requireAuth: true
+})
 ```
+
+**Use Cases:**
+
+| Scenario | Mode | Tag | Behavior |
+|----------|------|-----|----------|
+| Display wallet balance | STANDARD | MAIN | View-only, persistent sessions |
+| Banking app | STRICT | MAIN | View-only, requires auth each time |
+| Gaming transactions | YOLO | GAMING | Full access, different address |
+| Trading bot | YOLO | TRADING | Full access, isolated address |
 
 ---
 
@@ -1647,6 +1738,16 @@ console.log('Estimated devices:', capabilities.estimatedDevices)
 
 ## Session Management
 
+w3pk provides two types of sessions:
+
+1. **In-Memory Sessions** (default): Cached in RAM, cleared on page refresh
+2. **Persistent Sessions** (opt-in): Encrypted in IndexedDB, survives page refresh
+
+**Security Modes & Persistence:**
+- **STANDARD mode**: Persistent sessions allowed ✅
+- **YOLO mode**: Persistent sessions allowed ✅
+- **STRICT mode**: Persistent sessions NEVER allowed ❌ (always requires fresh authentication)
+
 ### `hasActiveSession(): boolean`
 
 Check if there's an active session with cached mnemonic.
@@ -1703,15 +1804,15 @@ try {
 
 ---
 
-### `clearSession(): void`
+### `clearSession(): Promise<void>`
 
-Manually clear the active session (removes cached mnemonic from memory).
+Manually clear the active session (removes cached mnemonic from memory and deletes persistent session).
 
 **Example:**
 
 ```typescript
 // Clear session for security
-w3pk.clearSession()
+await w3pk.clearSession()
 console.log('Session cleared - next operation will require auth')
 
 // Next operation prompts for authentication
@@ -1738,6 +1839,61 @@ w3pk.setSessionDuration(0)
 
 // Set 24-hour sessions (less secure but convenient)
 w3pk.setSessionDuration(24)
+```
+
+---
+
+### Persistent Sessions ("Remember Me")
+
+Enable persistent sessions to maintain user login across page refreshes.
+
+**How it works:**
+1. On login, mnemonic is encrypted with WebAuthn-derived key
+2. Encrypted session stored in IndexedDB
+3. On page refresh, session is automatically restored (if not expired)
+4. `requireReauth: true` prompts for biometric on refresh (more secure)
+5. `requireReauth: false` silently restores session (more convenient)
+
+**Security:**
+- Sessions only persist for STANDARD and YOLO modes
+- STRICT mode sessions are NEVER persisted
+- Encrypted at rest with WebAuthn-derived key
+- Requires valid WebAuthn credential to decrypt
+- Time-limited expiration
+- Origin-isolated via IndexedDB
+
+**Example:**
+
+```typescript
+// Enable persistent sessions (secure defaults)
+const w3pk = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,           // Enable "Remember Me"
+    duration: 168,           // 7 days (in hours)
+    requireReauth: true      // Prompt on page refresh
+  }
+})
+
+// Full "Remember Me" experience (auto-restore)
+const w3pk = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,
+    duration: 30 * 24,       // 30 days
+    requireReauth: false     // Silent restore
+  }
+})
+
+// Disable persistent sessions (most secure, default)
+const w3pk = createWeb3Passkey({
+  persistentSession: {
+    enabled: false           // RAM-only sessions
+  }
+})
+
+// Using STRICT mode (persistent sessions blocked)
+const wallet = await w3pk.deriveWallet('STRICT')
+// Even with persistentSession.enabled = true,
+// STRICT mode sessions are NEVER persisted
 ```
 
 ---
@@ -1926,7 +2082,7 @@ Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
 ```typescript
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeif5vae62gg5sj3d2nzieh4tk3rgqozsduhlwm7dqk4g3ba7bhr5tm
+// => bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq
 ```
 
 ---
@@ -1953,7 +2109,7 @@ const hash = await getW3pkBuildHash('http://localhost:3000/dist')
 Verify if the current build matches an expected hash.
 
 ```typescript
-const trustedHash = 'bafybeif5vae62gg5sj3d2nzieh4tk3rgqozsduhlwm7dqk4g3ba7bhr5tm'
+const trustedHash = 'bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq'
 const isValid = await verifyBuildHash(trustedHash)
 
 if (isValid) {

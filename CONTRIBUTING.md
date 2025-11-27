@@ -48,6 +48,7 @@ pnpm test:eip7702         # EIP-7702 support tests
 pnpm test:erc5564         # Stealth address tests
 
 # Or run individual test files
+pnpm tsx test/persistent-session.test.ts  # Persistent session tests (requires browser)
 pnpm tsx test/credential-checking.test.ts  # Credential checking methods
 
 # Build
