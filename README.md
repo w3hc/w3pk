@@ -333,10 +333,10 @@ import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 // Get IPFS hash of installed w3pk build
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeif5vae62gg5sj3d2nzieh4tk3rgqozsduhlwm7dqk4g3ba7bhr5tm
+// => bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq
 
 // Verify against trusted hash (from GitHub releases)
-const trusted = 'bafybeif5vae62gg5sj3d2nzieh4tk3rgqozsduhlwm7dqk4g3ba7bhr5tm'
+const trusted = 'bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq'
 const isValid = await verifyBuildHash(trusted)
 if (isValid) {
   console.log('✅ Build integrity verified!')
@@ -350,7 +350,7 @@ See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete docume
 ### Current Build Hash (v0.7.6)
 
 ```
-bafybeif5vae62gg5sj3d2nzieh4tk3rgqozsduhlwm7dqk4g3ba7bhr5tm
+bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq
 ```
 
 **Verify package integrity:**
@@ -358,7 +358,7 @@ bafybeif5vae62gg5sj3d2nzieh4tk3rgqozsduhlwm7dqk4g3ba7bhr5tm
 ```typescript
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeif5vae62gg5sj3d2nzieh4tk3rgqozsduhlwm7dqk4g3ba7bhr5tm'
+const TRUSTED_HASH = 'bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
 
 if (!isValid) {
