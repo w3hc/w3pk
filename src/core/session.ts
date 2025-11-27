@@ -2,11 +2,21 @@
  * Session Manager - Caches decrypted mnemonic for configurable duration
  *
  * SECURITY:
- * - Mnemonic is stored in memory only (never persisted)
+ * - In-memory sessions: Mnemonic is stored in RAM only (cleared on page refresh)
+ * - Persistent sessions: Encrypted mnemonic stored in IndexedDB (survives page refresh)
+ * - Persistent sessions ONLY for STANDARD and YOLO modes (STRICT mode excluded)
  * - Automatically cleared after session expires
  * - Can be manually revoked at any time
  * - Initial authentication still requires biometric/PIN
  */
+
+import type { SecurityMode } from "../types";
+import type { PersistentSessionConfig } from "./persistent-session";
+import {
+  PersistentSessionStorage,
+  encryptMnemonicForPersistence,
+  decryptMnemonicFromPersistence,
+} from "./persistent-session";
 
 export interface SessionData {
   mnemonic: string;
@@ -17,21 +27,76 @@ export interface SessionData {
 export class SessionManager {
   private session: SessionData | null = null;
   private sessionDuration: number; // in milliseconds
+  private persistentConfig: PersistentSessionConfig;
+  private persistentStorage: PersistentSessionStorage;
 
-  constructor(sessionDurationHours: number = 1) {
+  constructor(
+    sessionDurationHours: number = 1,
+    persistentConfig?: Partial<PersistentSessionConfig>
+  ) {
     this.sessionDuration = sessionDurationHours * 60 * 60 * 1000; // Convert to ms
+    this.persistentConfig = {
+      enabled: persistentConfig?.enabled ?? false,
+      duration: persistentConfig?.duration ?? 168, // 7 days default
+      requireReauth: persistentConfig?.requireReauth ?? true,
+    };
+    this.persistentStorage = new PersistentSessionStorage();
   }
 
   /**
    * Start a new session with the decrypted mnemonic
+   * Optionally persists session to IndexedDB for STANDARD/YOLO modes
+   *
+   * @param mnemonic - The decrypted mnemonic
+   * @param credentialId - WebAuthn credential ID
+   * @param ethereumAddress - User's ethereum address
+   * @param publicKey - WebAuthn public key for encryption
+   * @param securityMode - Security mode (STRICT sessions are never persisted)
    */
-  startSession(mnemonic: string, credentialId: string): void {
+  async startSession(
+    mnemonic: string,
+    credentialId: string,
+    ethereumAddress?: string,
+    publicKey?: string,
+    securityMode?: SecurityMode
+  ): Promise<void> {
     const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
     this.session = {
       mnemonic,
       expiresAt,
       credentialId,
     };
+
+    // Persist session if enabled and not STRICT mode
+    if (
+      this.persistentConfig.enabled &&
+      securityMode !== 'STRICT' &&
+      ethereumAddress &&
+      publicKey
+    ) {
+      try {
+        const encryptedMnemonic = await encryptMnemonicForPersistence(
+          mnemonic,
+          credentialId,
+          publicKey
+        );
+
+        const persistentExpiresAt =
+          Date.now() + this.persistentConfig.duration * 60 * 60 * 1000;
+
+        await this.persistentStorage.store({
+          encryptedMnemonic,
+          expiresAt: persistentExpiresAt,
+          credentialId,
+          ethereumAddress,
+          securityMode: securityMode || 'STANDARD',
+          createdAt: Date.now(),
+        });
+      } catch (error) {
+        // Non-fatal: continue with in-memory session if persistence fails
+        console.warn('[w3pk] Failed to persist session:', error);
+      }
+    }
   }
 
   /**
@@ -108,14 +173,82 @@ export class SessionManager {
   }
 
   /**
-   * Manually clear the session (logout or security requirement)
+   * Restore session from persistent storage
+   * Returns decrypted mnemonic if persistent session exists and is valid
+   *
+   * @param ethereumAddress - User's ethereum address
+   * @param credentialId - WebAuthn credential ID
+   * @param publicKey - WebAuthn public key for decryption
+   * @returns Mnemonic if session restored, null otherwise
    */
-  clearSession(): void {
+  async restoreFromPersistentStorage(
+    ethereumAddress: string,
+    credentialId: string,
+    publicKey: string
+  ): Promise<string | null> {
+    if (!this.persistentConfig.enabled) {
+      return null;
+    }
+
+    try {
+      const persistentSession = await this.persistentStorage.retrieve(ethereumAddress);
+
+      if (!persistentSession) {
+        return null;
+      }
+
+      // Verify credential ID matches
+      if (persistentSession.credentialId !== credentialId) {
+        console.warn('[w3pk] Credential ID mismatch, clearing persistent session');
+        await this.persistentStorage.delete(ethereumAddress);
+        return null;
+      }
+
+      // Decrypt mnemonic
+      const mnemonic = await decryptMnemonicFromPersistence(
+        persistentSession.encryptedMnemonic,
+        credentialId,
+        publicKey
+      );
+
+      // Start in-memory session with restored mnemonic
+      const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
+      this.session = {
+        mnemonic,
+        expiresAt,
+        credentialId,
+      };
+
+      return mnemonic;
+    } catch (error) {
+      console.warn('[w3pk] Failed to restore persistent session:', error);
+      // Clean up corrupted session
+      try {
+        await this.persistentStorage.delete(ethereumAddress);
+      } catch {}
+      return null;
+    }
+  }
+
+  /**
+   * Manually clear the session (logout or security requirement)
+   * Also clears persistent session if address provided
+   */
+  async clearSession(ethereumAddress?: string): Promise<void> {
     // Overwrite mnemonic in memory before clearing
     if (this.session) {
       this.session.mnemonic = "0".repeat(this.session.mnemonic.length);
     }
     this.session = null;
+
+    // Clear persistent session if address provided
+    if (ethereumAddress && this.persistentConfig.enabled) {
+      try {
+        await this.persistentStorage.delete(ethereumAddress);
+      } catch (error) {
+        console.warn('[w3pk] Failed to clear persistent session:', error);
+      }
+    }
   }
 
   /**

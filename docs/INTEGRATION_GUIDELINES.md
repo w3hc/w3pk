@@ -30,7 +30,7 @@ const wallet = await w3pk.deriveWallet()
 - **User Control:** Users retain full custody of their wallet
 - **Signing:** You can still sign messages and transactions via `w3pk.signMessage()`
 - **Trust:** Users don't need to trust your application with key material
-- **Convenience:** Persistent sessions reduce authentication friction
+- **Convenience:** Supports persistent sessions for "Remember Me" functionality
 
 ### STRICT Mode: Maximum Security
 
@@ -416,10 +416,31 @@ async function recoverWallet() {
 
 ### Session Management
 
+w3pk supports both **in-memory** (default) and **persistent** sessions:
+
 ```typescript
-// ✅ Configure appropriate session duration
+// ✅ In-memory sessions (default, cleared on page refresh)
 const w3pk = createWeb3Passkey({
-  sessionDuration: 1 // Default: 1 hour
+  sessionDuration: 1 // 1 hour (cleared on refresh)
+})
+
+// ✅ Persistent sessions ("Remember Me" functionality)
+const w3pkPersistent = createWeb3Passkey({
+  sessionDuration: 1,        // In-memory session duration
+  persistentSession: {
+    enabled: true,           // Enable persistent sessions
+    duration: 168,           // 7 days (survives page refresh)
+    requireReauth: true      // Prompt on page refresh (more secure)
+  }
+})
+
+// ✅ Auto-restore (convenience mode)
+const w3pkAutoRestore = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,
+    duration: 30 * 24,       // 30 days
+    requireReauth: false     // Silent restore (no prompt)
+  }
 })
 
 // For high-security apps, require auth for sensitive operations
@@ -433,7 +454,20 @@ async function sendHighValueTransaction(amount: number) {
 
   // Submit transaction...
 }
+
+// Or use STRICT mode to disable persistent sessions entirely
+const strictWallet = await w3pk.deriveWallet('STRICT')
+// STRICT mode ALWAYS requires fresh authentication (no persistent sessions)
 ```
+
+**Persistent Session Security:**
+- STANDARD mode: Persistent sessions ✅ allowed
+- YOLO mode: Persistent sessions ✅ allowed
+- STRICT mode: Persistent sessions ❌ NEVER allowed
+- Sessions encrypted with WebAuthn-derived keys
+- Requires valid credential to decrypt
+- Time-limited expiration
+- Origin-isolated via IndexedDB
 
 ### Build Verification
 

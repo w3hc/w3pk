@@ -43,7 +43,8 @@ const rpcUrl = endpoints[0]
 
 - 🔐 Passwordless authentication (WebAuthn/FIDO2)
 - 🛡️ Origin-specific key isolation with tag-based access control
-- ⏱️ Session management (configurable duration, prevents repeated prompts)
+- ⏱️ Session management (in-memory + optional persistent "Remember Me")
+- 🔒 Persistent sessions (encrypted with WebAuthn keys, survives page refresh)
 - 🌱 HD wallet generation (BIP39/BIP44)
 - 🔢 Multi-address derivation
 - 🌐 Origin-specific addresses (deterministic derivation per website with tag support)
@@ -122,12 +123,14 @@ const signature = await w3pk.signMessage('Hello World')
 
 ### Session Management
 
-By default, after authentication, operations work for 1 hour without repeated biometric prompts:
+By default, after authentication, operations work for 1 hour without repeated biometric prompts.
+
+#### In-Memory Sessions (default)
 
 ```typescript
-// Configure session duration
+// Configure in-memory session duration
 const w3pk = createWeb3Passkey({
-  sessionDuration: 2 // 2 hours (default: 1)
+  sessionDuration: 2 // 2 hours (default: 1, cleared on page refresh)
 })
 
 // After login, mnemonic is cached in memory
@@ -136,21 +139,53 @@ await w3pk.login()
 // These operations use the cached session
 await w3pk.deriveWallet('GAMING')
 await w3pk.signMessage('Hello')
-await w3pk.stealth?.getKeys() // If stealth module enabled
+
+// Session cleared on page refresh
+```
+
+#### Persistent Sessions ("Remember Me")
+
+```typescript
+// Enable persistent sessions (survives page refresh)
+const w3pk = createWeb3Passkey({
+  sessionDuration: 1,        // In-memory session (1 hour)
+  persistentSession: {
+    enabled: true,           // Enable "Remember Me"
+    duration: 168,           // 7 days (in hours)
+    requireReauth: true      // Prompt on page refresh (secure)
+  }
+})
+
+// Auto-restore mode (no prompt on refresh)
+const w3pkAutoRestore = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,
+    duration: 30 * 24,       // 30 days
+    requireReauth: false     // Silent restore
+  }
+})
 
 // Check session status
 w3pk.hasActiveSession() // true
-w3pk.getSessionRemainingTime() // 3540 seconds
+w3pk.getSessionRemainingTime() // seconds remaining
 
 // Extend session
-w3pk.extendSession() // Adds 2 more hours
+w3pk.extendSession()
 
-// Clear session manually (force re-authentication)
-w3pk.clearSession()
+// Clear session (clears both RAM and persistent)
+await w3pk.clearSession()
 
 // Disable sessions (most secure - prompt every time)
-const w3pk = createWeb3Passkey({ sessionDuration: 0 })
+const w3pkNoSessions = createWeb3Passkey({
+  sessionDuration: 0,
+  persistentSession: { enabled: false }
+})
 ```
+
+**Security Modes & Persistence:**
+- STANDARD mode: Persistent sessions ✅ allowed
+- YOLO mode: Persistent sessions ✅ allowed
+- STRICT mode: Persistent sessions ❌ NEVER allowed
 
 #### Force Authentication for Sensitive Operations
 

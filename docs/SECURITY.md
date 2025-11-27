@@ -11,7 +11,8 @@ w3pk provides **multiple layers of security** to protect user wallets:
 3. **Origin-specific derivation** - Each website gets unique isolated addresses
 4. **Mode-based access control** - STANDARD/STRICT modes are view-only, YOLO mode provides full access
 5. **Encrypted storage** - AES-256-GCM encryption at rest
-6. **Secure sessions** - Time-limited memory caching with automatic expiration (disabled in STRICT mode)
+6. **Secure sessions** - In-memory and optional persistent sessions (disabled in STRICT mode)
+7. **Persistent session encryption** - WebAuthn-derived key encryption for "Remember Me" functionality
 
 ## Enhanced Security Model (v0.8.0+)
 
@@ -1647,10 +1648,26 @@ await w3pk.deriveWallet(1)      // ✅ Prompts for biometric (session expired)
 
 ### Session Security
 
-**What's cached:**
-- ✅ Decrypted mnemonic (in memory only)
+w3pk supports **two types of sessions** (v0.8.2+):
+
+1. **In-Memory Sessions** (default): RAM-only, cleared on page refresh
+2. **Persistent Sessions** (opt-in): Encrypted in IndexedDB, survives page refresh
+
+**In-Memory Session (default):**
+- ✅ Decrypted mnemonic cached in RAM only
 - ✅ Session expiration timestamp
 - ✅ Credential ID
+- ✅ Cleared on page refresh
+- ✅ Cleared on logout
+- ✅ Cleared when browser tab closes
+
+**Persistent Session (opt-in):**
+- ✅ Encrypted mnemonic in IndexedDB
+- ✅ Survives page refresh
+- ✅ Encrypted with WebAuthn-derived keys
+- ✅ Time-limited expiration
+- ✅ Only for STANDARD and YOLO modes
+- ❌ NEVER persisted for STRICT mode
 
 **What's NOT cached:**
 - ❌ Private keys (derived on-demand)
@@ -1658,15 +1675,26 @@ await w3pk.deriveWallet(1)      // ✅ Prompts for biometric (session expired)
 - ❌ Encryption keys (derived from signatures)
 
 **Security properties:**
-- Sessions exist **only in RAM** - never persisted to disk
+- Default sessions exist **only in RAM** - never persisted to disk
+- Persistent sessions **encrypted at rest** with WebAuthn-derived keys
 - Automatically cleared after expiration
-- Cleared on logout
-- Cleared when browser tab closes
+- Cleared on logout (both RAM and persistent)
 - Can be manually cleared with `clearSession()`
+- STRICT mode **always** requires fresh authentication (no persistence)
 
 ### Session Management API
 
 ```typescript
+// Configure persistent sessions
+const w3pk = createWeb3Passkey({
+  sessionDuration: 1,        // In-memory session (1 hour)
+  persistentSession: {
+    enabled: true,           // Enable "Remember Me"
+    duration: 168,           // 7 days (in hours)
+    requireReauth: true      // Prompt on page refresh
+  }
+})
+
 // Check if session is active
 const hasSession = w3pk.hasActiveSession()
 
@@ -1676,14 +1704,21 @@ const remaining = w3pk.getSessionRemainingTime()
 // Extend session by configured duration
 w3pk.extendSession()
 
-// Manually clear session (force re-authentication)
-w3pk.clearSession()
+// Manually clear session (clears both RAM and persistent)
+await w3pk.clearSession()
 
 // Update session duration
 w3pk.setSessionDuration(2) // 2 hours
 
 // Disable sessions entirely (most secure)
-const w3pk = new Web3Passkey({ sessionDuration: 0 })
+const w3pkNoSessions = createWeb3Passkey({
+  sessionDuration: 0,
+  persistentSession: { enabled: false }
+})
+
+// Use STRICT mode to disable persistent sessions
+const strictWallet = await w3pk.deriveWallet('STRICT')
+// STRICT mode ALWAYS bypasses persistent sessions
 ```
 
 ### Force Authentication Option

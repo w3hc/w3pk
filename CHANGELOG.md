@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2025-11-27
+
+### Added
+
+- **Persistent Sessions**: Added "Remember Me" functionality for STANDARD and YOLO modes
+  - New `persistentSession` configuration option in `Web3PasskeyConfig`
+  - Sessions can now survive page refreshes when enabled
+  - Encrypted storage in IndexedDB using WebAuthn-derived keys
+  - Configurable duration (default: 7 days) and reauth behavior
+  - STRICT mode sessions are NEVER persisted for maximum security
+  - Added `PersistentSessionStorage` class for encrypted session management
+  - Added `PersistentSessionConfig` interface with `enabled`, `duration`, and `requireReauth` options
+  - Added `restoreFromPersistentStorage()` method to SessionManager
+  - Updated `startSession()` to optionally persist sessions for STANDARD/YOLO modes
+  - Updated `clearSession()` to clear both RAM and persistent sessions
+  - Added comprehensive tests in `test/persistent-session.test.ts`
+  - See [PERSISTENT_SESSION_IMPLEMENTATION.md](./PERSISTENT_SESSION_IMPLEMENTATION.md) for full details
+
+### Changed
+
+- **Session Manager**: Enhanced to support both in-memory and persistent sessions
+  - `startSession()` now accepts `ethereumAddress`, `publicKey`, and `securityMode` parameters
+  - `clearSession()` now accepts optional `ethereumAddress` parameter and returns `Promise<void>`
+  - Added security mode tracking in SDK via `currentSecurityMode` property
+  - `getMnemonicFromSession()` now accepts optional `securityMode` parameter
+
+### Documentation
+
+- Updated [API_REFERENCE.md](./docs/API_REFERENCE.md) with persistent session configuration and usage
+- Updated [INTEGRATION_GUIDELINES.md](./docs/INTEGRATION_GUIDELINES.md) with session management best practices
+- Updated [SECURITY.md](./docs/SECURITY.md) with persistent session security model
+- Added [PERSISTENT_SESSION_IMPLEMENTATION.md](./PERSISTENT_SESSION_IMPLEMENTATION.md) implementation guide
+
 ## [0.8.1] - 2025-11-26
 
 ### Fixed

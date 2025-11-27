@@ -38,8 +38,15 @@ interface Web3PasskeyConfig {
   onAuthStateChanged?: (isAuthenticated: boolean, user?: UserInfo) => void;  // Auth state callback
   storage?: Storage;                  // Custom storage backend (default: IndexedDB)
   sessionDuration?: number;           // Session duration in hours (default: 1)
+  persistentSession?: Partial<PersistentSessionConfig>;  // Enable "Remember Me" functionality
   stealthAddresses?: StealthAddressConfig;  // Enable stealth addresses
   zkProofs?: ZKProofConfig;          // Enable ZK proofs
+}
+
+interface PersistentSessionConfig {
+  enabled: boolean;       // Enable persistent sessions (default: false)
+  duration: number;       // Duration in hours (default: 168 = 7 days)
+  requireReauth: boolean; // Require re-auth on page refresh (default: true)
 }
 ```
 
@@ -48,11 +55,30 @@ interface Web3PasskeyConfig {
 ```typescript
 import { createWeb3Passkey } from 'w3pk'
 
+// Basic configuration
 const w3pk = createWeb3Passkey({
   debug: false,
   sessionDuration: 2,
   onAuthStateChanged: (isAuthenticated, user) => {
     console.log('Auth state:', isAuthenticated, user)
+  }
+})
+
+// With persistent sessions enabled (7 days, requires reauth on refresh)
+const w3pkWithRememberMe = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,           // Enable "Remember Me"
+    duration: 168,           // 7 days (in hours)
+    requireReauth: true      // Prompt for biometric on page refresh
+  }
+})
+
+// Full "Remember Me" experience (30 days, auto-restore)
+const w3pkAutoRestore = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,
+    duration: 30 * 24,       // 30 days
+    requireReauth: false     // Silent session restore (no prompt)
   }
 })
 ```
@@ -1712,6 +1738,16 @@ console.log('Estimated devices:', capabilities.estimatedDevices)
 
 ## Session Management
 
+w3pk provides two types of sessions:
+
+1. **In-Memory Sessions** (default): Cached in RAM, cleared on page refresh
+2. **Persistent Sessions** (opt-in): Encrypted in IndexedDB, survives page refresh
+
+**Security Modes & Persistence:**
+- **STANDARD mode**: Persistent sessions allowed ✅
+- **YOLO mode**: Persistent sessions allowed ✅
+- **STRICT mode**: Persistent sessions NEVER allowed ❌ (always requires fresh authentication)
+
 ### `hasActiveSession(): boolean`
 
 Check if there's an active session with cached mnemonic.
@@ -1768,15 +1804,15 @@ try {
 
 ---
 
-### `clearSession(): void`
+### `clearSession(): Promise<void>`
 
-Manually clear the active session (removes cached mnemonic from memory).
+Manually clear the active session (removes cached mnemonic from memory and deletes persistent session).
 
 **Example:**
 
 ```typescript
 // Clear session for security
-w3pk.clearSession()
+await w3pk.clearSession()
 console.log('Session cleared - next operation will require auth')
 
 // Next operation prompts for authentication
@@ -1803,6 +1839,61 @@ w3pk.setSessionDuration(0)
 
 // Set 24-hour sessions (less secure but convenient)
 w3pk.setSessionDuration(24)
+```
+
+---
+
+### Persistent Sessions ("Remember Me")
+
+Enable persistent sessions to maintain user login across page refreshes.
+
+**How it works:**
+1. On login, mnemonic is encrypted with WebAuthn-derived key
+2. Encrypted session stored in IndexedDB
+3. On page refresh, session is automatically restored (if not expired)
+4. `requireReauth: true` prompts for biometric on refresh (more secure)
+5. `requireReauth: false` silently restores session (more convenient)
+
+**Security:**
+- Sessions only persist for STANDARD and YOLO modes
+- STRICT mode sessions are NEVER persisted
+- Encrypted at rest with WebAuthn-derived key
+- Requires valid WebAuthn credential to decrypt
+- Time-limited expiration
+- Origin-isolated via IndexedDB
+
+**Example:**
+
+```typescript
+// Enable persistent sessions (secure defaults)
+const w3pk = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,           // Enable "Remember Me"
+    duration: 168,           // 7 days (in hours)
+    requireReauth: true      // Prompt on page refresh
+  }
+})
+
+// Full "Remember Me" experience (auto-restore)
+const w3pk = createWeb3Passkey({
+  persistentSession: {
+    enabled: true,
+    duration: 30 * 24,       // 30 days
+    requireReauth: false     // Silent restore
+  }
+})
+
+// Disable persistent sessions (most secure, default)
+const w3pk = createWeb3Passkey({
+  persistentSession: {
+    enabled: false           // RAM-only sessions
+  }
+})
+
+// Using STRICT mode (persistent sessions blocked)
+const wallet = await w3pk.deriveWallet('STRICT')
+// Even with persistentSession.enabled = true,
+// STRICT mode sessions are NEVER persisted
 ```
 
 ---

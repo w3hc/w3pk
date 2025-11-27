@@ -50,6 +50,7 @@ export class Web3Passkey {
   private currentUser: UserInfo | null = null;
   private currentWallet: WalletInfo | null = null;
   private sessionManager: SessionManager;
+  private currentSecurityMode: SecurityMode = 'STANDARD'; // Track current security mode
 
   public stealth?: StealthAddressModule;
   private zkModule?: any;
@@ -57,7 +58,16 @@ export class Web3Passkey {
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
     this.walletStorage = new IndexedDBWalletStorage();
-    this.sessionManager = new SessionManager(config.sessionDuration || 1);
+
+    // Initialize session manager with persistent session config
+    const persistentSessionConfig = {
+      ...DEFAULT_CONFIG.persistentSession,
+      ...config.persistentSession,
+    };
+    this.sessionManager = new SessionManager(
+      config.sessionDuration || 1,
+      persistentSessionConfig
+    );
 
     if (config.stealthAddresses !== undefined) {
       this.stealth = new StealthAddressModule(
@@ -91,10 +101,14 @@ export class Web3Passkey {
   /**
    * Retrieve mnemonic from active session or trigger authentication
    * @param forceAuth - Bypass session cache and require fresh authentication
+   * @param securityMode - Security mode to use for session persistence
    */
   private async getMnemonicFromSession(
-    forceAuth: boolean = false
+    forceAuth: boolean = false,
+    securityMode?: SecurityMode
   ): Promise<string> {
+    const effectiveMode = securityMode || this.currentSecurityMode;
+
     if (!forceAuth) {
       const cachedMnemonic = this.sessionManager.getMnemonic();
       if (cachedMnemonic) {
@@ -133,7 +147,13 @@ export class Web3Passkey {
       encryptionKey
     );
 
-    this.sessionManager.startSession(mnemonic, walletData.credentialId);
+    await this.sessionManager.startSession(
+      mnemonic,
+      walletData.credentialId,
+      this.currentUser.ethereumAddress,
+      publicKey,
+      effectiveMode
+    );
 
     return mnemonic;
   }
@@ -189,7 +209,13 @@ export class Web3Passkey {
         createdAt: new Date().toISOString(),
       });
 
-      this.sessionManager.startSession(mnemonic, credentialId);
+      await this.sessionManager.startSession(
+        mnemonic,
+        credentialId,
+        ethereumAddress,
+        publicKey,
+        'STANDARD' // Default security mode for register
+      );
 
       this.currentWallet = {
         address: ethereumAddress,
@@ -208,6 +234,7 @@ export class Web3Passkey {
   /**
    * Login with WebAuthn using resident credentials
    * Starts session with decrypted mnemonic
+   * Attempts to restore from persistent session if enabled
    */
   async login(): Promise<UserInfo> {
     try {
@@ -238,17 +265,38 @@ export class Web3Passkey {
       const credential = await storage.getCredentialById(walletData.credentialId);
       const publicKey = credential?.publicKey;
 
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+      // Try to restore from persistent session first
+      const restoredMnemonic = await this.sessionManager.restoreFromPersistentStorage(
+        this.currentUser.ethereumAddress,
         walletData.credentialId,
-        publicKey
+        publicKey || ''
       );
 
-      const mnemonic = await decryptData(
-        walletData.encryptedMnemonic,
-        encryptionKey
-      );
+      let mnemonic: string;
+      if (restoredMnemonic) {
+        // Successfully restored from persistent session
+        mnemonic = restoredMnemonic;
+      } else {
+        // Decrypt from wallet storage (requires WebAuthn authentication)
+        const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+          walletData.credentialId,
+          publicKey
+        );
 
-      this.sessionManager.startSession(mnemonic, walletData.credentialId);
+        mnemonic = await decryptData(
+          walletData.encryptedMnemonic,
+          encryptionKey
+        );
+
+        // Start new session with persistence
+        await this.sessionManager.startSession(
+          mnemonic,
+          walletData.credentialId,
+          this.currentUser.ethereumAddress,
+          publicKey,
+          'STANDARD' // Default security mode
+        );
+      }
 
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
@@ -263,9 +311,10 @@ export class Web3Passkey {
    * Logout current user and clear session
    */
   async logout(): Promise<void> {
+    const ethereumAddress = this.currentUser?.ethereumAddress;
     this.currentUser = null;
     this.currentWallet = null;
-    this.sessionManager.clearSession();
+    await this.sessionManager.clearSession(ethereumAddress);
     this.config.onAuthStateChanged?.(false, undefined);
   }
 
@@ -409,10 +458,13 @@ export class Web3Passkey {
       const effectiveTag = tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
 
+      // Track security mode for session management
+      this.currentSecurityMode = effectiveMode;
+
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
-      const mnemonic = await this.getMnemonicFromSession(requireAuth);
+      const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
 
       const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
 
@@ -489,7 +541,13 @@ export class Web3Passkey {
         mnemonic: mnemonic.trim(),
       };
 
-      this.sessionManager.startSession(mnemonic.trim(), credentialId);
+      await this.sessionManager.startSession(
+        mnemonic.trim(),
+        credentialId,
+        this.currentUser.ethereumAddress,
+        publicKey,
+        'STANDARD' // Default security mode for importMnemonic
+      );
     } catch (error) {
       this.config.onError?.(error as any);
       throw new WalletError("Failed to import mnemonic", error);
@@ -553,10 +611,13 @@ export class Web3Passkey {
       const effectiveTag = options?.tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
 
+      // Track security mode for session management
+      this.currentSecurityMode = effectiveMode;
+
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
-      const mnemonic = await this.getMnemonicFromSession(requireAuth);
+      const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
 
       // Derive the wallet from the specified mode and tag
       const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
@@ -1254,9 +1315,11 @@ export class Web3Passkey {
 
   /**
    * Clear active session
+   * Also clears persistent session if it exists
    */
-  clearSession(): void {
-    this.sessionManager.clearSession();
+  async clearSession(): Promise<void> {
+    const ethereumAddress = this.currentUser?.ethereumAddress;
+    await this.sessionManager.clearSession(ethereumAddress);
   }
 
   /**
