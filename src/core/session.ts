@@ -7,7 +7,10 @@
  * - Persistent sessions ONLY for STANDARD and YOLO modes (STRICT mode excluded)
  * - Automatically cleared after session expires
  * - Can be manually revoked at any time
- * - Initial authentication still requires biometric/PIN
+ *
+ * AUTHENTICATION MODES:
+ * - requireReauth: true (default): Biometric prompt on every page refresh (more secure)
+ * - requireReauth: false: Silent session restore without prompt (maximum convenience)
  */
 
 import type { SecurityMode } from "../types";
@@ -226,6 +229,81 @@ export class SessionManager {
       try {
         await this.persistentStorage.delete(ethereumAddress);
       } catch {}
+      return null;
+    }
+  }
+
+  /**
+   * Attempt silent session restore without requiring WebAuthn prompt
+   * Only works if requireReauth is false and a valid persistent session exists
+   *
+   * @returns User info if session restored, null otherwise
+   */
+  async attemptSilentRestore(): Promise<{
+    mnemonic: string;
+    ethereumAddress: string;
+    credentialId: string;
+    publicKey: string;
+  } | null> {
+    // Only attempt silent restore if enabled and requireReauth is false
+    if (!this.persistentConfig.enabled || this.persistentConfig.requireReauth) {
+      return null;
+    }
+
+    try {
+      // We need to check all stored credentials and their persistent sessions
+      // Import CredentialStorage to get stored credentials
+      const { CredentialStorage } = await import('../auth/storage');
+      const credentialStorage = new CredentialStorage();
+      const credentials = await credentialStorage.getAllCredentials();
+
+      if (credentials.length === 0) {
+        return null;
+      }
+
+      // Try to restore from each credential's persistent session
+      // Usually there's only one, but we check all to be safe
+      for (const credential of credentials) {
+        const persistentSession = await this.persistentStorage.retrieve(
+          credential.ethereumAddress
+        );
+
+        if (!persistentSession) {
+          continue;
+        }
+
+        // Verify credential ID matches
+        if (persistentSession.credentialId !== credential.id) {
+          console.warn('[w3pk] Credential ID mismatch, skipping this session');
+          continue;
+        }
+
+        // Decrypt mnemonic
+        const mnemonic = await decryptMnemonicFromPersistence(
+          persistentSession.encryptedMnemonic,
+          credential.id,
+          credential.publicKey
+        );
+
+        // Start in-memory session with restored mnemonic
+        const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
+        this.session = {
+          mnemonic,
+          expiresAt,
+          credentialId: credential.id,
+        };
+
+        return {
+          mnemonic,
+          ethereumAddress: credential.ethereumAddress,
+          credentialId: credential.id,
+          publicKey: credential.publicKey,
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.warn('[w3pk] Failed to attempt silent restore:', error);
       return null;
     }
   }

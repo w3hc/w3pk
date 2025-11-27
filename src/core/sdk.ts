@@ -235,9 +235,48 @@ export class Web3Passkey {
    * Login with WebAuthn using resident credentials
    * Starts session with decrypted mnemonic
    * Attempts to restore from persistent session if enabled
+   *
+   * If requireReauth is false and a valid persistent session exists,
+   * the user will be logged in silently without a WebAuthn prompt.
    */
   async login(): Promise<UserInfo> {
     try {
+      // STEP 1: Try silent restore if requireReauth is false
+      const silentRestore = await this.sessionManager.attemptSilentRestore();
+
+      if (silentRestore) {
+        // Successfully restored session without WebAuthn prompt
+        this.currentUser = {
+          id: silentRestore.ethereumAddress,
+          username: silentRestore.ethereumAddress, // We don't have username from silent restore
+          displayName: silentRestore.ethereumAddress,
+          ethereumAddress: silentRestore.ethereumAddress,
+        };
+
+        // Verify wallet exists
+        const walletData = await this.walletStorage.retrieve(
+          this.currentUser.ethereumAddress
+        );
+
+        if (!walletData) {
+          // Wallet was deleted but session still exists - clear session and retry with auth
+          await this.sessionManager.clearSession(this.currentUser.ethereumAddress);
+          return this.login(); // Retry with authentication
+        }
+
+        // Update username from credential storage
+        const storage = new (await import("../auth/storage")).CredentialStorage();
+        const credential = await storage.getCredentialById(silentRestore.credentialId);
+        if (credential) {
+          this.currentUser.username = credential.username;
+          this.currentUser.displayName = credential.username;
+        }
+
+        this.config.onAuthStateChanged?.(true, this.currentUser);
+        return this.currentUser;
+      }
+
+      // STEP 2: No silent restore - proceed with WebAuthn authentication
       const result = await login();
 
       if (!result.verified || !result.user) {
@@ -265,7 +304,7 @@ export class Web3Passkey {
       const credential = await storage.getCredentialById(walletData.credentialId);
       const publicKey = credential?.publicKey;
 
-      // Try to restore from persistent session first
+      // Try to restore from persistent session first (if requireReauth is true)
       const restoredMnemonic = await this.sessionManager.restoreFromPersistentStorage(
         this.currentUser.ethereumAddress,
         walletData.credentialId,
