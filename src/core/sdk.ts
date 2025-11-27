@@ -260,7 +260,7 @@ export class Web3Passkey {
 
         if (!walletData) {
           // Wallet was deleted but session still exists - clear session and retry with auth
-          await this.sessionManager.clearSession(this.currentUser.ethereumAddress);
+          await this.sessionManager.clearSession();
           return this.login(); // Retry with authentication
         }
 
@@ -350,10 +350,9 @@ export class Web3Passkey {
    * Logout current user and clear session
    */
   async logout(): Promise<void> {
-    const ethereumAddress = this.currentUser?.ethereumAddress;
     this.currentUser = null;
     this.currentWallet = null;
-    await this.sessionManager.clearSession(ethereumAddress);
+    await this.sessionManager.clearSession();
     this.config.onAuthStateChanged?.(false, undefined);
   }
 
@@ -1354,11 +1353,10 @@ export class Web3Passkey {
 
   /**
    * Clear active session
-   * Also clears persistent session if it exists
+   * Also clears ALL persistent sessions from IndexedDB
    */
   async clearSession(): Promise<void> {
-    const ethereumAddress = this.currentUser?.ethereumAddress;
-    await this.sessionManager.clearSession(ethereumAddress);
+    await this.sessionManager.clearSession();
   }
 
   /**

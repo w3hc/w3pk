@@ -310,21 +310,22 @@ export class SessionManager {
 
   /**
    * Manually clear the session (logout or security requirement)
-   * Also clears persistent session if address provided
+   * Also clears ALL persistent sessions from IndexedDB
    */
-  async clearSession(ethereumAddress?: string): Promise<void> {
+  async clearSession(): Promise<void> {
     // Overwrite mnemonic in memory before clearing
     if (this.session) {
       this.session.mnemonic = "0".repeat(this.session.mnemonic.length);
     }
     this.session = null;
 
-    // Clear persistent session if address provided
-    if (ethereumAddress && this.persistentConfig.enabled) {
+    // Clear ALL persistent sessions from IndexedDB on logout
+    // This ensures no WebAuthn prompts appear after logout
+    if (this.persistentConfig.enabled) {
       try {
-        await this.persistentStorage.delete(ethereumAddress);
+        await this.persistentStorage.clear();
       } catch (error) {
-        console.warn('[w3pk] Failed to clear persistent session:', error);
+        console.warn('[w3pk] Failed to clear persistent sessions:', error);
       }
     }
   }
