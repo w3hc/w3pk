@@ -46,7 +46,7 @@ export interface PersistentSessionConfig {
 }
 
 const DB_NAME = "Web3PasskeyPersistentSessions";
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented to force recreation of broken databases
 const STORE_NAME = "sessions";
 
 /**
@@ -72,9 +72,15 @@ export class PersistentSessionStorage {
     this.initPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onerror = () => {
-        this.initPromise = null;
-        reject(new StorageError("Failed to open persistent session database", request.error));
+      // Set onupgradeneeded IMMEDIATELY (before onsuccess/onerror)
+      // This ensures the object store is created before the database opens
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: "ethereumAddress" });
+          // Index by expiration for cleanup
+          store.createIndex("expiresAt", "expiresAt", { unique: false });
+        }
       };
 
       request.onsuccess = () => {
@@ -83,13 +89,9 @@ export class PersistentSessionStorage {
         resolve();
       };
 
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const store = db.createObjectStore(STORE_NAME, { keyPath: "ethereumAddress" });
-          // Index by expiration for cleanup
-          store.createIndex("expiresAt", "expiresAt", { unique: false });
-        }
+      request.onerror = () => {
+        this.initPromise = null;
+        reject(new StorageError("Failed to open persistent session database", request.error));
       };
     });
 
