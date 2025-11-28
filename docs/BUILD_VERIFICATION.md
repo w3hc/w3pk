@@ -22,7 +22,7 @@ import { getCurrentBuildHash } from 'w3pk';
 
 const hash = await getCurrentBuildHash();
 console.log('Build hash:', hash);
-// => bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq
+// => bafybeiecegenbzltuaiel3i6z3azesl6y32ugicavyvasfeyddsbnuhzkq
 ```
 
 ### `getW3pkBuildHash(distUrl)`
@@ -58,7 +58,7 @@ Verifies if the current build matches an expected hash.
 ```typescript
 import { verifyBuildHash } from 'w3pk';
 
-const trustedHash = 'bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq';
+const trustedHash = 'bafybeiecegenbzltuaiel3i6z3azesl6y32ugicavyvasfeyddsbnuhzkq';
 const isValid = await verifyBuildHash(trustedHash);
 
 if (isValid) {
@@ -102,7 +102,7 @@ Output:
 📊 Total size: 273992 bytes
 
 🔐 IPFS Build Hash (CIDv1):
-   bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq
+   bafybeiecegenbzltuaiel3i6z3azesl6y32ugicavyvasfeyddsbnuhzkq
    bafyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 📌 Version: x.x.x
@@ -200,7 +200,7 @@ import express from 'express';
 const app = express();
 
 // Store trusted hash (from GitHub releases, etc.)
-const TRUSTED_HASH = 'bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq';
+const TRUSTED_HASH = 'bafybeiecegenbzltuaiel3i6z3azesl6y32ugicavyvasfeyddsbnuhzkq';
 
 app.get('/api/w3pk/verify', async (req, res) => {
   try {
@@ -229,7 +229,7 @@ app.get('/api/w3pk/trusted-hash', (req, res) => {
 // main.ts
 import { verifyBuildHash, getCurrentBuildHash } from 'w3pk';
 
-const TRUSTED_HASH = 'bafybeia3i2dbrloph6lxjlzl6aetkb5tcoelcq4l3d3kqjrkq4x2u4sbvq';
+const TRUSTED_HASH = 'bafybeiecegenbzltuaiel3i6z3azesl6y32ugicavyvasfeyddsbnuhzkq';
 
 async function verifyAndStart() {
   console.log('Verifying W3PK build integrity...');
