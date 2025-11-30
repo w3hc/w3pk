@@ -178,15 +178,16 @@ export class Web3Passkey {
         ethereumAddress,
       });
 
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credential = await storage.getCredentialByAddress(ethereumAddress);
+
       this.currentUser = {
         id: ethereumAddress,
         username: options.username,
         displayName: options.username,
         ethereumAddress,
+        credentialId: credential?.id || '',
       };
-
-      const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credential = await storage.getCredentialByAddress(ethereumAddress);
 
       if (!credential) {
         throw new WalletError("Credential not found after registration");
@@ -246,11 +247,16 @@ export class Web3Passkey {
 
       if (silentRestore) {
         // Successfully restored session without WebAuthn prompt
+        // Update username from credential storage
+        const storage = new (await import("../auth/storage")).CredentialStorage();
+        const credential = await storage.getCredentialById(silentRestore.credentialId);
+
         this.currentUser = {
           id: silentRestore.ethereumAddress,
-          username: silentRestore.ethereumAddress, // We don't have username from silent restore
-          displayName: silentRestore.ethereumAddress,
+          username: credential?.username || silentRestore.ethereumAddress,
+          displayName: credential?.username || silentRestore.ethereumAddress,
           ethereumAddress: silentRestore.ethereumAddress,
+          credentialId: silentRestore.credentialId,
         };
 
         // Verify wallet exists
@@ -262,14 +268,6 @@ export class Web3Passkey {
           // Wallet was deleted but session still exists - clear session and retry with auth
           await this.sessionManager.clearSession();
           return this.login(); // Retry with authentication
-        }
-
-        // Update username from credential storage
-        const storage = new (await import("../auth/storage")).CredentialStorage();
-        const credential = await storage.getCredentialById(silentRestore.credentialId);
-        if (credential) {
-          this.currentUser.username = credential.username;
-          this.currentUser.displayName = credential.username;
         }
 
         this.config.onAuthStateChanged?.(true, this.currentUser);
@@ -288,6 +286,7 @@ export class Web3Passkey {
         username: result.user.username,
         displayName: result.user.username,
         ethereumAddress: result.user.ethereumAddress,
+        credentialId: result.user.credentialId,
       };
 
       const walletData = await this.walletStorage.retrieve(
@@ -486,7 +485,7 @@ export class Web3Passkey {
     mode?: SecurityMode,
     tag?: string,
     options?: { requireAuth?: boolean; origin?: string }
-  ): Promise<WalletInfo & { index?: number; origin?: string; mode?: SecurityMode; tag?: string }> {
+  ): Promise<WalletInfo & { index?: number; origin?: string; mode?: SecurityMode; tag?: string; publicKey?: string }> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to derive wallet");
@@ -496,8 +495,35 @@ export class Web3Passkey {
       const effectiveTag = tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
 
+      console.log('[SDK] deriveWallet called with:', { mode, tag, effectiveMode, effectiveTag });
+
       // Track security mode for session management
       this.currentSecurityMode = effectiveMode;
+
+      // PRIMARY mode: Use WebAuthn P-256 public key directly (EIP-7951)
+      console.log('[SDK] Checking PRIMARY mode:', effectiveMode, effectiveMode === 'PRIMARY', typeof effectiveMode);
+      if (effectiveMode === 'PRIMARY') {
+        console.log('[SDK] Entering PRIMARY mode branch');
+        const { CredentialStorage } = await import("../auth/storage");
+        const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
+
+        const storage = new CredentialStorage();
+        const credential = await storage.getCredentialById(this.currentUser.credentialId);
+
+        if (!credential || !credential.publicKey) {
+          throw new WalletError("No WebAuthn credential found for PRIMARY mode");
+        }
+
+        const address = await deriveAddressFromP256PublicKey(credential.publicKey);
+
+        return {
+          address,
+          origin,
+          mode: effectiveMode,
+          tag: effectiveTag,
+          publicKey: credential.publicKey,
+        };
+      }
 
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);

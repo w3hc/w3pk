@@ -1,6 +1,7 @@
 import { deriveWalletFromMnemonic } from "./generate";
 import { WalletError } from "../core/errors";
 import type { SecurityMode } from "../types";
+import { keccak256 } from "ethers";
 
 export const DEFAULT_MODE: SecurityMode = "STANDARD";
 export const DEFAULT_TAG = "MAIN";
@@ -128,4 +129,75 @@ export function getCurrentOrigin(): string {
   }
 
   return window.location.origin;
+}
+
+/**
+ * Derive Ethereum address from P-256 public key (EIP-7951)
+ * Uses the last 20 bytes of keccak256(uncompressed_public_key_without_prefix)
+ *
+ * @param publicKeySpki - Public key in SPKI format (base64url encoded)
+ * @returns Ethereum address (0x-prefixed hex string)
+ */
+export async function deriveAddressFromP256PublicKey(publicKeySpki: string): Promise<string> {
+  try {
+    // Decode base64url to ArrayBuffer
+    const publicKeyBuffer = base64UrlToArrayBuffer(publicKeySpki);
+
+    // Import the public key
+    const publicKey = await crypto.subtle.importKey(
+      "spki",
+      publicKeyBuffer,
+      {
+        name: "ECDSA",
+        namedCurve: "P-256",
+      },
+      true,
+      ["verify"]
+    );
+
+    // Export as JWK to get x and y coordinates
+    const jwk = await crypto.subtle.exportKey("jwk", publicKey);
+
+    if (!jwk.x || !jwk.y) {
+      throw new Error("Invalid P-256 public key: missing x or y coordinates");
+    }
+
+    // Convert base64url x and y to bytes (each is 32 bytes for P-256)
+    const xBytes = base64UrlToArrayBuffer(jwk.x);
+    const yBytes = base64UrlToArrayBuffer(jwk.y);
+
+    // Create uncompressed public key: 0x04 || x || y (65 bytes total)
+    // For Ethereum address derivation, we skip the 0x04 prefix
+    const uncompressedKey = new Uint8Array(64);
+    uncompressedKey.set(new Uint8Array(xBytes), 0);
+    uncompressedKey.set(new Uint8Array(yBytes), 32);
+
+    // Hash with keccak256
+    const hash = keccak256(uncompressedKey);
+
+    // Take last 20 bytes as Ethereum address
+    const address = '0x' + hash.slice(-40);
+
+    return address;
+  } catch (error) {
+    throw new WalletError(
+      "Failed to derive address from P-256 public key",
+      error
+    );
+  }
+}
+
+/**
+ * Helper function to decode base64url to ArrayBuffer
+ */
+function base64UrlToArrayBuffer(base64url: string): ArrayBuffer {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const base64Padded = base64 + padding;
+  const binaryString = atob(base64Padded);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
 }
