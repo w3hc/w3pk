@@ -7,10 +7,16 @@ export interface UserInfo {
   username: string;
   displayName: string;
   ethereumAddress: string;
+  credentialId: string;
 }
 
 /**
  * Security modes for origin-centric derivation
+ *
+ * PRIMARY:
+ * - Uses WebAuthn P-256 public key directly (EIP-7951)
+ * - No private key (transactions signed via WebAuthn)
+ * - Address derived from P-256 public key coordinates
  *
  * STANDARD:
  * - App does NOT have access to private key
@@ -24,7 +30,7 @@ export interface UserInfo {
  * - App CAN use private key
  * - Persistent sessions allowed
  */
-export type SecurityMode = 'STANDARD' | 'STRICT' | 'YOLO';
+export type SecurityMode = 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO';
 
 /**
  * Wallet information returned by SDK methods
