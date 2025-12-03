@@ -34,7 +34,7 @@ This will output the build hash and save it to `dist/BUILD_HASH.txt`.
 **Example output:**
 ```
 🔐 IPFS Build Hash (CIDv1):
-   bafybeiaxjbsgqty6qot4tjw7e4y56vgdg5gb3s622hfs6gfr3lfelpjuga
+   bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi
 ```
 
 ### 2. Update README.md
@@ -47,7 +47,7 @@ Update the "Security & Verification" section in README.md:
 ### Current Build Hash (v0.7.7)  # <- Update version to match package.json
 
 ```
-bafybeiaxjbsgqty6qot4tjw7e4y56vgdg5gb3s622hfs6gfr3lfelpjuga  # <- Update hash from build:hash output
+bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi  # <- Update hash from build:hash output
 ```
 ```
 

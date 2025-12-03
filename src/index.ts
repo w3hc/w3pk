@@ -48,6 +48,19 @@ export {
   getPackageVersion,
 } from "./utils/build-hash";
 
+export {
+  base64UrlToArrayBuffer,
+  base64UrlDecode,
+  arrayBufferToBase64Url,
+  base64ToArrayBuffer,
+  safeAtob,
+  safeBtoa,
+} from "./utils/base64";
+
+export {
+  extractRS,
+} from "./utils/crypto";
+
 export type {
   BackupStatus,
   SecurityScore,

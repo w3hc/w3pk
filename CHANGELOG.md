@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2025-12-03
+
+### Added
+
+- **EIP-7951 PRIMARY Mode**: Sign messages directly with WebAuthn P-256 passkeys
+  - New `signMessageWithPasskey()` method for PRIMARY mode message signing
+  - Direct WebAuthn signature using P-256 curve (no private key exposure)
+  - Returns signature components (r, s) and public key coordinates (qx, qy)
+  - Compatible with EIP-7951 account abstraction wallets
+  - Derives Ethereum address from P-256 public key using keccak256
+  - See [docs/EIP-7951.md](./docs/EIP-7951.md) for implementation details
+
+- **Exported Utilities**: Base64 and cryptographic utilities now publicly available
+  - **Base64 Utilities**: `base64UrlToArrayBuffer`, `base64UrlDecode`, `arrayBufferToBase64Url`, `base64ToArrayBuffer`, `safeAtob`, `safeBtoa`
+  - **Crypto Utilities**: `extractRS` - Extract r and s values from DER-encoded ECDSA signatures with low-s normalization
+
+### Documentation
+
+- Added comprehensive [EIP-7951 Implementation Guide](./docs/EIP-7951.md)
+- Updated [API Reference](./docs/API_REFERENCE.md) with `signMessageWithPasskey()` method and exported utilities
+- Updated [README](./README.md) with EIP-7951 PRIMARY mode examples
+
+### Tests
+
+- Added comprehensive test suite for EIP-7951 PRIMARY mode (`test/eip7951.test.ts`)
+  - Tests for `extractRS()`: DER signature parsing, padding handling, and low-s normalization
+  - Tests for base64 utilities: encoding/decoding, URL-safe characters, round-trip conversion
+  - Tests for `deriveAddressFromP256PublicKey()`: address derivation, determinism, EIP-7951 compliance
+  - Integration tests simulating full PRIMARY mode signature flow
+  - Edge case tests for empty buffers, large buffers, and minimal signatures
+
 ## [0.8.2] - 2025-11-27
 
 ### Added
@@ -360,7 +391,9 @@ No breaking changes. All existing code continues to work. The fixes are internal
 
 ## Version History
 
-- **0.8.1** - Fixed `getPackageVersion()` function (current)
+- **0.8.6** - EIP-7951 PRIMARY mode, exported utilities (current)
+- **0.8.2** - Persistent sessions ("Remember Me")
+- **0.8.1** - Fixed `getPackageVersion()` function
 - **0.8.0** - Major cleanup: removed ZIP backups, simplified backup/recovery, removed dangerous exports
 - **0.7.5** - Critical fix for public key storage
 - **0.7.4** - Metadata encryption in localStorage (broken - do not use)

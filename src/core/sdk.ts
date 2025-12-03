@@ -715,6 +715,147 @@ export class Web3Passkey {
   }
 
   /**
+   * Sign a message using WebAuthn (P-256) for PRIMARY mode
+   * This method uses the passkey directly for signing instead of a private key
+   *
+   * @param message - The message to sign
+   * @returns Signature details including r, s components and the hash that was signed
+   *
+   * @example
+   * const result = await w3pk.signMessageWithPasskey("Hello World")
+   * console.log(result.signature) // { r: "0x...", s: "0x..." }
+   * console.log(result.messageHash) // Original message hash
+   * console.log(result.signedHash) // WebAuthn signed hash
+   * console.log(result.address) // PRIMARY mode address
+   */
+  async signMessageWithPasskey(message: string): Promise<{
+    signature: { r: string; s: string };
+    messageHash: string;
+    signedHash: string;
+    address: string;
+    publicKey: { qx: string; qy: string };
+  }> {
+    try {
+      if (!this.currentUser) {
+        throw new WalletError("Must be authenticated to sign message");
+      }
+
+      const { extractRS } = await import("../utils/crypto");
+      const { base64UrlDecode } = await import("../utils/base64");
+
+      // Hash the message
+      const messageHash = await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(message)
+      );
+      const h = '0x' + Buffer.from(messageHash).toString('hex');
+
+      // Generate challenge from message hash
+      const challengeBytes = new Uint8Array(Buffer.from(h.slice(2), 'hex'));
+
+      // Get credential ID from current user
+      const credentialId = this.currentUser.credentialId;
+      if (!credentialId) {
+        throw new WalletError('Credential ID not found in user object');
+      }
+
+      // Request WebAuthn signature
+      const assertionOptions: PublicKeyCredentialRequestOptions = {
+        challenge: challengeBytes,
+        rpId: window.location.hostname,
+        allowCredentials: [
+          {
+            id: base64UrlDecode(credentialId),
+            type: 'public-key',
+            transports: ['internal', 'hybrid', 'usb', 'nfc', 'ble'],
+          },
+        ],
+        userVerification: 'required',
+        timeout: 60000,
+      };
+
+      const assertion = (await navigator.credentials.get({
+        publicKey: assertionOptions,
+      })) as PublicKeyCredential | null;
+
+      if (!assertion || !assertion.response) {
+        throw new WalletError('WebAuthn signature failed');
+      }
+
+      const response = assertion.response as AuthenticatorAssertionResponse;
+
+      // WebAuthn signs: SHA-256(authenticatorData || SHA-256(clientDataJSON))
+      const authenticatorData = new Uint8Array(response.authenticatorData);
+      const clientDataJSON = new Uint8Array(response.clientDataJSON);
+      const clientDataHash = await crypto.subtle.digest('SHA-256', clientDataJSON);
+
+      // Concatenate authenticatorData + clientDataHash
+      const signedData = new Uint8Array(authenticatorData.length + clientDataHash.byteLength);
+      signedData.set(authenticatorData, 0);
+      signedData.set(new Uint8Array(clientDataHash), authenticatorData.length);
+
+      // Hash the concatenation to get what was actually signed
+      const actualMessageHash = await crypto.subtle.digest('SHA-256', signedData.buffer);
+      const actualH = '0x' + Buffer.from(actualMessageHash).toString('hex');
+
+      // Extract r and s from the DER-encoded signature
+      const signature = new Uint8Array(response.signature);
+      const { r, s } = extractRS(signature);
+
+      // Get public key coordinates
+      const { CredentialStorage } = await import("../auth/storage");
+      const storage = new CredentialStorage();
+      const credential = await storage.getCredentialById(credentialId);
+
+      if (!credential || !credential.publicKey) {
+        throw new WalletError('No WebAuthn credential found for PRIMARY mode');
+      }
+
+      // Decode the public key to get x and y coordinates
+      const { base64UrlToArrayBuffer } = await import("../utils/base64");
+      const publicKeyBuffer = base64UrlToArrayBuffer(credential.publicKey);
+
+      // Import the public key
+      const publicKey = await crypto.subtle.importKey(
+        'spki',
+        publicKeyBuffer,
+        {
+          name: 'ECDSA',
+          namedCurve: 'P-256',
+        },
+        true,
+        ['verify']
+      );
+
+      // Export as JWK to get x and y coordinates
+      const jwk = await crypto.subtle.exportKey('jwk', publicKey);
+
+      if (!jwk.x || !jwk.y) {
+        throw new WalletError('Invalid P-256 public key: missing x or y coordinates');
+      }
+
+      // Convert base64url x and y to hex (each is 32 bytes for P-256)
+      const qx = '0x' + Buffer.from(base64UrlToArrayBuffer(jwk.x)).toString('hex');
+      const qy = '0x' + Buffer.from(base64UrlToArrayBuffer(jwk.y)).toString('hex');
+
+      // Derive address from public key
+      const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
+      const address = await deriveAddressFromP256PublicKey(credential.publicKey);
+
+      return {
+        signature: { r, s },
+        messageHash: h,
+        signedHash: actualH,
+        address,
+        publicKey: { qx, qy },
+      };
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to sign message with passkey", error);
+    }
+  }
+
+  /**
    * Sign EIP-7702 authorization for gasless transactions
    * Allows EOA to delegate execution to contract for gas sponsorship
    *

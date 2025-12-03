@@ -130,3 +130,12 @@ export function safeBtoa(input: string): string {
     );
   }
 }
+
+/**
+ * Alias for base64UrlToArrayBuffer - decodes base64url to ArrayBuffer
+ * @param base64url - Base64url encoded string
+ * @returns ArrayBuffer containing the decoded bytes
+ */
+export function base64UrlDecode(base64url: string): ArrayBuffer {
+  return base64UrlToArrayBuffer(base64url);
+}
