@@ -246,6 +246,9 @@ await w3pk.supportsEIP7702(999, {
 
 ### EIP-7951 PRIMARY Mode
 ```typescript
+// Get PRIMARY address (derived from P-256 passkey)
+const primaryAddr = await w3pk.getAddress('PRIMARY')
+
 // Sign message directly with P-256 passkey (no private key)
 const result = await w3pk.signMessageWithPasskey("Hello World")
 ```
@@ -340,10 +343,10 @@ import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 // Get IPFS hash of installed w3pk build
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi
+// => bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
 
 // Verify against trusted hash (from GitHub releases)
-const trusted = 'bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi'
+const trusted = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
 const isValid = await verifyBuildHash(trusted)
 if (isValid) {
   console.log('✅ Build integrity verified!')
@@ -357,7 +360,7 @@ See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete docume
 ### Current Build Hash (v0.7.6)
 
 ```
-bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi
+bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
 ```
 
 **Verify package integrity:**
@@ -365,7 +368,7 @@ bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi
 ```typescript
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi'
+const TRUSTED_HASH = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
 
 if (!isValid) {

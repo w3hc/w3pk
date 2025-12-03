@@ -389,6 +389,60 @@ const customWallet = await w3pk.deriveWallet('YOLO', 'GAMING', {
 
 ---
 
+### `getAddress(mode?: SecurityMode, tag?: string, options?: { origin?: string }): Promise<string>`
+
+Lightweight method to get the public address for a specific security mode and tag without exposing private keys or creating full wallet objects.
+
+**Parameters:**
+- `mode?: SecurityMode` - Security mode: 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
+- `tag?: string` - Tag for derivation (default: 'MAIN')
+- `options.origin?: string` - Override origin URL (default: current origin)
+
+**Returns:** `Promise<string>` - The Ethereum address for this mode/tag combination
+
+**Example:**
+
+```typescript
+// Get default STANDARD + MAIN address
+const mainAddr = await w3pk.getAddress()
+console.log('Main address:', mainAddr)
+
+// Get PRIMARY address (P-256 from passkey)
+const primaryAddr = await w3pk.getAddress('PRIMARY')
+console.log('PRIMARY address:', primaryAddr)
+
+// Get YOLO GAMING address
+const gamingAddr = await w3pk.getAddress('YOLO', 'GAMING')
+console.log('Gaming address:', gamingAddr)
+
+// Get STRICT address (will require authentication)
+const strictAddr = await w3pk.getAddress('STRICT')
+console.log('Strict address:', strictAddr)
+
+// Display multiple addresses in UI
+const addresses = {
+  primary: await w3pk.getAddress('PRIMARY'),
+  standard: await w3pk.getAddress('STANDARD'),
+  gaming: await w3pk.getAddress('YOLO', 'GAMING'),
+  trading: await w3pk.getAddress('STANDARD', 'TRADING')
+}
+console.log('All addresses:', addresses)
+```
+
+**Use Cases:**
+- Display addresses in UI without exposing private keys
+- Verify which address will be used before signing
+- Show multiple addresses for different modes/tags
+- Lightweight address retrieval for read-only operations
+
+**Security Notes:**
+- Never exposes private keys (even in YOLO mode)
+- PRIMARY mode returns P-256 address derived from WebAuthn public key
+- STRICT mode requires fresh authentication each time
+- Other modes use session cache if available
+
+---
+
 ### Origin-Specific Address Derivation
 
 Generate deterministic addresses per origin/website with security mode and tag support.
@@ -2171,7 +2225,7 @@ Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
 ```typescript
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi
+// => bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
 ```
 
 ---
@@ -2198,7 +2252,7 @@ const hash = await getW3pkBuildHash('http://localhost:3000/dist')
 Verify if the current build matches an expected hash.
 
 ```typescript
-const trustedHash = 'bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi'
+const trustedHash = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
 const isValid = await verifyBuildHash(trustedHash)
 
 if (isValid) {

@@ -475,7 +475,7 @@ const strictWallet = await w3pk.deriveWallet('STRICT')
 // ✅ Verify package integrity on app initialization
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi'
+const TRUSTED_HASH = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
 
 async function initializeApp() {
   const isValid = await verifyBuildHash(TRUSTED_HASH)
@@ -535,7 +535,7 @@ class WalletManager {
 
   async initialize() {
     // Verify package integrity
-    const TRUSTED_HASH = 'bafybeiagxwcdquymmq6hqup45xlh25x3qrwpn3j5oj3f5t47ltzuzmzlpi'
+    const TRUSTED_HASH = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
     const isValid = await verifyBuildHash(TRUSTED_HASH)
     if (!isValid) throw new Error('Package integrity check failed')
   }

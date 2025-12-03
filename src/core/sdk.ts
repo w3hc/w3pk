@@ -547,6 +547,72 @@ export class Web3Passkey {
   }
 
   /**
+   * Get public address for a specific security mode and tag
+   * Lightweight method that only returns the address without exposing private keys
+   *
+   * @param mode - Security mode (default: "STANDARD")
+   * @param tag - Derivation tag (default: "MAIN")
+   * @param options.origin - Override origin URL (testing only)
+   * @returns The Ethereum address for this mode/tag combination
+   *
+   * @example
+   * // Get PRIMARY address (P-256 from passkey)
+   * const primaryAddr = await w3pk.getAddress("PRIMARY")
+   *
+   * // Get default STANDARD + MAIN address
+   * const mainAddr = await w3pk.getAddress()
+   *
+   * // Get YOLO GAMING address
+   * const gamingAddr = await w3pk.getAddress("YOLO", "GAMING")
+   *
+   * // Get STRICT address (will require authentication)
+   * const strictAddr = await w3pk.getAddress("STRICT")
+   */
+  async getAddress(
+    mode?: SecurityMode,
+    tag?: string,
+    options?: { origin?: string }
+  ): Promise<string> {
+    try {
+      if (!this.currentUser) {
+        throw new WalletError("Must be authenticated to get address");
+      }
+
+      const effectiveMode = mode || DEFAULT_MODE;
+      const effectiveTag = tag || DEFAULT_TAG;
+      const origin = options?.origin || getCurrentOrigin();
+
+      // PRIMARY mode: Use WebAuthn P-256 public key directly (EIP-7951)
+      if (effectiveMode === 'PRIMARY') {
+        const { CredentialStorage } = await import("../auth/storage");
+        const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
+
+        const storage = new CredentialStorage();
+        const credential = await storage.getCredentialById(this.currentUser.credentialId);
+
+        if (!credential || !credential.publicKey) {
+          throw new WalletError("No WebAuthn credential found for PRIMARY mode");
+        }
+
+        return await deriveAddressFromP256PublicKey(credential.publicKey);
+      }
+
+      // For other modes, derive from mnemonic
+      // STRICT mode: always require authentication (no persistent sessions)
+      const requireAuth = effectiveMode === 'STRICT' ? true : false;
+
+      const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
+
+      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+
+      return derived.address;
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to get address", error);
+    }
+  }
+
+  /**
    * Export mnemonic (disabled for security)
    * Use createBackupFile() instead
    * @deprecated

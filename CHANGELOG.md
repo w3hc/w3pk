@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Derives Ethereum address from P-256 public key using keccak256
   - See [docs/EIP-7951.md](./docs/EIP-7951.md) for implementation details
 
+- **`getAddress()` Method**: Lightweight method to retrieve addresses without private key exposure
+  - Get public addresses for any security mode (PRIMARY, STANDARD, STRICT, YOLO)
+  - Supports tag-based address derivation
+  - Perfect for UI display and address verification
+  - Never exposes private keys, even in YOLO mode
+  - Example: `const addr = await w3pk.getAddress('PRIMARY')`
+  - See [docs/API_REFERENCE.md](./docs/API_REFERENCE.md#getaddress) for details
+
 - **Exported Utilities**: Base64 and cryptographic utilities now publicly available
   - **Base64 Utilities**: `base64UrlToArrayBuffer`, `base64UrlDecode`, `arrayBufferToBase64Url`, `base64ToArrayBuffer`, `safeAtob`, `safeBtoa`
   - **Crypto Utilities**: `extractRS` - Extract r and s values from DER-encoded ECDSA signatures with low-s normalization

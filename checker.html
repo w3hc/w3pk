@@ -144,6 +144,9 @@
           <button onclick="testGenerateWallet()">Generate Wallet</button>
           <button onclick="testDeriveWallet()">Derive Wallet (index 0)</button>
           <button onclick="testDeriveMultiple()">Derive Multiple Wallets</button>
+          <button onclick="testGetAddress()">Get Address (STANDARD)</button>
+          <button onclick="testGetAddressPrimary()">Get Address (PRIMARY)</button>
+          <button onclick="testGetAllAddresses()">Get All Addresses</button>
           <button onclick="testExportMnemonic()">Export Mnemonic</button>
           <button onclick="testImportMnemonic()">Import Mnemonic</button>
           <button onclick="testSignMessage()">Sign Message</button>
@@ -419,6 +422,47 @@
           const signature = await window.w3pk.signMessage(message);
           console.log('Signature:', signature);
           window.showResult('Message Signed', { message, signature }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGetAddress = async function() {
+        try {
+          const address = await window.w3pk.getAddress();
+          console.log('Address (STANDARD + MAIN):', address);
+          window.showResult('Address Retrieved (STANDARD + MAIN)', { address }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGetAddressPrimary = async function() {
+        try {
+          const address = await window.w3pk.getAddress('PRIMARY');
+          console.log('Address (PRIMARY):', address);
+          window.showResult('Address Retrieved (PRIMARY)', {
+            address,
+            mode: 'PRIMARY',
+            description: 'P-256 address derived from WebAuthn public key'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testGetAllAddresses = async function() {
+        try {
+          const addresses = {
+            standard_main: await window.w3pk.getAddress('STANDARD', 'MAIN'),
+            strict_main: await window.w3pk.getAddress('STRICT', 'MAIN'),
+            yolo_main: await window.w3pk.getAddress('YOLO', 'MAIN'),
+            yolo_gaming: await window.w3pk.getAddress('YOLO', 'GAMING'),
+            standard_trading: await window.w3pk.getAddress('STANDARD', 'TRADING'),
+            primary: await window.w3pk.getAddress('PRIMARY')
+          };
+          console.log('All addresses:', addresses);
+          window.showResult('All Addresses Retrieved', addresses, 'success');
         } catch (error) {
           window.handleError(error);
         }

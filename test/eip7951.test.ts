@@ -579,6 +579,25 @@ async function runTests() {
     console.log("✅ extractRS handles minimal DER signatures");
   }
 
+  // Test 21: getAddress() - Basic functionality (requires Web3Passkey instance)
+  console.log("\nTest 21: getAddress() - Validate method signature and exports");
+  {
+    // Note: Full integration tests with Web3Passkey instance are in separate test files
+    // Here we just validate that the method is properly typed and exported
+    const { Web3Passkey } = await import("../src/core/sdk");
+
+    console.assert(Web3Passkey !== undefined, "Web3Passkey should be exported");
+    console.assert(typeof Web3Passkey === "function", "Web3Passkey should be a constructor");
+
+    // Check that the getAddress method exists on the prototype
+    const instance = new Web3Passkey();
+    console.assert(typeof instance.getAddress === "function", "getAddress should be a method");
+
+    console.log(`  ✓ Web3Passkey exported correctly`);
+    console.log(`  ✓ getAddress method exists`);
+    console.log("✅ getAddress() method is properly defined");
+  }
+
   console.log("\n✅ All EIP-7951 Tests Passed!\n");
   console.log("📋 Summary:");
   console.log("  • extractRS: DER parsing and low-s normalization ✓");
@@ -586,6 +605,7 @@ async function runTests() {
   console.log("  • deriveAddressFromP256PublicKey: P-256 address derivation ✓");
   console.log("  • Integration: Full PRIMARY mode signature flow ✓");
   console.log("  • Edge cases: Empty buffers, large buffers, minimal signatures ✓");
+  console.log("  • getAddress(): Method signature validation ✓");
   console.log("");
 }
 
