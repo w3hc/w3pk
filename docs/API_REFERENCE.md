@@ -389,6 +389,60 @@ const customWallet = await w3pk.deriveWallet('YOLO', 'GAMING', {
 
 ---
 
+### `getAddress(mode?: SecurityMode, tag?: string, options?: { origin?: string }): Promise<string>`
+
+Lightweight method to get the public address for a specific security mode and tag without exposing private keys or creating full wallet objects.
+
+**Parameters:**
+- `mode?: SecurityMode` - Security mode: 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
+- `tag?: string` - Tag for derivation (default: 'MAIN')
+- `options.origin?: string` - Override origin URL (default: current origin)
+
+**Returns:** `Promise<string>` - The Ethereum address for this mode/tag combination
+
+**Example:**
+
+```typescript
+// Get default STANDARD + MAIN address
+const mainAddr = await w3pk.getAddress()
+console.log('Main address:', mainAddr)
+
+// Get PRIMARY address (P-256 from passkey)
+const primaryAddr = await w3pk.getAddress('PRIMARY')
+console.log('PRIMARY address:', primaryAddr)
+
+// Get YOLO GAMING address
+const gamingAddr = await w3pk.getAddress('YOLO', 'GAMING')
+console.log('Gaming address:', gamingAddr)
+
+// Get STRICT address (will require authentication)
+const strictAddr = await w3pk.getAddress('STRICT')
+console.log('Strict address:', strictAddr)
+
+// Display multiple addresses in UI
+const addresses = {
+  primary: await w3pk.getAddress('PRIMARY'),
+  standard: await w3pk.getAddress('STANDARD'),
+  gaming: await w3pk.getAddress('YOLO', 'GAMING'),
+  trading: await w3pk.getAddress('STANDARD', 'TRADING')
+}
+console.log('All addresses:', addresses)
+```
+
+**Use Cases:**
+- Display addresses in UI without exposing private keys
+- Verify which address will be used before signing
+- Show multiple addresses for different modes/tags
+- Lightweight address retrieval for read-only operations
+
+**Security Notes:**
+- Never exposes private keys (even in YOLO mode)
+- PRIMARY mode returns P-256 address derived from WebAuthn public key
+- STRICT mode requires fresh authentication each time
+- Other modes use session cache if available
+
+---
+
 ### Origin-Specific Address Derivation
 
 Generate deterministic addresses per origin/website with security mode and tag support.
@@ -837,6 +891,95 @@ console.log('Delegation revoked!')
 - [EIP-7702 Complete Guide](../docs/EIP_7702.md)
 - [EIP-7702 Specification](https://eips.ethereum.org/EIPS/eip-7702)
 - [Integration Examples](../examples/eip7702-authorization.ts)
+
+---
+
+### `signMessageWithPasskey(message: string): Promise<PasskeySignatureResult>`
+
+Sign a message directly with WebAuthn P-256 passkey for PRIMARY mode (EIP-7951 compatible).
+
+Unlike `signMessage()` which uses secp256k1 ECDSA, this method uses the P-256 curve directly from WebAuthn. This is designed for account abstraction wallets that verify WebAuthn signatures on-chain.
+
+**Parameters:**
+- `message: string` - Message to sign
+
+**Returns:** `PasskeySignatureResult`
+
+```typescript
+interface PasskeySignatureResult {
+  signature: {
+    r: string;      // Signature r component (hex)
+    s: string;      // Signature s component (hex, low-s normalized)
+  };
+  messageHash: string;  // Original message hash (SHA-256)
+  signedHash: string;   // WebAuthn signed hash (authenticatorData + clientDataHash)
+  address: string;      // PRIMARY mode address (derived from P-256 public key)
+  publicKey: {
+    qx: string;     // Public key x-coordinate (hex)
+    qy: string;     // Public key y-coordinate (hex)
+  };
+}
+```
+
+**What happens:**
+1. Hashes the message with SHA-256
+2. Requests WebAuthn signature using the passkey
+3. WebAuthn signs: `SHA-256(authenticatorData || SHA-256(clientDataJSON))`
+4. Extracts r and s from DER-encoded signature
+5. Applies low-s normalization for Ethereum compatibility
+6. Derives P-256 address using keccak256 (EIP-7951)
+7. Returns signature components and public key coordinates
+
+**Example:**
+
+```typescript
+// Sign message with passkey
+const result = await w3pk.signMessageWithPasskey("Hello World")
+
+console.log('Signature r:', result.signature.r)
+console.log('Signature s:', result.signature.s)
+console.log('Message hash:', result.messageHash)
+console.log('Signed hash:', result.signedHash)
+console.log('Address:', result.address)
+console.log('Public key qx:', result.publicKey.qx)
+console.log('Public key qy:', result.publicKey.qy)
+
+// Use with account abstraction contract
+await accountAbstractionContract.verifyWebAuthnSignature({
+  message: "Hello World",
+  r: result.signature.r,
+  s: result.signature.s,
+  qx: result.publicKey.qx,
+  qy: result.publicKey.qy
+})
+```
+
+**Key Differences from signMessage():**
+
+| Feature | `signMessage()` | `signMessageWithPasskey()` |
+|---------|----------------|---------------------------|
+| Curve | secp256k1 | P-256 (WebAuthn native) |
+| Private Key | Uses BIP39 mnemonic | Uses WebAuthn credential directly |
+| Compatibility | Standard Ethereum wallets | Account abstraction (EIP-7951) |
+| Signature Format | 65-byte compact (r,s,v) | DER-encoded, extracted r,s |
+| Address Derivation | keccak256(secp256k1 pubkey) | keccak256(P-256 pubkey) |
+| Low-s Normalization | Standard | P-256 curve order |
+
+**Security:**
+- Requires active user authentication (biometric/PIN)
+- No private key exposure (uses WebAuthn credential directly)
+- Signature is bound to the origin (RP ID hash verification)
+- Counter validation prevents credential cloning
+
+**Use Cases:**
+- EIP-7951 account abstraction wallets
+- WebAuthn-native smart contract wallets
+- Hardware-backed signatures without seed phrases
+- Passkey-first authentication flows
+
+**Related Documentation:**
+- [EIP-7951 Implementation Guide](../docs/EIP-7951.md)
+- [EIP-7951 Specification](https://eips.ethereum.org/EIPS/eip-7951)
 
 ---
 
@@ -2082,7 +2225,7 @@ Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
 ```typescript
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeiaxjbsgqty6qot4tjw7e4y56vgdg5gb3s622hfs6gfr3lfelpjuga
+// => bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
 ```
 
 ---
@@ -2109,7 +2252,7 @@ const hash = await getW3pkBuildHash('http://localhost:3000/dist')
 Verify if the current build matches an expected hash.
 
 ```typescript
-const trustedHash = 'bafybeiaxjbsgqty6qot4tjw7e4y56vgdg5gb3s622hfs6gfr3lfelpjuga'
+const trustedHash = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
 const isValid = await verifyBuildHash(trustedHash)
 
 if (isValid) {
@@ -2131,6 +2274,147 @@ console.log('Version:', version) // => 0.7.6
 ```
 
 See [Build Verification Guide](./BUILD_VERIFICATION.md) for detailed documentation and integration examples.
+
+---
+
+### Base64 Encoding Utilities
+
+```typescript
+import {
+  base64UrlToArrayBuffer,
+  base64UrlDecode,
+  arrayBufferToBase64Url,
+  base64ToArrayBuffer,
+  safeAtob,
+  safeBtoa
+} from 'w3pk'
+```
+
+#### `base64UrlToArrayBuffer(base64url: string): ArrayBuffer`
+
+Decode base64url string to ArrayBuffer with automatic padding.
+
+```typescript
+const buffer = base64UrlToArrayBuffer('SGVsbG8gV29ybGQ')
+console.log(new Uint8Array(buffer)) // [72, 101, 108, 108, 111, ...]
+```
+
+---
+
+#### `base64UrlDecode(base64url: string): ArrayBuffer`
+
+Alias for `base64UrlToArrayBuffer()` - decodes base64url to ArrayBuffer.
+
+```typescript
+const buffer = base64UrlDecode('SGVsbG8gV29ybGQ')
+// Same as base64UrlToArrayBuffer()
+```
+
+---
+
+#### `arrayBufferToBase64Url(buffer: ArrayBuffer): string`
+
+Encode ArrayBuffer to URL-safe base64url string (no padding).
+
+```typescript
+const buffer = new TextEncoder().encode('Hello World')
+const base64url = arrayBufferToBase64Url(buffer)
+console.log(base64url) // => SGVsbG8gV29ybGQ
+```
+
+---
+
+#### `base64ToArrayBuffer(base64: string): ArrayBuffer`
+
+Decode standard base64 string to ArrayBuffer.
+
+```typescript
+const buffer = base64ToArrayBuffer('SGVsbG8gV29ybGQ=')
+console.log(new Uint8Array(buffer))
+```
+
+---
+
+#### `safeAtob(input: string): string`
+
+Safely decode base64/base64url with automatic padding and format handling.
+
+```typescript
+const decoded = safeAtob('SGVsbG8gV29ybGQ')  // Works with or without padding
+console.log(decoded) // => Binary string
+```
+
+---
+
+#### `safeBtoa(input: string): string`
+
+Safely encode binary string to base64 with Unicode support.
+
+```typescript
+const encoded = safeBtoa('Hello World')
+console.log(encoded) // => SGVsbG8gV29ybGQ=
+```
+
+---
+
+### Cryptographic Utilities
+
+```typescript
+import { extractRS } from 'w3pk'
+```
+
+#### `extractRS(derSignature: Uint8Array): { r: string; s: string }`
+
+Extract r and s values from DER-encoded ECDSA signature with low-s normalization.
+
+This function parses WebAuthn's DER-encoded P-256 signatures and applies low-s normalization required for Ethereum compatibility.
+
+**Parameters:**
+- `derSignature: Uint8Array` - DER-encoded signature from WebAuthn
+
+**Returns:**
+```typescript
+{
+  r: string;  // Hex-encoded r value (0x-prefixed, 64 chars)
+  s: string;  // Hex-encoded s value (0x-prefixed, 64 chars, low-s normalized)
+}
+```
+
+**Example:**
+
+```typescript
+// Get WebAuthn signature
+const assertion = await navigator.credentials.get({
+  publicKey: { /* ... */ }
+}) as PublicKeyCredential
+
+const response = assertion.response as AuthenticatorAssertionResponse
+const derSignature = new Uint8Array(response.signature)
+
+// Extract r and s components
+const { r, s } = extractRS(derSignature)
+
+console.log('r:', r) // 0x1234...
+console.log('s:', s) // 0x5678...
+
+// Use with smart contract verification
+await contract.verifySignature(messageHash, r, s, publicKey)
+```
+
+**Low-s Normalization:**
+
+The function automatically applies low-s normalization using the P-256 curve order:
+```
+n = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+If s > n/2, then s = n - s
+```
+
+This ensures compatibility with Ethereum's signature malleability protection.
+
+**Related:**
+- Used internally by `signMessageWithPasskey()`
+- See [EIP-7951 Implementation Guide](../docs/EIP-7951.md)
 
 ---
 

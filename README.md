@@ -52,6 +52,7 @@ const rpcUrl = endpoints[0]
 - 🧮 ZK primitives (zero-knowledge proof generation and verification)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
 - ⚡ EIP-7702 network detection (329+ supported networks)
+- 🔑 EIP-7951 PRIMARY mode (sign with P-256 passkeys directly)
 - 🔍 Build verification (IPFS CIDv1 hashing for package integrity)
 - 🛡️ Three-layer backup & recovery system
   - Passkey auto-sync (iCloud/Google/Microsoft)
@@ -243,6 +244,15 @@ await w3pk.supportsEIP7702(999, {
 })
 ```
 
+### EIP-7951 PRIMARY Mode
+```typescript
+// Get PRIMARY address (derived from P-256 passkey)
+const primaryAddr = await w3pk.getAddress('PRIMARY')
+
+// Sign message directly with P-256 passkey (no private key)
+const result = await w3pk.signMessageWithPasskey("Hello World")
+```
+
 ### ERC-5564 Stealth Addresses
 
 ```typescript
@@ -333,10 +343,10 @@ import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 // Get IPFS hash of installed w3pk build
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeiaxjbsgqty6qot4tjw7e4y56vgdg5gb3s622hfs6gfr3lfelpjuga
+// => bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
 
 // Verify against trusted hash (from GitHub releases)
-const trusted = 'bafybeiaxjbsgqty6qot4tjw7e4y56vgdg5gb3s622hfs6gfr3lfelpjuga'
+const trusted = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
 const isValid = await verifyBuildHash(trusted)
 if (isValid) {
   console.log('✅ Build integrity verified!')
@@ -350,7 +360,7 @@ See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete docume
 ### Current Build Hash (v0.7.6)
 
 ```
-bafybeiaxjbsgqty6qot4tjw7e4y56vgdg5gb3s622hfs6gfr3lfelpjuga
+bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
 ```
 
 **Verify package integrity:**
@@ -358,7 +368,7 @@ bafybeiaxjbsgqty6qot4tjw7e4y56vgdg5gb3s622hfs6gfr3lfelpjuga
 ```typescript
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeiaxjbsgqty6qot4tjw7e4y56vgdg5gb3s622hfs6gfr3lfelpjuga'
+const TRUSTED_HASH = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
 
 if (!isValid) {
@@ -381,6 +391,7 @@ See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete docume
 - [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md) - Best practices for production apps
 - [API Reference](./docs/API_REFERENCE.md) - Complete API documentation
 - [Build Verification](./docs/BUILD_VERIFICATION.md) - Package integrity verification
+- [EIP-7951](./docs/EIP-7951.md) - EIP-7951 implementation
 - [Security Architecture](./docs/SECURITY.md) - Security model and threat analysis
 - [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
 - [ZK Proofs](./docs/ZK.md) - Zero-Knowledge cryptography utilities
