@@ -154,6 +154,20 @@
       </div>
 
       <div class="section">
+        <h2>Message Signing Methods</h2>
+        <div class="button-grid">
+          <button onclick="testSignEIP191()">Sign with EIP-191 (default)</button>
+          <button onclick="testSignSIWE()">Sign with SIWE (EIP-4361)</button>
+          <button onclick="testSignEIP712()">Sign with EIP-712</button>
+          <button onclick="testSignRawHash()">Sign rawHash (32 bytes)</button>
+          <button onclick="testVerifySIWE()">Verify SIWE Signature</button>
+          <button onclick="testCreateSIWEMessage()">Create SIWE Message</button>
+          <button onclick="testParseSIWEMessage()">Parse SIWE Message</button>
+          <button onclick="testValidateSIWEMessage()">Validate SIWE Message</button>
+        </div>
+      </div>
+
+      <div class="section">
         <h2>Session Management</h2>
         <div class="button-grid">
           <button onclick="checkSession()">Check Session Status</button>
@@ -422,6 +436,269 @@
           const signature = await window.w3pk.signMessage(message);
           console.log('Signature:', signature);
           window.showResult('Message Signed', { message, signature }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      // Message Signing Methods Tests
+      window.testSignEIP191 = async function() {
+        try {
+          const message = 'Hello World! (EIP-191)';
+          const result = await window.w3pk.signMessage(message, {
+            signingMethod: 'EIP191'
+          });
+          console.log('EIP-191 signature:', result);
+          window.showResult('EIP-191 Signature', {
+            message,
+            signature: result.signature,
+            address: result.address,
+            mode: result.mode,
+            method: 'EIP191 (Standard Ethereum signed message)'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testSignSIWE = async function() {
+        try {
+          // Import SIWE utilities
+          const { createSiweMessage, generateSiweNonce } = await import('./dist/index.mjs');
+
+          const address = await window.w3pk.getAddress();
+          const nonce = generateSiweNonce();
+
+          const siweMessage = createSiweMessage({
+            domain: window.location.host || 'localhost',
+            address,
+            statement: 'Sign in to w3pk SDK Tester',
+            uri: window.location.origin || 'http://localhost',
+            version: '1',
+            chainId: 1,
+            nonce,
+            issuedAt: new Date().toISOString(),
+            expirationTime: new Date(Date.now() + 3600000).toISOString() // 1 hour
+          });
+
+          const result = await window.w3pk.signMessage(siweMessage, {
+            signingMethod: 'SIWE'
+          });
+
+          console.log('SIWE signature:', result);
+          window.showResult('SIWE Signature (EIP-4361)', {
+            message: siweMessage,
+            signature: result.signature,
+            address: result.address,
+            method: 'SIWE - Sign-In with Ethereum'
+          }, 'success');
+
+          // Store for verification test
+          window.testSiweData = { message: siweMessage, signature: result.signature, address: result.address };
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testSignEIP712 = async function() {
+        try {
+          const address = await window.w3pk.getAddress();
+
+          const domain = {
+            name: 'w3pk Tester',
+            version: '1',
+            chainId: 1,
+            verifyingContract: '0x1234567890123456789012345678901234567890'
+          };
+
+          const types = {
+            Transfer: [
+              { name: 'to', type: 'address' },
+              { name: 'amount', type: 'uint256' }
+            ]
+          };
+
+          const message = {
+            to: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+            amount: '1000000000000000000'
+          };
+
+          const result = await window.w3pk.signMessage(JSON.stringify(message), {
+            signingMethod: 'EIP712',
+            eip712Domain: domain,
+            eip712Types: types,
+            eip712PrimaryType: 'Transfer'
+          });
+
+          console.log('EIP-712 signature:', result);
+          window.showResult('EIP-712 Signature (Typed Data)', {
+            domain: domain.name,
+            type: 'Transfer',
+            message,
+            signature: result.signature,
+            address: result.address,
+            method: 'EIP-712 Structured Data Signing'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testSignRawHash = async function() {
+        try {
+          const { keccak256, toUtf8Bytes } = await import('https://esm.sh/ethers@6.13.0');
+
+          // Create a 32-byte hash
+          const hash = keccak256(toUtf8Bytes('Test data for raw hash signing'));
+          console.log('Hash to sign:', hash);
+
+          const result = await window.w3pk.signMessage(hash, {
+            signingMethod: 'rawHash'
+          });
+
+          console.log('Raw hash signature:', result);
+          window.showResult('Raw Hash Signature', {
+            hash,
+            signature: result.signature,
+            address: result.address,
+            method: 'rawHash (32-byte hash without EIP-191 prefix)',
+            note: 'Useful for Safe multisig and pre-computed EIP-712 hashes'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testVerifySIWE = async function() {
+        try {
+          if (!window.testSiweData) {
+            window.showResult('Please sign a SIWE message first', null, 'error');
+            return;
+          }
+
+          const { verifySiweSignature } = await import('./dist/index.mjs');
+
+          const verification = await verifySiweSignature(
+            window.testSiweData.message,
+            window.testSiweData.signature,
+            window.testSiweData.address
+          );
+
+          console.log('SIWE verification:', verification);
+          window.showResult('SIWE Signature Verification', {
+            valid: verification.valid,
+            address: verification.address,
+            error: verification.error,
+            status: verification.valid ? '✅ Valid' : '❌ Invalid'
+          }, verification.valid ? 'success' : 'error');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testCreateSIWEMessage = async function() {
+        try {
+          const { createSiweMessage, generateSiweNonce } = await import('./dist/index.mjs');
+
+          const address = await window.w3pk.getAddress();
+          const nonce = generateSiweNonce();
+
+          const siweMessage = createSiweMessage({
+            domain: 'example.com',
+            address,
+            statement: 'Sign in to Example App',
+            uri: 'https://example.com/login',
+            version: '1',
+            chainId: 1,
+            nonce,
+            issuedAt: new Date().toISOString(),
+            expirationTime: new Date(Date.now() + 3600000).toISOString(),
+            resources: [
+              'https://example.com/terms',
+              'https://example.com/privacy'
+            ]
+          });
+
+          console.log('SIWE message created:', siweMessage);
+          window.showResult('SIWE Message Created', {
+            message: siweMessage,
+            nonce,
+            address,
+            note: 'EIP-4361 compliant format'
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testParseSIWEMessage = async function() {
+        try {
+          const { parseSiweMessage } = await import('./dist/index.mjs');
+
+          const exampleMessage = `example.com wants you to sign in with your Ethereum account:
+0x1234567890123456789012345678901234567890
+
+Sign in to Example App
+
+URI: https://example.com/login
+Version: 1
+Chain ID: 1
+Nonce: YqPj9K2xL8m
+Issued At: 2024-01-01T12:00:00Z
+Expiration Time: 2024-01-01T13:00:00Z
+Resources:
+- https://example.com/terms
+- https://example.com/privacy`;
+
+          const parsed = parseSiweMessage(exampleMessage);
+          console.log('Parsed SIWE message:', parsed);
+
+          window.showResult('SIWE Message Parsed', {
+            domain: parsed.domain,
+            address: parsed.address,
+            statement: parsed.statement,
+            chainId: parsed.chainId,
+            nonce: parsed.nonce,
+            issuedAt: parsed.issuedAt,
+            expirationTime: parsed.expirationTime,
+            resources: parsed.resources
+          }, 'success');
+        } catch (error) {
+          window.handleError(error);
+        }
+      };
+
+      window.testValidateSIWEMessage = async function() {
+        try {
+          const { createSiweMessage, generateSiweNonce, validateSiweMessage } = await import('./dist/index.mjs');
+
+          const address = await window.w3pk.getAddress();
+          const nonce = generateSiweNonce();
+
+          const siweMessage = createSiweMessage({
+            domain: 'example.com',
+            address,
+            uri: 'https://example.com',
+            version: '1',
+            chainId: 1,
+            nonce,
+            issuedAt: new Date().toISOString(),
+            expirationTime: new Date(Date.now() + 3600000).toISOString()
+          });
+
+          const validation = validateSiweMessage(siweMessage, {
+            domain: 'example.com',
+            chainId: 1,
+            checkExpiration: true
+          });
+
+          console.log('SIWE validation:', validation);
+          window.showResult('SIWE Message Validation', {
+            valid: validation.valid,
+            errors: validation.errors,
+            status: validation.valid ? '✅ Valid' : '❌ Invalid',
+            parsed: validation.parsed
+          }, validation.valid ? 'success' : 'error');
         } catch (error) {
           window.handleError(error);
         }

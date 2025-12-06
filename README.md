@@ -27,8 +27,15 @@ console.log('✅ Registered:', username, 'with address:', address)
 // Login (for subsequent sessions)
 await w3pk.login()
 
-// Sign message
-const signature = await w3pk.signMessage('Hello World')
+// Sign messages (multiple methods supported)
+const signature = await w3pk.signMessage('Hello World') // EIP-191 (default)
+const siweSignature = await w3pk.signMessage(siweMessage, { signingMethod: 'SIWE' }) // SIWE/EIP-4361
+const eip712Sig = await w3pk.signMessage(JSON.stringify(typedData), {
+  signingMethod: 'EIP712',
+  eip712Domain,
+  eip712Types,
+  eip712PrimaryType: 'Transfer'
+})
 
 // Derive addresses (2 modes)
 const gamingWallet = await w3pk.deriveWallet('GAMING') // By tag - includes privateKey
@@ -48,6 +55,11 @@ const rpcUrl = endpoints[0]
 - 🌱 HD wallet generation (BIP39/BIP44)
 - 🔢 Multi-address derivation
 - 🌐 Origin-specific addresses (deterministic derivation per website with tag support)
+- ✍️ Multiple signing methods (EIP-191, SIWE/EIP-4361, EIP-712, rawHash)
+  - EIP-191: Standard Ethereum signed messages
+  - SIWE: Sign-In with Ethereum (Web3 authentication)
+  - EIP-712: Structured typed data (permits, voting, etc.)
+  - rawHash: Pre-computed hashes (Safe multisig, custom schemes)
 - 🥷 ERC-5564 stealth addresses (opt-in, privacy-preserving transactions with view tags)
 - 🧮 ZK primitives (zero-knowledge proof generation and verification)
 - 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
@@ -343,10 +355,10 @@ import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 // Get IPFS hash of installed w3pk build
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
+// => bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm
 
 // Verify against trusted hash (from GitHub releases)
-const trusted = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
+const trusted = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
 const isValid = await verifyBuildHash(trusted)
 if (isValid) {
   console.log('✅ Build integrity verified!')
@@ -360,7 +372,7 @@ See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete docume
 ### Current Build Hash (v0.7.6)
 
 ```
-bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
+bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm
 ```
 
 **Verify package integrity:**
@@ -368,7 +380,7 @@ bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
 ```typescript
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
+const TRUSTED_HASH = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
 
 if (!isValid) {

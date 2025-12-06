@@ -40,7 +40,7 @@ async function example2_VerifyBuildHash() {
   try {
     // Known hash from a trusted source (e.g., GitHub release notes)
     const trustedHash =
-      "bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi";
+      "bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm";
 
     console.log(`Verifying against trusted hash: ${trustedHash}`);
 
