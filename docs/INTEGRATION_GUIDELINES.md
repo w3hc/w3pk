@@ -108,6 +108,126 @@ console.log(yolo.address !== gaming.address)        // true (different tags)
 
 ---
 
+## Signing Methods
+
+w3pk supports multiple signing methods for different use cases. Choose the appropriate method based on your application's requirements.
+
+### EIP-191 (Default): Standard Message Signing
+
+```typescript
+// Standard Ethereum signed message
+const result = await w3pk.signMessage('Hello World')
+// Uses EIP-191 prefix: "\x19Ethereum Signed Message:\n<length>"
+```
+
+**Use for:**
+- General message signing
+- Wallet authentication
+- Proof of ownership
+- Simple signatures
+
+### SIWE: Sign-In with Ethereum (EIP-4361)
+
+```typescript
+import { createSiweMessage, generateSiweNonce } from 'w3pk'
+
+// Create properly formatted SIWE message
+const message = createSiweMessage({
+  domain: 'app.example.com',
+  address: await w3pk.getAddress(),
+  uri: 'https://app.example.com/login',
+  version: '1',
+  chainId: 1,
+  nonce: generateSiweNonce(),
+  issuedAt: new Date().toISOString(),
+  statement: 'Sign in to Example App'
+})
+
+// Sign with SIWE method
+const result = await w3pk.signMessage(message, {
+  signingMethod: 'SIWE'
+})
+```
+
+**Use for:**
+- Web3 authentication flows
+- dApp login
+- Decentralized identity
+- Session management
+
+### EIP-712: Structured Typed Data
+
+```typescript
+// Define EIP-712 structure
+const domain = {
+  name: 'MyDApp',
+  version: '1',
+  chainId: 1,
+  verifyingContract: '0x...'
+}
+
+const types = {
+  Transfer: [
+    { name: 'to', type: 'address' },
+    { name: 'amount', type: 'uint256' }
+  ]
+}
+
+const message = {
+  to: '0x...',
+  amount: '1000000000000000000'
+}
+
+// Sign typed data
+const result = await w3pk.signMessage(JSON.stringify(message), {
+  signingMethod: 'EIP712',
+  eip712Domain: domain,
+  eip712Types: types,
+  eip712PrimaryType: 'Transfer'
+})
+```
+
+**Use for:**
+- Token permits (gasless approvals)
+- DAO voting
+- NFT minting signatures
+- Meta-transactions
+- Any structured data requiring user approval
+
+### rawHash: Pre-computed Hashes
+
+```typescript
+import { TypedDataEncoder } from 'ethers'
+
+// Compute hash manually (if needed for custom schemes)
+const hash = TypedDataEncoder.hash(domain, types, message)
+
+// Sign the raw hash
+const result = await w3pk.signMessage(hash, {
+  signingMethod: 'rawHash'
+})
+```
+
+**Use for:**
+- Safe multisig transactions
+- Custom signature schemes
+- Pre-computed EIP-712 hashes
+- Advanced use cases
+
+### Choosing the Right Method
+
+| Use Case | Method | Reason |
+|----------|--------|---------|
+| User authentication | SIWE | Standardized Web3 login |
+| General signatures | EIP-191 | Simple and universal |
+| Token permits | EIP-712 | Gasless approvals |
+| DAO voting | EIP-712 | Structured proposals |
+| Safe multisig | rawHash | Pre-computed transaction hashes |
+| NFT allowlist | EIP-712 | Structured whitelist data |
+| Gasless meta-tx | EIP-712 | Relayer signatures |
+
+---
+
 ## Registration Flow
 
 ### Check for Existing Wallet First
@@ -475,7 +595,7 @@ const strictWallet = await w3pk.deriveWallet('STRICT')
 // ✅ Verify package integrity on app initialization
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
+const TRUSTED_HASH = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
 
 async function initializeApp() {
   const isValid = await verifyBuildHash(TRUSTED_HASH)
@@ -535,7 +655,7 @@ class WalletManager {
 
   async initialize() {
     // Verify package integrity
-    const TRUSTED_HASH = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
+    const TRUSTED_HASH = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
     const isValid = await verifyBuildHash(TRUSTED_HASH)
     if (!isValid) throw new Error('Package integrity check failed')
   }

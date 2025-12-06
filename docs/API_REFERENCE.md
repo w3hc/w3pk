@@ -640,17 +640,21 @@ console.log('Wallet restored')
 
 ### `signMessage(message: string, options?: SignMessageOptions): Promise<SignatureResult>`
 
-Sign a message with the wallet using ECDSA (EIP-191 compliant).
+Sign a message with the wallet using ECDSA with configurable signing methods.
 
-By default, signs with **STANDARD mode + MAIN tag** (origin-centric address).
-You can specify a different mode and tag to sign from a specific derived address.
+By default, signs with **STANDARD mode + MAIN tag** (origin-centric address) using **EIP-191**.
+You can specify a different mode, tag, and signing method to customize the signature.
 
 **Parameters:**
-- `message: string` - Message to sign
+- `message: string` - Message to sign (or hash for rawHash method, JSON for EIP712)
 - `options.mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
 - `options.tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
 - `options.origin?: string` - Override origin URL (testing only)
+- `options.signingMethod?: SigningMethod` - Signing method: 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash' (default: 'EIP191')
+- `options.eip712Domain?: object` - EIP-712 domain separator (required for EIP712 method)
+- `options.eip712Types?: object` - EIP-712 type definitions (required for EIP712 method)
+- `options.eip712PrimaryType?: string` - Primary type name (required for EIP712 method)
 
 **Returns:** `SignatureResult`
 
@@ -664,17 +668,54 @@ interface SignatureResult {
 }
 ```
 
+**Signing Methods:**
+
+| Method | Description | Use Case |
+|--------|-------------|----------|
+| `EIP191` (default) | Standard Ethereum signed message with `\x19Ethereum Signed Message:\n<length>` prefix | General message signing, wallet authentication |
+| `SIWE` | Sign-In with Ethereum (EIP-4361) compliant | Web3 login flows, dApp authentication |
+| `EIP712` | Sign structured typed data (EIP-712) | Token permits, DAO voting, NFT minting, gasless transactions |
+| `rawHash` | Sign raw 32-byte hashes without EIP-191 prefix | Pre-computed EIP-712 hashes, Safe multisig transactions |
+
+**EIP-191 Signing (default):**
+- Standard Ethereum message signing
+- Adds prefix: `\x19Ethereum Signed Message:\n<length>`
+- Compatible with all Ethereum wallets
+- Verifiable with `ethers.verifyMessage()`
+
+**SIWE Signing (EIP-4361):**
+- Sign-In with Ethereum compliant
+- Message should be a properly formatted SIWE message
+- Uses EIP-191 prefix (for EOA accounts)
+- See https://docs.login.xyz for message format
+- Use `createSiweMessage()` helper for proper formatting
+
+**EIP-712 Signing:**
+- Signs structured typed data according to EIP-712 standard
+- Automatically computes domain separator and struct hash
+- Requires `eip712Domain`, `eip712Types`, and `eip712PrimaryType` options
+- Message should be JSON string or object with typed data values
+- More user-friendly than rawHash for structured data
+- Verifiable with `TypedDataEncoder.recoverAddress()`
+
+**rawHash Signing:**
+- Signs raw 32-byte hashes directly without EIP-191 prefix
+- Message must be a 32-byte hash (64 hex characters, with or without 0x prefix)
+- Useful for pre-computed EIP-712 hashes or Safe transactions
+- Throws error if message is not exactly 32 bytes
+- Use when you need manual control over hash computation
+
 **What happens:**
 1. Derives wallet based on mode and tag
 2. Checks for active session (unless STRICT mode forces auth)
 3. If no session - prompts for biometric authentication
-4. Signs message using ECDSA (EIP-191)
+4. Signs message using specified signing method
 5. Returns signature with metadata
 
 **Example:**
 
 ```typescript
-// Default: Sign with STANDARD + MAIN address
+// Default: Sign with STANDARD + MAIN address using EIP-191
 const result = await w3pk.signMessage('Hello World')
 console.log('Signature:', result.signature)
 console.log('Signed by:', result.address)
@@ -704,16 +745,92 @@ console.log('Trading address:', tradingResult.address)
 const secureResult = await w3pk.signMessage('Critical operation', {
   requireAuth: true
 })
+
+// SIWE (Sign-In with Ethereum) - EIP-4361
+const siweMessage = `example.com wants you to sign in with your Ethereum account:
+0x1234...5678
+
+Sign in to example.com
+
+URI: https://example.com
+Version: 1
+Chain ID: 1
+Nonce: 32891756
+Issued At: 2021-09-30T16:25:24Z`
+
+const siweResult = await w3pk.signMessage(siweMessage, {
+  signingMethod: 'SIWE'
+})
+console.log('SIWE signature:', siweResult.signature)
+// Verifiable with ethers.verifyMessage(siweMessage, signature)
+
+// EIP-712 (Structured Typed Data) - Better UX for permits, voting, etc.
+const domain = {
+  name: 'MyToken',
+  version: '1',
+  chainId: 1,
+  verifyingContract: '0x1234567890123456789012345678901234567890'
+}
+
+const types = {
+  Permit: [
+    { name: 'owner', type: 'address' },
+    { name: 'spender', type: 'address' },
+    { name: 'value', type: 'uint256' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' }
+  ]
+}
+
+const message = {
+  owner: '0xYourAddress',
+  spender: '0xSpenderAddress',
+  value: '1000000000000000000',
+  nonce: '0',
+  deadline: '1735689600'
+}
+
+// Sign typed data directly (recommended for structured data)
+const eip712Result = await w3pk.signMessage(JSON.stringify(message), {
+  signingMethod: 'EIP712',
+  eip712Domain: domain,
+  eip712Types: types,
+  eip712PrimaryType: 'Permit'
+})
+console.log('EIP-712 signature:', eip712Result.signature)
+
+// Alternatively: Sign raw 32-byte hash (for pre-computed hashes)
+import { TypedDataEncoder, recoverAddress } from 'ethers'
+
+// Manually compute the hash
+const hash = TypedDataEncoder.hash(domain, types, message)
+console.log('EIP-712 hash:', hash) // 0xabcd...1234 (32 bytes)
+
+// Sign the raw hash without EIP-191 prefix
+const rawHashResult = await w3pk.signMessage(hash, {
+  signingMethod: 'rawHash'
+})
+console.log('Raw hash signature:', rawHashResult.signature)
+
+// Verify with recoverAddress (not verifyMessage!)
+const recovered = recoverAddress(hash, rawHashResult.signature)
+console.log('Recovered address:', recovered)
+console.log('Matches signer:', recovered === rawHashResult.address)
 ```
 
 **Use Cases:**
 
-| Scenario | Mode | Tag | Behavior |
-|----------|------|-----|----------|
-| Display wallet balance | STANDARD | MAIN | View-only, persistent sessions |
-| Banking app | STRICT | MAIN | View-only, requires auth each time |
-| Gaming transactions | YOLO | GAMING | Full access, different address |
-| Trading bot | YOLO | TRADING | Full access, isolated address |
+| Scenario | Mode | Tag | Signing Method | Purpose |
+|----------|------|-----|----------------|---------|
+| Wallet authentication | STANDARD | MAIN | EIP191 | Standard message signing |
+| Web3 login (SIWE) | STANDARD | MAIN | SIWE | Sign-In with Ethereum |
+| Token permit (gasless) | STANDARD | MAIN | EIP712 | EIP-2612 permit signature |
+| DAO voting | STANDARD | MAIN | EIP712 | Off-chain voting signature |
+| NFT allowlist | STANDARD | MAIN | EIP712 | Whitelist verification |
+| Safe multisig transaction | YOLO | MAIN | rawHash | Pre-computed Safe EIP-712 hash |
+| Banking app | STRICT | MAIN | EIP191 | View-only, requires auth each time |
+| Gaming transactions | YOLO | GAMING | EIP191 | Full access, different address |
+| Trading bot | YOLO | TRADING | EIP191 | Full access, isolated address |
 
 ---
 
@@ -2225,7 +2342,7 @@ Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
 ```typescript
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi
+// => bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm
 ```
 
 ---
@@ -2252,7 +2369,7 @@ const hash = await getW3pkBuildHash('http://localhost:3000/dist')
 Verify if the current build matches an expected hash.
 
 ```typescript
-const trustedHash = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi'
+const trustedHash = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
 const isValid = await verifyBuildHash(trustedHash)
 
 if (isValid) {

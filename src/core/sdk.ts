@@ -39,7 +39,7 @@ import { SessionManager } from "./session";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import { DEFAULT_CONFIG } from "./config";
-import type { UserInfo, WalletInfo, SecurityMode } from "../types";
+import type { UserInfo, WalletInfo, SecurityMode, SigningMethod } from "../types";
 import { AuthenticationError, WalletError } from "./errors";
 import { getEndpoints } from "../chainlist";
 import { supportsEIP7702 } from "../eip7702";
@@ -724,6 +724,11 @@ export class Web3Passkey {
       tag?: string;
       requireAuth?: boolean;
       origin?: string;
+      signingMethod?: SigningMethod;
+      // EIP-712 specific options
+      eip712Domain?: Record<string, any>;
+      eip712Types?: Record<string, Array<{ name: string; type: string }>>;
+      eip712PrimaryType?: string;
     }
   ): Promise<{
     signature: string;
@@ -740,6 +745,7 @@ export class Web3Passkey {
       const effectiveMode = options?.mode || DEFAULT_MODE;
       const effectiveTag = options?.tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
+      const signingMethod = options?.signingMethod || 'EIP191';
 
       // Track security mode for session management
       this.currentSecurityMode = effectiveMode;
@@ -765,7 +771,71 @@ export class Web3Passkey {
         wallet = new Wallet(privateKey);
       }
 
-      const signature = await wallet.signMessage(message);
+      let signature: string;
+
+      // Handle different signing methods
+      switch (signingMethod) {
+        case 'EIP191':
+          // Default behavior - EIP-191 compliant message signing
+          signature = await wallet.signMessage(message);
+          break;
+
+        case 'SIWE':
+          // SIWE (Sign-In with Ethereum) - EIP-4361 compliant
+          // SIWE messages are signed with EIP-191 prefix (for EOA accounts)
+          // The message should already be a properly formatted SIWE message
+          signature = await wallet.signMessage(message);
+          break;
+
+        case 'EIP712':
+          // EIP-712 typed data signing
+          // Validate required options
+          if (!options?.eip712Domain || !options?.eip712Types || !options?.eip712PrimaryType) {
+            throw new WalletError("EIP712 signing requires eip712Domain, eip712Types, and eip712PrimaryType in options");
+          }
+
+          // Parse message as JSON if it's a string
+          let typedDataMessage: Record<string, any>;
+          try {
+            typedDataMessage = typeof message === 'string' ? JSON.parse(message) : message;
+          } catch (e) {
+            throw new WalletError("EIP712 message must be valid JSON or an object");
+          }
+
+          // Sign typed data
+          signature = await wallet.signTypedData(
+            options.eip712Domain,
+            options.eip712Types,
+            typedDataMessage
+          );
+          break;
+
+        case 'rawHash':
+          // Sign raw 32-byte hash without EIP-191 prefix
+          // Useful for signing pre-computed EIP-712 hashes (e.g., Safe transactions)
+          const { SigningKey } = await import("ethers");
+
+          // Validate that the message is a 32-byte hash
+          let hashToSign = message;
+          if (hashToSign.startsWith('0x')) {
+            hashToSign = hashToSign.slice(2);
+          }
+
+          if (hashToSign.length !== 64) {
+            throw new WalletError("rawHash signing method requires a 32-byte hash (64 hex characters)");
+          }
+
+          // Get the private key from the wallet
+          const signingKey = new SigningKey(wallet.privateKey);
+
+          // Sign the raw hash directly without EIP-191 prefix
+          const rawSignature = signingKey.sign('0x' + hashToSign);
+          signature = rawSignature.serialized;
+          break;
+
+        default:
+          throw new WalletError(`Unsupported signing method: ${signingMethod}`);
+      }
 
       return {
         signature,

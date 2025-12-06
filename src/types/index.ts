@@ -33,6 +33,31 @@ export interface UserInfo {
 export type SecurityMode = 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO';
 
 /**
+ * Signing methods for message signatures
+ *
+ * EIP191 (default):
+ * - Standard Ethereum signed message with prefix
+ * - Message prefixed with "\x19Ethereum Signed Message:\n<length>"
+ * - Suitable for general message signing
+ *
+ * SIWE:
+ * - Sign-In with Ethereum (EIP-4361) compliant
+ * - Message should be a properly formatted SIWE message
+ * - Signed with EIP-191 prefix (for EOA accounts)
+ *
+ * EIP712:
+ * - Sign structured typed data (EIP-712)
+ * - Automatically computes domain separator and struct hash
+ * - Requires domain, types, primaryType, and message in options
+ *
+ * rawHash:
+ * - Sign raw 32-byte hashes without EIP-191 prefix
+ * - Useful for pre-computed EIP-712 hashes or Safe transactions
+ * - Message must be a 32-byte hex string (with or without 0x prefix)
+ */
+export type SigningMethod = 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash';
+
+/**
  * Wallet information returned by SDK methods
  *
  * SECURITY GUARANTEES:

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7] - 2025-12-06
+
+### Added
+
+- **Multiple Signing Methods**: Support for EIP-191, SIWE (EIP-4361), EIP-712, and rawHash
+  - **EIP-191 (default)**: Standard Ethereum signed messages with prefix
+  - **SIWE (EIP-4361)**: Sign-In with Ethereum compliant Web3 authentication
+  - **EIP-712**: Structured typed data signing for permits, voting, meta-transactions
+  - **rawHash**: Sign raw 32-byte hashes for Safe multisig and custom schemes
+  - New `signingMethod` parameter in `signMessage()` options
+  - EIP-712 requires additional options: `eip712Domain`, `eip712Types`, `eip712PrimaryType`
+  - See [docs/API_REFERENCE.md](./docs/API_REFERENCE.md#signmessage) for details
+
+- **SIWE Utilities**: Complete toolkit for Sign-In with Ethereum integration
+  - `generateSiweNonce()`: Secure random nonce generation
+  - `createSiweMessage()`: EIP-4361 compliant message construction
+  - `parseSiweMessage()`: Parse SIWE messages into structured data
+  - `validateSiweMessage()`: Validate message structure, expiration, domain
+  - `verifySiweSignature()`: Verify EIP-191 signatures on SIWE messages
+  - Full TypeScript types with `SiweMessage` interface
+  - See [examples/siwe-login.ts](./examples/siwe-login.ts) for usage
+
+### Documentation
+
+- Updated [API Reference](./docs/API_REFERENCE.md) with comprehensive signing methods documentation
+- Updated [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md) with signing method best practices
+- Updated [README](./README.md) with signing methods feature list
+- Added signing method examples and use case matrix
+
+### Tests
+
+- Added comprehensive test suite for signing methods (`test/sign-message.test.ts`)
+  - EIP-191 signing and verification
+  - SIWE message format and verification
+  - EIP-712 typed data signing
+  - rawHash validation and signing
+  - Signature comparison tests
+- Added SIWE utilities test suite (`test/siwe.test.ts`)
+  - Nonce generation
+  - Message creation and parsing
+  - Validation (expiration, domain, chain ID)
+  - Signature verification
+  - Roundtrip consistency
+
 ## [0.8.6] - 2025-12-03
 
 ### Added
@@ -399,7 +443,8 @@ No breaking changes. All existing code continues to work. The fixes are internal
 
 ## Version History
 
-- **0.8.6** - EIP-7951 PRIMARY mode, exported utilities (current)
+- **0.8.7** - Multiple signing methods (EIP-191, SIWE, EIP-712, rawHash), SIWE utilities (current)
+- **0.8.6** - EIP-7951 PRIMARY mode, exported utilities
 - **0.8.2** - Persistent sessions ("Remember Me")
 - **0.8.1** - Fixed `getPackageVersion()` function
 - **0.8.0** - Major cleanup: removed ZIP backups, simplified backup/recovery, removed dangerous exports

@@ -135,14 +135,23 @@ See [Integration Guidelines](./INTEGRATION_GUIDELINES.md#check-for-existing-wall
 
 ## Message Signing with Mode Selection
 
-The `signMessage()` method now supports **mode and tag selection**, allowing developers to sign messages from specific derived addresses.
+The `signMessage()` method supports **multiple signing methods**, **mode and tag selection**, allowing developers to choose the appropriate signing approach for their use case.
+
+### Signing Methods
+
+w3pk supports four signing methods:
+
+1. **EIP-191 (default)**: Standard Ethereum signed messages
+2. **SIWE (EIP-4361)**: Sign-In with Ethereum (Web3 authentication)
+3. **EIP-712**: Structured typed data (permits, voting, meta-transactions)
+4. **rawHash**: Pre-computed 32-byte hashes (Safe multisig, custom schemes)
 
 ### Default Behavior
 
-By default, `signMessage()` uses **STANDARD mode + MAIN tag** (origin-centric):
+By default, `signMessage()` uses **STANDARD mode + MAIN tag + EIP-191** (origin-centric):
 
 ```typescript
-// Default: Sign with STANDARD + MAIN address
+// Default: Sign with STANDARD + MAIN address using EIP-191
 const result = await w3pk.signMessage("Hello World")
 
 console.log(result.signature)  // The signature
@@ -200,7 +209,33 @@ console.log(mainSig.address !== gamingSig.address)      // true
 console.log(gamingSig.address !== tradingSig.address)   // true
 ```
 
-### Security Best Practices
+### Choosing the Right Signing Method
+
+**Security implications of each method:**
+
+| Method | Use Case | Security Level | Verifiable By |
+|--------|----------|----------------|---------------|
+| EIP-191 | General signatures | Standard | `ethers.verifyMessage()` |
+| SIWE | Web3 authentication | High | `ethers.verifyMessage()` + message validation |
+| EIP-712 | Typed data (permits) | High | `TypedDataEncoder` + domain validation |
+| rawHash | Custom schemes | Advanced | `recoverAddress()` + custom validation |
+
+**When to use each method:**
+
+- **EIP-191**: Default choice for simple message signing
+- **SIWE**: Authentication flows, login, session management
+- **EIP-712**: Token permits, DAO voting, NFT minting, gasless transactions
+- **rawHash**: Safe multisig, pre-computed hashes, custom cryptographic schemes
+
+**Security best practices:**
+
+1. **Validate message content**: Always validate what the user is signing
+2. **Domain binding**: For EIP-712 and SIWE, ensure domain matches your application
+3. **Expiration times**: Use expiration for time-sensitive signatures
+4. **Nonce management**: Prevent replay attacks with unique nonces (especially SIWE)
+5. **Chain ID validation**: Always include and validate the correct chain ID
+
+### Security Best Practices for Modes
 
 **When to use each mode:**
 
@@ -1871,7 +1906,7 @@ Verify the integrity of the w3pk package before using it in production:
 import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 
 // On application startup
-const TRUSTED_HASH = 'bafybeiaehsrukvfhl5b4y2p75iz74ndgel3trjhvwbx5oihlcse5qbiudi' // From GitHub releases
+const TRUSTED_HASH = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm' // From GitHub releases
 
 async function verifyW3pkIntegrity() {
   try {

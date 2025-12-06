@@ -61,6 +61,18 @@ export {
   extractRS,
 } from "./utils/crypto";
 
+export {
+  generateSiweNonce,
+  createSiweMessage,
+  parseSiweMessage,
+  validateSiweMessage,
+  verifySiweSignature,
+} from "./siwe";
+
+export type {
+  SiweMessage,
+} from "./siwe";
+
 export type {
   BackupStatus,
   SecurityScore,
