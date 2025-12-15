@@ -138,13 +138,28 @@ const { blob, filename } = await sdk.createBackupFile('password', 'MySecurePassw
 // Downloads: w3pk-backup-0x1234abcd-2025-11-25.json
 ```
 
-**Restore on New Device:**
+**Restore on New Device (Two Options):**
+
+**Option 1: Register new passkey (recommended)**
 ```typescript
 const sdk = createWeb3Passkey();
 
 // Register new passkey with wallet from backup
 await sdk.registerWithBackupFile(backupFile, 'MySecurePassword123!', 'myusername');
-// Now logged in and ready to use
+// Now logged in with new passkey, credentials stored locally ✅
+```
+
+**Option 2: Restore to existing passkey**
+```typescript
+const sdk = createWeb3Passkey();
+await sdk.login(); // Login with existing passkey first
+
+// Restore and decrypt the backup
+const { mnemonic } = await sdk.restoreFromBackupFile(backupFile, 'MySecurePassword123!');
+
+// Import to current logged-in user
+await sdk.importMnemonic(mnemonic);
+// Credentials now stored locally under existing passkey ✅
 ```
 
 **Encryption**: Password → PBKDF2 (310k iterations) → AES-256-GCM
@@ -195,7 +210,7 @@ const sdk = createWeb3Passkey();
 await sdk.login(); // Passkey must be synced to this device
 
 await sdk.importFromSync(syncData);
-// Wallet now available on Device B
+// Wallet now available on Device B, credentials stored locally ✅
 ```
 
 **Encryption**: WebAuthn-derived key → AES-256-GCM
@@ -244,25 +259,53 @@ for (const share of guardianShares) {
 }
 ```
 
-**Recover Wallet:**
+**Recover Wallet (Two Options):**
+
+**Option 1: Recover and register new passkey (recommended for lost devices)**
 ```typescript
 const sdk = createWeb3Passkey();
 
-// Collect shares from 3+ guardians
+// Step 1: Collect shares from 3+ guardians
 const shares = [aliceShare, bobShare, charlieShare];
 
-// Combine shares and decrypt
+// Step 2: Combine shares and decrypt to get mnemonic and address
 const { mnemonic, ethereumAddress } = await sdk.recoverFromGuardians(
   shares,
-  'OptionalPassword' // if backup was password-protected
+  'OptionalPassword' // password used during setupSocialRecovery (if any)
 );
 
-// Register new passkey with recovered wallet
-await sdk.registerWithBackupFile(
-  JSON.stringify({ /* backup file reconstructed from shares */ }),
-  password,
-  username
+// Step 3: Create a new password-protected backup from recovered mnemonic
+const { BackupFileManager } = await import('w3pk/backup/backup-file');
+const manager = new BackupFileManager();
+const { backupFile } = await manager.createPasswordBackup(
+  mnemonic,
+  ethereumAddress,
+  'NewPassword123!' // Choose a new password
 );
+
+// Step 4: Register new passkey using the backup
+const backupData = JSON.stringify(backupFile);
+await sdk.registerWithBackupFile(backupData, 'NewPassword123!', 'username');
+// Now logged in with new passkey, credentials stored locally ✅
+```
+
+**Option 2: Recover and import to existing passkey**
+```typescript
+const sdk = createWeb3Passkey();
+
+// Step 1: Login with existing WebAuthn credential
+await sdk.login();
+
+// Step 2: Collect shares and recover mnemonic
+const shares = [aliceShare, bobShare, charlieShare];
+const { mnemonic } = await sdk.recoverFromGuardians(
+  shares,
+  'OptionalPassword'
+);
+
+// Step 3: Import mnemonic to current logged-in user
+await sdk.importMnemonic(mnemonic);
+// Credentials stored locally under current passkey ✅
 ```
 
 **Encryption**:
@@ -381,22 +424,22 @@ const { blob, filename } = await w3pk.createBackupFile('hybrid', password);
 ### Restore from Backup
 
 ```typescript
-// With existing passkey
+// Option 1: Register new passkey (creates and stores credentials)
+await w3pk.registerWithBackupFile(backupData, password, username);
+
+// Option 2: Import to existing passkey (stores credentials under current user)
 await w3pk.login();
 const { mnemonic } = await w3pk.restoreFromBackupFile(backupData, password);
 await w3pk.importMnemonic(mnemonic);
-
-// Register new passkey
-await w3pk.registerWithBackupFile(backupData, password, username);
 ```
 
 ### Cross-Device Sync
 
 ```typescript
-// Export for sync
+// Export for sync (Device A)
 const { blob, qrCode } = await w3pk.exportForSync();
 
-// Import on another device
+// Import on another device (Device B - stores credentials locally)
 await w3pk.login(); // Must have passkey synced
 await w3pk.importFromSync(backupData);
 ```
@@ -405,13 +448,23 @@ await w3pk.importFromSync(backupData);
 
 ```typescript
 // Setup
-const { guardianShares } = await w3pk.setupSocialRecovery(guardians, threshold);
+const { guardianShares } = await w3pk.setupSocialRecovery(guardians, threshold, password);
 
 // Generate invitations
 const invitation = await w3pk.generateGuardianInvite(guardianShare);
 
-// Recover
-const { mnemonic } = await w3pk.recoverFromGuardians(shares, password);
+// Recover (returns mnemonic - then register or import)
+const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares, password);
+
+// Option 1: Register new passkey (stores credentials)
+const { BackupFileManager } = await import('w3pk/backup/backup-file');
+const manager = new BackupFileManager();
+const { backupFile } = await manager.createPasswordBackup(mnemonic, ethereumAddress, 'newpass');
+await w3pk.registerWithBackupFile(JSON.stringify(backupFile), 'newpass', 'username');
+
+// Option 2: Import to existing passkey (stores credentials)
+await w3pk.login();
+await w3pk.importMnemonic(mnemonic);
 ```
 
 ---
@@ -608,9 +661,13 @@ Platform-specific:
 5. After 3 shares collected:
    - System reconstructs backup file
    - Enter password if used during setup
-   - Wallet restored ✅
+   - System extracts mnemonic
+6. Choose recovery path:
+   - "Register New Passkey" → Creates new WebAuthn credential, stores locally ✅
+   - "Login & Import" → Login with existing passkey, import mnemonic ✅
 
 Timeline: ~24-48 hours (depends on guardian availability)
+Note: Either path stores credentials locally after recovery
 ```
 
 #### **Method 4: Manual Mnemonic Import**
