@@ -293,10 +293,10 @@ export class Web3Passkey {
         this.currentUser.ethereumAddress
       );
 
+      // If no wallet data exists, user is logged in but needs to restore from backup
       if (!walletData) {
-        throw new WalletError(
-          "No wallet found for this user. You may need to register first."
-        );
+        this.config.onAuthStateChanged?.(true, this.currentUser);
+        return this.currentUser;
       }
 
       const storage = new (await import("../auth/storage")).CredentialStorage();
@@ -1331,12 +1331,17 @@ export class Web3Passkey {
 
     const backupFile = await manager.parseBackupFile(backupData);
 
+    let mnemonic: string;
+    let ethereumAddress: string;
+
     // Determine which restore method to use based on encryption type
     if (backupFile.encryptionMethod === 'password') {
       if (!password) {
         throw new WalletError("Password required to restore password-encrypted backup");
       }
-      return manager.restoreWithPassword(backupFile, password);
+      const result = await manager.restoreWithPassword(backupFile, password);
+      mnemonic = result.mnemonic;
+      ethereumAddress = result.ethereumAddress;
     } else if (backupFile.encryptionMethod === 'passkey') {
       // Need to authenticate with passkey first
       if (!this.currentUser) {
@@ -1345,24 +1350,24 @@ export class Web3Passkey {
         );
       }
 
-      const walletData = await this.walletStorage.retrieve(
-        this.currentUser.ethereumAddress
-      );
-      if (!walletData) {
-        throw new WalletError("No wallet data found for current user");
-      }
-
+      // Get credential from storage (not from walletData which may not exist)
       const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credential = await storage.getCredentialById(walletData.credentialId);
+      const credentials = await storage.getAllCredentials();
+      const credential = credentials.find(c =>
+        c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
+      );
+
       if (!credential) {
-        throw new WalletError("Credential not found");
+        throw new WalletError("Credential not found for current user");
       }
 
-      return manager.restoreWithExistingPasskey(
+      const result = await manager.restoreWithExistingPasskey(
         backupFile,
         credential.id,
         credential.publicKey
       );
+      mnemonic = result.mnemonic;
+      ethereumAddress = result.ethereumAddress;
     } else if (backupFile.encryptionMethod === 'hybrid') {
       if (!password) {
         throw new WalletError("Password required to restore hybrid backup");
@@ -1374,28 +1379,69 @@ export class Web3Passkey {
         );
       }
 
-      const walletData = await this.walletStorage.retrieve(
-        this.currentUser.ethereumAddress
-      );
-      if (!walletData) {
-        throw new WalletError("No wallet data found for current user");
-      }
-
+      // Get credential from storage (not from walletData which may not exist)
       const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credential = await storage.getCredentialById(walletData.credentialId);
+      const credentials = await storage.getAllCredentials();
+      const credential = credentials.find(c =>
+        c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
+      );
+
       if (!credential) {
-        throw new WalletError("Credential not found");
+        throw new WalletError("Credential not found for current user");
       }
 
-      return manager.restoreWithHybrid(
+      const result = await manager.restoreWithHybrid(
         backupFile,
         password,
         credential.id,
         credential.publicKey
       );
+      mnemonic = result.mnemonic;
+      ethereumAddress = result.ethereumAddress;
     } else {
       throw new WalletError(`Unknown encryption method: ${backupFile.encryptionMethod}`);
     }
+
+    // Persist the restored wallet to storage if user is logged in
+    if (this.currentUser) {
+      // Get credential for encryption
+      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const credentials = await storage.getAllCredentials();
+      const credential = credentials.find(c =>
+        c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
+      );
+
+      if (credential) {
+        // Encrypt and store the wallet data
+        const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyFromWebAuthn(
+          credential.id,
+          credential.publicKey
+        );
+
+        const encryptedMnemonic = await (await import("../wallet/crypto")).encryptData(
+          mnemonic,
+          encryptionKey
+        );
+
+        await this.walletStorage.store({
+          ethereumAddress,
+          encryptedMnemonic,
+          credentialId: credential.id,
+          createdAt: new Date().toISOString(),
+        });
+
+        // Start a new session with the restored wallet
+        await this.sessionManager.startSession(
+          mnemonic,
+          credential.id,
+          ethereumAddress,
+          credential.publicKey,
+          'STANDARD' // Default security mode
+        );
+      }
+    }
+
+    return { mnemonic, ethereumAddress };
   }
 
   /**
