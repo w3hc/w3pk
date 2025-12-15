@@ -417,6 +417,8 @@ Visit: https://docs.w3pk.org/social-recovery
 
   /**
    * Mark guardian as verified
+   * Note: This updates guardian status but does NOT automatically refresh security score.
+   * The security score will be updated on the next call to BackupManager.getBackupStatus()
    */
   markGuardianVerified(guardianId: string): void {
     const config = this.getSocialRecoveryConfig();
@@ -433,6 +435,9 @@ Visit: https://docs.w3pk.org/social-recovery
     guardian.lastVerified = new Date().toISOString();
 
     this.setItem(this.storageKey, JSON.stringify(config));
+
+    // Note: Security score will be automatically updated on next getBackupStatus() call
+    // as it reads from this storage
   }
 
   /**

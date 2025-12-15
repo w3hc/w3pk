@@ -1124,19 +1124,23 @@ export class Web3Passkey {
     const mnemonic = await this.getMnemonicFromSession(true);
 
     const { BackupFileManager } = await import("../backup/backup-file");
+    const { BackupStorage } = await import("../backup/storage");
     const manager = new BackupFileManager();
+    const storage = new BackupStorage();
 
     let result;
+    let backupFile;
 
     if (encryptionType === 'password') {
       if (!password) {
         throw new WalletError("Password required for password-based backup");
       }
-      const { backupFile } = await manager.createPasswordBackup(
+      const created = await manager.createPasswordBackup(
         mnemonic,
         this.currentUser.ethereumAddress,
         password
       );
+      backupFile = created.backupFile;
       result = manager.createDownloadableBackup(backupFile);
     } else if (encryptionType === 'passkey') {
       // Get current credential info
@@ -1147,18 +1151,19 @@ export class Web3Passkey {
         throw new WalletError("No wallet data found");
       }
 
-      const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credential = await storage.getCredentialById(walletData.credentialId);
+      const credStorage = new (await import("../auth/storage")).CredentialStorage();
+      const credential = await credStorage.getCredentialById(walletData.credentialId);
       if (!credential) {
         throw new WalletError("Credential not found");
       }
 
-      const { backupFile } = await manager.createPasskeyBackup(
+      const created = await manager.createPasskeyBackup(
         mnemonic,
         this.currentUser.ethereumAddress,
         credential.id,
         credential.publicKey
       );
+      backupFile = created.backupFile;
       result = manager.createDownloadableBackup(backupFile);
     } else if (encryptionType === 'hybrid') {
       if (!password) {
@@ -1172,23 +1177,33 @@ export class Web3Passkey {
         throw new WalletError("No wallet data found");
       }
 
-      const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credential = await storage.getCredentialById(walletData.credentialId);
+      const credStorage = new (await import("../auth/storage")).CredentialStorage();
+      const credential = await credStorage.getCredentialById(walletData.credentialId);
       if (!credential) {
         throw new WalletError("Credential not found");
       }
 
-      const { backupFile } = await manager.createHybridBackup(
+      const created = await manager.createHybridBackup(
         mnemonic,
         this.currentUser.ethereumAddress,
         password,
         credential.id,
         credential.publicKey
       );
+      backupFile = created.backupFile;
       result = manager.createDownloadableBackup(backupFile);
     } else {
       throw new WalletError(`Unknown encryption type: ${encryptionType}`);
     }
+
+    // Store backup metadata for security score tracking
+    await storage.storeBackupMetadata({
+      id: crypto.randomUUID(),
+      ethereumAddress: this.currentUser.ethereumAddress,
+      method: 'file',
+      createdAt: new Date().toISOString(),
+      addressChecksum: backupFile.addressChecksum,
+    });
 
     return result;
   }
@@ -1289,9 +1304,11 @@ export class Web3Passkey {
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { SocialRecovery } = await import("../recovery/backup-based-recovery");
     const { BackupFileManager } = await import("../backup/backup-file");
+    const { BackupManager } = await import("../backup");
 
     const recovery = new SocialRecovery();
-    const backupManager = new BackupFileManager();
+    const backupFileManager = new BackupFileManager();
+    const backupManager = new BackupManager();
 
     // Parse shares if they're strings
     const parsedShares = shares.map(share =>
@@ -1302,16 +1319,22 @@ export class Web3Passkey {
     const backupFile = await recovery.recoverFromShares(parsedShares);
 
     // Decrypt backup file
+    let result;
     if (backupFile.encryptionMethod === 'password') {
       if (!password) {
         throw new WalletError('Password required to decrypt password-protected backup');
       }
-      return backupManager.restoreWithPassword(backupFile, password);
+      result = await backupFileManager.restoreWithPassword(backupFile, password);
     } else {
       throw new WalletError(
         'Passkey-encrypted backups not supported for guardian recovery. Use password-protected backups.'
       );
     }
+
+    // Mark backup as verified (successful guardian recovery proves the backup works)
+    backupManager.markBackupVerified(result.ethereumAddress);
+
+    return result;
   }
 
   /**
@@ -1327,7 +1350,9 @@ export class Web3Passkey {
     password?: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { BackupFileManager } = await import("../backup/backup-file");
+    const { BackupManager } = await import("../backup");
     const manager = new BackupFileManager();
+    const backupManager = new BackupManager();
 
     const backupFile = await manager.parseBackupFile(backupData);
 
@@ -1402,6 +1427,9 @@ export class Web3Passkey {
       throw new WalletError(`Unknown encryption method: ${backupFile.encryptionMethod}`);
     }
 
+    // Mark backup as verified (successful restore proves the backup works)
+    backupManager.markBackupVerified(ethereumAddress);
+
     // Persist the restored wallet to storage if user is logged in
     if (this.currentUser) {
       // Get credential for encryption
@@ -1460,7 +1488,9 @@ export class Web3Passkey {
     username: string
   ): Promise<{ address: string; username: string }> {
     const { BackupFileManager } = await import("../backup/backup-file");
+    const { BackupManager } = await import("../backup");
     const manager = new BackupFileManager();
+    const backupManager = new BackupManager();
 
     // Parse and restore the backup
     const backupFile = await manager.parseBackupFile(backupData);
@@ -1483,6 +1513,9 @@ export class Web3Passkey {
     if (wallet.address.toLowerCase() !== ethereumAddress.toLowerCase()) {
       throw new WalletError("Backup verification failed: address mismatch");
     }
+
+    // Mark backup as verified (successful restore proves the backup works)
+    backupManager.markBackupVerified(ethereumAddress);
 
     // Set the current wallet
     this.currentWallet = {
@@ -1567,9 +1600,11 @@ export class Web3Passkey {
 
     const { DeviceSyncManager } = await import("../sync/backup-sync");
     const { BackupFileManager } = await import("../backup/backup-file");
+    const { BackupManager } = await import("../backup");
 
     const fileManager = new BackupFileManager();
     const syncManager = new DeviceSyncManager();
+    const backupManager = new BackupManager();
 
     const backupFile = await fileManager.parseBackupFile(syncData);
 
@@ -1593,6 +1628,9 @@ export class Web3Passkey {
       credential.id,
       credential.publicKey
     );
+
+    // Mark backup as verified (successful sync proves the backup works)
+    backupManager.markBackupVerified(ethereumAddress);
 
     // Store the wallet with current credential
     const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyFromWebAuthn(

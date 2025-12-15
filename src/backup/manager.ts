@@ -11,17 +11,22 @@ import type {
   SimulationResult,
   BackupMetadata,
   EncryptedBackupInfo,
+  SocialRecoveryStatus,
 } from './types';
 import { BackupStorage } from './storage';
 import { QRBackupCreator } from './qr-backup';
+import { SocialRecoveryManager } from '../recovery/social';
 
 export class BackupManager {
   private storage: BackupStorage;
   private qrCreator: QRBackupCreator;
+  private socialRecoveryManager: SocialRecoveryManager;
+  private verificationStorageKey = 'w3pk_backup_verifications';
 
   constructor() {
     this.storage = new BackupStorage();
     this.qrCreator = new QRBackupCreator();
+    this.socialRecoveryManager = new SocialRecoveryManager();
   }
 
   /**
@@ -44,15 +49,27 @@ export class BackupManager {
       deviceFingerprint: backup.deviceFingerprint,
     }));
 
+    // Get social recovery status
+    const socialRecoveryStatus = this.getSocialRecoveryStatus();
+
+    // Get verification status
+    const verificationStatus = this.getVerificationStatus(ethereumAddress);
+
     // Build status
     const status: BackupStatus = {
       passkeySync,
       recoveryPhrase: {
-        verified: false, // Can be enhanced with verification system
-        verificationCount: 0,
+        verified: verificationStatus.verified,
+        verificationCount: verificationStatus.count,
         encryptedBackups,
       },
-      securityScore: this.calculateSecurityScore(passkeySync, encryptedBackups),
+      socialRecovery: socialRecoveryStatus,
+      securityScore: this.calculateSecurityScore(
+        passkeySync,
+        encryptedBackups,
+        socialRecoveryStatus,
+        verificationStatus
+      ),
     };
 
     return status;
@@ -117,18 +134,118 @@ export class BackupManager {
   }
 
   /**
+   * Get social recovery status from SocialRecoveryManager
+   */
+  private getSocialRecoveryStatus(): SocialRecoveryStatus | undefined {
+    const config = this.socialRecoveryManager.getSocialRecoveryConfig();
+    if (!config) {
+      return undefined;
+    }
+
+    const verifiedGuardians = config.guardians.filter((g) => g.status === 'active').length;
+
+    return {
+      enabled: true,
+      guardians: config.guardians,
+      threshold: config.threshold,
+      sharesDistributed: config.guardians.length,
+      verifiedGuardians,
+    };
+  }
+
+  /**
+   * Get verification status from storage
+   */
+  private getVerificationStatus(ethereumAddress: string): {
+    verified: boolean;
+    count: number;
+  } {
+    try {
+      const stored =
+        typeof localStorage !== 'undefined'
+          ? localStorage.getItem(this.verificationStorageKey)
+          : null;
+
+      if (!stored) {
+        return { verified: false, count: 0 };
+      }
+
+      const verifications = JSON.parse(stored);
+      const addressVerifications = verifications[ethereumAddress.toLowerCase()] || {
+        verified: false,
+        count: 0,
+      };
+
+      return addressVerifications;
+    } catch {
+      return { verified: false, count: 0 };
+    }
+  }
+
+  /**
+   * Mark backup as verified (called after successful restore)
+   */
+  markBackupVerified(ethereumAddress: string): void {
+    try {
+      const stored =
+        typeof localStorage !== 'undefined'
+          ? localStorage.getItem(this.verificationStorageKey)
+          : null;
+
+      const verifications = stored ? JSON.parse(stored) : {};
+      const addressKey = ethereumAddress.toLowerCase();
+
+      if (!verifications[addressKey]) {
+        verifications[addressKey] = { verified: false, count: 0 };
+      }
+
+      verifications[addressKey].verified = true;
+      verifications[addressKey].count += 1;
+      verifications[addressKey].lastVerifiedAt = new Date().toISOString();
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(this.verificationStorageKey, JSON.stringify(verifications));
+      }
+    } catch (error) {
+      console.error('Failed to mark backup as verified:', error);
+    }
+  }
+
+  /**
    * Calculate security score
    */
   private calculateSecurityScore(
     passkeySync: any,
-    encryptedBackups: EncryptedBackupInfo[]
+    encryptedBackups: EncryptedBackupInfo[],
+    socialRecoveryStatus?: SocialRecoveryStatus,
+    verificationStatus?: { verified: boolean; count: number }
   ): SecurityScore {
+    // Calculate social recovery score
+    let socialRecoveryScore = 0;
+    if (socialRecoveryStatus?.enabled) {
+      // Base score for having social recovery setup
+      socialRecoveryScore = 20;
+
+      // Bonus for verified guardians
+      if (socialRecoveryStatus.verifiedGuardians >= socialRecoveryStatus.threshold) {
+        socialRecoveryScore += 10; // +10 if enough guardians are verified
+      }
+    }
+
+    // Calculate verification score
+    let verificationScore = 0;
+    if (verificationStatus?.verified) {
+      verificationScore = 10; // 10 points for verifying backup
+      // Bonus for multiple verifications (up to 10 more points)
+      verificationScore += Math.min(verificationStatus.count - 1, 10);
+    }
+
     const breakdown = {
       passkeyActive: passkeySync.enabled ? 20 : 0,
       passkeyMultiDevice: passkeySync.deviceCount > 1 ? 10 : 0,
-      phraseVerified: 0, // Can be enhanced with verification
+      phraseVerified: verificationScore,
       encryptedBackup: encryptedBackups.length > 0 ? 20 : 0,
-      socialRecovery: 0, // Will be added in Phase 4
+      socialRecovery: socialRecoveryScore,
     };
 
     const total = Object.values(breakdown).reduce((sum, val) => sum + val, 0);
@@ -147,7 +264,7 @@ export class BackupManager {
       nextMilestone = 'Enable all methods to reach "fort-knox" (100 pts)';
     } else {
       level = 'fort-knox';
-      nextMilestone = 'Maximum security achieved! 🏆';
+      nextMilestone = 'Maximum security achieved!';
     }
 
     return {
