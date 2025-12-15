@@ -7,7 +7,7 @@ import { createWalletFromMnemonic } from "./generate";
 import { deriveEncryptionKey, decryptData } from "./crypto";
 import type { IndexedDBWalletStorage } from "./storage";
 import type { EIP7702Authorization, SignAuthorizationParams } from "./types";
-import { keccak256, concat, toBeHex, Signature } from "ethers";
+import { keccak256, concat, toBeHex, Signature, encodeRlp } from "ethers";
 
 export class WalletSigner {
   constructor(private storage: IndexedDBWalletStorage) {}
@@ -98,13 +98,18 @@ export class WalletSigner {
 
       // Construct EIP-7702 authorization message
       // Format: 0x05 || rlp([chain_id, address, nonce])
-      // For signing, we create the hash of this structure
-      const authorizationMessage = concat([
-        "0x05", // EIP-7702 magic byte
-        toBeHex(chainId, 32),
+      // Following EIP-7702 spec: use RLP encoding
+      const authTuple = [
+        chainId === 0n ? "0x" : toBeHex(chainId),
         params.contractAddress.toLowerCase(),
-        toBeHex(nonce, 32)
-      ]);
+        nonce === 0n ? "0x" : toBeHex(nonce),
+      ];
+
+      // RLP encode the authorization tuple
+      const rlpEncoded = encodeRlp(authTuple);
+
+      // Concatenate magic byte with RLP encoded data
+      const authorizationMessage = concat(["0x05", rlpEncoded]);
 
       // Hash the authorization message
       const messageHash = keccak256(authorizationMessage);
