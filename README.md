@@ -6,8 +6,7 @@
 
 Passwordless Web3 authentication SDK with encrypted wallets and privacy features.
 
-- **Live demo: [w3pk.w3hc.org](https://w3pk.w3hc.org)**
-- [Quick start](./docs/QUICK_START.md)
+**Live demo:** [w3pk.w3hc.org](https://w3pk.w3hc.org)
 
 ## Install
 ```bash
@@ -20,16 +19,93 @@ import { createWeb3Passkey } from 'w3pk'
 
 const w3pk = createWeb3Passkey()
 
-// Register (auto-generates wallet and stores it securely)
+// Register new user (generates wallet, stores with WebAuthn)
 const { address, username } = await w3pk.register({ username: 'alice' })
-console.log('✅ Registered:', username, 'with address:', address)
 
-// Login (for subsequent sessions)
+// Login for subsequent sessions
 await w3pk.login()
 
-// Sign messages (multiple methods supported)
-const signature = await w3pk.signMessage('Hello World') // EIP-191 (default)
-const siweSignature = await w3pk.signMessage(siweMessage, { signingMethod: 'SIWE' }) // SIWE/EIP-4361
+// Sign messages (EIP-191, SIWE, EIP-712, rawHash)
+const signature = await w3pk.signMessage('Hello World')
+
+// Derive wallets (STANDARD/STRICT/YOLO modes)
+const wallet = await w3pk.deriveWallet('STANDARD', 'GAMING')
+
+// Get RPC endpoints
+const endpoints = await w3pk.getEndpoints(1)
+```
+
+## Features
+
+- Passwordless authentication (WebAuthn/FIDO2)
+- Origin-specific key isolation with tag-based access control
+- Session management (in-memory + optional persistent)
+- HD wallet generation (BIP39/BIP44)
+- Multi-address derivation with security modes (STANDARD/STRICT/YOLO)
+- Multiple signing methods (EIP-191, SIWE/EIP-4361, EIP-712, rawHash)
+- ERC-5564 stealth addresses (opt-in)
+- ZK primitives (zero-knowledge proof generation and verification)
+- Chainlist support (2390+ networks)
+- EIP-7702 network detection (329+ networks)
+- EIP-7951 PRIMARY mode (P-256 passkey signing)
+- Build verification (IPFS CIDv1 hashing)
+- Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
+
+## API
+
+### Authentication
+
+```typescript
+// Check for existing wallet
+const hasWallet = await w3pk.hasExistingCredential()
+
+// Register or login
+if (hasWallet) {
+  await w3pk.login()
+} else {
+  const { address, username } = await w3pk.register({ username: 'alice' })
+}
+
+// List all wallets on device
+const wallets = await w3pk.listExistingCredentials()
+
+// Logout
+await w3pk.logout()
+```
+
+### Wallet Derivation
+
+```typescript
+// STANDARD mode - address only (no private key)
+const mainWallet = await w3pk.deriveWallet('STANDARD')
+// Returns: { address, index, origin, tag: 'MAIN' }
+
+// YOLO mode - includes private key for app-specific use
+const gamingWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
+// Returns: { address, privateKey, index, origin, tag: 'GAMING' }
+
+// STRICT mode - address only, no persistent sessions allowed
+const strictWallet = await w3pk.deriveWallet('STRICT', 'SECURE')
+
+// Different tags generate different addresses
+console.log(mainWallet.address !== gamingWallet.address) // true
+```
+
+**Security:** Master mnemonic is never exposed. Applications cannot access `exportMnemonic()`.
+
+### Message Signing
+
+```typescript
+// EIP-191 (default)
+const sig = await w3pk.signMessage('Hello World')
+
+// SIWE (Sign-In with Ethereum)
+const siweMessage = createSiweMessage({ ... })
+const siweSig = await w3pk.signMessage(siweMessage, {
+  signingMethod: 'SIWE'
+})
+
+// EIP-712 (typed data)
 const eip712Sig = await w3pk.signMessage(JSON.stringify(typedData), {
   signingMethod: 'EIP712',
   eip712Domain,
@@ -37,232 +113,97 @@ const eip712Sig = await w3pk.signMessage(JSON.stringify(typedData), {
   eip712PrimaryType: 'Transfer'
 })
 
-// Derive addresses (2 modes)
-const gamingWallet = await w3pk.deriveWallet('GAMING') // By tag - includes privateKey
-const mainWallet = await w3pk.deriveWallet() // Auto (MAIN tag) - public address only, no privateKey
+// Raw hash
+const rawSig = await w3pk.signMessage(hash, {
+  signingMethod: 'rawHash'
+})
 
-// Get RPC endpoints for any chain
-const endpoints = await w3pk.getEndpoints(1) // Ethereum
-const rpcUrl = endpoints[0]
-```
-
-## Features
-
-- 🔐 Passwordless authentication (WebAuthn/FIDO2)
-- 🛡️ Origin-specific key isolation with tag-based access control
-- ⏱️ Session management (in-memory + optional persistent "Remember Me")
-- 🔒 Persistent sessions (encrypted with WebAuthn keys, survives page refresh)
-- 🌱 HD wallet generation (BIP39/BIP44)
-- 🔢 Multi-address derivation
-- 🌐 Origin-specific addresses (deterministic derivation per website with tag support)
-- ✍️ Multiple signing methods (EIP-191, SIWE/EIP-4361, EIP-712, rawHash)
-  - EIP-191: Standard Ethereum signed messages
-  - SIWE: Sign-In with Ethereum (Web3 authentication)
-  - EIP-712: Structured typed data (permits, voting, etc.)
-  - rawHash: Pre-computed hashes (Safe multisig, custom schemes)
-- 🥷 ERC-5564 stealth addresses (opt-in, privacy-preserving transactions with view tags)
-- 🧮 ZK primitives (zero-knowledge proof generation and verification)
-- 🔗 Chainlist support (2390+ networks, auto-filtered RPC endpoints)
-- ⚡ EIP-7702 network detection (329+ supported networks)
-- 🔑 EIP-7951 PRIMARY mode (sign with P-256 passkeys directly)
-- 🔍 Build verification (IPFS CIDv1 hashing for package integrity)
-- 🛡️ Three-layer backup & recovery system
-  - Passkey auto-sync (iCloud/Google/Microsoft)
-  - Encrypted backups (QR codes and backup files with password protection)
-  - Social recovery (Shamir Secret Sharing)
-
-## API
-
-### Authentication Flow
-
-```typescript
-// Check for existing wallet first (recommended)
-const hasWallet = await w3pk.hasExistingCredential()
-if (hasWallet) {
-  // Login to existing wallet
-  await w3pk.login()
-} else {
-  // Register new wallet (generates and stores wallet securely)
-  const { address, username } = await w3pk.register({ username: 'alice' })
-}
-
-// Advanced: List all wallets on device
-const wallets = await w3pk.listExistingCredentials()
-wallets.forEach(w => console.log(w.username, w.ethereumAddress))
-
-// Logout
-await w3pk.logout()
-
-// Status
-w3pk.isAuthenticated
-w3pk.user
-```
-
-**Important: Backup your wallet!**
-```typescript
-
-// Create encrypted backups:
-const zipBackup = await w3pk.createZipBackup('strong-password')
-const qrBackup = await w3pk.createQRBackup('optional-password')
-```
-
-### Wallet Operations
-
-**SECURITY MODEL**: `deriveWallet()` supports two secure modes:
-
-```typescript
-// 1. MAIN tag (default) - ADDRESS ONLY, NO PRIVATE KEY
-const mainWallet = await w3pk.deriveWallet()
-// Returns: { address, index, origin, tag: 'MAIN' }
-// ✅ Safe for display
-// ❌ No privateKey exposed
-
-// 2. Custom tag - INCLUDES PRIVATE KEY for app-specific use
-const gamingWallet = await w3pk.deriveWallet('GAMING')
-const funWallet = await w3pk.deriveWallet('FUN')
-const basicWallet = await w3pk.deriveWallet('BASIC')
-// Returns: { address, privateKey, index, origin, tag }
-
-// Different tags = different addresses
-console.log(mainWallet.address !== gamingWallet.address) // true
-console.log(gamingWallet.address !== tradingWallet.address) // true
-
-// SECURITY: Applications CANNOT access master mnemonic
-// await w3pk.exportMnemonic() // ❌ Throws error
-
-// Sign message (works with any address - no key exposure needed)
-const signature = await w3pk.signMessage('Hello World')
+// Force authentication for sensitive operations
+const sensitiveSig = await w3pk.signMessage('Transfer $1000', {
+  requireAuth: true
+})
 ```
 
 ### Session Management
 
-By default, after authentication, operations work for 1 hour without repeated biometric prompts.
-
-#### In-Memory Sessions (default)
-
 ```typescript
-// Configure in-memory session duration
+// In-memory sessions (default, 1 hour)
 const w3pk = createWeb3Passkey({
-  sessionDuration: 2 // 2 hours (default: 1, cleared on page refresh)
+  sessionDuration: 2 // 2 hours
 })
 
-// After login, mnemonic is cached in memory
-await w3pk.login()
-
-// These operations use the cached session
-await w3pk.deriveWallet('GAMING')
-await w3pk.signMessage('Hello')
-
-// Session cleared on page refresh
-```
-
-#### Persistent Sessions ("Remember Me")
-
-```typescript
-// Enable persistent sessions (survives page refresh)
-const w3pk = createWeb3Passkey({
-  sessionDuration: 1,        // In-memory session (1 hour)
+// Persistent sessions (survives page refresh)
+const w3pkPersistent = createWeb3Passkey({
+  sessionDuration: 1,
   persistentSession: {
-    enabled: true,           // Enable "Remember Me"
-    duration: 168,           // 7 days (in hours)
-    requireReauth: true      // Prompt on page refresh (secure)
+    enabled: true,
+    duration: 168,        // 7 days (in hours)
+    requireReauth: true   // Prompt on refresh
   }
 })
 
-// Auto-restore mode (no prompt on refresh)
+// Auto-restore mode (silent restore)
 const w3pkAutoRestore = createWeb3Passkey({
   persistentSession: {
     enabled: true,
-    duration: 30 * 24,       // 30 days
-    requireReauth: false     // Silent restore
+    duration: 30 * 24,
+    requireReauth: false
   }
 })
 
-// Check session status
-w3pk.hasActiveSession() // true
-w3pk.getSessionRemainingTime() // seconds remaining
-
-// Extend session
+// Session status
+w3pk.hasActiveSession()
+w3pk.getSessionRemainingTime()
 w3pk.extendSession()
-
-// Clear session (clears both RAM and persistent)
 await w3pk.clearSession()
-
-// Disable sessions (most secure - prompt every time)
-const w3pkNoSessions = createWeb3Passkey({
-  sessionDuration: 0,
-  persistentSession: { enabled: false }
-})
 ```
 
-**Security Modes & Persistence:**
-- STANDARD mode: Persistent sessions ✅ allowed
-- YOLO mode: Persistent sessions ✅ allowed
-- STRICT mode: Persistent sessions ❌ NEVER allowed
-
-#### Force Authentication for Sensitive Operations
-
-Even with an active session, you can require fresh biometric authentication for specific operations:
-
-```typescript
-// Session is active, but force authentication anyway
-await w3pk.exportMnemonic({ requireAuth: true })
-await w3pk.signMessage('Transfer $1000', { requireAuth: true })
-await w3pk.deriveWallet(5, { requireAuth: true })
-await w3pk.stealth.getKeys({ requireAuth: true })
-
-// Example: Require auth for high-value transactions
-async function transferFunds(amount: number, recipient: string) {
-  // For transfers above $100, require fresh authentication
-  const requireAuth = amount > 100
-
-  const signature = await w3pk.signMessage(
-    `Transfer ${amount} to ${recipient}`,
-    { requireAuth }
-  )
-
-  // ... submit transaction
-}
-```
+**Note:** STRICT mode never allows persistent sessions.
 
 ### RPC Endpoints
-```typescript
-// Get public RPC endpoints
-const endpoints = await w3pk.getEndpoints(1) // Ethereum
-const rpcUrl = endpoints[0]
 
-// Other chains
-await w3pk.getEndpoints(10)    // Optimism
-await w3pk.getEndpoints(42161) // Arbitrum
-await w3pk.getEndpoints(8453)  // Base
+```typescript
+// Get public RPC endpoints for any chain
+const endpoints = await w3pk.getEndpoints(1)      // Ethereum
+const optimismRpc = await w3pk.getEndpoints(10)   // Optimism
+const arbitrumRpc = await w3pk.getEndpoints(42161) // Arbitrum
 
 // Use with ethers.js
 import { ethers } from 'ethers'
-
-const endpoints = await w3pk.getEndpoints(137)
 const provider = new ethers.JsonRpcProvider(endpoints[0])
 const blockNumber = await provider.getBlockNumber()
 ```
 
 ### EIP-7702 Support
+
 ```typescript
 // Check network support
-const supported = await w3pk.supportsEIP7702(1) // true
+const supported = await w3pk.supportsEIP7702(1)
 
 // Configure RPC testing
 await w3pk.supportsEIP7702(999, {
   maxEndpoints: 5,
   timeout: 5000
 })
+
+// Sign authorization for gasless transactions
+const authorization = await w3pk.signAuthorization({
+  contractAddress: '0x...',
+  chainId: 1,
+  nonce: 0n
+})
+// Returns: { chainId, address, nonce, yParity, r, s }
 ```
 
 ### EIP-7951 PRIMARY Mode
+
 ```typescript
-// Get PRIMARY address (derived from P-256 passkey)
+// Get PRIMARY address (P-256 passkey-derived)
 const primaryAddr = await w3pk.getAddress('PRIMARY')
 
-// Sign message directly with P-256 passkey (no private key)
+// Sign with P-256 passkey directly (no private key)
 const result = await w3pk.signMessageWithPasskey("Hello World")
+// Returns: { signature: { r, s }, messageHash, signedHash, address }
 ```
 
 ### ERC-5564 Stealth Addresses
@@ -275,10 +216,10 @@ const w3pk = createWeb3Passkey({
 // Get stealth meta-address
 const metaAddress = await w3pk.stealth?.getStealthMetaAddress()
 
-// Generate stealth address
+// Generate stealth address for recipient
 const announcement = await w3pk.stealth?.generateStealthAddress()
 
-// Parse announcement
+// Check if announcement is for you
 const result = await w3pk.stealth?.parseAnnouncement({
   stealthAddress: announcement.stealthAddress,
   ephemeralPublicKey: announcement.ephemeralPublicKey,
@@ -286,11 +227,10 @@ const result = await w3pk.stealth?.parseAnnouncement({
 })
 
 if (result.isForUser) {
-  // Use private key to spend funds
   console.log('Private key:', result.stealthPrivateKey)
 }
 
-// Scan announcements
+// Scan multiple announcements
 const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ```
 
@@ -299,77 +239,62 @@ const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ```typescript
 import { isStrongPassword } from 'w3pk'
 
-// Validate password strength before creating backups
+// Validate password strength
 const password = 'MyS3cur3!Password@2042'
 if (!isStrongPassword(password)) {
-  throw new Error('Password does not meet security requirements')
+  throw new Error('Password must be 12+ chars with uppercase, lowercase, number, special char')
 }
-// Requirements: 12+ chars, uppercase, lowercase, number, special char, not common
 
 // Get backup status
 const status = await w3pk.getBackupStatus()
-console.log('Security Score:', status.securityScore.score) // 0-100
+console.log('Security Score:', status.securityScore.total) // 0-100
 
-// Create QR backup
-const { qrCodeDataURL } = await w3pk.createQRBackup('password')
-// Display QR code or save as image
+// Create encrypted backup file
+const { blob, filename } = await w3pk.createBackupFile('password', password)
 
-// Setup social recovery (3-of-5 guardians)
+// Setup social recovery (M-of-N guardians)
 await w3pk.setupSocialRecovery(
   [
     { name: 'Alice', email: 'alice@example.com' },
     { name: 'Bob', phone: '+1234567890' },
     { name: 'Charlie' }
   ],
-  3 // threshold
+  2 // threshold
 )
 
 // Generate guardian invite
-const invite = await w3pk.generateGuardianInvite(guardianId)
-// Share invite.qrCode or invite.shareCode with guardian
+const invite = await w3pk.generateGuardianInvite(guardianShare)
 
 // Recover from guardian shares
-const { mnemonic } = await w3pk.recoverFromGuardians([
-  share1, share2, share3
-])
+const { mnemonic } = await w3pk.recoverFromGuardians([share1, share2])
 
-// Restore from backup
+// Restore from backup file
 await w3pk.restoreFromBackup(encryptedData, password)
 
-// Simulate recovery scenarios for testing
+// Simulate recovery scenarios
 const result = await w3pk.simulateRecoveryScenario({
   type: 'lost-device',
   hasBackup: true,
   hasSocialRecovery: true
 })
-console.log('Can recover:', result.canRecover)
 ```
-
-See [Recovery Guide](./docs/RECOVERY.md) for complete documentation.
 
 ### Build Verification
 
 ```typescript
 import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 
-// Get IPFS hash of installed w3pk build
+// Get IPFS hash of installed build
 const hash = await getCurrentBuildHash()
-console.log('Build hash:', hash)
-// => bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm
 
-// Verify against trusted hash (from GitHub releases)
-const trusted = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
-const isValid = await verifyBuildHash(trusted)
-if (isValid) {
-  console.log('✅ Build integrity verified!')
-}
+// Verify against trusted hash
+const TRUSTED_HASH = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
+const isValid = await verifyBuildHash(TRUSTED_HASH)
 ```
-
-See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete documentation.
 
 ## Security & Verification
 
-### Current Build Hash (v0.7.6)
+### Current Build Hash (v0.8.7)
 
 ```
 bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm
@@ -388,30 +313,21 @@ if (!isValid) {
 }
 ```
 
-**Multi-source verification:**
-- **GitHub:** Check release notes for official hash
-- **On-chain:** Verify via DAO-maintained registry (coming soon)
-- **Local build:** `pnpm build && pnpm build:hash`
-
-See [Build Verification Guide](./docs/BUILD_VERIFICATION.md) for complete documentation.
-
----
-
 ## Documentation
 
-- [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
-- [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md) - Best practices for production apps
-- [API Reference](./docs/API_REFERENCE.md) - Complete API documentation
-- [Build Verification](./docs/BUILD_VERIFICATION.md) - Package integrity verification
-- [EIP-7951](./docs/EIP-7951.md) - EIP-7951 implementation
-- [Security Architecture](./docs/SECURITY.md) - Security model and threat analysis
-- [Recovery & Backup System](./docs/RECOVERY.md) - Three-layer backup architecture
-- [ZK Proofs](./docs/ZK.md) - Zero-Knowledge cryptography utilities
-- [Browser compatibility](./docs/BROWSER_COMPATIBILITY.md)
+- [Quick Start Guide](./docs/QUICK_START.md)
+- [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md)
+- [API Reference](./docs/API_REFERENCE.md)
+- [Build Verification](./docs/BUILD_VERIFICATION.md)
+- [EIP-7951](./docs/EIP-7951.md)
+- [Security Architecture](./docs/SECURITY.md)
+- [Recovery & Backup System](./docs/RECOVERY.md)
+- [ZK Proofs](./docs/ZK.md)
+- [Browser Compatibility](./docs/BROWSER_COMPATIBILITY.md)
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## License
 
@@ -425,6 +341,5 @@ GPL-3.0
 - Telegram: [@julienbrg](https://t.me/julienbrg)
 - Twitter: [@julienbrg](https://twitter.com/julienbrg)
 
----
 
 <img src="https://bafkreid5xwxz4bed67bxb2wjmwsec4uhlcjviwy7pkzwoyu5oesjd3sp64.ipfs.w3s.link" alt="built-with-ethereum-w3hc" width="100"/>

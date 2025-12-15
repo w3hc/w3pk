@@ -346,6 +346,151 @@ STORAGE OPTIONS:
 The encryption makes it safe even in cloud!
 `,
   },
+
+  securityScoreExplained: {
+    title: 'Understanding Your Security Score',
+    content: `
+Your security score shows how protected your wallet is from loss.
+
+WHAT IS IT?
+-----------
+
+Think of it like a health score for your wallet:
+- 0-20 pts: Vulnerable (❌ At risk!)
+- 21-50 pts: Protected (🟡 Basic security)
+- 51-80 pts: Secured (🟢 Strong protection)
+- 81-100 pts: Fort Knox (🏆 Maximum security)
+
+HOW IT'S CALCULATED (Max 100 Points):
+------------------------------------
+
+🔑 Passkey Active (20 pts)
+   - You have a passkey set up
+   - Quick access with biometric
+   - Syncs to your devices
+
+📱 Passkey Multi-Device (+10 pts)
+   - Your passkey is on 2+ devices
+   - Survive device loss
+   - Automatic sync
+
+✅ Backup Verified (10-20 pts)
+   - You've tested your backup works
+   - 10 pts for first verification
+   - Up to +10 more for multiple tests
+   - Proves you can actually recover!
+
+💾 Encrypted Backup (20 pts)
+   - You have a backup file
+   - Password-protected
+   - Works anywhere
+
+👥 Social Recovery (20-30 pts)
+   - Guardians can help you
+   - 20 pts for setup
+   - +10 pts bonus if guardians verified
+   - Ultimate safety net
+
+REAL EXAMPLE:
+------------
+
+Sarah's wallet evolution:
+
+Day 1: Just created wallet
+Score: 20/100 (Vulnerable)
+- Passkey only
+- No backup
+- One device failure = total loss
+
+Day 2: Created encrypted backup
+Score: 40/100 (Protected)
+- Passkey + backup
+- Can recover if device lost
+- Still risky if both fail
+
+Day 5: Tested backup restore
+Score: 50/100 (Protected)
+- Verified backup works!
+- Proven recovery path
+- More confident
+
+Week 2: Set up social recovery
+Score: 70/100 (Secured)
+- 5 trusted guardians
+- Need 3 to recover
+- Multiple safety nets
+
+Week 3: Guardians verified
+Score: 80/100 (Secured)
+- All guardians confirmed
+- Strong multi-layer protection
+- Can survive almost any disaster
+
+WHY VERIFICATION MATTERS:
+------------------------
+
+Creating backup ≠ Working backup
+
+Real story:
+- Tom created backup in 2022
+- Never tested it
+- Lost device in 2024
+- Backup file was corrupted!
+- Lost $50K in crypto ❌
+
+Sarah's approach:
+- Created backup
+- Immediately tested restore
+- Verified it worked ✓
+- Lost device in 2024
+- Recovered in 5 minutes ✓
+- Kept $80K in crypto ✓
+
+AUTOMATIC TRACKING:
+------------------
+
+Your score updates automatically when you:
+✓ Create a backup file
+✓ Restore from backup
+✓ Set up social recovery
+✓ Verify guardians
+✓ Sync across devices
+
+No manual tracking needed!
+
+HOW TO IMPROVE YOUR SCORE:
+--------------------------
+
+From 20 → 40 pts:
+1. Create encrypted backup (2 minutes)
+   + 20 points
+
+From 40 → 50 pts:
+2. Test your backup (5 minutes)
+   + 10 points
+
+From 50 → 70 pts:
+3. Set up social recovery (30 minutes)
+   + 20 points
+
+From 70 → 80 pts:
+4. Verify your guardians
+   + 10 points
+
+From 80 → 90 pts:
+5. Sync passkey to another device
+   + 10 points
+
+TARGET SCORE:
+------------
+
+Minimum: 50 pts (at least verified backup)
+Good: 70 pts (backup + social recovery)
+Excellent: 80+ pts (all layers enabled)
+
+Remember: Higher score = Lower chance of loss!
+`,
+  },
 };
 
 /**
