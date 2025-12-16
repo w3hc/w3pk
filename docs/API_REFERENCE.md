@@ -2342,7 +2342,7 @@ Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
 ```typescript
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm
+// => bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4
 ```
 
 ---
@@ -2369,7 +2369,7 @@ const hash = await getW3pkBuildHash('http://localhost:3000/dist')
 Verify if the current build matches an expected hash.
 
 ```typescript
-const trustedHash = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
+const trustedHash = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4'
 const isValid = await verifyBuildHash(trustedHash)
 
 if (isValid) {

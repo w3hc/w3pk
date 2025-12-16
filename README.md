@@ -288,16 +288,16 @@ import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 const hash = await getCurrentBuildHash()
 
 // Verify against trusted hash
-const TRUSTED_HASH = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
+const TRUSTED_HASH = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
 ```
 
 ## Security & Verification
 
-### Current Build Hash (v0.8.7)
+### Current Build Hash (v0.8.8)
 
 ```
-bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm
+bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4
 ```
 
 **Verify package integrity:**
@@ -305,7 +305,7 @@ bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm
 ```typescript
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm'
+const TRUSTED_HASH = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
 
 if (!isValid) {

@@ -1906,7 +1906,7 @@ Verify the integrity of the w3pk package before using it in production:
 import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 
 // On application startup
-const TRUSTED_HASH = 'bafybeig3zio47awahzmqzg6aiezzhp5awao27mze5j2jsrebka4jupmgxm' // From GitHub releases
+const TRUSTED_HASH = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4' // From GitHub releases
 
 async function verifyW3pkIntegrity() {
   try {
