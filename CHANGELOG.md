@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Full TypeScript types with `SiweMessage` interface
   - See [examples/siwe-login.ts](./examples/siwe-login.ts) for usage
 
+### Fixed
+
+- **Security Score Tracking**: Fixed security score calculation accuracy (#85)
+- **Backup Restore Flow**: Fixed `restoreFromBackupFile` to properly handle encrypted backup restoration (#84)
+- **EIP-7702 Authorization Signing**: Fixed `signAuthorization` method to correctly sign authorization tuples (#82)
+
 ### Documentation
 
 - Updated [API Reference](./docs/API_REFERENCE.md) with comprehensive signing methods documentation

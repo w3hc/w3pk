@@ -732,6 +732,78 @@ A: Paper backup is good! Our system adds encryption and multiple options for con
 
 ---
 
+## 🛡️ Security Score Tracking
+
+W3PK automatically tracks your wallet's security score based on the backup and recovery methods you've enabled. The score is calculated and updated automatically whenever you:
+
+- Create a backup file
+- Restore from a backup
+- Set up social recovery
+- Verify guardians
+- Sync across devices
+
+### Score Components (Max 100 points)
+
+| Component | Points | Description |
+|-----------|--------|-------------|
+| **Passkey Active** | 20 pts | You have a passkey set up |
+| **Passkey Multi-Device** | 10 pts | Your passkey is synced to 2+ devices |
+| **Encrypted Backup** | 20 pts | You have at least one encrypted backup |
+| **Phrase Verified** | 10-20 pts | You've successfully verified your backup (10 pts base + up to 10 pts for multiple verifications) |
+| **Social Recovery** | 20-30 pts | You've set up social recovery (20 pts base + 10 pts bonus if enough guardians are verified) |
+
+### Security Levels
+
+- **0-20 pts: Vulnerable** - Minimal protection
+- **21-50 pts: Protected** - Basic security in place
+- **51-80 pts: Secured** - Strong multi-layered protection
+- **81+ pts: Fort Knox** - Maximum security achieved
+
+### How Verification Works
+
+Your backup is automatically marked as "verified" when you successfully:
+- Restore from a backup file using `restoreFromBackupFile()`
+- Register a new passkey from backup using `registerWithBackupFile()`
+- Recover from guardian shares using `recoverFromGuardians()`
+- Import from device sync using `importFromSync()`
+
+Verification proves that your backup actually works, increasing your security score.
+
+### Checking Your Score
+
+```typescript
+const sdk = new W3PK();
+const status = await sdk.getBackupStatus();
+
+console.log(status.securityScore);
+// {
+//   total: 70,
+//   level: "secured",
+//   breakdown: {
+//     passkeyActive: 20,
+//     passkeyMultiDevice: 10,
+//     phraseVerified: 10,
+//     encryptedBackup: 20,
+//     socialRecovery: 20
+//   },
+//   nextMilestone: "Enable all methods to reach 'fort-knox' (100 pts)"
+// }
+```
+
+### Score Updates
+
+The security score updates automatically in the following scenarios:
+
+1. **After Backup Creation**: Creating a backup file adds 20 points for encrypted backup
+2. **After Restore**: Successfully restoring marks your backup as verified (+10-20 pts)
+3. **After Social Recovery Setup**: Setting up guardians adds 20 points
+4. **After Guardian Verification**: Verifying enough guardians adds +10 bonus points
+5. **After Device Sync**: Importing from sync marks backup as verified
+
+The score is recalculated on-demand when you call `getBackupStatus()`, ensuring it always reflects your current security posture.
+
+---
+
 ## 📦 Dependencies
 
 ```json
