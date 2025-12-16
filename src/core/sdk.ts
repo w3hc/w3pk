@@ -1430,6 +1430,13 @@ export class Web3Passkey {
     // Mark backup as verified (successful restore proves the backup works)
     backupManager.markBackupVerified(ethereumAddress);
 
+    // Set the current wallet with the restored mnemonic
+    // This allows the user to subsequently call register() to create a new passkey
+    this.currentWallet = {
+      address: ethereumAddress,
+      mnemonic,
+    };
+
     // Persist the restored wallet to storage if user is logged in
     if (this.currentUser) {
       // Get credential for encryption
@@ -1440,7 +1447,26 @@ export class Web3Passkey {
       );
 
       if (credential) {
-        // Encrypt and store the wallet data
+        const oldAddress = this.currentUser.ethereumAddress;
+
+        console.log('[W3PK SDK] Restore while authenticated:', {
+          oldAddress,
+          newAddress: ethereumAddress,
+          areEqual: oldAddress.toLowerCase() === ethereumAddress.toLowerCase()
+        });
+
+        // Delete the old wallet if the address is different
+        if (oldAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
+          console.log('[W3PK SDK] Deleting old wallet:', oldAddress);
+          await this.walletStorage.delete(oldAddress);
+          console.log('[W3PK SDK] Old wallet deleted');
+        }
+
+        // Update credential with new address
+        console.log('[W3PK SDK] Updating credential address to:', ethereumAddress);
+        await storage.updateCredentialAddress(credential.id, ethereumAddress);
+
+        // Encrypt and store the wallet data with new address
         const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyFromWebAuthn(
           credential.id,
           credential.publicKey
@@ -1451,12 +1477,21 @@ export class Web3Passkey {
           encryptionKey
         );
 
+        console.log('[W3PK SDK] Storing new wallet:', ethereumAddress);
         await this.walletStorage.store({
           ethereumAddress,
           encryptedMnemonic,
           credentialId: credential.id,
           createdAt: new Date().toISOString(),
         });
+        console.log('[W3PK SDK] New wallet stored');
+
+        // Update current user with new address
+        this.currentUser = {
+          ...this.currentUser,
+          id: ethereumAddress,
+          ethereumAddress,
+        };
 
         // Start a new session with the restored wallet
         await this.sessionManager.startSession(
@@ -1466,6 +1501,11 @@ export class Web3Passkey {
           credential.publicKey,
           'STANDARD' // Default security mode
         );
+
+        // Notify app of auth state change with updated user
+        this.config.onAuthStateChanged?.(true, this.currentUser);
+
+        console.log('[W3PK SDK] Restore complete, current user:', this.currentUser.ethereumAddress);
       }
     }
 

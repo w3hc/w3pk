@@ -232,6 +232,23 @@ export class CredentialStorage {
   }
 
   /**
+   * Updates the Ethereum address for a credential
+   * Used when restoring from backup to overwrite with new address
+   */
+  async updateCredentialAddress(id: string, newAddress: string): Promise<void> {
+    try {
+      const credential = await this.getCredentialById(id);
+      if (credential) {
+        credential.ethereumAddress = newAddress;
+        credential.lastUsed = new Date().toISOString();
+        await this.saveCredential(credential);
+      }
+    } catch (error) {
+      throw new StorageError("Failed to update credential address", error);
+    }
+  }
+
+  /**
    * Deletes a credential by original ID
    */
   async deleteCredential(id: string): Promise<void> {
