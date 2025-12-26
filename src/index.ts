@@ -8,7 +8,11 @@ export function createWeb3Passkey(config: Web3PasskeyConfig = {}): Web3Passkey {
 export type { Web3PasskeyConfig, StealthAddressConfig } from "./core/config";
 export type { UserInfo, WalletInfo } from "./types";
 export type { StealthKeys, StealthAddressResult } from "./stealth";
-export type { EIP7702Authorization, SignAuthorizationParams } from "./wallet/types";
+export type {
+  EIP7702Authorization,
+  SignAuthorizationParams,
+} from "./wallet/types";
+export type { EIP1193Provider } from "./eip7702";
 
 export {
   Web3PasskeyError,
@@ -27,9 +31,18 @@ export {
   normalizeOrigin,
   getCurrentOrigin,
   DEFAULT_TAG,
+  DEFAULT_MODE,
+  getOriginSpecificAddress,
+  deriveIndexFromOriginModeAndTag,
+  deriveAddressFromP256PublicKey,
 } from "./wallet/origin-derivation";
 
-export { RecoverySimulator, getExplainer, getAllTopics, searchExplainers } from "./education";
+export {
+  RecoverySimulator,
+  getExplainer,
+  getAllTopics,
+  searchExplainers,
+} from "./education";
 
 export {
   validateEthereumAddress,
@@ -57,9 +70,21 @@ export {
   safeBtoa,
 } from "./utils/base64";
 
+export { extractRS } from "./utils/crypto";
+
 export {
-  extractRS,
-} from "./utils/crypto";
+  generateBIP39Wallet,
+  createWalletFromMnemonic,
+  deriveWalletFromMnemonic,
+} from "./wallet/generate";
+
+export {
+  deriveStealthKeys,
+  generateStealthAddress,
+  checkStealthAddress,
+  computeStealthPrivateKey,
+  canControlStealthAddress,
+} from "./stealth/crypto";
 
 export {
   generateSiweNonce,
@@ -69,9 +94,7 @@ export {
   verifySiweSignature,
 } from "./siwe";
 
-export type {
-  SiweMessage,
-} from "./siwe";
+export type { SiweMessage } from "./siwe";
 
 export type {
   BackupStatus,
@@ -96,5 +119,22 @@ export type {
   SyncCapabilities,
   SyncStatus,
 } from "./sync/types";
+
+export {
+  requestExternalWalletAuthorization,
+  getDefaultProvider,
+  detectWalletProvider,
+  supportsEIP7702Authorization,
+  encodeEIP7702AuthorizationMessage,
+  hashEIP7702AuthorizationMessage,
+  verifyEIP7702Authorization,
+} from "./eip7702";
+
+export {
+  getEndpoints,
+  getAllChains,
+  getChainById,
+  clearCache,
+} from "./chainlist";
 
 export default createWeb3Passkey;

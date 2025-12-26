@@ -1022,42 +1022,57 @@ export class Web3Passkey {
         throw new WalletError("Must be authenticated to sign authorization");
       }
 
-      const { Wallet, keccak256, concat, toBeHex, Signature } = await import("ethers");
+      const { Wallet, Signature } = await import("ethers");
+      const { hashEIP7702AuthorizationMessage, verifyEIP7702Authorization } = await import("../eip7702/utils");
 
       let wallet: any;
-      let signerAddress: string;
 
       if (params.privateKey) {
         wallet = new Wallet(params.privateKey);
-        signerAddress = wallet.address;
       } else {
         const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
         wallet = Wallet.fromPhrase(mnemonic);
-        signerAddress = wallet.address;
       }
 
       const chainId = BigInt(params.chainId || 1);
       const nonce = params.nonce || 0n;
 
-      const authorizationMessage = concat([
-        "0x05",
-        toBeHex(chainId, 32),
-        params.contractAddress.toLowerCase(),
-        toBeHex(nonce, 32)
-      ]);
+      // Hash EIP-7702 authorization message using shared utility
+      const messageHash = hashEIP7702AuthorizationMessage(
+        chainId,
+        params.contractAddress,
+        nonce
+      );
 
-      const messageHash = keccak256(authorizationMessage);
       const signature = wallet.signingKey.sign(messageHash);
       const sig = Signature.from(signature);
 
-      return {
+      // Verify signature before returning
+      const authorization = {
         chainId,
-        address: signerAddress.toLowerCase(),
+        address: params.contractAddress.toLowerCase(),
         nonce,
         yParity: sig.yParity,
         r: sig.r,
         s: sig.s
       };
+
+      const isValid = verifyEIP7702Authorization(
+        chainId,
+        params.contractAddress,
+        nonce,
+        authorization,
+        wallet.address
+      );
+
+      if (!isValid) {
+        throw new WalletError("Signature verification failed - this should not happen");
+      }
+
+      // Return EIP-7702 authorization object
+      // IMPORTANT: address field should be the contract address being delegated to,
+      // NOT the signer's ethereum address
+      return authorization;
     } catch (error) {
       this.config.onError?.(error as any);
       throw new WalletError("Failed to sign authorization", error);
@@ -1073,6 +1088,90 @@ export class Web3Passkey {
     options?: { maxEndpoints?: number; timeout?: number }
   ): Promise<boolean> {
     return supportsEIP7702(chainId, this.getEndpoints.bind(this), options);
+  }
+
+  /**
+   * Request EIP-7702 authorization from external wallet (MetaMask, Rabby, etc.)
+   * This allows users to delegate their ENS account to their w3pk STANDARD+MAIN account
+   *
+   * Flow:
+   * 1. User has ENS account in external wallet
+   * 2. User creates/logs into w3pk account
+   * 3. User signs EIP-7702 authorization delegating ENS account → w3pk account
+   * 4. User includes authorization in transaction to activate delegation
+   *
+   * @param params.provider - EIP-1193 provider (window.ethereum) - optional, auto-detected if not provided
+   * @param params.chainId - Chain ID for the authorization
+   * @param params.nonce - Nonce (default: 0n)
+   * @param params.accountIndex - Which account from external wallet to use (default: 0)
+   * @returns EIP-7702 authorization object
+   *
+   * @example
+   * ```typescript
+   * import { createWeb3Passkey } from 'w3pk';
+   *
+   * const w3pk = createWeb3Passkey();
+   * await w3pk.register({ username: 'alice' });
+   *
+   * // Request MetaMask to delegate to w3pk account
+   * const authorization = await w3pk.requestExternalWalletDelegation({
+   *   chainId: 1,
+   *   nonce: 0n
+   * });
+   *
+   * // Now user's ENS account delegates to w3pk account
+   * // Include in first transaction to activate
+   * await provider.request({
+   *   method: 'eth_sendTransaction',
+   *   params: [{
+   *     to: someContract,
+   *     data: txData,
+   *     authorizationList: [authorization]
+   *   }]
+   * });
+   * ```
+   */
+  async requestExternalWalletDelegation(params?: {
+    provider?: any;
+    chainId?: number;
+    nonce?: bigint;
+    accountIndex?: number;
+  }): Promise<{
+    chainId: bigint;
+    address: string;
+    nonce: bigint;
+    yParity: number;
+    r: string;
+    s: string;
+  }> {
+    if (!this.currentUser) {
+      throw new WalletError(
+        "Must be authenticated to get w3pk delegation address. Call login() or register() first."
+      );
+    }
+
+    const {
+      requestExternalWalletAuthorization,
+      getDefaultProvider,
+    } = await import("../eip7702/external-wallet");
+
+    const provider = params?.provider || getDefaultProvider();
+
+    if (!provider) {
+      throw new WalletError(
+        "No external wallet provider found. Please install MetaMask, Rabby, or similar wallet."
+      );
+    }
+
+    // Get user's w3pk STANDARD+MAIN account address to delegate to
+    const w3pkAddress = this.currentUser.ethereumAddress;
+
+    return requestExternalWalletAuthorization(provider, {
+      delegateToAddress: w3pkAddress,
+      chainId: params?.chainId,
+      nonce: params?.nonce,
+      accountIndex: params?.accountIndex,
+    });
   }
 
   get zk(): any {

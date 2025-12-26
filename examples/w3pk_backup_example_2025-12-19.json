@@ -1,0 +1,12 @@
+{
+    "createdAt": "2025-12-19T11:13:07.106Z",
+    "ethereumAddress": "0xFbAd21C1D682a8952978B99e1c376be54a8D17c8",
+    "encryptedMnemonic": "nc5lX3qzU0mK0Dr+QVhb47yZ1L6keBS5wHS7vTBdaCc94QqDBoFVlWxaXL6CLAti/nkTOthKrFJYnWXlVvaIikqFLhZGRM94D6ONfnXDlnyExT4wZqXue3BEED8=",
+    "encryptionMethod": "password",
+    "passwordEncryption": {
+        "salt": "RL+F5Yh3jXGeW85rAVW4K0mmqrZUvaJzdDe71ccGsjw=",
+        "iv": "/UsXIJvUkrk9cvE6",
+        "iterations": 310000
+    },
+    "addressChecksum": "tu74v3Wjzt1uBEVu"
+}
