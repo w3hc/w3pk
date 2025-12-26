@@ -803,6 +803,280 @@ async function authorizeGovernanceContract() {
 
 ---
 
+## External Wallet Integration Security
+
+w3pk supports EIP-7702 authorization signatures from external wallets (MetaMask, Rabby, etc.) to enable users to delegate their existing accounts to w3pk WebAuthn accounts. This section covers security considerations for this integration.
+
+### What is External Wallet Delegation?
+
+External wallet delegation allows users to:
+1. Sign an EIP-7702 authorization with their external wallet (MetaMask, Ledger, etc.)
+2. Delegate their external account to their w3pk account
+3. Control their external account using w3pk's WebAuthn security
+
+**Benefits:**
+- Upgrade existing accounts to WebAuthn security without losing identity
+- Keep ENS names, addresses, NFTs, and on-chain history
+- Enable gasless transactions for external accounts
+- No seed phrase required for daily use
+
+### Security Model
+
+**Trust Assumptions:**
+- User must trust the external wallet provider (MetaMask, Rabby, etc.)
+- User must trust the w3pk SDK to correctly format authorization messages
+- User must verify the delegation address in their external wallet before signing
+- Authorization signature is verified using EIP-7702 spec before returning
+
+**Signature Verification:**
+```typescript
+// All external wallet authorizations are verified before returning
+const authorization = await w3pk.requestExternalWalletDelegation({
+  chainId: 1,
+  nonce: 0n
+})
+
+// Verification happens automatically:
+// 1. Format EIP-7702 message: 0x05 || rlp([chain_id, address, nonce])
+// 2. Request signature from external wallet
+// 3. Recover signer address from signature
+// 4. Verify recovered address matches expected external wallet address
+// 5. Throw error if verification fails
+```
+
+### Security Best Practices
+
+**DO:**
+- ✅ Verify the delegation address shown in external wallet matches w3pk account
+- ✅ Use hardware wallets for high-value account delegations
+- ✅ Only delegate to audited w3pk implementations
+- ✅ Understand that delegation is permanent until revoked
+- ✅ Monitor delegated account activity on-chain
+- ✅ Test delegation with small amounts first
+
+**DON'T:**
+- ❌ Approve external wallet signatures without reading the delegation address
+- ❌ Delegate high-value accounts without understanding the implications
+- ❌ Assume external wallet connections are secure without verification
+- ❌ Skip user confirmation dialogs in external wallet
+- ❌ Trust unverified w3pk implementations with delegation
+
+### Attack Scenarios & Mitigations
+
+#### Scenario 1: Malicious dApp Shows Wrong Delegation Address
+
+**Attack:**
+- Malicious dApp displays "Delegate to w3pk: 0xABCD..." in UI
+- But actually requests signature for different address: 0x1234... (attacker-controlled)
+- User approves without checking external wallet popup
+
+**Impact:** User's external account delegates to attacker's address instead of w3pk
+
+**Mitigation:**
+```typescript
+// w3pk SDK ALWAYS shows delegation address in external wallet popup
+// Users MUST verify address in MetaMask/Rabby matches expected w3pk address
+
+// Good practice: Display w3pk address prominently before requesting signature
+const w3pkAddress = await w3pk.getAddress()
+console.log(`🔐 You will delegate to: ${w3pkAddress}`)
+console.log(`⚠️  VERIFY THIS ADDRESS in MetaMask before approving!`)
+
+const authorization = await w3pk.requestExternalWalletDelegation({
+  chainId: 1,
+  nonce: 0n
+})
+```
+
+**Protection Layers:**
+1. External wallet shows exact delegation address in popup
+2. w3pk SDK verifies signature matches expected signer
+3. User must explicitly approve in external wallet
+4. Delegation is visible on-chain and can be revoked
+
+#### Scenario 2: Man-in-the-Middle (MITM) on Provider
+
+**Attack:**
+- Attacker intercepts `window.ethereum` provider
+- Modifies authorization parameters before sending to wallet
+- Returns valid-looking but malicious authorization
+
+**Impact:** User unknowingly signs authorization with modified parameters
+
+**Mitigation:**
+```typescript
+// w3pk SDK uses EIP-7702 utilities for consistent message formatting
+// Signature is verified against expected parameters before returning
+
+import { verifyEIP7702Authorization } from 'w3pk'
+
+// Verification happens automatically in SDK
+const authorization = await w3pk.requestExternalWalletDelegation({
+  chainId: 1,
+  nonce: 0n
+})
+
+// Additional verification (optional):
+const isValid = verifyEIP7702Authorization(
+  authorization.chainId,
+  w3pkAddress,
+  authorization.nonce,
+  authorization,
+  externalWalletAddress
+)
+
+if (!isValid) {
+  throw new Error('Authorization signature verification failed!')
+}
+```
+
+**Protection Layers:**
+1. Content Security Policy (CSP) prevents script injection
+2. Use HTTPS to prevent network MITM
+3. w3pk SDK verifies signature before returning
+4. External wallet shows message hash for technical verification
+
+#### Scenario 3: Phishing with Fake External Wallet
+
+**Attack:**
+- Attacker creates fake MetaMask/Rabby extension
+- Fake wallet approves all signatures without user interaction
+- Returns valid signatures for attacker-controlled address
+
+**Impact:** User thinks they're using legitimate wallet but signing malicious authorizations
+
+**Mitigation:**
+```typescript
+// Detect and verify external wallet before using
+import {
+  getDefaultProvider,
+  detectWalletProvider,
+  supportsEIP7702Authorization
+} from 'w3pk'
+
+const provider = getDefaultProvider()
+if (!provider) {
+  throw new Error('No wallet detected')
+}
+
+// Show wallet name to user for verification
+const walletName = detectWalletProvider(provider)
+console.log(`🦊 Detected wallet: ${walletName}`)
+
+if (walletName === 'Unknown Wallet') {
+  console.warn('⚠️  Unrecognized wallet - proceed with caution')
+}
+
+// Verify wallet supports EIP-1193
+const supported = await supportsEIP7702Authorization(provider)
+if (!supported) {
+  throw new Error('Wallet does not support signing')
+}
+
+// Request authorization
+const authorization = await w3pk.requestExternalWalletDelegation({
+  chainId: 1,
+  nonce: 0n
+})
+```
+
+**Protection Layers:**
+1. User must install wallet from official source (browser extension store)
+2. w3pk SDK detects wallet type and shows warning for unknown wallets
+3. User must manually approve each signature in wallet popup
+4. Signatures can be verified on-chain after delegation
+
+### Implementation Checklist
+
+**Before Requesting External Wallet Authorization:**
+- [ ] Display w3pk account address prominently
+- [ ] Show chain ID and nonce to user
+- [ ] Explain what delegation means (permanent until revoked)
+- [ ] Verify external wallet provider is legitimate
+- [ ] Warn user to verify address in external wallet popup
+
+**After Receiving Authorization:**
+- [ ] Verify signature with `verifyEIP7702Authorization()`
+- [ ] Display authorization details to user
+- [ ] Explain how to include in transaction
+- [ ] Provide instructions for revoking delegation
+- [ ] Monitor delegation status on-chain
+
+**Code Example - Secure Implementation:**
+```typescript
+import { createWeb3Passkey, detectWalletProvider } from 'w3pk'
+
+async function secureDelegation() {
+  // 1. Setup w3pk account
+  const w3pk = createWeb3Passkey()
+  await w3pk.register({ username: 'alice' })
+  const w3pkAddress = await w3pk.getAddress()
+
+  // 2. Detect and verify external wallet
+  const provider = getDefaultProvider()
+  const walletName = detectWalletProvider(provider)
+
+  console.log(`
+🔐 Delegation Setup
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+External Wallet: ${walletName}
+w3pk Account:    ${w3pkAddress}
+Chain:           Ethereum Mainnet (1)
+
+⚠️  YOU ARE ABOUT TO:
+   • Delegate your ${walletName} account to w3pk
+   • Enable WebAuthn control of ${walletName} account
+   • This is PERMANENT until you revoke it
+
+📋 PLEASE VERIFY:
+   1. ${walletName} popup shows address: ${w3pkAddress}
+   2. Chain ID is correct: 1
+   3. You trust this w3pk implementation
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  `)
+
+  // 3. Request user confirmation
+  const confirmed = await getUserConfirmation(
+    'I understand this delegation is permanent until revoked'
+  )
+
+  if (!confirmed) {
+    throw new Error('User cancelled delegation')
+  }
+
+  // 4. Request authorization
+  console.log('⏳ Requesting signature from external wallet...')
+  const authorization = await w3pk.requestExternalWalletDelegation({
+    chainId: 1,
+    nonce: 0n
+  })
+
+  console.log(`
+✅ Authorization signed!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Delegate To: ${authorization.address}
+Chain ID:    ${authorization.chainId}
+Nonce:       ${authorization.nonce}
+Signature:   ${authorization.r.substring(0, 10)}...
+
+📝 NEXT STEPS:
+   1. Include this authorization in your next transaction
+   2. Delegation will be activated on-chain
+   3. You can revoke anytime by signing new authorization to 0x0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  `)
+
+  return authorization
+}
+```
+
+### Related Documentation
+- [EIP-7702 External Wallets Guide](./EIP_7702.md#external-wallets)
+- [External Wallet API Reference](./API_REFERENCE.md#requestexternalwalletdelegation)
+- [ENS Delegation Example](../examples/ens-to-w3pk-delegation.ts)
+
+---
+
 ## Security Changelog
 
 This section tracks major security-related changes to w3pk's implementation.

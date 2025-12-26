@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.8] - 2025-12-26
+
+### Added
+
+- **External Wallet Integration for EIP-7702**: Enable users to sign EIP-7702 authorizations using external wallets (MetaMask, Rabby, etc.)
+  - New `requestExternalWalletDelegation()` SDK method for delegating external accounts to w3pk accounts
+  - New `requestExternalWalletAuthorization()` low-level API for direct external wallet integration
+  - Support for ENS account delegation to w3pk WebAuthn accounts
+  - Multi-account delegation support (delegate multiple MetaMask accounts to single w3pk account)
+  - Wallet provider detection utilities (`detectWalletProvider()`, `getDefaultProvider()`)
+  - EIP-7702 support checking (`supportsEIP7702Authorization()`)
+  - See [docs/EIP_7702.md](./docs/EIP_7702.md#external-wallets) for complete guide
+
+- **EIP-7702 Utilities Module**: Shared encoding and verification functions
+  - `encodeEIP7702AuthorizationMessage()` - Encode authorization messages according to EIP-7702 spec
+  - `hashEIP7702AuthorizationMessage()` - Hash authorization messages for signing
+  - `verifyEIP7702Authorization()` - Verify authorization signatures
+  - Ensures consistency across all EIP-7702 implementations (internal and external wallets)
+  - Proper EIP-7702 format: `0x05 || rlp([chain_id, address, nonce])`
+
+### Changed
+
+- **Updated `signAuthorization()` Method**: Now uses shared EIP-7702 utilities for consistent encoding
+  - Same authorization format as external wallet authorizations
+  - Improved signature verification
+  - Better error messages for debugging
+
+### Documentation
+
+- Updated [EIP_7702.md](./docs/EIP_7702.md) with comprehensive external wallet integration guide
+  - Added "External Wallets" section with use cases and examples
+  - ENS delegation workflow documentation
+  - Multi-account delegation examples
+  - Hardware wallet and WalletConnect integration patterns
+  - Security considerations for external wallets
+- Updated [README.md](./README.md) with `requestExternalWalletDelegation()` example
+- Added [examples/ens-to-w3pk-delegation.ts](./examples/ens-to-w3pk-delegation.ts) with multiple integration patterns
+
+### Examples
+
+- New ENS delegation example with 4 usage patterns:
+  - Basic: Simple ENS → w3pk delegation
+  - Advanced: Direct API usage with full control
+  - Multi: Delegate multiple MetaMask accounts
+  - Full: Complete real-world workflow
+
 ## [0.8.7] - 2025-12-06
 
 ### Added

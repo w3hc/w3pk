@@ -9,7 +9,7 @@
  */
 
 /**
- * EIP-7702 supported chain IDs (329 chains as of Oct 2025)
+ * EIP-7702 supported chain IDs (329 chains as of December 2024)
  * Source: https://github.com/w3hc/eip7702-playground
  */
 const EIP7702_SUPPORTED_CHAINS = new Set([
@@ -163,3 +163,19 @@ export async function supportsEIP7702(
     return false;
   }
 }
+
+// Export external wallet utilities
+export {
+  requestExternalWalletAuthorization,
+  getDefaultProvider,
+  detectWalletProvider,
+  supportsEIP7702Authorization,
+} from "./external-wallet";
+export type { EIP1193Provider } from "./external-wallet";
+
+// Export EIP-7702 utility functions
+export {
+  encodeEIP7702AuthorizationMessage,
+  hashEIP7702AuthorizationMessage,
+  verifyEIP7702Authorization,
+} from "./utils";

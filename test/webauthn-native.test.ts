@@ -23,19 +23,28 @@ import { CredentialStorage } from "../src/auth/storage";
 
 // Test environment check
 function checkEnvironment(): { supported: boolean; reason?: string } {
-  if (typeof window === 'undefined') {
+  if (typeof window === "undefined") {
     return { supported: false, reason: "Not running in a browser environment" };
   }
 
-  if (typeof navigator === 'undefined' || !navigator.credentials) {
-    return { supported: false, reason: "navigator.credentials API not available" };
+  if (typeof navigator === "undefined" || !navigator.credentials) {
+    return {
+      supported: false,
+      reason: "navigator.credentials API not available",
+    };
   }
 
   if (!window.PublicKeyCredential) {
-    return { supported: false, reason: "WebAuthn (PublicKeyCredential) not supported" };
+    return {
+      supported: false,
+      reason: "WebAuthn (PublicKeyCredential) not supported",
+    };
   }
 
-  if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+  if (
+    window.location.protocol !== "https:" &&
+    window.location.hostname !== "localhost"
+  ) {
     return { supported: false, reason: "WebAuthn requires HTTPS or localhost" };
   }
 
@@ -75,7 +84,9 @@ async function runWebAuthnTests() {
     console.log("- A real browser environment");
     console.log("- WebAuthn/PassKey support");
     console.log("- HTTPS or localhost");
-    console.log("- A platform authenticator (Touch ID, Face ID, Windows Hello, etc.)");
+    console.log(
+      "- A platform authenticator (Touch ID, Face ID, Windows Hello, etc.)"
+    );
     return;
   }
 
@@ -83,16 +94,21 @@ async function runWebAuthnTests() {
 
   // Check for platform authenticator availability
   try {
-    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    const available =
+      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
     logTestResult(
       "Platform authenticator availability",
       available,
-      available ? "Platform authenticator is available" : "No platform authenticator found"
+      available
+        ? "Platform authenticator is available"
+        : "No platform authenticator found"
     );
 
     if (!available) {
       console.log("\n⚠️  Warning: No platform authenticator available.");
-      console.log("Some tests may fail without Touch ID, Face ID, or Windows Hello.");
+      console.log(
+        "Some tests may fail without Touch ID, Face ID, or Windows Hello."
+      );
     }
   } catch (error) {
     logTestResult("Platform authenticator check", false, `Error: ${error}`);
@@ -105,7 +121,9 @@ async function runWebAuthnTests() {
 
   try {
     console.log(`Registering user: ${testUsername}`);
-    console.log("Please complete the biometric authentication when prompted...");
+    console.log(
+      "Please complete the biometric authentication when prompted..."
+    );
 
     const result = await register({
       username: testUsername,
@@ -121,24 +139,35 @@ async function runWebAuthnTests() {
 
     // Verify credential was stored
     const storage = new CredentialStorage();
-    const storedCredential = await storage.getCredentialByUsername(testUsername);
+    const storedCredential = await storage.getCredentialByUsername(
+      testUsername
+    );
     const credentialStored = storedCredential !== null;
     logTestResult(
       "Credential stored",
       credentialStored,
-      credentialStored ? `Credential ID: ${storedCredential.id.substring(0, 16)}...` : "Not found"
+      credentialStored
+        ? `Credential ID: ${storedCredential.id.substring(0, 16)}...`
+        : "Not found"
     );
 
     // Verify public key was extracted
-    const hasPublicKey = !!(storedCredential?.publicKey && storedCredential.publicKey.length > 0);
+    const hasPublicKey = !!(
+      storedCredential?.publicKey && storedCredential.publicKey.length > 0
+    );
     logTestResult(
       "Public key extracted",
       hasPublicKey,
-      hasPublicKey ? `Public key length: ${storedCredential?.publicKey?.length}` : "Missing"
+      hasPublicKey
+        ? `Public key length: ${storedCredential?.publicKey?.length}`
+        : "Missing"
     );
-
   } catch (error) {
-    logTestResult("Registration", false, `Error: ${error instanceof Error ? error.message : String(error)}`);
+    logTestResult(
+      "Registration",
+      false,
+      `Error: ${error instanceof Error ? error.message : String(error)}`
+    );
     console.log("\n⚠️  Registration failed. Some tests will be skipped.");
     return;
   }
@@ -155,46 +184,56 @@ async function runWebAuthnTests() {
       hasCredential ? "Credential found" : "No credential found"
     );
   } catch (error) {
-    logTestResult("Credential check", false, `Error: ${error instanceof Error ? error.message : String(error)}`);
+    logTestResult(
+      "Credential check",
+      false,
+      `Error: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   // Test 3: Authentication
   console.log("\n--- Test 3: WebAuthn Authentication ---");
   try {
     console.log("Authenticating...");
-    console.log("Please complete the biometric authentication when prompted...");
+    console.log(
+      "Please complete the biometric authentication when prompted..."
+    );
 
     const authResult = await login();
 
     logTestResult(
       "Authentication successful",
       authResult.verified,
-      `User: ${authResult.user?.username || 'N/A'}`
+      `User: ${authResult.user?.username || "N/A"}`
     );
 
     const correctUser = authResult.user?.username === testUsername;
     logTestResult(
       "Correct user authenticated",
       correctUser || false,
-      `Expected: ${testUsername}, Got: ${authResult.user?.username || 'N/A'}`
+      `Expected: ${testUsername}, Got: ${authResult.user?.username || "N/A"}`
     );
 
     const correctAddress = authResult.user?.ethereumAddress === testAddress;
     logTestResult(
       "Correct Ethereum address",
       correctAddress || false,
-      `Address: ${authResult.user?.ethereumAddress || 'N/A'}`
+      `Address: ${authResult.user?.ethereumAddress || "N/A"}`
     );
 
-    const hasSignature = authResult.signature && authResult.signature.byteLength > 0;
+    const hasSignature =
+      authResult.signature && authResult.signature.byteLength > 0;
     logTestResult(
       "Signature received",
       hasSignature || false,
       `Signature: ${authResult.signature?.byteLength || 0} bytes`
     );
-
   } catch (error) {
-    logTestResult("Authentication", false, `Error: ${error instanceof Error ? error.message : String(error)}`);
+    logTestResult(
+      "Authentication",
+      false,
+      `Error: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   // Test 4: Duplicate registration prevention
@@ -206,11 +245,14 @@ async function runWebAuthnTests() {
     });
     logTestResult("Duplicate prevention", false, "Should have thrown an error");
   } catch (error) {
-    const isDuplicateError = error instanceof Error && error.message.includes("already registered");
+    const isDuplicateError =
+      error instanceof Error && error.message.includes("already registered");
     logTestResult(
       "Duplicate prevention",
       isDuplicateError,
-      isDuplicateError ? "Correctly rejected duplicate registration" : `Unexpected error: ${error}`
+      isDuplicateError
+        ? "Correctly rejected duplicate registration"
+        : `Unexpected error: ${error}`
     );
   }
 
@@ -227,7 +269,11 @@ async function runWebAuthnTests() {
       exists ? "Unexpected: Found credential" : "Correctly found no credential"
     );
   } catch (error) {
-    logTestResult("Non-existent user check", false, `Error: ${error instanceof Error ? error.message : String(error)}`);
+    logTestResult(
+      "Non-existent user check",
+      false,
+      `Error: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   // Cleanup
@@ -239,10 +285,10 @@ async function runWebAuthnTests() {
 }
 
 // Auto-run if in browser
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   // Wait for page load
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
       runWebAuthnTests().catch(console.error);
     });
   } else {
@@ -254,7 +300,7 @@ if (typeof window !== 'undefined') {
   console.log("⚠️  Skipping: This test suite requires a browser environment");
   console.log("\nTo run WebAuthn tests:");
   console.log("1. Run: pnpm run html");
-  console.log("2. Open: http://localhost:3000/checker.html");
+  console.log("2. Open: http://localhost:3000/standalone/checker.html");
   console.log("3. Click 'Register New User' or 'Login' to test WebAuthn");
   console.log("\n✅ Test suite validated (skipped in Node.js)\n");
 }

@@ -551,15 +551,22 @@ console.log(gamingWallet.address === wallet2.address) // true
 
 #### Helper Functions
 
-##### `deriveIndexFromOriginAndTag(origin: string, tag?: string): Promise<number>`
+##### `deriveIndexFromOriginModeAndTag(origin: string, mode?: SecurityMode, tag?: string): Promise<number>`
 
-Derives deterministic index from origin and tag.
+Derives deterministic index from origin, security mode, and tag.
+
+**Parameters:**
+- `origin: string` - The origin URL (e.g., "https://example.com")
+- `mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
+- `tag?: string` - Optional tag to generate different addresses for same origin (default: "MAIN")
+
+**Returns:** `Promise<number>` - Deterministic BIP32 index (0 to 2^31-1)
 
 **Example:**
 ```typescript
-import { deriveIndexFromOriginAndTag } from 'w3pk'
+import { deriveIndexFromOriginModeAndTag } from 'w3pk'
 
-const index = await deriveIndexFromOriginAndTag('https://example.com', 'GAMING')
+const index = await deriveIndexFromOriginModeAndTag('https://example.com', 'YOLO', 'GAMING')
 console.log('Index:', index) // 1870479373
 ```
 
@@ -585,6 +592,73 @@ import { getCurrentOrigin } from 'w3pk'
 
 const origin = getCurrentOrigin()
 console.log('Current origin:', origin) // e.g., 'https://app.example.com'
+```
+
+---
+
+##### `deriveAddressFromP256PublicKey(publicKeySpki: string): Promise<string>`
+
+Derive Ethereum address from P-256 public key (EIP-7951 compatible).
+
+This is used internally for PRIMARY mode to derive addresses directly from WebAuthn passkey public keys.
+
+**Parameters:**
+- `publicKeySpki: string` - Public key in SPKI format (base64url encoded)
+
+**Returns:** `Promise<string>` - Ethereum address (0x-prefixed)
+
+**How it works:**
+1. Decodes base64url SPKI public key
+2. Extracts x and y coordinates from P-256 public key
+3. Creates uncompressed public key (64 bytes: x || y)
+4. Hashes with keccak256
+5. Takes last 20 bytes as Ethereum address
+
+**Example:**
+```typescript
+import { deriveAddressFromP256PublicKey } from 'w3pk'
+
+// Public key from WebAuthn credential (base64url SPKI format)
+const publicKeySpki = 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...'
+
+const address = await deriveAddressFromP256PublicKey(publicKeySpki)
+console.log('P-256 address:', address) // 0x...
+```
+
+**Use Cases:**
+- PRIMARY mode address derivation
+- EIP-7951 account abstraction wallets
+- WebAuthn-native smart contract wallets
+- Passkey-first authentication without seed phrases
+
+**Related:**
+- See [EIP-7951 Implementation Guide](../docs/EIP-7951.md) (if exists)
+- Used by `getAddress('PRIMARY')` and `deriveWallet('PRIMARY')`
+
+---
+
+##### `DEFAULT_MODE: SecurityMode`
+
+Default security mode constant (`'STANDARD'`).
+
+**Example:**
+```typescript
+import { DEFAULT_MODE } from 'w3pk'
+
+console.log(DEFAULT_MODE) // 'STANDARD'
+```
+
+---
+
+##### `DEFAULT_TAG: string`
+
+Default derivation tag constant (`'MAIN'`).
+
+**Example:**
+```typescript
+import { DEFAULT_TAG } from 'w3pk'
+
+console.log(DEFAULT_TAG) // 'MAIN'
 ```
 
 ---
@@ -1008,6 +1082,159 @@ console.log('Delegation revoked!')
 - [EIP-7702 Complete Guide](../docs/EIP_7702.md)
 - [EIP-7702 Specification](https://eips.ethereum.org/EIPS/eip-7702)
 - [Integration Examples](../examples/eip7702-authorization.ts)
+
+---
+
+### `requestExternalWalletDelegation(params: { chainId?: number; nonce?: bigint }): Promise<EIP7702Authorization>`
+
+Request user to sign an EIP-7702 authorization using an external wallet (MetaMask, Rabby, etc.) to delegate their account to the current w3pk account.
+
+This is a high-level convenience method that handles the entire flow of getting the user's w3pk address and requesting the external wallet to sign the delegation authorization.
+
+**Parameters:**
+
+```typescript
+params: {
+  chainId?: number;   // Chain ID for the authorization (default: 1)
+  nonce?: bigint;     // Nonce for the authorization (default: 0n)
+}
+```
+
+**Returns:** `EIP7702Authorization` - The signed authorization from the external wallet
+
+**Use Cases:**
+- Delegate external wallet accounts (MetaMask, Ledger, etc.) to w3pk for WebAuthn control
+- Delegate ENS-linked addresses to w3pk for identity preservation
+- Upgrade existing wallets to WebAuthn security without losing identity
+- Enable gasless transactions for external wallet accounts
+- Combine external wallet assets with w3pk's WebAuthn security
+
+**Example:**
+
+```typescript
+import { createWeb3Passkey } from 'w3pk'
+
+const w3pk = createWeb3Passkey()
+await w3pk.register({ username: 'alice' })
+
+// User signs with external wallet to delegate their account to w3pk
+const authorization = await w3pk.requestExternalWalletDelegation({
+  chainId: 1,
+  nonce: 0n
+})
+
+console.log('External wallet authorized:', authorization)
+// { chainId: 1n, address: '0x...w3pk...', nonce: 0n, yParity: 1, r: '0x...', s: '0x...' }
+
+// Include in transaction to activate delegation
+import { walletClient } from 'viem'
+const hash = await walletClient.sendTransaction({
+  to: w3pkAddress,
+  value: 0n,
+  authorizationList: [authorization]
+})
+
+// Now external wallet account is controlled by w3pk WebAuthn!
+```
+
+**What happens:**
+1. Gets current w3pk account address (STANDARD + MAIN)
+2. Detects external wallet provider (MetaMask, Rabby, etc.)
+3. Requests user to sign EIP-7702 authorization
+4. Returns authorization ready to include in transaction
+
+**Security:**
+- User must explicitly approve in their external wallet
+- Authorization signature is verified before returning
+- Only delegates to the current w3pk account address
+- Delegation is permanent until revoked
+
+**Related:**
+- See [EIP_7702.md External Wallets](../docs/EIP_7702.md#external-wallets) for complete guide
+- See [examples/ens-to-w3pk-delegation.ts](../examples/ens-to-w3pk-delegation.ts) for integration patterns
+
+---
+
+### `requestExternalWalletAuthorization(provider: EIP1193Provider, params: ExternalWalletAuthParams): Promise<EIP7702Authorization>`
+
+Low-level API to request an external wallet to sign an EIP-7702 authorization. Use this when you need full control over the provider and parameters.
+
+**Parameters:**
+
+```typescript
+interface EIP1193Provider {
+  request(args: { method: string; params?: any[] }): Promise<any>
+  on?(event: string, handler: (...args: any[]) => void): void
+  removeListener?(event: string, handler: (...args: any[]) => void): void
+}
+
+params: {
+  delegateToAddress: string;  // Address to delegate to (w3pk or any address)
+  chainId?: number;           // Chain ID (default: 1)
+  nonce?: bigint;             // Nonce (default: 0n)
+  accountIndex?: number;      // Account index in wallet (default: 0)
+}
+```
+
+**Returns:** `EIP7702Authorization`
+
+**Example:**
+
+```typescript
+import { requestExternalWalletAuthorization } from 'w3pk'
+
+// Get w3pk account
+const w3pkAddress = await w3pk.getAddress()
+
+// Request MetaMask to sign authorization
+const authorization = await requestExternalWalletAuthorization(
+  window.ethereum,
+  {
+    delegateToAddress: w3pkAddress,
+    chainId: 1,
+    nonce: 0n,
+    accountIndex: 0  // Use first MetaMask account
+  }
+)
+
+console.log('Authorization:', authorization)
+```
+
+**Use Cases:**
+- Custom provider configuration
+- Non-browser environments
+- Multiple account delegation
+- Integration with wallet SDKs
+
+**Wallet Detection Utilities:**
+
+```typescript
+import {
+  getDefaultProvider,
+  detectWalletProvider,
+  supportsEIP7702Authorization
+} from 'w3pk'
+
+// Get default provider
+const provider = getDefaultProvider()
+if (!provider) {
+  console.error('No wallet detected')
+}
+
+// Detect wallet type
+const walletName = detectWalletProvider(provider)
+console.log('Wallet:', walletName) // "MetaMask", "Rabby", etc.
+
+// Check EIP-7702 support
+const supported = await supportsEIP7702Authorization(provider)
+if (!supported) {
+  console.warn('Wallet may not support signing')
+}
+```
+
+**Related:**
+- See [EIP_7702.md External Wallets](../docs/EIP_7702.md#external-wallets) for integration patterns
+- See [examples/ens-to-w3pk-delegation.ts](../examples/ens-to-w3pk-delegation.ts) for usage examples
 
 ---
 
@@ -1757,25 +1984,29 @@ console.log('Social recovery:', status.socialRecovery?.enabled)
 
 ---
 
-### `createQRBackup(password?: string, options?: QRBackupOptions): Promise<QRBackupResult>`
+### `createBackupFile(encryptionType?: 'password' | 'passkey' | 'hybrid', password?: string): Promise<{ blob: Blob; filename: string }>`
 
-Create QR code backup for easy recovery.
+Create simplified backup file for wallet recovery.
+
+This backup can be used to:
+- Restore wallet with existing passkey
+- Register new passkey with this wallet
+- Sync wallet across devices
+- Split among guardians for social recovery
 
 **Parameters:**
-- `password?: string` - Optional password to encrypt QR code
-- `options?: QRBackupOptions`
-  ```typescript
-  interface QRBackupOptions {
-    errorCorrection?: 'L' | 'M' | 'Q' | 'H';  // QR error correction level (default: 'M')
-  }
-  ```
+- `encryptionType?: 'password' | 'passkey' | 'hybrid'` - Encryption method (default: 'password')
+  - **'password'**: Encrypted with password only - can be restored on any device with password
+  - **'passkey'**: Encrypted with passkey - can be restored on devices where passkey is synced
+  - **'hybrid'**: Encrypted with both password AND passkey - maximum security
+- `password?: string` - Required for 'password' and 'hybrid' encryption
 
 **Returns:**
 
 ```typescript
-interface QRBackupResult {
-  qrCodeDataURL: string;  // Data URL for QR code image
-  instructions: string;   // Recovery instructions text
+{
+  blob: Blob;       // Backup file as downloadable Blob
+  filename: string; // Suggested filename for download
 }
 ```
 
@@ -1784,16 +2015,21 @@ interface QRBackupResult {
 **Example:**
 
 ```typescript
-const { qrCodeDataURL, instructions } = await w3pk.createQRBackup('password', {
-  errorCorrection: 'H'
-})
+// Password-encrypted backup (default)
+const { blob, filename } = await w3pk.createBackupFile('password', 'MySecurePassword123!')
 
-// Display QR code
-const img = document.createElement('img')
-img.src = qrCodeDataURL
-document.body.appendChild(img)
+// Download the backup
+const url = URL.createObjectURL(blob)
+const a = document.createElement('a')
+a.href = url
+a.download = filename
+a.click()
 
-console.log(instructions)
+// Passkey-encrypted backup (only works on devices where passkey is synced)
+const passkeyBackup = await w3pk.createBackupFile('passkey')
+
+// Hybrid backup (both password and passkey required)
+const hybridBackup = await w3pk.createBackupFile('hybrid', 'MySecurePassword123!')
 ```
 
 ---
@@ -1905,18 +2141,24 @@ await w3pk.importMnemonic(mnemonic)
 
 ---
 
-### `restoreFromQR(qrData: string, password?: string): Promise<RecoveryResult>`
+### `restoreFromBackupFile(backupData: string | Blob, password?: string): Promise<{ mnemonic: string; ethereumAddress: string }>`
 
-Restore wallet from QR code backup.
+Restore wallet from backup file with existing passkey.
+
+**Use case:** User has passkey synced to this device and wants to restore wallet from backup.
+
+After restoration, the wallet is automatically associated with the current logged-in user. If not logged in, you can either:
+- Call `importMnemonic()` to associate with current user
+- Call `registerWithBackupFile()` to create new passkey for this wallet
 
 **Parameters:**
-- `qrData: string` - Scanned QR code data (JSON string)
-- `password?: string` - Optional password if QR was encrypted
+- `backupData: string | Blob` - Backup file (JSON string or Blob)
+- `password?: string` - Password (required for password/hybrid encrypted backups)
 
 **Returns:**
 
 ```typescript
-interface RecoveryResult {
+{
   mnemonic: string;
   ethereumAddress: string;
 }
@@ -1925,15 +2167,63 @@ interface RecoveryResult {
 **Example:**
 
 ```typescript
-// Scan QR code
-const qrData = '...' // From QR scanner
+// User is logged in with passkey
+await w3pk.login()
 
-const { mnemonic, ethereumAddress } = await w3pk.restoreFromQR(qrData, 'password')
-console.log('Wallet restored:', ethereumAddress)
+// Restore from backup file
+const backupData = '...' // From file upload or QR scanner
 
-// Import the mnemonic
-await w3pk.importMnemonic(mnemonic)
+// Password-encrypted backup
+const result = await w3pk.restoreFromBackupFile(backupData, 'MyPassword123!')
+console.log('Wallet restored:', result.ethereumAddress)
+// Wallet is automatically associated with current user
+
+// Passkey-encrypted backup (no password needed)
+const result2 = await w3pk.restoreFromBackupFile(backupData)
+console.log('Wallet restored:', result2.ethereumAddress)
 ```
+
+---
+
+### `registerWithBackupFile(backupData: string | Blob, password: string, username: string): Promise<{ address: string; username: string }>`
+
+Register new passkey with wallet from backup file.
+
+**Use case:** Fresh device, user has backup file but no passkey yet. This creates a NEW passkey and associates it with the wallet from the backup.
+
+**Parameters:**
+- `backupData: string | Blob` - Backup file (JSON string or Blob)
+- `password: string` - Password to decrypt the backup
+- `username: string` - Username for the new passkey
+
+**Returns:**
+
+```typescript
+{
+  address: string;
+  username: string;
+}
+```
+
+**Example:**
+
+```typescript
+// Fresh device, no passkey yet
+const backupData = '...' // From file upload
+
+// Create new passkey from backup
+const { address, username } = await w3pk.registerWithBackupFile(
+  backupData,
+  'MyPassword123!',
+  'alice'
+)
+
+console.log('New passkey created for:', username)
+console.log('Address:', address)
+// User is now logged in and can use the wallet
+```
+
+**Note:** Only works with password-encrypted backups. For passkey-encrypted backups, use `restoreFromBackupFile()` instead.
 
 ---
 
@@ -1992,6 +2282,81 @@ if (capabilities.platform === 'apple') {
 }
 
 console.log('Estimated devices:', capabilities.estimatedDevices)
+```
+
+---
+
+### `exportForSync(): Promise<{ blob: Blob; filename: string; qrCode?: string }>`
+
+Export wallet for syncing to another device.
+
+Uses passkey encryption so it works on devices where the passkey is synced.
+
+**Use case:** User wants to sync wallet to another device that has the same passkey.
+
+**Returns:**
+
+```typescript
+{
+  blob: Blob;        // Sync file as downloadable Blob
+  filename: string;  // Suggested filename
+  qrCode?: string;   // Optional QR code data URL
+}
+```
+
+**Security:** Forces fresh authentication
+
+**Example:**
+
+```typescript
+const { blob, filename, qrCode } = await w3pk.exportForSync()
+
+// Download sync file
+const url = URL.createObjectURL(blob)
+const a = document.createElement('a')
+a.href = url
+a.download = filename
+a.click()
+
+// Or display QR code for scanning on another device
+if (qrCode) {
+  const img = document.createElement('img')
+  img.src = qrCode
+  document.body.appendChild(img)
+}
+```
+
+---
+
+### `importFromSync(syncData: string | Blob): Promise<{ ethereumAddress: string; success: boolean }>`
+
+Import wallet from another device (sync wallet to this device).
+
+**Use case:** User has passkey on both devices, wallet only on one.
+
+**Parameters:**
+- `syncData: string | Blob` - Sync file data
+
+**Returns:**
+
+```typescript
+{
+  ethereumAddress: string;
+  success: boolean;
+}
+```
+
+**Example:**
+
+```typescript
+// User must be logged in first
+await w3pk.login()
+
+// Import from sync file
+const syncData = '...' // From file upload or QR scan
+
+const result = await w3pk.importFromSync(syncData)
+console.log('Wallet synced:', result.ethereumAddress)
 ```
 
 ---
@@ -2696,13 +3061,20 @@ if (canControl) {
 
 ### Chainlist Utilities
 
+These utilities are available both as standalone functions and as SDK instance methods.
+
 ```typescript
+// Import as standalone functions
 import {
   getEndpoints,
   getAllChains,
   getChainById,
   clearCache
-} from 'w3pk/chainlist'
+} from 'w3pk'
+
+// OR use as SDK instance methods
+const endpoints = await w3pk.getEndpoints(1)
+const supported = await w3pk.supportsEIP7702(1)
 ```
 
 #### `getEndpoints(chainId: number, options?: ChainlistOptions): Promise<string[]>`
@@ -2861,6 +3233,109 @@ import type {
   ChainlistOptions,
   EIP7702Options
 } from 'w3pk'
+```
+
+---
+
+## Education & Recovery Testing
+
+### `getEducation(topic: string): Promise<any>`
+
+Get educational content by topic.
+
+**Parameters:**
+- `topic: string` - Topic name (e.g., "passkey-sync", "backup-methods", "social-recovery")
+
+**Returns:** Educational content object for the specified topic
+
+**Example:**
+
+```typescript
+const explainer = await w3pk.getEducation('passkey-sync')
+console.log(explainer.title)
+console.log(explainer.content)
+console.log(explainer.examples)
+```
+
+**Available Topics:**
+- Use `getAllTopics()` standalone function to get list of all topics
+- Use `searchExplainers(query)` standalone function to search topics
+
+---
+
+### `simulateRecoveryScenario(scenario: RecoveryScenario): Promise<SimulationResult>`
+
+Simulate recovery scenario to test backup preparedness.
+
+**Parameters:**
+
+```typescript
+interface RecoveryScenario {
+  type: "lost-device" | "lost-phrase" | "lost-both" | "switch-platform";
+  description: string;
+}
+```
+
+**Returns:**
+
+```typescript
+interface SimulationResult {
+  canRecover: boolean;
+  methods: string[];
+  recommendations: string[];
+  risks: string[];
+}
+```
+
+**Example:**
+
+```typescript
+const result = await w3pk.simulateRecoveryScenario({
+  type: 'lost-device',
+  description: 'Phone dropped in water, device destroyed'
+})
+
+console.log('Can recover:', result.canRecover)
+console.log('Recovery methods:', result.methods)
+console.log('Recommendations:', result.recommendations)
+```
+
+---
+
+### `runRecoveryTest(): Promise<{ scenarios: any[]; overallScore: number; feedback: string }>`
+
+Run interactive recovery test across multiple scenarios.
+
+Tests wallet recovery preparedness by simulating various disaster scenarios.
+
+**Returns:**
+
+```typescript
+{
+  scenarios: Array<{
+    name: string;
+    canRecover: boolean;
+    methods: string[];
+  }>;
+  overallScore: number;    // 0-100
+  feedback: string;        // Personalized recommendations
+}
+```
+
+**Example:**
+
+```typescript
+const test = await w3pk.runRecoveryTest()
+
+console.log('Overall Score:', test.overallScore, '/ 100')
+console.log('Feedback:', test.feedback)
+
+test.scenarios.forEach(scenario => {
+  console.log(`${scenario.name}: ${scenario.canRecover ? '✅' : '❌'}`)
+  if (scenario.canRecover) {
+    console.log('  Methods:', scenario.methods.join(', '))
+  }
+})
 ```
 
 ---

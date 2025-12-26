@@ -47,6 +47,7 @@ const endpoints = await w3pk.getEndpoints(1)
 - ZK primitives (zero-knowledge proof generation and verification)
 - Chainlist support (2390+ networks)
 - EIP-7702 network detection (329+ networks)
+- External wallet integration (delegate MetaMask/Ledger to w3pk via EIP-7702)
 - EIP-7951 PRIMARY mode (P-256 passkey signing)
 - Build verification (IPFS CIDv1 hashing)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
@@ -193,6 +194,13 @@ const authorization = await w3pk.signAuthorization({
   nonce: 0n
 })
 // Returns: { chainId, address, nonce, yParity, r, s }
+
+// Delegate external wallet (MetaMask, Ledger, etc.) to w3pk account
+const auth = await w3pk.requestExternalWalletDelegation({
+  chainId: 1,
+  nonce: 0n
+})
+// User's external wallet account now controlled by w3pk WebAuthn
 ```
 
 ### EIP-7951 PRIMARY Mode
@@ -322,6 +330,7 @@ if (!isValid) {
 - [EIP-7951](./docs/EIP-7951.md)
 - [Security Architecture](./docs/SECURITY.md)
 - [Recovery & Backup System](./docs/RECOVERY.md)
+- [Portability Guide](./docs/PORTABILITY.md)
 - [ZK Proofs](./docs/ZK.md)
 - [Browser Compatibility](./docs/BROWSER_COMPATIBILITY.md)
 

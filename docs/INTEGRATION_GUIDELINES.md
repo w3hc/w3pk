@@ -4,10 +4,131 @@ This guide covers essential best practices for integrating w3pk into your applic
 
 ## Table of Contents
 
+- [Public API vs Internal Implementation](#public-api-vs-internal-implementation)
 - [Wallet Derivation Strategy](#wallet-derivation-strategy)
+- [External Wallet Integration](#external-wallet-integration)
 - [Registration Flow](#registration-flow)
 - [Backup & Recovery](#backup--recovery)
 - [Security Considerations](#security-considerations)
+
+---
+
+## Public API vs Internal Implementation
+
+### Always Use the SDK Methods
+
+w3pk provides a clean public API through the `Web3Passkey` class. **Always use these SDK methods** in your application:
+
+```typescript
+import { createWeb3Passkey } from 'w3pk'
+
+const w3pk = createWeb3Passkey()
+await w3pk.login()
+
+// ✅ Use these SDK methods
+await w3pk.signMessage('Hello World')
+await w3pk.signAuthorization({ contractAddress: '0x...', chainId: 1 })
+await w3pk.deriveWallet()
+await w3pk.getAddress()
+```
+
+### Don't Import Internal Classes
+
+Internal implementation classes like `WalletSigner`, `SessionManager`, `IndexedDBWalletStorage`, etc. are **not part of the public API** and may change without notice:
+
+```typescript
+// ❌ Don't do this - internal APIs
+import { WalletSigner } from 'w3pk/wallet/signing'
+import { SessionManager } from 'w3pk/core/session'
+import { IndexedDBWalletStorage } from 'w3pk/wallet/storage'
+
+// ✅ Do this instead - public SDK API
+import { createWeb3Passkey } from 'w3pk'
+const w3pk = createWeb3Passkey()
+```
+
+### Why This Matters
+
+**For `signAuthorization` specifically:**
+- There are **two implementations** in the codebase:
+  - `WalletSigner.signAuthorization()` - Internal low-level utility
+  - `Web3Passkey.signAuthorization()` - Public SDK method
+- **Always use the SDK version** (`w3pk.signAuthorization()`)
+- The SDK version handles:
+  - Session management automatically
+  - Authentication prompts when needed
+  - Support for derived/stealth addresses
+  - Signature verification before returning
+  - Error handling and callbacks
+
+**Example - Correct Usage:**
+
+```typescript
+const w3pk = createWeb3Passkey()
+await w3pk.login()
+
+// ✅ Correct - uses SDK method with session management
+const auth = await w3pk.signAuthorization({
+  contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
+  chainId: 1,
+  nonce: 0n
+})
+
+// ✅ Works with derived addresses too
+const derived = await w3pk.deriveWallet('YOLO', 'GAMING')
+const auth2 = await w3pk.signAuthorization({
+  contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
+  chainId: 1,
+  privateKey: derived.privateKey  // Sign from derived address
+})
+```
+
+**Example - Incorrect Usage:**
+
+```typescript
+// ❌ Don't use internal WalletSigner class directly
+import { WalletSigner } from 'w3pk/wallet/signing'
+import { IndexedDBWalletStorage } from 'w3pk/wallet/storage'
+
+const storage = new IndexedDBWalletStorage()
+const signer = new WalletSigner(storage)
+
+// This bypasses session management and requires manual credential handling
+await signer.signAuthorization(
+  ethereumAddress,
+  { contractAddress: '0x...', chainId: 1 },
+  credentialId,    // You have to manage this yourself
+  challenge        // You have to generate this yourself
+)
+```
+
+### Public API Surface
+
+**Core Methods:**
+- `register()` - Create new wallet
+- `login()` - Authenticate with passkey
+- `logout()` - Clear session
+- `deriveWallet()` - Get origin-specific wallet
+- `getAddress()` - Get address for mode/tag
+
+**Signing Methods:**
+- `signMessage()` - Sign with EIP-191, SIWE, EIP-712, or rawHash
+- `signMessageWithPasskey()` - Sign with WebAuthn P-256 (PRIMARY mode)
+- `signAuthorization()` - Sign EIP-7702 authorization
+
+**Backup & Recovery:**
+- `createBackupFile()` - Create encrypted backup
+- `restoreFromBackupFile()` - Restore from backup
+- `setupSocialRecovery()` - Split backup among guardians
+- `recoverFromGuardians()` - Recover from guardian shares
+
+**Utility Methods:**
+- `hasExistingCredential()` - Check if wallet exists
+- `listExistingCredentials()` - List all wallets on device
+- `getBackupStatus()` - Check backup coverage
+- `hasActiveSession()` - Check session status
+
+**Complete list:** See [API Reference](./API_REFERENCE.md)
 
 ---
 
@@ -105,6 +226,426 @@ console.log(yolo.address !== gaming.address)        // true (different tags)
 | Gaming (low value) | YOLO mode |
 | Social features | YOLO mode |
 | Testing/development | YOLO mode |
+
+---
+
+## External Wallet Integration
+
+### Why Allow External Wallet Signing?
+
+Users often have existing wallets (MetaMask, Rabby, Rainbow, etc.) that hold valuable assets (NFTs, tokens). W3PK allows users to link these external wallets using EIP-7702 delegation, enabling them to use those assets within your app **without transferring them**.
+
+**Key Benefits:**
+- **No asset transfers**: NFTs/tokens stay in user's external wallet
+- **Maintained custody**: Users keep full control of their assets
+- **Reversible**: Users can revoke delegation at any time
+- **Better UX**: No need to move assets between wallets
+
+### Integration Pattern
+
+To integrate external wallet linking, you need to:
+1. Setup the delegation authorization using w3pk SDK
+2. Have the user sign it with their external wallet (MetaMask, Rabby, etc.)
+3. Execute the delegation on-chain
+
+### Step 1: Setup Delegation Authorization
+
+```typescript
+import { W3PK } from 'w3pk-sdk'
+
+// Initialize w3pk SDK
+const sdk = new W3PK({
+  credentialName: 'MyApp',
+  rpcUrl: 'https://your-rpc-url',
+  walletType: 'STANDARD+MAIN'
+})
+
+// User's external wallet address (e.g., their MetaMask address)
+const externalWalletAddress = '0x1234...' // Address that holds the NFT
+
+// Setup the delegation - this creates the EIP-7702 authorization data
+const authorizationData = await sdk.setupExternalWalletDelegation(externalWalletAddress)
+
+// authorizationData contains the typed data structure to be signed
+console.log(authorizationData)
+// {
+//   chainId: 1,
+//   address: '0x1234...',
+//   nonce: 0n,
+//   authorizationList: [...]
+// }
+```
+
+### Step 2: Connect External Wallet and Get Signature
+
+Now you need to integrate with external wallet providers to get the user's signature. Here are examples for common providers:
+
+#### Option A: Using ethers.js with MetaMask/injected wallet
+
+```typescript
+import { BrowserProvider } from 'ethers'
+
+async function signWithExternalWallet(authorizationData: any) {
+  // Connect to MetaMask/Rabby/any injected wallet
+  if (!window.ethereum) {
+    throw new Error('No wallet extension found. Please install MetaMask or Rabby.')
+  }
+
+  const provider = new BrowserProvider(window.ethereum)
+
+  // Request account access
+  await provider.send('eth_requestAccounts', [])
+  const signer = await provider.getSigner()
+
+  // Verify the address matches
+  const address = await signer.getAddress()
+  if (address.toLowerCase() !== externalWalletAddress.toLowerCase()) {
+    throw new Error('Connected wallet address does not match the target address')
+  }
+
+  // Sign the EIP-7702 authorization
+  // Note: The authorization data from setupExternalWalletDelegation is already formatted
+  const signature = await signer.signTypedData(
+    authorizationData.domain,
+    authorizationData.types,
+    authorizationData.message
+  )
+
+  return {
+    ...authorizationData,
+    signature
+  }
+}
+```
+
+#### Option B: Using wagmi (recommended for React apps)
+
+```typescript
+import { useSignTypedData, useAccount } from 'wagmi'
+
+function ExternalWalletLinker() {
+  const { address: connectedAddress } = useAccount()
+  const { signTypedDataAsync } = useSignTypedData()
+
+  async function linkExternalWallet(externalAddress: string) {
+    // 1. Setup authorization with w3pk
+    const authData = await sdk.setupExternalWalletDelegation(externalAddress)
+
+    // 2. Verify connected wallet matches
+    if (connectedAddress?.toLowerCase() !== externalAddress.toLowerCase()) {
+      throw new Error('Please connect the wallet you want to link')
+    }
+
+    // 3. Sign with external wallet
+    const signature = await signTypedDataAsync({
+      domain: authData.domain,
+      types: authData.types,
+      primaryType: authData.primaryType,
+      message: authData.message
+    })
+
+    // 4. Execute delegation
+    const txHash = await sdk.executeExternalWalletDelegation({
+      ...authData,
+      signature
+    })
+
+    return txHash
+  }
+
+  return (
+    <button onClick={() => linkExternalWallet('0x1234...')}>
+      Link External Wallet
+    </button>
+  )
+}
+```
+
+#### Option C: Using RainbowKit (best UX for multiple wallets)
+
+```typescript
+import { useWalletClient, useAccount } from 'wagmi'
+import { signTypedData } from '@wagmi/core'
+
+async function linkWithRainbowKit(externalAddress: string) {
+  const { address } = useAccount()
+
+  // Setup authorization
+  const authData = await sdk.setupExternalWalletDelegation(externalAddress)
+
+  // Verify address
+  if (address?.toLowerCase() !== externalAddress.toLowerCase()) {
+    throw new Error('Connected wallet does not match')
+  }
+
+  // Sign with RainbowKit's connected wallet
+  const signature = await signTypedData({
+    domain: authData.domain,
+    types: authData.types,
+    primaryType: authData.primaryType,
+    message: authData.message
+  })
+
+  // Execute delegation
+  return await sdk.executeExternalWalletDelegation({
+    ...authData,
+    signature
+  })
+}
+```
+
+### Step 3: Execute the Delegation
+
+Once you have the signed authorization, execute it on-chain:
+
+```typescript
+// The executeExternalWalletDelegation method submits the signed authorization
+const txHash = await sdk.executeExternalWalletDelegation(signedAuthorization)
+
+console.log('Delegation transaction:', txHash)
+
+// Wait for confirmation
+await provider.waitForTransaction(txHash)
+
+// Verify delegation is active
+const isDelegated = await sdk.verifyExternalWalletDelegation(externalWalletAddress)
+console.log('Is delegated:', isDelegated) // true
+```
+
+### Complete Example: Full Integration Flow
+
+```typescript
+import { W3PK } from 'w3pk-sdk'
+import { BrowserProvider } from 'ethers'
+
+class ExternalWalletManager {
+  private sdk: W3PK
+
+  constructor() {
+    this.sdk = new W3PK({
+      credentialName: 'MyApp',
+      rpcUrl: 'https://mainnet.infura.io/v3/YOUR_KEY',
+      walletType: 'STANDARD+MAIN'
+    })
+  }
+
+  /**
+   * Link an external wallet (MetaMask, Rabby, etc.) to the user's w3pk wallet
+   */
+  async linkExternalWallet(externalAddress: string): Promise<string> {
+    try {
+      // Step 1: Setup the delegation authorization
+      const authData = await this.sdk.setupExternalWalletDelegation(externalAddress)
+
+      // Step 2: Connect to external wallet
+      if (!window.ethereum) {
+        throw new Error('Please install MetaMask or another Web3 wallet')
+      }
+
+      const provider = new BrowserProvider(window.ethereum)
+      await provider.send('eth_requestAccounts', [])
+      const signer = await provider.getSigner()
+
+      // Verify address matches
+      const connectedAddress = await signer.getAddress()
+      if (connectedAddress.toLowerCase() !== externalAddress.toLowerCase()) {
+        throw new Error(
+          `Please switch to the wallet you want to link: ${externalAddress}`
+        )
+      }
+
+      // Step 3: Sign the authorization with external wallet
+      const signature = await signer.signTypedData(
+        authData.domain,
+        authData.types,
+        authData.message
+      )
+
+      // Step 4: Execute the delegation on-chain
+      const txHash = await this.sdk.executeExternalWalletDelegation({
+        ...authData,
+        signature
+      })
+
+      console.log('✅ External wallet linked! Transaction:', txHash)
+      return txHash
+
+    } catch (error) {
+      console.error('Failed to link external wallet:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Verify if an external wallet is currently delegated
+   */
+  async checkDelegationStatus(address: string): Promise<boolean> {
+    return await this.sdk.verifyExternalWalletDelegation(address)
+  }
+
+  /**
+   * Revoke delegation for an external wallet
+   */
+  async unlinkExternalWallet(address: string): Promise<string> {
+    const txHash = await this.sdk.revokeExternalWalletDelegation(address)
+    console.log('✅ Delegation revoked! Transaction:', txHash)
+    return txHash
+  }
+}
+
+// Usage in your app
+const walletManager = new ExternalWalletManager()
+
+// Link user's MetaMask wallet
+const txHash = await walletManager.linkExternalWallet('0x742d35Cc...')
+
+// Check if it's delegated
+const isDelegated = await walletManager.checkDelegationStatus('0x742d35Cc...')
+
+// Revoke when done
+await walletManager.unlinkExternalWallet('0x742d35Cc...')
+```
+
+### UI/UX Best Practices
+
+#### 1. Clear Communication
+
+Explain to users what delegation means:
+
+```typescript
+function LinkWalletModal({ onLink }: { onLink: () => void }) {
+  return (
+    <div className="modal">
+      <h2>Link Your MetaMask Wallet</h2>
+      <p>
+        This allows your w3pk wallet to use NFTs and tokens from your MetaMask wallet
+        without transferring them.
+      </p>
+      <ul>
+        <li>✅ Your assets stay in your MetaMask wallet</li>
+        <li>✅ You maintain full control</li>
+        <li>✅ You can revoke access at any time</li>
+        <li>✅ No transaction fees to link</li>
+      </ul>
+      <button onClick={onLink}>Link Wallet</button>
+    </div>
+  )
+}
+```
+
+#### 2. Address Verification
+
+Show users which address they're linking:
+
+```tsx
+function AddressConfirmation({ address }: { address: string }) {
+  const { address: connectedAddress } = useAccount()
+  const isCorrect = connectedAddress?.toLowerCase() === address.toLowerCase()
+
+  return (
+    <div>
+      <p>Linking wallet: <code>{address}</code></p>
+      {!isCorrect && (
+        <div className="warning">
+          ⚠️ Connected wallet ({connectedAddress}) doesn't match.
+          Please switch wallets in MetaMask.
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+#### 3. Show Delegation Status
+
+```typescript
+function WalletStatus({ address }: { address: string }) {
+  const [isDelegated, setIsDelegated] = useState(false)
+
+  useEffect(() => {
+    sdk.verifyExternalWalletDelegation(address)
+      .then(setIsDelegated)
+  }, [address])
+
+  return (
+    <div>
+      {isDelegated ? (
+        <span className="badge-success">✅ Linked</span>
+      ) : (
+        <span className="badge-neutral">Not Linked</span>
+      )}
+    </div>
+  )
+}
+```
+
+#### 4. Handle Signature Rejection
+
+```typescript
+try {
+  const signature = await signer.signTypedData(...)
+} catch (error) {
+  if (error.code === 'ACTION_REJECTED') {
+    // User rejected the signature
+    showNotification('You cancelled the linking. Please try again when ready.')
+  } else {
+    // Other error
+    showError('Failed to link wallet: ' + error.message)
+  }
+}
+```
+
+### Security Considerations
+
+1. **Always verify addresses**: Ensure connected wallet matches the target address
+2. **Explain delegation clearly**: Users should understand what they're authorizing
+3. **Show active delegations**: Let users see which wallets are currently linked
+4. **Easy revocation**: Make it simple to revoke delegation
+5. **Chain-specific**: Delegation is per-chain; linking on mainnet doesn't affect other chains
+
+### Testing Your Integration
+
+```typescript
+// Test with a local testnet
+const sdk = new W3PK({
+  rpcUrl: 'http://localhost:8545', // Local Anvil/Hardhat
+  walletType: 'STANDARD+MAIN'
+})
+
+// Test flow:
+// 1. Link a test wallet
+const txHash = await linkExternalWallet(testAddress)
+
+// 2. Verify delegation
+const isDelegated = await sdk.verifyExternalWalletDelegation(testAddress)
+console.assert(isDelegated === true)
+
+// 3. Use the delegated wallet (transfer NFT, etc.)
+// ... your app logic ...
+
+// 4. Revoke
+await sdk.revokeExternalWalletDelegation(testAddress)
+
+// 5. Verify revocation
+const isStillDelegated = await sdk.verifyExternalWalletDelegation(testAddress)
+console.assert(isStillDelegated === false)
+```
+
+### Common Issues and Solutions
+
+**Issue: "User rejected the request"**
+- Solution: User cancelled the signature in their wallet. Allow them to retry.
+
+**Issue: "Wrong address connected"**
+- Solution: Check connected address matches target address before requesting signature.
+
+**Issue: "Transaction failed"**
+- Solution: Ensure the w3pk wallet has enough ETH to pay for gas.
+
+**Issue: "Network mismatch"**
+- Solution: Verify both wallets are on the same network (e.g., both on mainnet).
+
+For more details on EIP-7702 and external wallet integration, see [EIP_7702.md](./EIP_7702.md) and [PORTABILITY.md](./PORTABILITY.md).
 
 ---
 

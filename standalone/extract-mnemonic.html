@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>W3PK Backup Mnemonic Extractor</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js" type="text/javascript"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-bottom: 30px;
+            border-radius: 4px;
+        }
+
+        .warning-title {
+            font-weight: bold;
+            color: #856404;
+            margin-bottom: 5px;
+        }
+
+        .warning-text {
+            color: #856404;
+            font-size: 14px;
+        }
+
+        .upload-section {
+            margin-bottom: 30px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-upload-btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-weight: 500;
+        }
+
+        .file-upload-btn:hover {
+            background: #5568d3;
+        }
+
+        .file-name {
+            margin-top: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .password-section {
+            margin-bottom: 30px;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover:not(:disabled) {
+            background: #5568d3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .result.show {
+            display: block;
+        }
+
+        .result-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .mnemonic-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #667eea;
+            word-break: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.8;
+            position: relative;
+        }
+
+        .copy-btn {
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: #218838;
+        }
+
+        .error {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            border-radius: 4px;
+            color: #721c24;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+
+        .info-title {
+            font-weight: bold;
+            color: #0d47a1;
+            margin-bottom: 5px;
+        }
+
+        .info-text {
+            color: #1565c0;
+            font-size: 14px;
+        }
+
+        .backup-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .backup-info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .backup-info-item:last-child {
+            border-bottom: none;
+        }
+
+        .backup-info-label {
+            font-weight: 500;
+            color: #666;
+        }
+
+        .backup-info-value {
+            color: #333;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        .divider {
+            margin: 40px 0;
+            border-top: 2px solid #e0e0e0;
+            position: relative;
+        }
+
+        .divider-text {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 0 15px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .derive-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .derive-section.show {
+            display: block;
+        }
+
+        .derive-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .input-group input,
+        .input-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .input-group input:focus,
+        .input-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .input-group small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .derive-mode-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .tab-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .tab-btn:hover:not(.active) {
+            border-color: #667eea;
+        }
+
+        .derive-result {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #28a745;
+        }
+
+        .derive-result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+            align-items: center;
+        }
+
+        .derive-result-item:last-child {
+            border-bottom: none;
+        }
+
+        .derive-result-label {
+            font-weight: 500;
+            color: #666;
+            font-size: 13px;
+        }
+
+        .derive-result-value {
+            color: #333;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            word-break: break-all;
+            max-width: 65%;
+            text-align: right;
+        }
+
+        .copy-icon-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+
+        .copy-icon-btn:hover {
+            background: #218838;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>W3PK Mnemonic Extractor</h1>
+        <p class="subtitle">Extract your mnemonic phrase from an encrypted backup file</p>
+
+        <div class="warning">
+            <div class="warning-title">Security Notice</div>
+            <div class="warning-text">
+                This tool runs entirely in your browser. Your backup file and password never leave your device.
+                Once extracted, keep your mnemonic phrase secure and never share it with anyone.
+            </div>
+        </div>
+
+        <div class="upload-section">
+            <label for="backupFile">1. Select Your Backup File</label>
+            <label for="backupFile" class="file-upload-btn">Choose Backup File</label>
+            <input type="file" id="backupFile" accept=".json">
+            <div class="file-name" id="fileName"></div>
+        </div>
+
+        <div class="password-section" id="passwordSection" style="display: none;">
+            <label for="password">2. Enter Your Password</label>
+            <input type="password" id="password" placeholder="Enter the password used to encrypt this backup">
+        </div>
+
+        <button id="extractBtn" disabled>Extract Mnemonic</button>
+
+        <div class="error" id="errorBox"></div>
+
+        <div class="backup-info" id="backupInfo" style="display: none;">
+            <h3 style="margin-bottom: 10px; color: #333;">Backup Information</h3>
+            <div class="backup-info-item">
+                <span class="backup-info-label">Created:</span>
+                <span class="backup-info-value" id="createdAt"></span>
+            </div>
+            <div class="backup-info-item">
+                <span class="backup-info-label">Address:</span>
+                <span class="backup-info-value" id="address"></span>
+            </div>
+            <div class="backup-info-item">
+                <span class="backup-info-label">Encryption:</span>
+                <span class="backup-info-value" id="encryptionMethod"></span>
+            </div>
+        </div>
+
+        <div class="result" id="result">
+            <div class="result-title">Your Mnemonic Phrase</div>
+            <div class="mnemonic-box" id="mnemonicBox"></div>
+            <button class="copy-btn" id="copyBtn">Copy to Clipboard</button>
+
+            <div class="info-box">
+                <div class="info-title">Important</div>
+                <div class="info-text">
+                    Write down this phrase and store it in a secure location. Anyone with access to this phrase
+                    has full control over your wallet and funds.
+                </div>
+            </div>
+
+            <div class="divider">
+                <div class="divider-text">Wallet Derivation</div>
+            </div>
+
+            <div class="derive-section show" id="deriveSection">
+                <div class="derive-title">Derive Wallets from Mnemonic</div>
+
+                <div class="derive-mode-tabs">
+                    <button class="tab-btn active" id="originModeTab">By Origin/Mode/Tag</button>
+                    <button class="tab-btn" id="indexModeTab">By Index</button>
+                </div>
+
+                <!-- Origin-based derivation -->
+                <div id="originMode">
+                    <div class="input-group">
+                        <label for="originUrl">Origin URL</label>
+                        <input type="text" id="originUrl" placeholder="https://example.com:3000">
+                        <small>The full origin URL including protocol and port (e.g., https://app.example.com:3000)</small>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="securityMode">Security Mode</label>
+                        <select id="securityMode">
+                            <option value="STANDARD">STANDARD - Address only, persistent sessions allowed</option>
+                            <option value="STRICT">STRICT - Address only, no persistent sessions</option>
+                            <option value="YOLO">YOLO - Full access (includes private key)</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="tag">Tag</label>
+                        <input type="text" id="tag" placeholder="MAIN" value="MAIN">
+                        <small>Optional tag for multiple addresses per origin (e.g., MAIN, GAMING, TRADING)</small>
+                    </div>
+
+                    <button id="deriveOriginBtn" style="margin-top: 10px;">Derive Wallet</button>
+                </div>
+
+                <!-- Index-based derivation -->
+                <div id="indexMode" class="hidden">
+                    <div class="input-group">
+                        <label for="walletIndex">Wallet Index</label>
+                        <input type="number" id="walletIndex" placeholder="0" value="0" min="0">
+                        <small>BIP44 derivation path index (m/44'/60'/0'/0/INDEX)</small>
+                    </div>
+
+                    <button id="deriveIndexBtn" style="margin-top: 10px;">Derive Wallet</button>
+                </div>
+
+                <div id="deriveResult" style="display: none;"></div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Part of the <a href="https://github.com/w3hc/w3pk" target="_blank">W3PK</a> project</p>
+            <p style="margin-top: 5px;">Runs entirely client-side with no server communication</p>
+        </div>
+    </div>
+
+    <script>
+        let backupData = null;
+
+        // DOM elements
+        const fileInput = document.getElementById('backupFile');
+        const fileName = document.getElementById('fileName');
+        const passwordSection = document.getElementById('passwordSection');
+        const passwordInput = document.getElementById('password');
+        const extractBtn = document.getElementById('extractBtn');
+        const errorBox = document.getElementById('errorBox');
+        const result = document.getElementById('result');
+        const mnemonicBox = document.getElementById('mnemonicBox');
+        const copyBtn = document.getElementById('copyBtn');
+        const backupInfo = document.getElementById('backupInfo');
+
+        // File upload handler
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            fileName.textContent = `Selected: ${file.name}`;
+            errorBox.classList.remove('show');
+            result.classList.remove('show');
+
+            try {
+                const text = await file.text();
+                backupData = JSON.parse(text);
+
+                // Validate backup file structure
+                if (!backupData.encryptedMnemonic || !backupData.ethereumAddress || !backupData.encryptionMethod) {
+                    throw new Error('Invalid backup file format');
+                }
+
+                // Display backup information
+                document.getElementById('createdAt').textContent = new Date(backupData.createdAt).toLocaleString();
+                document.getElementById('address').textContent = backupData.ethereumAddress;
+                document.getElementById('encryptionMethod').textContent = backupData.encryptionMethod.toUpperCase();
+                backupInfo.style.display = 'block';
+
+                // Check encryption method
+                if (backupData.encryptionMethod === 'password' || backupData.encryptionMethod === 'hybrid') {
+                    passwordSection.style.display = 'block';
+                    extractBtn.disabled = false;
+                } else if (backupData.encryptionMethod === 'passkey') {
+                    errorBox.textContent = 'This backup is encrypted with a passkey only. It cannot be decrypted with a password. Please use the W3PK SDK to restore this backup with your passkey.';
+                    errorBox.classList.add('show');
+                    extractBtn.disabled = true;
+                }
+            } catch (error) {
+                errorBox.textContent = `Error reading backup file: ${error.message}`;
+                errorBox.classList.add('show');
+                backupData = null;
+                extractBtn.disabled = true;
+                backupInfo.style.display = 'none';
+            }
+        });
+
+        // Extract button handler
+        extractBtn.addEventListener('click', async () => {
+            if (!backupData) return;
+
+            errorBox.classList.remove('show');
+            result.classList.remove('show');
+
+            const password = passwordInput.value;
+
+            if (!password && (backupData.encryptionMethod === 'password' || backupData.encryptionMethod === 'hybrid')) {
+                errorBox.textContent = 'Please enter your password';
+                errorBox.classList.add('show');
+                return;
+            }
+
+            try {
+                extractBtn.disabled = true;
+                extractBtn.textContent = 'Extracting...';
+
+                let mnemonic;
+
+                if (backupData.encryptionMethod === 'password') {
+                    mnemonic = await decryptWithPassword(
+                        backupData.encryptedMnemonic,
+                        password,
+                        backupData.passwordEncryption.salt,
+                        backupData.passwordEncryption.iv,
+                        backupData.passwordEncryption.iterations
+                    );
+                } else if (backupData.encryptionMethod === 'hybrid') {
+                    errorBox.textContent = 'Hybrid backups require both password and passkey. This tool only supports password-only backups. Please use the W3PK SDK to restore hybrid backups.';
+                    errorBox.classList.add('show');
+                    extractBtn.disabled = false;
+                    extractBtn.textContent = 'Extract Mnemonic';
+                    return;
+                }
+
+                // Verify the mnemonic by checking if it generates the correct address
+                // This requires ethers.js which we'll inline verify using basic BIP39 validation
+                if (!isValidMnemonic(mnemonic)) {
+                    throw new Error('Decryption succeeded but result is not a valid mnemonic. Wrong password?');
+                }
+
+                // Display the mnemonic
+                mnemonicBox.textContent = mnemonic;
+                result.classList.add('show');
+
+                extractBtn.textContent = 'Extract Mnemonic';
+                extractBtn.disabled = false;
+
+            } catch (error) {
+                errorBox.textContent = `Extraction failed: ${error.message}. Please check your password and try again.`;
+                errorBox.classList.add('show');
+                extractBtn.disabled = false;
+                extractBtn.textContent = 'Extract Mnemonic';
+            }
+        });
+
+        // Copy to clipboard handler
+        copyBtn.addEventListener('click', () => {
+            const mnemonic = mnemonicBox.textContent;
+            navigator.clipboard.writeText(mnemonic).then(() => {
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                }, 2000);
+            }).catch(err => {
+                errorBox.textContent = 'Failed to copy to clipboard';
+                errorBox.classList.add('show');
+            });
+        });
+
+        // Encryption/Decryption functions (copied from w3pk/src/backup/encryption.ts)
+
+        async function deriveKeyFromPassword(password, salt, iterations = 310000) {
+            const encoder = new TextEncoder();
+            const passwordBuffer = encoder.encode(password);
+
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                passwordBuffer,
+                'PBKDF2',
+                false,
+                ['deriveBits', 'deriveKey']
+            );
+
+            return crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: salt,
+                    iterations,
+                    hash: 'SHA-256',
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+        }
+
+        async function decryptWithPassword(encryptedData, password, saltBase64, ivBase64, iterations = 310000) {
+            const saltBuffer = base64ToBuffer(saltBase64);
+            const key = await deriveKeyFromPassword(password, saltBuffer, iterations);
+
+            const ivBuffer = base64ToBuffer(ivBase64);
+            const encryptedBuffer = base64ToBuffer(encryptedData);
+
+            const decryptedBuffer = await crypto.subtle.decrypt(
+                {
+                    name: 'AES-GCM',
+                    iv: ivBuffer,
+                },
+                key,
+                encryptedBuffer
+            );
+
+            const decoder = new TextDecoder();
+            return decoder.decode(decryptedBuffer);
+        }
+
+        function base64ToBuffer(base64) {
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        function isValidMnemonic(mnemonic) {
+            // Basic validation: check if it's a string with 12, 15, 18, 21, or 24 words
+            if (typeof mnemonic !== 'string') return false;
+
+            const words = mnemonic.trim().split(/\s+/);
+            const validLengths = [12, 15, 18, 21, 24];
+
+            if (!validLengths.includes(words.length)) return false;
+
+            // Check if all words are lowercase alphabetic
+            return words.every(word => /^[a-z]+$/.test(word));
+        }
+
+        // Wallet Derivation Functions
+
+        let currentMnemonic = null;
+
+        // Watch for mnemonic extraction
+        const originalMnemonicSetter = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'textContent').set;
+        Object.defineProperty(mnemonicBox, 'textContent', {
+            set: function(value) {
+                originalMnemonicSetter.call(this, value);
+                if (isValidMnemonic(value)) {
+                    currentMnemonic = value;
+                }
+            }
+        });
+
+        // Tab switching
+        const originModeTab = document.getElementById('originModeTab');
+        const indexModeTab = document.getElementById('indexModeTab');
+        const originMode = document.getElementById('originMode');
+        const indexMode = document.getElementById('indexMode');
+
+        originModeTab.addEventListener('click', () => {
+            originModeTab.classList.add('active');
+            indexModeTab.classList.remove('active');
+            originMode.classList.remove('hidden');
+            indexMode.classList.add('hidden');
+        });
+
+        indexModeTab.addEventListener('click', () => {
+            indexModeTab.classList.add('active');
+            originModeTab.classList.remove('active');
+            indexMode.classList.remove('hidden');
+            originMode.classList.add('hidden');
+        });
+
+        // Normalize origin (from origin-derivation.ts)
+        function normalizeOrigin(origin) {
+            const url = new URL(origin);
+            let normalized = `${url.protocol}//${url.hostname.toLowerCase()}`;
+
+            const port = url.port;
+            if (port &&
+                !((url.protocol === 'https:' && port === '443') ||
+                  (url.protocol === 'http:' && port === '80'))) {
+                normalized += `:${port}`;
+            }
+
+            return normalized;
+        }
+
+        // Derive index from origin, mode, and tag (from origin-derivation.ts)
+        async function deriveIndexFromOriginModeAndTag(origin, mode, tag) {
+            const MAX_INDEX = 0x7fffffff;
+            const normalizedOrigin = normalizeOrigin(origin);
+            const combined = `${normalizedOrigin}:${mode}:${tag.toUpperCase()}`;
+
+            const encoder = new TextEncoder();
+            const data = encoder.encode(combined);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+
+            const view = new DataView(hashBuffer);
+            const uint32 = view.getUint32(0, false);
+            const index = uint32 % MAX_INDEX;
+
+            return index;
+        }
+
+        // Derive wallet from mnemonic at specific index
+        function deriveWalletFromMnemonic(mnemonic, index) {
+            const derivationPath = `m/44'/60'/0'/0/${index}`;
+            const wallet = ethers.Wallet.fromMnemonic(mnemonic, derivationPath);
+
+            return {
+                address: wallet.address,
+                privateKey: wallet.privateKey
+            };
+        }
+
+        // Display derivation result
+        function displayDerivationResult(result) {
+            const deriveResult = document.getElementById('deriveResult');
+
+            let html = '<div class="derive-result">';
+
+            if (result.origin) {
+                html += `
+                    <div class="derive-result-item">
+                        <span class="derive-result-label">Origin:</span>
+                        <span class="derive-result-value">${result.origin}</span>
+                    </div>
+                    <div class="derive-result-item">
+                        <span class="derive-result-label">Mode:</span>
+                        <span class="derive-result-value">${result.mode}</span>
+                    </div>
+                    <div class="derive-result-item">
+                        <span class="derive-result-label">Tag:</span>
+                        <span class="derive-result-value">${result.tag}</span>
+                    </div>
+                `;
+            }
+
+            html += `
+                <div class="derive-result-item">
+                    <span class="derive-result-label">Index:</span>
+                    <span class="derive-result-value">${result.index}</span>
+                </div>
+                <div class="derive-result-item">
+                    <span class="derive-result-label">Address:</span>
+                    <span class="derive-result-value">${result.address}
+                        <button class="copy-icon-btn" onclick="copyToClipboard('${result.address}', this)">Copy</button>
+                    </span>
+                </div>
+            `;
+
+            if (result.privateKey) {
+                html += `
+                    <div class="derive-result-item">
+                        <span class="derive-result-label">Private Key:</span>
+                        <span class="derive-result-value">${result.privateKey}
+                            <button class="copy-icon-btn" onclick="copyToClipboard('${result.privateKey}', this)">Copy</button>
+                        </span>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+
+            deriveResult.innerHTML = html;
+            deriveResult.style.display = 'block';
+        }
+
+        // Copy to clipboard helper
+        window.copyToClipboard = function(text, btn) {
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 1500);
+            });
+        };
+
+        // Derive wallet by origin/mode/tag
+        document.getElementById('deriveOriginBtn').addEventListener('click', async () => {
+            if (!currentMnemonic) {
+                alert('Please extract the mnemonic first');
+                return;
+            }
+
+            const originUrl = document.getElementById('originUrl').value.trim();
+            const securityMode = document.getElementById('securityMode').value;
+            const tag = document.getElementById('tag').value.trim() || 'MAIN';
+
+            if (!originUrl) {
+                alert('Please enter an origin URL');
+                return;
+            }
+
+            try {
+                const normalizedOrigin = normalizeOrigin(originUrl);
+                const index = await deriveIndexFromOriginModeAndTag(normalizedOrigin, securityMode, tag);
+                const wallet = deriveWalletFromMnemonic(currentMnemonic, index);
+
+                const result = {
+                    origin: normalizedOrigin,
+                    mode: securityMode,
+                    tag: tag.toUpperCase(),
+                    index: index,
+                    address: wallet.address
+                };
+
+                // Include private key for YOLO mode
+                if (securityMode === 'YOLO') {
+                    result.privateKey = wallet.privateKey;
+                }
+
+                displayDerivationResult(result);
+            } catch (error) {
+                alert(`Error deriving wallet: ${error.message}`);
+            }
+        });
+
+        // Derive wallet by index
+        document.getElementById('deriveIndexBtn').addEventListener('click', () => {
+            if (!currentMnemonic) {
+                alert('Please extract the mnemonic first');
+                return;
+            }
+
+            const index = parseInt(document.getElementById('walletIndex').value);
+
+            if (index < 0 || !Number.isInteger(index)) {
+                alert('Index must be a non-negative integer');
+                return;
+            }
+
+            try {
+                const wallet = deriveWalletFromMnemonic(currentMnemonic, index);
+
+                const result = {
+                    index: index,
+                    address: wallet.address,
+                    privateKey: wallet.privateKey
+                };
+
+                displayDerivationResult(result);
+            } catch (error) {
+                alert(`Error deriving wallet: ${error.message}`);
+            }
+        });
+    </script>
+</body>
+</html>

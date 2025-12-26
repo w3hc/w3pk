@@ -7,7 +7,7 @@ import { createWalletFromMnemonic } from "./generate";
 import { deriveEncryptionKey, decryptData } from "./crypto";
 import type { IndexedDBWalletStorage } from "./storage";
 import type { EIP7702Authorization, SignAuthorizationParams } from "./types";
-import { keccak256, concat, toBeHex, Signature, encodeRlp } from "ethers";
+import { Signature } from "ethers";
 
 export class WalletSigner {
   constructor(private storage: IndexedDBWalletStorage) {}
@@ -96,23 +96,13 @@ export class WalletSigner {
       // Get nonce (default to 0)
       const nonce = params.nonce || 0n;
 
-      // Construct EIP-7702 authorization message
-      // Format: 0x05 || rlp([chain_id, address, nonce])
-      // Following EIP-7702 spec: use RLP encoding
-      const authTuple = [
-        chainId === 0n ? "0x" : toBeHex(chainId),
-        params.contractAddress.toLowerCase(),
-        nonce === 0n ? "0x" : toBeHex(nonce),
-      ];
-
-      // RLP encode the authorization tuple
-      const rlpEncoded = encodeRlp(authTuple);
-
-      // Concatenate magic byte with RLP encoded data
-      const authorizationMessage = concat(["0x05", rlpEncoded]);
-
-      // Hash the authorization message
-      const messageHash = keccak256(authorizationMessage);
+      // Hash EIP-7702 authorization message using shared utility
+      const { hashEIP7702AuthorizationMessage } = await import("../eip7702/utils");
+      const messageHash = hashEIP7702AuthorizationMessage(
+        chainId,
+        params.contractAddress,
+        nonce
+      );
 
       // Sign the message hash
       const signature = wallet.signingKey.sign(messageHash);
@@ -121,9 +111,11 @@ export class WalletSigner {
       const sig = Signature.from(signature);
 
       // Return EIP-7702 authorization object
+      // IMPORTANT: address field should be the contract address being delegated to,
+      // NOT the user's ethereum address
       return {
         chainId,
-        address: ethereumAddress.toLowerCase(),
+        address: params.contractAddress.toLowerCase(),
         nonce,
         yParity: sig.yParity,
         r: sig.r,
