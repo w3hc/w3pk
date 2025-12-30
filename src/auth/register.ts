@@ -239,9 +239,7 @@ export async function register(
       signCount: 0, // Initialize signature counter
     });
 
-    console.log("[register] Credential response:", credential.response);
     const attestationObject = credential.response.attestationObject;
-    console.log("[register] Attestation object length:", attestationObject.byteLength);
 
     return { signature: attestationObject };
   } catch (error) {

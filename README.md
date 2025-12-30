@@ -277,13 +277,12 @@ const invite = await w3pk.generateGuardianInvite(guardianShare)
 const { mnemonic } = await w3pk.recoverFromGuardians([share1, share2])
 
 // Restore from backup file
-await w3pk.restoreFromBackup(encryptedData, password)
+await w3pk.restoreFromBackupFile(encryptedData, password)
 
 // Simulate recovery scenarios
 const result = await w3pk.simulateRecoveryScenario({
   type: 'lost-device',
-  hasBackup: true,
-  hasSocialRecovery: true
+  description: 'Device lost with iCloud Keychain enabled'
 })
 ```
 
