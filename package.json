@@ -101,13 +101,12 @@
     "html": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true && tsup && npx serve . -l 3000 & sleep 5 && open http://localhost:3000/standalone/checker.html"
   },
   "packageManager": "pnpm@10.6.4",
-  "dependencies": {},
   "devDependencies": {
     "@types/node": "^24.9.0",
     "@types/qrcode": "^1.5.5",
     "circomlib": "^2.0.5",
-    "tsup": "^8.5.0",
-    "tsx": "^4.20.6",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

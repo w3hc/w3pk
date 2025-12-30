@@ -28,12 +28,9 @@ export async function login(): Promise<AuthResult> {
           type: "public-key" as const,
           transports: ["internal", "hybrid", "usb", "nfc", "ble"] as AuthenticatorTransport[],
         }));
-        console.log(`[login] Found ${allowCredentials.length} stored credential(s)`);
-      } else {
-        console.log("[login] No stored credentials found, using discoverable credentials flow");
       }
     } catch (storageError) {
-      console.warn("[login] Failed to retrieve stored credentials:", storageError);
+      // Silent fallback to discoverable credentials flow
     }
 
     const challengeBuffer = base64UrlToArrayBuffer(challenge);
