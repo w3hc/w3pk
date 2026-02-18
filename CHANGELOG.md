@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`getEIP1193Provider()` method**: Returns an EIP-1193 compatible provider backed by the SDK, enabling direct integration with ethers `BrowserProvider`, viem's `custom` transport, wagmi connectors, RainbowKit, and any other EIP-1193 consumer
+  - Supported methods: `eth_accounts`, `eth_requestAccounts`, `eth_chainId`, `eth_sendTransaction`, `personal_sign`, `eth_sign`, `eth_signTypedData_v4`, `wallet_switchEthereumChain`
+  - Emits `chainChanged` event on `wallet_switchEthereumChain`; supports `on` / `removeListener`
+  - Multiple independent instances (each with its own `chainId` state)
+  - `options.mode`, `options.tag`, `options.chainId`, `options.rpcUrl` for full control
+  - Unsupported methods throw a descriptive `WalletError`
+
+- **`sendTransaction()` method**: New SDK method for sending on-chain transactions using the derived wallet for any security mode (STANDARD, STRICT, YOLO)
+  - Mirrors the same authentication and derivation flow as `signMessage()` — session management, mode/tag/origin resolution, STRICT-mode re-auth
+  - Accepts `to`, `value` (wei), `data` (hex calldata), `chainId` (required), plus optional overrides: `gasLimit`, `maxFeePerGas`, `maxPriorityFeePerGas`, `nonce`
+  - Auto-resolves RPC endpoint via `getEndpoints(chainId)` from chainlist; override with `options.rpcUrl`
+  - Returns `{ hash, from, chainId, mode, tag, origin }` — the same metadata shape as other signing methods
+  - PRIMARY mode throws a descriptive error with guidance to use `signMessageWithPasskey()` + a bundler (full bundler integration deferred to v2)
+  - Throws `WalletError` with clear messages for: unauthenticated user, no RPC for chainId, PRIMARY mode without rpcUrl
+
 - **Cross-Device Wallet Sync via Passkey**: New `syncWalletWithPasskey()` SDK method for syncing a wallet to a new device using an existing cloud-synced passkey and a backup file
   - Two-step flow: prompts the user to select their synced passkey (iCloud/Google Password Manager), then uses it to decrypt the provided backup file
   - Supports all three backup encryption methods: `password`, `passkey`, and `hybrid`

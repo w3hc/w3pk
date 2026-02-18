@@ -28,6 +28,12 @@ await w3pk.login()
 // Sign messages (EIP-191, SIWE, EIP-712, rawHash)
 const signature = await w3pk.signMessage('Hello World')
 
+// Send transactions on-chain
+const tx = await w3pk.sendTransaction({ to: '0x...', value: 1n * 10n**18n, chainId: 1 })
+
+// EIP-1193 provider (ethers, viem, wagmi, RainbowKit)
+const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
+
 // Derive wallets (STANDARD/STRICT/YOLO modes)
 const wallet = await w3pk.deriveWallet('STANDARD', 'GAMING')
 
@@ -43,6 +49,8 @@ const endpoints = await w3pk.getEndpoints(1)
 - HD wallet generation (BIP39/BIP44)
 - Multi-address derivation with security modes (STANDARD/STRICT/YOLO)
 - Multiple signing methods (EIP-191, SIWE/EIP-4361, EIP-712, rawHash)
+- On-chain transaction sending with automatic RPC resolution (`sendTransaction`)
+- EIP-1193 provider for ethers, viem, wagmi, RainbowKit (`getEIP1193Provider`)
 - ERC-5564 stealth addresses (opt-in)
 - ZK primitives (zero-knowledge proof generation and verification)
 - Chainlist support (2390+ networks)
@@ -124,6 +132,82 @@ const sensitiveSig = await w3pk.signMessage('Transfer $1000', {
   requireAuth: true
 })
 ```
+
+### Sending Transactions
+
+```typescript
+// Check which address will be used before sending
+const from = await w3pk.getAddress('STANDARD', 'MAIN')
+console.log('sending from:', from)
+
+// Send ETH — defaults to STANDARD mode, MAIN tag, current origin
+// sender = getOriginSpecificAddress(mnemonic, window.location.origin, 'STANDARD', 'MAIN')
+const result = await w3pk.sendTransaction({
+  to: '0xRecipient...',
+  value: 1n * 10n**18n,  // 1 ETH in wei
+  chainId: 1
+})
+console.log('tx hash:', result.hash)
+console.log('from:', result.from)   // same address as `from` above
+console.log('mode:', result.mode)   // 'STANDARD'
+
+// Send contract call with custom RPC and STRICT auth
+const callResult = await w3pk.sendTransaction(
+  { to: '0xContract...', data: '0xabcd...', chainId: 10 },
+  { mode: 'STRICT', rpcUrl: 'https://mainnet.optimism.io' }
+)
+
+// YOLO mode — app-specific isolated address
+const yoloTx = await w3pk.sendTransaction(
+  { to: '0x...', value: 5n * 10n**17n, chainId: 8453 },
+  { mode: 'YOLO', tag: 'GAMING' }
+)
+```
+
+**Mode behaviour:**
+
+| Mode | Auth on send | Gas source |
+|------|-------------|------------|
+| STANDARD | Session (auto) | Sender address |
+| STRICT | Always (biometric) | Sender address |
+| YOLO | Session (auto) | Sender address |
+| PRIMARY | — (not supported, throws) | Requires bundler |
+
+### EIP-1193 Provider
+
+Use w3pk with any EIP-1193 consumer — ethers, viem, wagmi, RainbowKit — without exposing private keys.
+
+```typescript
+const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
+```
+
+**ethers v6**
+```typescript
+import { BrowserProvider } from 'ethers'
+const provider = new BrowserProvider(eip1193)
+const signer = await provider.getSigner()
+const tx = await signer.sendTransaction({ to: '0x...', value: parseEther('1') })
+```
+
+**viem**
+```typescript
+import { createWalletClient, custom } from 'viem'
+import { mainnet } from 'viem/chains'
+const client = createWalletClient({ chain: mainnet, transport: custom(eip1193) })
+const [address] = await client.getAddresses()
+const hash = await client.sendTransaction({ to: '0x...', value: parseEther('1') })
+```
+
+**Supported JSON-RPC methods:**
+
+| Method | Action |
+|--------|--------|
+| `eth_accounts` / `eth_requestAccounts` | Returns derived address |
+| `eth_chainId` | Returns active chain as hex |
+| `eth_sendTransaction` | Delegates to `sendTransaction()` |
+| `personal_sign` / `eth_sign` | EIP-191 message signing |
+| `eth_signTypedData_v4` | EIP-712 typed data signing |
+| `wallet_switchEthereumChain` | Updates active chainId, emits `chainChanged` |
 
 ### Session Management
 

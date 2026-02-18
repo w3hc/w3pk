@@ -44,6 +44,25 @@ import { AuthenticationError, WalletError } from "./errors";
 import { getEndpoints } from "../chainlist";
 import { supportsEIP7702 } from "../eip7702";
 
+/** Minimal EIP-1193 provider interface (matches the existing EIP1193Provider shape) */
+interface EIP1193ProviderInterface {
+  request(args: { method: string; params?: any[] }): Promise<any>;
+  on(event: string, handler: (...args: any[]) => void): void;
+  removeListener(event: string, handler: (...args: any[]) => void): void;
+}
+
+/** Returns true if a string looks like a 0x-prefixed hex value */
+function isHex(value: string): boolean {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value);
+}
+
+/** Decode a hex-encoded UTF-8 string (used for personal_sign / eth_sign data) */
+function hexToUtf8(hex: string): string {
+  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  const bytes = new Uint8Array(clean.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
+  return new TextDecoder().decode(bytes);
+}
+
 export class Web3Passkey {
   private config: InternalConfig;
   private walletStorage: IndexedDBWalletStorage;
@@ -988,6 +1007,138 @@ export class Web3Passkey {
   }
 
   /**
+   * Send a transaction using the derived wallet for the current security mode
+   *
+   * @param tx - Transaction parameters
+   * @param tx.to - Recipient address
+   * @param tx.value - Value in wei (optional)
+   * @param tx.data - Hex calldata (optional, default "0x")
+   * @param tx.chainId - Chain ID (required)
+   * @param tx.gasLimit - Gas limit override (optional)
+   * @param tx.maxFeePerGas - EIP-1559 max fee per gas (optional)
+   * @param tx.maxPriorityFeePerGas - EIP-1559 max priority fee per gas (optional)
+   * @param tx.nonce - Nonce override (optional)
+   * @param options.mode - Security mode (default: STANDARD)
+   * @param options.tag - Wallet tag (optional)
+   * @param options.requireAuth - Force fresh authentication (optional)
+   * @param options.origin - Origin override (optional)
+   * @param options.rpcUrl - RPC endpoint override (optional, required for PRIMARY mode)
+   * @returns Transaction hash and metadata
+   *
+   * @example
+   * const result = await w3pk.sendTransaction({ to: "0x...", value: 1000000000000000000n, chainId: 1 })
+   * console.log(result.hash)
+   */
+  async sendTransaction(
+    tx: {
+      to: string;
+      value?: bigint;
+      data?: string;
+      chainId: number;
+      gasLimit?: bigint;
+      maxFeePerGas?: bigint;
+      maxPriorityFeePerGas?: bigint;
+      nonce?: number;
+    },
+    options?: {
+      mode?: SecurityMode;
+      tag?: string;
+      requireAuth?: boolean;
+      origin?: string;
+      rpcUrl?: string;
+    }
+  ): Promise<{
+    hash: string;
+    from: string;
+    chainId: number;
+    mode: SecurityMode;
+    tag: string;
+    origin: string;
+  }> {
+    try {
+      if (!this.currentUser) {
+        throw new WalletError("Must be authenticated to send transaction");
+      }
+
+      const effectiveMode = options?.mode || DEFAULT_MODE;
+      const effectiveTag = options?.tag || DEFAULT_TAG;
+      const origin = options?.origin || getCurrentOrigin();
+
+      // PRIMARY mode requires a bundler/relayer rpcUrl
+      if (effectiveMode === 'PRIMARY') {
+        if (!options?.rpcUrl) {
+          throw new WalletError(
+            "PRIMARY mode requires options.rpcUrl pointing to a bundler or sponsoring relayer. " +
+            "The P-256 address cannot pay gas directly without a deployed P-256-verifier contract via EIP-7702."
+          );
+        }
+        throw new WalletError(
+          "PRIMARY mode sendTransaction is not yet supported. " +
+          "Use signMessageWithPasskey() to obtain a P-256 signature and submit via a bundler manually."
+        );
+      }
+
+      // Track security mode for session management
+      this.currentSecurityMode = effectiveMode;
+
+      // STRICT mode: always require authentication (no persistent sessions)
+      const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+
+      const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
+
+      // Derive the wallet from the specified mode and tag
+      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+
+      const { Wallet, JsonRpcProvider } = await import("ethers");
+
+      // If YOLO mode, we have the private key available
+      let wallet: any;
+      if (derived.privateKey) {
+        wallet = new Wallet(derived.privateKey);
+      } else {
+        // For STANDARD/STRICT modes, derive from mnemonic at the specific index
+        const { deriveWalletFromMnemonic } = await import("../wallet/generate");
+        const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
+        wallet = new Wallet(privateKey);
+      }
+
+      // Resolve RPC endpoint
+      const rpcUrl = options?.rpcUrl ?? (await this.getEndpoints(tx.chainId))[0];
+      if (!rpcUrl) {
+        throw new WalletError(
+          `No RPC endpoint found for chainId ${tx.chainId}. Pass options.rpcUrl.`
+        );
+      }
+
+      const provider = new JsonRpcProvider(rpcUrl);
+      const connected = wallet.connect(provider);
+
+      const response = await connected.sendTransaction({
+        to: tx.to,
+        value: tx.value,
+        data: tx.data ?? "0x",
+        chainId: tx.chainId,
+        gasLimit: tx.gasLimit,
+        maxFeePerGas: tx.maxFeePerGas,
+        maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+        nonce: tx.nonce,
+      });
+
+      return {
+        hash: response.hash,
+        from: derived.address,
+        chainId: tx.chainId,
+        mode: derived.mode,
+        tag: derived.tag,
+        origin: derived.origin,
+      };
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw new WalletError("Failed to send transaction", error);
+    }
+  }
+
+  /**
    * Sign EIP-7702 authorization for gasless transactions
    * Allows EOA to delegate execution to contract for gas sponsorship
    *
@@ -1084,6 +1235,196 @@ export class Web3Passkey {
     options?: { maxEndpoints?: number; timeout?: number }
   ): Promise<boolean> {
     return supportsEIP7702(chainId, this.getEndpoints.bind(this), options);
+  }
+
+  /**
+   * Return an EIP-1193 compatible provider backed by this SDK instance.
+   *
+   * The returned object implements the standard `request({ method, params })`
+   * interface so it can be plugged directly into ethers `BrowserProvider`,
+   * viem's `custom` transport, wagmi's `injected` / `custom` connector, or
+   * any other EIP-1193 consumer.
+   *
+   * Supported JSON-RPC methods:
+   * - eth_accounts / eth_requestAccounts  → derived STANDARD+MAIN address
+   * - eth_chainId                          → from options.chainId (default: 1)
+   * - eth_sendTransaction                  → delegates to sendTransaction()
+   * - personal_sign / eth_sign            → delegates to signMessage() EIP-191
+   * - eth_signTypedData_v4                → delegates to signMessage() EIP-712
+   * - wallet_switchEthereumChain          → updates the active chainId
+   *
+   * @param options.mode     - Security mode for signing/sending (default: 'STANDARD')
+   * @param options.tag      - Wallet tag (default: 'MAIN')
+   * @param options.chainId  - Initial chainId reported to consumers (default: 1)
+   * @param options.rpcUrl   - RPC endpoint override passed to sendTransaction()
+   *
+   * @example
+   * // ethers v6
+   * const provider = new BrowserProvider(w3pk.getEIP1193Provider())
+   *
+   * // viem
+   * const client = createWalletClient({ transport: custom(w3pk.getEIP1193Provider()) })
+   *
+   * // wagmi (custom connector)
+   * const connector = injected({ target: () => ({ id: 'w3pk', provider: w3pk.getEIP1193Provider() }) })
+   */
+  getEIP1193Provider(options?: {
+    mode?: SecurityMode;
+    tag?: string;
+    chainId?: number;
+    rpcUrl?: string;
+  }): EIP1193ProviderInterface {
+    let activeChainId = options?.chainId ?? 1;
+    const sdk = this;
+
+    // Minimal EventEmitter (subset needed by EIP-1193)
+    const listeners: Record<string, Array<(...args: any[]) => void>> = {};
+
+    const emit = (event: string, ...args: any[]) => {
+      (listeners[event] ?? []).forEach(fn => fn(...args));
+    };
+
+    const provider: EIP1193ProviderInterface = {
+      async request({ method, params }: { method: string; params?: any[] }): Promise<any> {
+        switch (method) {
+          // ── Account discovery ──────────────────────────────────────────
+          case 'eth_accounts':
+          case 'eth_requestAccounts': {
+            const address = await sdk.getAddress(
+              options?.mode ?? 'STANDARD',
+              options?.tag ?? 'MAIN'
+            );
+            return [address];
+          }
+
+          // ── Chain ──────────────────────────────────────────────────────
+          case 'eth_chainId': {
+            return '0x' + activeChainId.toString(16);
+          }
+
+          // ── Transaction ────────────────────────────────────────────────
+          case 'eth_sendTransaction': {
+            const txParam = (params ?? [])[0] ?? {};
+            if (!txParam.chainId && !activeChainId) {
+              throw new WalletError('eth_sendTransaction: chainId is required');
+            }
+            const chainId = txParam.chainId
+              ? parseInt(txParam.chainId, 16)
+              : activeChainId;
+
+            const result = await sdk.sendTransaction(
+              {
+                to: txParam.to,
+                value: txParam.value !== undefined
+                  ? BigInt(txParam.value)
+                  : undefined,
+                data: txParam.data ?? '0x',
+                chainId,
+                gasLimit: txParam.gas !== undefined
+                  ? BigInt(txParam.gas)
+                  : undefined,
+                maxFeePerGas: txParam.maxFeePerGas !== undefined
+                  ? BigInt(txParam.maxFeePerGas)
+                  : undefined,
+                maxPriorityFeePerGas: txParam.maxPriorityFeePerGas !== undefined
+                  ? BigInt(txParam.maxPriorityFeePerGas)
+                  : undefined,
+                nonce: txParam.nonce !== undefined
+                  ? parseInt(txParam.nonce, 16)
+                  : undefined,
+              },
+              {
+                mode: options?.mode,
+                tag: options?.tag,
+                rpcUrl: options?.rpcUrl,
+              }
+            );
+            return result.hash;
+          }
+
+          // ── Message signing ────────────────────────────────────────────
+          // personal_sign(data, address) — params are reversed vs eth_sign
+          case 'personal_sign': {
+            const [data] = params ?? [];
+            const message = isHex(data)
+              ? hexToUtf8(data)
+              : data;
+            const result = await sdk.signMessage(message, {
+              mode: options?.mode,
+              tag: options?.tag,
+              signingMethod: 'EIP191',
+            });
+            return result.signature;
+          }
+
+          // eth_sign(address, data) — legacy, same signing as personal_sign
+          case 'eth_sign': {
+            const [, data] = params ?? [];
+            const message = isHex(data)
+              ? hexToUtf8(data)
+              : data;
+            const result = await sdk.signMessage(message, {
+              mode: options?.mode,
+              tag: options?.tag,
+              signingMethod: 'EIP191',
+            });
+            return result.signature;
+          }
+
+          // EIP-712 typed data signing
+          case 'eth_signTypedData_v4': {
+            const [, typedDataJson] = params ?? [];
+            const typedData = typeof typedDataJson === 'string'
+              ? JSON.parse(typedDataJson)
+              : typedDataJson;
+
+            const { domain, types, message: typedMessage, primaryType } = typedData;
+
+            // Remove EIP-712 meta-type if present (ethers doesn't want it)
+            const filteredTypes = { ...types };
+            delete filteredTypes['EIP712Domain'];
+
+            const result = await sdk.signMessage(
+              JSON.stringify(typedMessage),
+              {
+                mode: options?.mode,
+                tag: options?.tag,
+                signingMethod: 'EIP712',
+                eip712Domain: domain,
+                eip712Types: filteredTypes,
+                eip712PrimaryType: primaryType,
+              }
+            );
+            return result.signature;
+          }
+
+          // ── Chain switching ────────────────────────────────────────────
+          case 'wallet_switchEthereumChain': {
+            const newChainId = parseInt((params ?? [])[0]?.chainId ?? '0x1', 16);
+            activeChainId = newChainId;
+            emit('chainChanged', '0x' + newChainId.toString(16));
+            return null;
+          }
+
+          default:
+            throw new WalletError(
+              `w3pk EIP-1193: unsupported method "${method}"`
+            );
+        }
+      },
+
+      on(event: string, handler: (...args: any[]) => void) {
+        if (!listeners[event]) listeners[event] = [];
+        listeners[event].push(handler);
+      },
+
+      removeListener(event: string, handler: (...args: any[]) => void) {
+        if (!listeners[event]) return;
+        listeners[event] = listeners[event].filter(fn => fn !== handler);
+      },
+    };
+
+    return provider;
   }
 
   /**

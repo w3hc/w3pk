@@ -8,6 +8,8 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
 - [Core Authentication](#core-authentication)
 - [Wallet Management](#wallet-management)
   - [Origin-Specific Address Derivation](#origin-specific-address-derivation)
+  - [`sendTransaction()`](#sendtransactiontx-options-promisetransactionresult)
+  - [`getEIP1193Provider()`](#geteip1193provideroptions-eip1193providerinterface)
 - [Stealth Addresses (ERC-5564)](#stealth-addresses-erc-5564)
 - [Zero-Knowledge Proofs](#zero-knowledge-proofs)
 - [Backup & Recovery](#backup--recovery)
@@ -1325,6 +1327,274 @@ await accountAbstractionContract.verifyWebAuthnSignature({
 **Related Documentation:**
 - [EIP-7951 Implementation Guide](../docs/EIP-7951.md)
 - [EIP-7951 Specification](https://eips.ethereum.org/EIPS/eip-7951)
+
+---
+
+### `sendTransaction(tx, options?): Promise<TransactionResult>`
+
+Send an on-chain transaction using the wallet derived for the active security mode.
+
+Follows the exact same authentication and derivation flow as `signMessage()`: session management, mode/tag/origin resolution, and STRICT-mode re-authentication.
+
+**Parameters:**
+
+```typescript
+tx: {
+  to: string;                    // Recipient address
+  value?: bigint;                // Value in wei (default: 0)
+  data?: string;                 // Hex calldata (default: "0x")
+  chainId: number;               // Required — no implicit default
+  gasLimit?: bigint;             // Override gas limit (ethers auto-estimates if omitted)
+  maxFeePerGas?: bigint;         // EIP-1559 max fee per gas
+  maxPriorityFeePerGas?: bigint; // EIP-1559 max priority fee per gas
+  nonce?: number;                // Override nonce (provider auto-fetches if omitted)
+}
+
+options?: {
+  mode?: SecurityMode;    // 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
+  tag?: string;           // Wallet tag (default: 'MAIN')
+  requireAuth?: boolean;  // Force fresh authentication (default: false)
+  origin?: string;        // Override origin URL (testing only)
+  rpcUrl?: string;        // Override RPC endpoint (required for PRIMARY mode)
+}
+```
+
+**Returns:** `TransactionResult`
+
+```typescript
+interface TransactionResult {
+  hash: string;           // Transaction hash
+  from: string;           // Sender address (derived wallet)
+  chainId: number;        // Chain ID used
+  mode: SecurityMode;     // Security mode used
+  tag: string;            // Tag used
+  origin: string;         // Origin used
+}
+```
+
+**RPC Resolution:**
+
+The RPC endpoint is resolved in this order:
+1. `options.rpcUrl` (explicit override)
+2. First endpoint from `getEndpoints(tx.chainId)` (chainlist — 2390+ networks)
+3. Throws `WalletError` if neither is available
+
+**Sender address**
+
+The transaction is always sent **from the address derived for the active mode, tag, and origin**. With no options the defaults are `mode: 'STANDARD'`, `tag: 'MAIN'`, `origin: window.location.origin`.
+
+```
+sender = getOriginSpecificAddress(mnemonic, window.location.origin, 'STANDARD', 'MAIN')
+```
+
+Use `getAddress()` to inspect the sender before calling `sendTransaction()`:
+
+```typescript
+const from = await w3pk.getAddress('STANDARD', 'MAIN')
+console.log('will send from:', from)
+```
+
+**What happens:**
+1. Guards: requires authenticated user
+2. Resolves `effectiveMode`, `effectiveTag`, `origin` (defaults: `'STANDARD'`, `'MAIN'`, `window.location.origin`)
+3. Sets `currentSecurityMode`
+4. STRICT mode forces fresh authentication; other modes use active session
+5. Derives sender wallet from mnemonic at the mode/tag/origin-specific index — this is the `from` address
+6. Resolves RPC endpoint; throws if none found
+7. Connects wallet to `JsonRpcProvider` and calls `sendTransaction()`
+8. Returns `{ hash, from, chainId, mode, tag, origin }`
+
+**Mode Summary:**
+
+| Mode | Auth on call | Private key exposed | Gas source |
+|------|-------------|---------------------|------------|
+| STANDARD | Session (auto) | No | Sender address |
+| STRICT | Always (biometric) | No | Sender address |
+| YOLO | Session (auto) | Yes (internally) | Sender address |
+| PRIMARY | — | Never | Not supported (throws) |
+
+**Example:**
+
+```typescript
+// Check the sender address before sending
+const from = await w3pk.getAddress('STANDARD', 'MAIN')
+console.log('sending from:', from)
+
+// Send 1 ETH — from = STANDARD + MAIN address for this origin
+const result = await w3pk.sendTransaction({
+  to: '0xRecipient...',
+  value: 1n * 10n**18n,
+  chainId: 1
+})
+console.log('tx hash:', result.hash)
+console.log('from:', result.from)  // matches `from` above
+
+// Contract call on Optimism with explicit RPC
+const callResult = await w3pk.sendTransaction(
+  {
+    to: '0xContract...',
+    data: '0xabcdef01',
+    chainId: 10
+  },
+  {
+    mode: 'STRICT',
+    rpcUrl: 'https://mainnet.optimism.io'
+  }
+)
+
+// YOLO mode — isolated gaming address on Base
+const yoloTx = await w3pk.sendTransaction(
+  { to: '0x...', value: 5n * 10n**17n, chainId: 8453 },
+  { mode: 'YOLO', tag: 'GAMING' }
+)
+
+// EIP-1559 fee overrides
+const priorityTx = await w3pk.sendTransaction({
+  to: '0x...',
+  chainId: 1,
+  maxFeePerGas: 30n * 10n**9n,         // 30 gwei
+  maxPriorityFeePerGas: 2n * 10n**9n,  // 2 gwei
+  gasLimit: 21000n
+})
+```
+
+**Error Cases:**
+
+| Condition | Error |
+|-----------|-------|
+| Not authenticated | `WalletError: Must be authenticated to send transaction` |
+| No RPC for chainId | `WalletError: No RPC endpoint found for chainId <N>. Pass options.rpcUrl.` |
+| PRIMARY mode without rpcUrl | `WalletError: PRIMARY mode requires options.rpcUrl pointing to a bundler...` |
+| PRIMARY mode (any) | `WalletError: PRIMARY mode sendTransaction is not yet supported.` |
+| Node rejection | `WalletError: Failed to send transaction` (wraps original error) |
+
+**Note on PRIMARY mode:** The P-256 WebAuthn key cannot produce a standard secp256k1 signature accepted by EVM nodes. Full PRIMARY support (via EIP-7702 delegation + bundler) is planned for a future release. Use `signMessageWithPasskey()` to obtain a P-256 signature and submit it via a bundler manually in the meantime.
+
+---
+
+### `getEIP1193Provider(options?): EIP1193ProviderInterface`
+
+Return an [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) compatible provider backed by this SDK instance.
+
+The returned object implements the standard `request({ method, params })` interface, making w3pk compatible with **ethers `BrowserProvider`**, **viem `custom` transport**, **wagmi connectors**, **RainbowKit**, and any other EIP-1193 consumer — without exposing private keys.
+
+**Parameters:**
+
+```typescript
+options?: {
+  mode?: SecurityMode;  // Security mode used for all operations (default: 'STANDARD')
+  tag?: string;         // Wallet tag (default: 'MAIN')
+  chainId?: number;     // Initial chainId reported by eth_chainId (default: 1)
+  rpcUrl?: string;      // RPC override passed to eth_sendTransaction
+}
+```
+
+**Returns:** An object with:
+
+```typescript
+interface EIP1193ProviderInterface {
+  request(args: { method: string; params?: any[] }): Promise<any>;
+  on(event: string, handler: (...args: any[]) => void): void;
+  removeListener(event: string, handler: (...args: any[]) => void): void;
+}
+```
+
+**Supported JSON-RPC methods:**
+
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `eth_accounts` | `string[]` | Derived address for the configured mode + tag |
+| `eth_requestAccounts` | `string[]` | Same as `eth_accounts` |
+| `eth_chainId` | `string` (hex) | Active chainId; updated by `wallet_switchEthereumChain` |
+| `eth_sendTransaction` | `string` (tx hash) | Delegates to `sendTransaction()`; hex params auto-converted |
+| `personal_sign` | `string` (sig) | EIP-191; hex-encoded data decoded to UTF-8 automatically |
+| `eth_sign` | `string` (sig) | Legacy; same behaviour as `personal_sign` |
+| `eth_signTypedData_v4` | `string` (sig) | EIP-712; `EIP712Domain` stripped automatically |
+| `wallet_switchEthereumChain` | `null` | Updates active chainId and emits `chainChanged` |
+
+**Events:**
+
+| Event | Payload | Trigger |
+|-------|---------|---------|
+| `chainChanged` | `string` (hex chainId) | `wallet_switchEthereumChain` |
+
+Unsupported methods throw `WalletError: w3pk EIP-1193: unsupported method "<method>"`.
+
+**Example — ethers v6:**
+
+```typescript
+import { BrowserProvider, parseEther } from 'ethers'
+
+await w3pk.login()
+const provider = new BrowserProvider(w3pk.getEIP1193Provider({ chainId: 1 }))
+const signer = await provider.getSigner()
+
+// Send 1 ETH
+const tx = await signer.sendTransaction({
+  to: '0xRecipient...',
+  value: parseEther('1')
+})
+console.log('hash:', tx.hash)
+
+// Sign a message
+const sig = await signer.signMessage('Hello World')
+```
+
+**Example — viem:**
+
+```typescript
+import { createWalletClient, custom, parseEther } from 'viem'
+import { mainnet } from 'viem/chains'
+
+await w3pk.login()
+const client = createWalletClient({
+  chain: mainnet,
+  transport: custom(w3pk.getEIP1193Provider({ chainId: 1 }))
+})
+
+const [address] = await client.getAddresses()
+const hash = await client.sendTransaction({
+  account: address,
+  to: '0xRecipient...',
+  value: parseEther('1')
+})
+```
+
+**Example — wagmi (custom connector):**
+
+```typescript
+import { injected } from 'wagmi/connectors'
+
+const connector = injected({
+  target() {
+    return {
+      id: 'w3pk',
+      name: 'w3pk Passkey Wallet',
+      provider: w3pk.getEIP1193Provider({ chainId: 1 })
+    }
+  }
+})
+```
+
+**Example — chain switching:**
+
+```typescript
+const provider = w3pk.getEIP1193Provider({ chainId: 1 })
+
+provider.on('chainChanged', (chainId) => {
+  console.log('Switched to chain:', parseInt(chainId, 16))
+})
+
+await provider.request({
+  method: 'wallet_switchEthereumChain',
+  params: [{ chainId: '0xa' }]  // Optimism
+})
+```
+
+**Notes:**
+- Each call to `getEIP1193Provider()` returns a **new independent instance** with its own `chainId` state and event listeners.
+- `eth_sendTransaction` hex fields (`value`, `gas`, `maxFeePerGas`, `maxPriorityFeePerGas`, `nonce`) are automatically converted to `bigint` / `number` before passing to `sendTransaction()`.
+- `personal_sign` data that arrives as a `0x`-prefixed hex string is decoded to UTF-8, matching MetaMask's behaviour.
 
 ---
 
