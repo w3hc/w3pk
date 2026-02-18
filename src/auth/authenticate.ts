@@ -83,7 +83,11 @@ export async function login(): Promise<AuthResult> {
     const credential = await storage.getCredentialById(assertion.id);
 
     if (!credential) {
-      throw new Error("Credential not found in storage. This shouldn't happen - the passkey was authenticated but metadata is missing.");
+      // Passkey authenticated successfully but metadata not found locally
+      // This happens when using a cloud-synced passkey on a new device
+      throw new AuthenticationError(
+        "Passkey authenticated but wallet data not found on this device. To sync your account: 1) Select your passkey when prompted, then 2) Provide your backup file. This allows you to use the same passkey on multiple devices."
+      );
     }
 
     const isValid = await verifyAssertion(assertion, credential, storage);

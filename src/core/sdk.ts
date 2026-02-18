@@ -1595,6 +1595,132 @@ export class Web3Passkey {
   }
 
   /**
+   * Sync wallet to this device using existing passkey + backup file
+   *
+   * This method implements the two-step sync flow:
+   * 1. Prompts user to select their passkey (from iCloud/Google Password Manager)
+   * 2. Uses that passkey + backup file to restore wallet data
+   *
+   * This allows the user to use the same PRIMARY mode webauthn account on multiple devices.
+   *
+   * @param backupData - Backup file (JSON string or Blob) - can be pasted by user
+   * @param password - Password to decrypt backup (if password-encrypted)
+   * @returns Restored wallet info
+   */
+  async syncWalletWithPasskey(
+    backupData: string | Blob,
+    password?: string
+  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+    const { BackupFileManager } = await import("../backup/backup-file");
+    const { BackupManager } = await import("../backup");
+    const { promptPasskeySelection } = await import("../auth/sync-auth");
+
+    const manager = new BackupFileManager();
+    const backupManager = new BackupManager();
+
+    // Step 1: Prompt user to select their passkey
+    const passkeyResult = await promptPasskeySelection();
+
+    // Step 2: Parse the backup file
+    const backupFile = await manager.parseBackupFile(backupData);
+
+    let mnemonic: string;
+    let ethereumAddress: string;
+
+    // Step 3: Restore based on backup encryption method
+    if (backupFile.encryptionMethod === 'password') {
+      if (!password) {
+        throw new WalletError("Password required to restore password-encrypted backup");
+      }
+      const result = await manager.restoreWithPassword(backupFile, password);
+      mnemonic = result.mnemonic;
+      ethereumAddress = result.ethereumAddress;
+    } else if (backupFile.encryptionMethod === 'passkey') {
+      // Use the selected passkey to decrypt
+      if (!passkeyResult.publicKey) {
+        throw new WalletError(
+          "Passkey public key not found. The passkey may not be registered on this device yet."
+        );
+      }
+
+      const result = await manager.restoreWithExistingPasskey(
+        backupFile,
+        passkeyResult.credentialId,
+        passkeyResult.publicKey
+      );
+      mnemonic = result.mnemonic;
+      ethereumAddress = result.ethereumAddress;
+    } else if (backupFile.encryptionMethod === 'hybrid') {
+      if (!password) {
+        throw new WalletError("Password required to restore hybrid backup");
+      }
+
+      if (!passkeyResult.publicKey) {
+        throw new WalletError(
+          "Passkey public key not found. The passkey may not be registered on this device yet."
+        );
+      }
+
+      const result = await manager.restoreWithHybrid(
+        backupFile,
+        password,
+        passkeyResult.credentialId,
+        passkeyResult.publicKey
+      );
+      mnemonic = result.mnemonic;
+      ethereumAddress = result.ethereumAddress;
+    } else {
+      throw new WalletError(`Unknown encryption method: ${backupFile.encryptionMethod}`);
+    }
+
+    // Mark backup as verified
+    backupManager.markBackupVerified(ethereumAddress);
+
+    // Store the wallet data with the selected passkey
+    const storage = new (await import("../auth/storage")).CredentialStorage();
+    const credential = await storage.getCredentialById(passkeyResult.credentialId);
+
+    if (credential) {
+      // Encrypt and store wallet data
+      const { deriveEncryptionKeyFromWebAuthn, encryptData } = await import("../wallet/crypto");
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+        credential.id,
+        credential.publicKey
+      );
+      const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
+
+      await this.walletStorage.store({
+        ethereumAddress,
+        encryptedMnemonic,
+        credentialId: credential.id,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Update current user
+      this.currentUser = {
+        id: ethereumAddress,
+        username: credential.username,
+        displayName: credential.username,
+        ethereumAddress,
+        credentialId: credential.id,
+      };
+
+      // Start session
+      await this.sessionManager.startSession(
+        mnemonic,
+        credential.id,
+        ethereumAddress,
+        credential.publicKey,
+        'STANDARD'
+      );
+
+      this.config.onAuthStateChanged?.(true, this.currentUser);
+    }
+
+    return { mnemonic, ethereumAddress };
+  }
+
+  /**
    * Register new passkey with wallet from backup file
    * Use case: Fresh device, user has backup file but no passkey yet
    *
