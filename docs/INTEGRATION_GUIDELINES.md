@@ -7,6 +7,8 @@ This guide covers essential best practices for integrating w3pk into your applic
 - [Public API vs Internal Implementation](#public-api-vs-internal-implementation)
 - [Wallet Derivation Strategy](#wallet-derivation-strategy)
 - [External Wallet Integration](#external-wallet-integration)
+- [Sending Transactions](#sending-transactions)
+- [EIP-1193 Provider](#eip-1193-provider)
 - [Registration Flow](#registration-flow)
 - [Backup & Recovery](#backup--recovery)
 - [Security Considerations](#security-considerations)
@@ -766,6 +768,279 @@ const result = await w3pk.signMessage(hash, {
 | Safe multisig | rawHash | Pre-computed transaction hashes |
 | NFT allowlist | EIP-712 | Structured whitelist data |
 | Gasless meta-tx | EIP-712 | Relayer signatures |
+
+---
+
+## Sending Transactions
+
+`sendTransaction()` broadcasts on-chain transactions using the wallet derived for the current security mode. It handles RPC resolution, session management, and STRICT-mode re-authentication automatically — you only need to provide the transaction details.
+
+### Basic Usage
+
+```typescript
+const result = await w3pk.sendTransaction({
+  to: '0xRecipient...',
+  value: 1n * 10n**18n,  // 1 ETH in wei (bigint)
+  chainId: 1             // required — no implicit default
+})
+
+console.log(result.hash)   // transaction hash
+console.log(result.from)   // derived sender address
+console.log(result.mode)   // 'STANDARD'
+```
+
+The RPC endpoint is resolved automatically from the built-in chainlist (2390+ networks). Pass `options.rpcUrl` to override.
+
+### Using with ethers.js
+
+If you want to **wait for confirmation** or read a receipt after sending through w3pk:
+
+```typescript
+import { JsonRpcProvider } from 'ethers'
+
+// 1. Send via w3pk (handles auth + key derivation)
+const result = await w3pk.sendTransaction({
+  to: '0xRecipient...',
+  value: 5n * 10n**17n,  // 0.5 ETH
+  chainId: 1
+})
+
+// 2. Wait for confirmation using ethers
+const endpoints = await w3pk.getEndpoints(1)
+const provider = new JsonRpcProvider(endpoints[0])
+const receipt = await provider.waitForTransaction(result.hash)
+console.log('Confirmed in block:', receipt?.blockNumber)
+```
+
+For **contract calls** with ethers (recommended pattern — keep key derivation in w3pk, use ethers only for ABI encoding):
+
+```typescript
+import { Interface } from 'ethers'
+
+// Encode the calldata with ethers ABI encoder
+const iface = new Interface(['function transfer(address to, uint256 amount)'])
+const data = iface.encodeFunctionData('transfer', [
+  '0xRecipient...',
+  1000n * 10n**18n   // 1000 tokens
+])
+
+// Send via w3pk — no private key exposure
+const result = await w3pk.sendTransaction({
+  to: '0xTokenContract...',
+  data,
+  chainId: 1
+})
+```
+
+### Using with viem
+
+viem's `encodeFunctionData` works the same way — use it to build calldata, then hand the transaction to w3pk:
+
+```typescript
+import { encodeFunctionData, parseEther, parseAbi } from 'viem'
+
+// Encode calldata with viem
+const data = encodeFunctionData({
+  abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']),
+  functionName: 'transfer',
+  args: ['0xRecipient...', parseEther('100')]
+})
+
+// Send via w3pk
+const result = await w3pk.sendTransaction({
+  to: '0xTokenContract...',
+  data,
+  chainId: 1
+})
+console.log('tx hash:', result.hash)
+```
+
+To **wait for a receipt** using viem's `publicClient`:
+
+```typescript
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()   // or http(rpcUrl) for a specific endpoint
+})
+
+// Send via w3pk
+const { hash } = await w3pk.sendTransaction({
+  to: '0x...',
+  value: parseEther('0.1'),
+  chainId: 1
+})
+
+// Wait for confirmation with viem
+const receipt = await publicClient.waitForTransactionReceipt({ hash: hash as `0x${string}` })
+console.log('Confirmed in block:', receipt.blockNumber)
+```
+
+### Choosing the Right Mode
+
+```typescript
+// STANDARD — session-based, re-authenticates only when session expires
+const tx = await w3pk.sendTransaction(
+  { to: '0x...', chainId: 1 },
+  { mode: 'STANDARD' }
+)
+
+// STRICT — always prompts for biometric before sending (high-value transactions)
+const safeTx = await w3pk.sendTransaction(
+  { to: '0x...', value: parseEther('10'), chainId: 1 },
+  { mode: 'STRICT' }
+)
+
+// YOLO — session-based, sends from the app-specific isolated address
+const gamingTx = await w3pk.sendTransaction(
+  { to: '0xGameContract...', data: '0x...', chainId: 8453 },
+  { mode: 'YOLO', tag: 'GAMING' }
+)
+```
+
+### EIP-1559 Fee Control
+
+```typescript
+import { parseUnits } from 'viem'  // or ethers
+
+const tx = await w3pk.sendTransaction({
+  to: '0x...',
+  chainId: 1,
+  maxFeePerGas: parseUnits('30', 'gwei'),           // 30 gwei
+  maxPriorityFeePerGas: parseUnits('2', 'gwei'),    // 2 gwei tip
+  gasLimit: 50000n
+})
+```
+
+If you omit fee fields, ethers automatically queries the network and selects appropriate values.
+
+### Patterns to Avoid
+
+```typescript
+// ❌ Don't import ethers/viem wallets separately and sign raw transactions —
+//    this bypasses w3pk's session management, mode isolation, and security model.
+import { Wallet } from 'ethers'
+const wallet = new Wallet(somePrivateKey)  // Never do this with w3pk keys
+
+// ✅ Always use w3pk.sendTransaction() so auth and key derivation stay inside the SDK
+const result = await w3pk.sendTransaction({ to: '0x...', chainId: 1 })
+```
+
+---
+
+## EIP-1193 Provider
+
+`getEIP1193Provider()` returns a standard [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) provider that wraps the SDK. Plug it directly into ethers, viem, wagmi, or RainbowKit — no extra wrappers required.
+
+```typescript
+const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
+```
+
+### ethers v6
+
+```typescript
+import { BrowserProvider, parseEther } from 'ethers'
+
+const provider = new BrowserProvider(w3pk.getEIP1193Provider({ chainId: 1 }))
+const signer = await provider.getSigner()
+
+// Send 1 ETH
+const tx = await signer.sendTransaction({ to: '0xRecipient...', value: parseEther('1') })
+console.log('hash:', tx.hash)
+
+// Sign (EIP-191)
+const sig = await signer.signMessage('Hello World')
+
+// Sign typed data (EIP-712)
+const permit = await signer.signTypedData(domain, types, value)
+```
+
+### viem
+
+```typescript
+import { createWalletClient, createPublicClient, custom, http, parseEther } from 'viem'
+import { mainnet } from 'viem/chains'
+
+const walletClient = createWalletClient({
+  chain: mainnet,
+  transport: custom(w3pk.getEIP1193Provider({ chainId: 1 }))
+})
+
+const [address] = await walletClient.getAddresses()
+
+// Send ETH
+const hash = await walletClient.sendTransaction({
+  account: address,
+  to: '0xRecipient...',
+  value: parseEther('1')
+})
+
+// Sign (EIP-191)
+const sig = await walletClient.signMessage({ account: address, message: 'Hello' })
+
+// Sign typed data (EIP-712)
+const permitSig = await walletClient.signTypedData({ account: address, domain, types, primaryType, message })
+
+// Wait for receipt (use a publicClient)
+const publicClient = createPublicClient({ chain: mainnet, transport: http() })
+const receipt = await publicClient.waitForTransactionReceipt({ hash })
+```
+
+### wagmi
+
+```typescript
+import { injected } from 'wagmi/connectors'
+import { createConfig, http } from 'wagmi'
+import { mainnet } from 'wagmi/chains'
+
+const w3pkConnector = injected({
+  target() {
+    return {
+      id: 'w3pk',
+      name: 'w3pk Passkey Wallet',
+      provider: w3pk.getEIP1193Provider({ chainId: 1 })
+    }
+  }
+})
+
+const config = createConfig({
+  chains: [mainnet],
+  connectors: [w3pkConnector],
+  transports: { [mainnet.id]: http() }
+})
+```
+
+### Chain switching
+
+The provider maintains its own `chainId` state. Call `wallet_switchEthereumChain` and listen for `chainChanged`:
+
+```typescript
+const provider = w3pk.getEIP1193Provider({ chainId: 1 })
+
+provider.on('chainChanged', (chainId) => {
+  console.log('Chain switched to:', parseInt(chainId, 16))
+})
+
+// Switch to Optimism
+await provider.request({
+  method: 'wallet_switchEthereumChain',
+  params: [{ chainId: '0xa' }]
+})
+```
+
+### Patterns to avoid
+
+```typescript
+// ❌ Don't re-use the same provider instance for different chains.
+//    Each getEIP1193Provider() call returns an independent instance.
+const provider = w3pk.getEIP1193Provider({ chainId: 1 })
+
+// ✅ Create separate providers for different chains/contexts
+const mainnetProvider  = w3pk.getEIP1193Provider({ chainId: 1 })
+const optimismProvider = w3pk.getEIP1193Provider({ chainId: 10, rpcUrl: 'https://mainnet.optimism.io' })
+```
 
 ---
 
