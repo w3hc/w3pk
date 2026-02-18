@@ -12,6 +12,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
 - [Zero-Knowledge Proofs](#zero-knowledge-proofs)
 - [Backup & Recovery](#backup--recovery)
 - [Cross-Device Sync](#cross-device-sync)
+  - [`syncWalletWithPasskey()`](#syncwalletwithpasskey)
 - [Session Management](#session-management)
 - [Blockchain Utilities](#blockchain-utilities)
 - [Standalone Utilities](#standalone-utilities)
@@ -2358,6 +2359,41 @@ const syncData = '...' // From file upload or QR scan
 const result = await w3pk.importFromSync(syncData)
 console.log('Wallet synced:', result.ethereumAddress)
 ```
+
+---
+
+### `syncWalletWithPasskey(backupData: string | Blob, password?: string): Promise<{ mnemonic: string; ethereumAddress: string }>`
+
+Sync wallet to this device using an existing cloud-synced passkey and a backup file. No prior session required.
+
+**Use case:** New device that already has a passkey synced via iCloud/Google Password Manager. The user provides their backup file; the SDK prompts them to select the passkey, decrypts the backup, stores wallet data locally, and starts a session.
+
+**Parameters:**
+- `backupData: string | Blob` - Backup file content (JSON string or Blob)
+- `password?: string` - Password to decrypt the backup (required for `password` and `hybrid` encryption methods)
+
+**Returns:** `{ mnemonic: string; ethereumAddress: string }`
+
+**Supported encryption methods:** `password`, `passkey`, `hybrid`
+
+**Example:**
+
+```typescript
+// Passkey-encrypted backup (no password needed)
+const result = await w3pk.syncWalletWithPasskey(backupData)
+console.log('Synced wallet address:', result.ethereumAddress)
+
+// Password or hybrid backup
+const result2 = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!')
+console.log('Synced wallet address:', result2.ethereumAddress)
+```
+
+**Throws:**
+- `WalletError` if password is required but not provided
+- `WalletError` if passkey public key is not available on this device
+- `WalletError` if backup uses an unknown encryption method
+
+**Note:** Differs from `importFromSync()` in that it does not require a prior `login()` call and accepts any backup encryption method, not just passkey-encrypted sync exports.
 
 ---
 

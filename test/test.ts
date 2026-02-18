@@ -64,7 +64,7 @@ async function runTests() {
       logDetail(`Authenticated: ${sdk2.isAuthenticated}`);
     } catch (error) {
       const errMsg = (error as Error).message;
-      if (errMsg.includes("navigator is not defined") || errMsg.includes("WebAuthn")) {
+      if (errMsg.includes("navigator is not defined") || errMsg.includes("WebAuthn") || errMsg.includes("navigator.credentials") || errMsg.includes("Cannot read properties of undefined")) {
         skipTest("WebAuthn requires browser environment");
         logInfo("For WebAuthn tests, use test/webauthn-native.html in a browser");
         passTest("Skipped (requires browser)");

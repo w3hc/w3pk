@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cross-Device Wallet Sync via Passkey**: New `syncWalletWithPasskey()` SDK method for syncing a wallet to a new device using an existing cloud-synced passkey and a backup file
+  - Two-step flow: prompts the user to select their synced passkey (iCloud/Google Password Manager), then uses it to decrypt the provided backup file
+  - Supports all three backup encryption methods: `password`, `passkey`, and `hybrid`
+  - After successful sync, re-encrypts the mnemonic for local storage, updates the current user, and starts a session — fully restoring authenticated state on the new device
+  - New `src/auth/sync-auth.ts` module with exported `promptPasskeySelection()` and `authenticateWithPasskey()` helpers, and `PasskeySelectionResult` type
+
 ### Changed
 
+- **Improved error message for cloud-synced passkeys**: When a passkey authenticates successfully but wallet data is not found locally (common on new devices with synced passkeys), the error now uses `AuthenticationError` with a clear, actionable message guiding the user to sync their account via the backup file flow
 - **Code Quality Improvements**: Step 1 preparation and cleanup for backup system implementation
   - Removed debug `console.log` statements from authentication and SDK core modules
   - Improved code consistency across backup and recovery modules

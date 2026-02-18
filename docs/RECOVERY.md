@@ -195,6 +195,37 @@ await sdk.importMnemonic(mnemonic);
 
 **Purpose**: Sync wallet to devices where passkey is already synced
 
+There are two approaches depending on whether you have an existing wallet session:
+
+#### Option A: Sync with passkey + backup file (recommended for new devices)
+
+Use this when you're on a new device that already has your passkey synced (e.g., via iCloud/Google Password Manager) but doesn't have the wallet data yet.
+
+```typescript
+const sdk = createWeb3Passkey();
+
+// Provide your backup file (any encryption method: password, passkey, or hybrid)
+const backupData = '...'; // JSON string or Blob from your backup file
+const { mnemonic, ethereumAddress } = await sdk.syncWalletWithPasskey(backupData);
+// 1. SDK prompts you to select your synced passkey
+// 2. Decrypts backup using the selected passkey
+// 3. Stores wallet data locally and starts a session ✅
+```
+
+For password or hybrid backups, pass the password as a second argument:
+
+```typescript
+const { mnemonic, ethereumAddress } = await sdk.syncWalletWithPasskey(backupData, 'MyPassword123!');
+```
+
+**Requirement**: Passkey must be synced to this device (iCloud/Google Password Manager)
+
+**Supports**: All backup encryption methods (`password`, `passkey`, `hybrid`)
+
+#### Option B: Export/import sync file (between two active devices)
+
+Use this when you have the wallet active on Device A and want to transfer to Device B.
+
 **Export from Device A:**
 ```typescript
 const sdk = createWeb3Passkey();
@@ -220,9 +251,10 @@ await sdk.importFromSync(syncData);
 **Requirement**: Passkey must be synced via iCloud/Google Password Manager
 
 **Pros:**
-- ✅ No password needed
+- ✅ No password needed (passkey-encrypted backups)
 - ✅ Leverages existing passkey sync
 - ✅ Fast and convenient
+- ✅ `syncWalletWithPasskey()` works without an existing session
 
 **Cons:**
 - ⚠️ Requires passkey on target device
@@ -345,7 +377,8 @@ await sdk.importMnemonic(mnemonic);
 | Workflow | Encryption | Use Case | Requirements |
 |----------|------------|----------|--------------|
 | **Backup/Restore** | Password | Lost all devices, platform switch | Password only |
-| **Sync** | Passkey | Add wallet to synced device | Passkey synced to target |
+| **Sync (passkey + backup)** | Any | New device with synced passkey, no active session | Passkey synced + backup file |
+| **Sync (export/import)** | Passkey | Transfer from active device to another | Active session + passkey synced to target |
 | **Social Recovery** | Password* | Forgot everything, ultimate backup | 3+ guardians available |
 
 *Social recovery can use passkey encryption, but password is recommended for guardian scenarios.
@@ -436,7 +469,12 @@ await w3pk.importMnemonic(mnemonic);
 ### Cross-Device Sync
 
 ```typescript
-// Export for sync (Device A)
+// Sync to new device using existing passkey + backup file (no prior session needed)
+const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupData);
+// or with password for password/hybrid backups:
+const result = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!');
+
+// Export for sync (Device A - requires active session)
 const { blob, qrCode } = await w3pk.exportForSync();
 
 // Import on another device (Device B - stores credentials locally)
@@ -633,20 +671,30 @@ Verification:
 
 #### **Method 2: Using Passkey Sync**
 
+**Option A: Passkey + backup file (new device, no prior session)**
+
 ```markdown
 1. Get new device (same ecosystem)
-2. Sign into cloud account (iCloud/Google)
+2. Sign into cloud account (iCloud/Google) - passkey syncs automatically
 3. Go to w3pk website
-4. Click "Login"
-5. Authenticate with biometric
-6. Passkey syncs automatically
-7. Import wallet data using sync backup
-8. Wallet decrypted ✅
+4. Provide your backup file (any encryption method)
+5. Call syncWalletWithPasskey(backupData) or use the app's "Sync Wallet" flow
+6. Authenticate with biometric when prompted
+7. Wallet decrypted and stored locally ✅
 
 Platform-specific:
 - iOS → iCloud Keychain must be enabled
 - Android → Google Password Manager
 - Windows → Limited sync support
+```
+
+**Option B: Export/import sync file (transfer from active device)**
+
+```markdown
+1. On Device A: export sync file via exportForSync()
+2. Transfer file to Device B (AirDrop, QR code, etc.)
+3. On Device B: sign in with synced passkey, then importFromSync(syncData)
+4. Wallet decrypted ✅
 ```
 
 #### **Method 3: Using Social Recovery**
@@ -698,7 +746,10 @@ Compatible with:
 A: **No!** This is a critical distinction. Your passkey (Face ID/Touch ID credential) syncs via iCloud/Google, but your encrypted wallet data does NOT automatically sync. You MUST create a manual backup to ensure full wallet recovery. Passkey sync only helps with authentication, not wallet recovery.
 
 **Q: If I get a new iPhone and sign into iCloud, will my wallet be there?**
-A: Only if you also transferred your wallet data or created a backup. The passkey will sync automatically, allowing you to authenticate, but the encrypted wallet data needs to be restored separately from a backup.
+A: Only if you also transferred your wallet data or created a backup. The passkey will sync automatically, allowing you to authenticate, but the encrypted wallet data needs to be restored separately from a backup. Use `syncWalletWithPasskey(backupData)` to combine your synced passkey with a backup file in a single step.
+
+**Q: What's the difference between `syncWalletWithPasskey()` and `importFromSync()`?**
+A: `syncWalletWithPasskey()` is for new devices with no active session — it prompts for your synced passkey and accepts any backup file (password, passkey, or hybrid encrypted). `importFromSync()` requires you to already be logged in and uses a passkey-encrypted sync export from another device.
 
 **Q: Can I use multiple backup methods?**
 A: Yes! We recommend using at least 2 methods for redundancy.
