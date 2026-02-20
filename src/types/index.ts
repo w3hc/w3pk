@@ -3,11 +3,13 @@
  */
 
 export interface UserInfo {
-  id: string;
   username: string;
-  displayName: string;
   ethereumAddress: string;
   credentialId: string;
+  /** @deprecated Use ethereumAddress instead */
+  id?: string;
+  /** @deprecated Use username instead */
+  displayName?: string;
 }
 
 /**
@@ -58,11 +60,33 @@ export type SecurityMode = 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO';
 export type SigningMethod = 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash';
 
 /**
- * Wallet information returned by SDK methods
+ * Options for signMessage method
+ * EIP-712 specific fields are only used when signingMethod is 'EIP712'
+ */
+export interface SignMessageOptions {
+  mode?: SecurityMode;
+  tag?: string;
+  requireAuth?: boolean;
+  origin?: string;
+  signingMethod?: SigningMethod;
+  // EIP-712 specific options (only used when signingMethod === 'EIP712')
+  eip712Domain?: Record<string, any>;
+  eip712Types?: Record<string, Array<{ name: string; type: string }>>;
+  eip712PrimaryType?: string;
+}
+
+/**
+ * Generated wallet with mnemonic (from generateWallet)
+ */
+export interface GeneratedWallet {
+  address: string;
+  mnemonic: string;
+}
+
+/**
+ * Derived wallet from origin-specific derivation
  *
  * SECURITY GUARANTEES:
- * - `mnemonic` is ONLY included during wallet generation (generateWallet())
- *   and is NEVER exposed through any other SDK method
  * - `privateKey` is conditionally included based on security mode:
  *   - STANDARD mode: Address only (no private key), persistent sessions allowed
  *   - STRICT mode: Address only (no private key), no persistent sessions
@@ -70,11 +94,20 @@ export type SigningMethod = 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash';
  * - Applications CANNOT access the master mnemonic
  * - This ensures apps can only access keys based on the security mode
  */
-export interface WalletInfo {
+export interface DerivedWallet {
   address: string;
-  mnemonic?: string;
   privateKey?: string;
+  index?: number;
+  origin?: string;
+  mode?: SecurityMode;
+  tag?: string;
+  publicKey?: string;
 }
+
+/**
+ * @deprecated Use GeneratedWallet or DerivedWallet instead
+ */
+export type WalletInfo = GeneratedWallet | DerivedWallet;
 
 export interface ApiResponse<T = any> {
   success: boolean;

@@ -253,28 +253,32 @@ To integrate external wallet linking, you need to:
 ### Step 1: Setup Delegation Authorization
 
 ```typescript
-import { W3PK } from 'w3pk-sdk'
+import { createWeb3Passkey } from 'w3pk'
 
 // Initialize w3pk SDK
-const sdk = new W3PK({
-  credentialName: 'MyApp',
-  rpcUrl: 'https://your-rpc-url',
-  walletType: 'STANDARD+MAIN'
+const w3pk = createWeb3Passkey()
+
+// Register or login
+await w3pk.register({ username: 'alice' })
+// or
+await w3pk.login()
+
+// Request external wallet (e.g., MetaMask) to delegate to w3pk account
+// This uses the requestExternalWalletDelegation method
+const authorization = await w3pk.requestExternalWalletDelegation({
+  chainId: 1,
+  nonce: 0n
 })
 
-// User's external wallet address (e.g., their MetaMask address)
-const externalWalletAddress = '0x1234...' // Address that holds the NFT
-
-// Setup the delegation - this creates the EIP-7702 authorization data
-const authorizationData = await sdk.setupExternalWalletDelegation(externalWalletAddress)
-
-// authorizationData contains the typed data structure to be signed
-console.log(authorizationData)
+// authorization contains the EIP-7702 authorization signed by external wallet
+console.log(authorization)
 // {
-//   chainId: 1,
-//   address: '0x1234...',
+//   chainId: 1n,
+//   address: '0x...',  // w3pk STANDARD+MAIN address
 //   nonce: 0n,
-//   authorizationList: [...]
+//   yParity: 0,
+//   r: '0x...',
+//   s: '0x...'
 // }
 ```
 
@@ -1201,9 +1205,9 @@ async function promptBackupOptions() {
   // Show modal/screen with backup options
   const userChoice = await showBackupModal()
 
-  if (userChoice === 'qr-code') {
-    const { qrCodeDataURL } = await w3pk.createQRBackup()
-    displayQRCode(qrCodeDataURL)
+  if (userChoice === 'download') {
+    const { blob, filename } = await w3pk.createBackupFile('password', 'user-password')
+    downloadFile(blob, filename)
   } else if (userChoice === 'social-recovery') {
     await setupSocialRecoveryFlow()
   }
@@ -1267,8 +1271,12 @@ async function createEncryptedBackup() {
     throw new Error('Password too weak. Need 12+ chars with mixed case, numbers, symbols')
   }
 
-  // Create QR backup
-  const { qrCodeDataURL } = await w3pk.createQRBackup(password)
+  // Create backup file and optionally generate QR code
+  const { blob, filename } = await w3pk.createBackupFile('password', password)
+
+  // You can display the JSON as QR code for scanning
+  const backupJson = await blob.text()
+  const qrCodeDataURL = await generateQRCode(backupJson)
   displayQRForPrinting(qrCodeDataURL)
 }
 ```
@@ -1277,22 +1285,26 @@ async function createEncryptedBackup() {
 
 ```typescript
 async function setupSocialRecovery() {
+  const guardians = [
+    { name: 'Alice', email: 'alice@example.com' },
+    { name: 'Bob', email: 'bob@example.com' },
+    { name: 'Charlie', email: 'charlie@example.com' },
+    { name: 'Diana', email: 'diana@example.com' },
+    { name: 'Eve', email: 'eve@example.com' }
+  ]
+
   // Setup 3-of-5 guardians
-  await w3pk.setupSocialRecovery(
-    [
-      { name: 'Alice', email: 'alice@example.com' },
-      { name: 'Bob', email: 'bob@example.com' },
-      { name: 'Charlie', phone: '+1234567890' },
-      { name: 'Diana', email: 'diana@example.com' },
-      { name: 'Eve', email: 'eve@example.com' }
-    ],
-    3 // threshold - need 3 out of 5 to recover
+  const { guardianShares } = await w3pk.setupSocialRecovery(
+    guardians,
+    3, // threshold - need 3 out of 5 to recover
+    'optional-password' // optional password for additional encryption
   )
 
   // Generate and send guardian invites
-  const guardians = await w3pk.getGuardians()
-  for (const guardian of guardians) {
-    const invite = await w3pk.generateGuardianInvite(guardian.id)
+  for (let i = 0; i < guardianShares.length; i++) {
+    const share = guardianShares[i]
+    const guardian = guardians[i]
+    const invite = await w3pk.generateGuardianInvite(share, 'Custom message for guardian')
     await sendInviteToGuardian(guardian, invite)
   }
 }
@@ -1331,17 +1343,20 @@ async function recoverWallet() {
   if (method === 'encrypted-backup') {
     const file = await getBackupFile()
     const password = await getPasswordFromUser()
-    await w3pk.restoreFromBackup(file, password)
+    const { mnemonic, ethereumAddress } = await w3pk.restoreFromBackupFile(file, password)
+    console.log('✅ Wallet recovered:', ethereumAddress)
 
   } else if (method === 'social-recovery') {
     const shares = await collectGuardianShares()
-    const { mnemonic } = await w3pk.recoverFromGuardians(shares)
-    console.log('✅ Wallet recovered!')
+    const password = await getPasswordFromUser() // if password-protected backup was used
+    const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares, password)
+    console.log('✅ Wallet recovered:', ethereumAddress)
 
   } else if (method === 'qr-backup') {
     const qrData = await scanQRCode()
     const password = await getPasswordFromUser()
-    await w3pk.restoreFromBackup(qrData, password)
+    const { mnemonic, ethereumAddress } = await w3pk.restoreFromBackupFile(qrData, password)
+    console.log('✅ Wallet recovered:', ethereumAddress)
   }
 }
 ```
@@ -1503,8 +1518,8 @@ class WalletManager {
 
       if (choice === 'encrypted') {
         const password = await this.getStrongPassword()
-        const blob = await this.w3pk.createZipBackup(password)
-        this.downloadBackup(blob)
+        const { blob, filename } = await this.w3pk.createBackupFile('password', password)
+        this.downloadBackup(blob, filename)
       } else if (choice === 'social') {
         await this.setupSocialRecovery()
       }

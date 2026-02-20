@@ -2,6 +2,7 @@ import { deriveWalletFromMnemonic } from "./generate";
 import { WalletError } from "../core/errors";
 import type { SecurityMode } from "../types";
 import { keccak256 } from "ethers";
+import { base64UrlToArrayBuffer } from "../utils/base64";
 
 export const DEFAULT_MODE: SecurityMode = "STANDARD";
 export const DEFAULT_TAG = "MAIN";
@@ -187,17 +188,3 @@ export async function deriveAddressFromP256PublicKey(publicKeySpki: string): Pro
   }
 }
 
-/**
- * Helper function to decode base64url to ArrayBuffer
- */
-function base64UrlToArrayBuffer(base64url: string): ArrayBuffer {
-  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
-  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
-  const base64Padded = base64 + padding;
-  const binaryString = atob(base64Padded);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
-}

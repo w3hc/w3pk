@@ -10,12 +10,7 @@ import {
   arrayBufferToBase64Url,
   base64UrlToArrayBuffer,
 } from "../utils/base64";
-
-function generateChallenge(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return arrayBufferToBase64Url(array);
-}
+import { generateChallenge } from "../wallet/crypto";
 
 export interface PasskeySelectionResult {
   credentialId: string;
