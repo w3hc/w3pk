@@ -1,7 +1,7 @@
 import { StorageError } from "../core/errors";
 import {
-  encryptMetadata,
-  decryptMetadata,
+  encryptData,
+  decryptData,
   hashCredentialId,
   hashPublicKey,
 } from "../wallet/crypto";
@@ -89,11 +89,11 @@ export class CredentialStorage {
 
       const encryptedData: EncryptedCredential = {
         id: hashedId,
-        encryptedUsername: await encryptMetadata(
+        encryptedUsername: await encryptData(
           credential.username,
           metadataKey
         ),
-        encryptedAddress: await encryptMetadata(
+        encryptedAddress: await encryptData(
           credential.ethereumAddress,
           metadataKey
         ),
@@ -129,8 +129,8 @@ export class CredentialStorage {
       return {
         id,
         publicKey: encrypted.publicKey, // Return the stored public key
-        username: await decryptMetadata(encrypted.encryptedUsername, metadataKey),
-        ethereumAddress: await decryptMetadata(
+        username: await decryptData(encrypted.encryptedUsername, metadataKey),
+        ethereumAddress: await decryptData(
           encrypted.encryptedAddress,
           metadataKey
         ),

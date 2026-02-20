@@ -36,10 +36,11 @@ import {
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
 import { SessionManager } from "./session";
+import { CredentialStorage } from "../auth/storage";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import { DEFAULT_CONFIG } from "./config";
-import type { UserInfo, WalletInfo, SecurityMode, SigningMethod } from "../types";
+import type { UserInfo, WalletInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import { AuthenticationError, WalletError } from "./errors";
 import { getEndpoints } from "../chainlist";
 import { supportsEIP7702 } from "../eip7702";
@@ -67,9 +68,8 @@ export class Web3Passkey {
   private config: InternalConfig;
   private walletStorage: IndexedDBWalletStorage;
   private currentUser: UserInfo | null = null;
-  private currentWallet: WalletInfo | null = null;
+  private currentWallet: GeneratedWallet | null = null;
   private sessionManager: SessionManager;
-  private currentSecurityMode: SecurityMode = 'STANDARD'; // Track current security mode
 
   public stealth?: StealthAddressModule;
   private zkModule?: any;
@@ -120,13 +120,13 @@ export class Web3Passkey {
   /**
    * Retrieve mnemonic from active session or trigger authentication
    * @param forceAuth - Bypass session cache and require fresh authentication
-   * @param securityMode - Security mode to use for session persistence
+   * @param securityMode - Security mode to use for session persistence (default: STANDARD)
    */
   private async getMnemonicFromSession(
     forceAuth: boolean = false,
-    securityMode?: SecurityMode
+    securityMode: SecurityMode = 'STANDARD'
   ): Promise<string> {
-    const effectiveMode = securityMode || this.currentSecurityMode;
+    const effectiveMode = securityMode;
 
     if (!forceAuth) {
       const cachedMnemonic = this.sessionManager.getMnemonic();
@@ -152,7 +152,7 @@ export class Web3Passkey {
       throw new WalletError("Authentication failed");
     }
 
-    const storage = new (await import("../auth/storage")).CredentialStorage();
+    const storage = new CredentialStorage();
     const credential = await storage.getCredentialById(walletData.credentialId);
     const publicKey = credential?.publicKey;
 
@@ -197,13 +197,11 @@ export class Web3Passkey {
         ethereumAddress,
       });
 
-      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const storage = new CredentialStorage();
       const credential = await storage.getCredentialByAddress(ethereumAddress);
 
       this.currentUser = {
-        id: ethereumAddress,
         username: options.username,
-        displayName: options.username,
         ethereumAddress,
         credentialId: credential?.id || '',
       };
@@ -267,13 +265,11 @@ export class Web3Passkey {
       if (silentRestore) {
         // Successfully restored session without WebAuthn prompt
         // Update username from credential storage
-        const storage = new (await import("../auth/storage")).CredentialStorage();
+        const storage = new CredentialStorage();
         const credential = await storage.getCredentialById(silentRestore.credentialId);
 
         this.currentUser = {
-          id: silentRestore.ethereumAddress,
           username: credential?.username || silentRestore.ethereumAddress,
-          displayName: credential?.username || silentRestore.ethereumAddress,
           ethereumAddress: silentRestore.ethereumAddress,
           credentialId: silentRestore.credentialId,
         };
@@ -301,9 +297,7 @@ export class Web3Passkey {
       }
 
       this.currentUser = {
-        id: result.user.ethereumAddress,
         username: result.user.username,
-        displayName: result.user.username,
         ethereumAddress: result.user.ethereumAddress,
         credentialId: result.user.credentialId,
       };
@@ -318,7 +312,7 @@ export class Web3Passkey {
         return this.currentUser;
       }
 
-      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const storage = new CredentialStorage();
       const credential = await storage.getCredentialById(walletData.credentialId);
       const publicKey = credential?.publicKey;
 
@@ -383,58 +377,18 @@ export class Web3Passkey {
   }
 
   /**
-   * Check if there are existing credentials on this device
-   * Useful for preventing accidental multiple wallet creation
-   *
-   * @returns true if at least one credential exists
-   * @example
-   * const hasWallet = await w3pk.hasExistingCredential()
-   * if (hasWallet) {
-   *   // Prompt user to login instead of registering
-   *   await w3pk.login()
-   * }
-   */
-  async hasExistingCredential(): Promise<boolean> {
-    try {
-      const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credentials = await storage.getAllCredentials();
-      return credentials.length > 0;
-    } catch (error) {
-      // If storage fails, assume no credentials
-      return false;
-    }
-  }
-
-  /**
-   * Get the number of existing credentials on this device
-   *
-   * @returns count of credentials
-   * @example
-   * const count = await w3pk.getExistingCredentialCount()
-   * if (count > 0) {
-   *   console.warn(`You have ${count} wallet(s) on this device`)
-   * }
-   */
-  async getExistingCredentialCount(): Promise<number> {
-    try {
-      const storage = new (await import("../auth/storage")).CredentialStorage();
-      const credentials = await storage.getAllCredentials();
-      return credentials.length;
-    } catch (error) {
-      return 0;
-    }
-  }
-
-  /**
    * List existing credentials (usernames and addresses)
    * Useful for allowing users to select which wallet to login to
    *
    * @returns array of credentials with username, address, and metadata
    * @example
    * const wallets = await w3pk.listExistingCredentials()
-   * wallets.forEach(w => {
-   *   console.log(`${w.username}: ${w.ethereumAddress}`)
-   * })
+   * if (wallets.length > 0) {
+   *   console.warn(`You have ${wallets.length} wallet(s) on this device`)
+   *   wallets.forEach(w => {
+   *     console.log(`${w.username}: ${w.ethereumAddress}`)
+   *   })
+   * }
    */
   async listExistingCredentials(): Promise<Array<{
     username: string;
@@ -443,7 +397,7 @@ export class Web3Passkey {
     lastUsed: string;
   }>> {
     try {
-      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const storage = new CredentialStorage();
       const credentials = await storage.getAllCredentials();
       return credentials.map(cred => ({
         username: cred.username,
@@ -457,9 +411,26 @@ export class Web3Passkey {
   }
 
   /**
-   * Generate new BIP39 wallet with 12-word mnemonic
+   * Check if there are existing credentials on this device
+   * @deprecated Use listExistingCredentials().length > 0 instead
    */
-  async generateWallet(): Promise<{ mnemonic: string }> {
+  async hasExistingCredential(): Promise<boolean> {
+    return (await this.listExistingCredentials()).length > 0;
+  }
+
+  /**
+   * Get the number of existing credentials on this device
+   * @deprecated Use listExistingCredentials().length instead
+   */
+  async getExistingCredentialCount(): Promise<number> {
+    return (await this.listExistingCredentials()).length;
+  }
+
+  /**
+   * Generate new BIP39 wallet with 12-word mnemonic
+   * @internal - Called automatically by register()
+   */
+  private async generateWallet(): Promise<GeneratedWallet> {
     try {
       const wallet = generateBIP39Wallet();
 
@@ -469,6 +440,7 @@ export class Web3Passkey {
       };
 
       return {
+        address: wallet.address,
         mnemonic: wallet.mnemonic,
       };
     } catch (error) {
@@ -504,7 +476,7 @@ export class Web3Passkey {
     mode?: SecurityMode,
     tag?: string,
     options?: { requireAuth?: boolean; origin?: string }
-  ): Promise<WalletInfo & { index?: number; origin?: string; mode?: SecurityMode; tag?: string; publicKey?: string }> {
+  ): Promise<DerivedWallet> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to derive wallet");
@@ -513,9 +485,6 @@ export class Web3Passkey {
       const effectiveMode = mode || DEFAULT_MODE;
       const effectiveTag = tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
-
-      // Track security mode for session management
-      this.currentSecurityMode = effectiveMode;
 
       // PRIMARY mode: Use WebAuthn P-256 public key directly (EIP-7951)
       if (effectiveMode === 'PRIMARY') {
@@ -565,6 +534,10 @@ export class Web3Passkey {
    * Get public address for a specific security mode and tag
    * Lightweight method that only returns the address without exposing private keys
    *
+   * SECURITY: This method ensures no private key is ever returned to the application,
+   * even in YOLO mode. It directly derives the address without creating a wallet object
+   * that might contain sensitive key material.
+   *
    * @param mode - Security mode (default: "STANDARD")
    * @param tag - Derivation tag (default: "MAIN")
    * @param options.origin - Override origin URL (testing only)
@@ -599,7 +572,6 @@ export class Web3Passkey {
 
       // PRIMARY mode: Use WebAuthn P-256 public key directly (EIP-7951)
       if (effectiveMode === 'PRIMARY') {
-        const { CredentialStorage } = await import("../auth/storage");
         const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
 
         const storage = new CredentialStorage();
@@ -627,17 +599,6 @@ export class Web3Passkey {
     }
   }
 
-  /**
-   * Export mnemonic (disabled for security)
-   * Use createBackupFile() instead
-   * @deprecated
-   * @throws WalletError
-   */
-  async exportMnemonic(): Promise<string> {
-    throw new WalletError(
-      "exportMnemonic() disabled for security. Use createBackupFile() instead."
-    );
-  }
 
   /**
    * Import mnemonic phrase
@@ -660,7 +621,7 @@ export class Web3Passkey {
 
       const credentialId = authResult.user.credentialId;
 
-      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const storage = new CredentialStorage();
       const credential = await storage.getCredentialById(credentialId);
       const publicKey = credential?.publicKey;
 
@@ -734,17 +695,7 @@ export class Web3Passkey {
    */
   async signMessage(
     message: string,
-    options?: {
-      mode?: SecurityMode;
-      tag?: string;
-      requireAuth?: boolean;
-      origin?: string;
-      signingMethod?: SigningMethod;
-      // EIP-712 specific options
-      eip712Domain?: Record<string, any>;
-      eip712Types?: Record<string, Array<{ name: string; type: string }>>;
-      eip712PrimaryType?: string;
-    }
+    options?: SignMessageOptions
   ): Promise<{
     signature: string;
     address: string;
@@ -761,9 +712,6 @@ export class Web3Passkey {
       const effectiveTag = options?.tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
       const signingMethod = options?.signingMethod || 'EIP191';
-
-      // Track security mode for session management
-      this.currentSecurityMode = effectiveMode;
 
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
@@ -791,14 +739,9 @@ export class Web3Passkey {
       // Handle different signing methods
       switch (signingMethod) {
         case 'EIP191':
-          // Default behavior - EIP-191 compliant message signing
-          signature = await wallet.signMessage(message);
-          break;
-
         case 'SIWE':
-          // SIWE (Sign-In with Ethereum) - EIP-4361 compliant
-          // SIWE messages are signed with EIP-191 prefix (for EOA accounts)
-          // The message should already be a properly formatted SIWE message
+          // EIP-191 compliant message signing
+          // SIWE (EIP-4361) messages are also signed with EIP-191 for EOA accounts
           signature = await wallet.signMessage(message);
           break;
 
@@ -1077,9 +1020,6 @@ export class Web3Passkey {
           "Use signMessageWithPasskey() to obtain a P-256 signature and submit via a bundler manually."
         );
       }
-
-      // Track security mode for session management
-      this.currentSecurityMode = effectiveMode;
 
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
@@ -1587,7 +1527,7 @@ export class Web3Passkey {
         throw new WalletError("No wallet data found");
       }
 
-      const credStorage = new (await import("../auth/storage")).CredentialStorage();
+      const credStorage = new CredentialStorage();
       const credential = await credStorage.getCredentialById(walletData.credentialId);
       if (!credential) {
         throw new WalletError("Credential not found");
@@ -1613,7 +1553,7 @@ export class Web3Passkey {
         throw new WalletError("No wallet data found");
       }
 
-      const credStorage = new (await import("../auth/storage")).CredentialStorage();
+      const credStorage = new CredentialStorage();
       const credential = await credStorage.getCredentialById(walletData.credentialId);
       if (!credential) {
         throw new WalletError("Credential not found");
@@ -1670,17 +1610,28 @@ export class Web3Passkey {
     const { BackupFileManager } = await import("../backup/backup-file");
     const backupManager = new BackupFileManager();
 
-    const { backupFile } = password
-      ? await backupManager.createPasswordBackup(mnemonic, this.currentUser.ethereumAddress, password)
-      : await backupManager.createPasskeyBackup(
-          mnemonic,
-          this.currentUser.ethereumAddress,
-          (await this.walletStorage.retrieve(this.currentUser.ethereumAddress))!.credentialId,
-          (await (await import("../auth/storage")).CredentialStorage.prototype.getCredentialById.call(
-            new (await import("../auth/storage")).CredentialStorage(),
-            (await this.walletStorage.retrieve(this.currentUser.ethereumAddress))!.credentialId
-          ))!.publicKey
-        );
+    let backupFile;
+    if (password) {
+      const created = await backupManager.createPasswordBackup(mnemonic, this.currentUser.ethereumAddress, password);
+      backupFile = created.backupFile;
+    } else {
+      const walletData = await this.walletStorage.retrieve(this.currentUser.ethereumAddress);
+      if (!walletData) {
+        throw new WalletError("No wallet data found");
+      }
+      const storage = new CredentialStorage();
+      const credential = await storage.getCredentialById(walletData.credentialId);
+      if (!credential) {
+        throw new WalletError("Credential not found");
+      }
+      const created = await backupManager.createPasskeyBackup(
+        mnemonic,
+        this.currentUser.ethereumAddress,
+        credential.id,
+        credential.publicKey
+      );
+      backupFile = created.backupFile;
+    }
 
     // Split backup among guardians
     const { SocialRecovery } = await import("../recovery/backup-based-recovery");
@@ -1812,7 +1763,7 @@ export class Web3Passkey {
       }
 
       // Get credential from storage (not from walletData which may not exist)
-      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const storage = new CredentialStorage();
       const credentials = await storage.getAllCredentials();
       const credential = credentials.find(c =>
         c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
@@ -1841,7 +1792,7 @@ export class Web3Passkey {
       }
 
       // Get credential from storage (not from walletData which may not exist)
-      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const storage = new CredentialStorage();
       const credentials = await storage.getAllCredentials();
       const credential = credentials.find(c =>
         c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
@@ -1876,7 +1827,7 @@ export class Web3Passkey {
     // Persist the restored wallet to storage if user is logged in
     if (this.currentUser) {
       // Get credential for encryption
-      const storage = new (await import("../auth/storage")).CredentialStorage();
+      const storage = new CredentialStorage();
       const credentials = await storage.getAllCredentials();
       const credential = credentials.find(c =>
         c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
@@ -1914,7 +1865,6 @@ export class Web3Passkey {
         // Update current user with new address
         this.currentUser = {
           ...this.currentUser,
-          id: ethereumAddress,
           ethereumAddress,
         };
 
@@ -2018,7 +1968,7 @@ export class Web3Passkey {
     backupManager.markBackupVerified(ethereumAddress);
 
     // Store the wallet data with the selected passkey
-    const storage = new (await import("../auth/storage")).CredentialStorage();
+    const storage = new CredentialStorage();
     const credential = await storage.getCredentialById(passkeyResult.credentialId);
 
     if (credential) {
@@ -2039,9 +1989,7 @@ export class Web3Passkey {
 
       // Update current user
       this.currentUser = {
-        id: ethereumAddress,
         username: credential.username,
-        displayName: credential.username,
         ethereumAddress,
         credentialId: credential.id,
       };
@@ -2144,7 +2092,7 @@ export class Web3Passkey {
       throw new WalletError("No wallet data found");
     }
 
-    const storage = new (await import("../auth/storage")).CredentialStorage();
+    const storage = new CredentialStorage();
     const credential = await storage.getCredentialById(walletData.credentialId);
     if (!credential) {
       throw new WalletError("Credential not found");
@@ -2205,7 +2153,7 @@ export class Web3Passkey {
       throw new WalletError("No wallet data found for current user");
     }
 
-    const storage = new (await import("../auth/storage")).CredentialStorage();
+    const storage = new CredentialStorage();
     const credential = await storage.getCredentialById(walletData.credentialId);
     if (!credential) {
       throw new WalletError("Credential not found");

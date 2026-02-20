@@ -214,16 +214,3 @@ export async function hashPublicKey(publicKey: string): Promise<string> {
   }
 }
 
-export async function encryptMetadata(
-  data: string,
-  key: CryptoKey
-): Promise<string> {
-  return encryptData(data, key);
-}
-
-export async function decryptMetadata(
-  encryptedData: string,
-  key: CryptoKey
-): Promise<string> {
-  return decryptData(encryptedData, key);
-}
