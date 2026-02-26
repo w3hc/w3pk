@@ -291,14 +291,14 @@ async function runTests() {
       "https://etherscan.io",
     ];
 
-    console.log("  Main addresses for popular dApps:");
+    console.log("  Main addresses for popular apps:");
     for (const domain of domains) {
       const wallet = await getOriginSpecificAddress(testMnemonic, domain);
       const domainName = new URL(domain).hostname;
       console.log(`  ${domainName.padEnd(20)}: ${wallet.address}`);
     }
 
-    console.log("\n  Gaming addresses for same dApps:");
+    console.log("\n  Gaming addresses for same apps:");
     for (const domain of domains) {
       const wallet = await getOriginSpecificAddress(
         testMnemonic,

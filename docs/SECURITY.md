@@ -2180,7 +2180,7 @@ Verify the integrity of the w3pk package before using it in production:
 import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 
 // On application startup
-const TRUSTED_HASH = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4' // From GitHub releases
+const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4' // From GitHub releases
 
 async function verifyW3pkIntegrity() {
   try {
@@ -3522,6 +3522,141 @@ console.log('Write this down:', mnemonic)
 - **w3pk:** Attacker needs actual credential metadata (32+ byte random ID). Not guessable, but if stolen with encrypted wallet, can decrypt offline.
 - **MetaMask:** Attacker needs password. Weak passwords can be brute-forced. Strong passwords with vault encryption are resistant.
 - **Hardware Wallet:** Private keys in secure element. Cannot be extracted even with physical access (except advanced hardware attacks).
+
+## Security Inspection Tools
+
+w3pk includes built-in security inspection capabilities to help developers and end-users analyze web3 applications and understand their transaction and signing methods.
+
+### Why Inspection Matters
+
+Many users interact with web3 applications without fully understanding:
+- What transactions the app can initiate
+- Which signing methods are used
+- How their private keys or wallets are being accessed
+- What permissions they're granting
+
+The w3pk inspection tools provide **transparency** by analyzing application code and generating detailed security reports.
+
+### Browser-Based Inspection
+
+End-users can inspect any web3 application directly from their browser console:
+
+```typescript
+import { inspectNow } from 'w3pk'
+
+// Run inspection and view report in console
+await inspectNow()
+```
+
+**What it does:**
+- Fetches all JavaScript files from the current page
+- Extracts transaction and signing-related code snippets
+- Sends code to Rukh API for AI-powered analysis
+- Generates a security report listing all methods
+
+**Use cases:**
+- End-users auditing dApps before connecting wallets
+- Security researchers analyzing application behavior
+- Developers verifying their own implementations
+
+### Node.js-Based Inspection
+
+Developers can scan local application files during development or in CI/CD:
+
+```typescript
+import { inspect } from 'w3pk/inspect/node'
+
+const report = await inspect(
+  '../my-dapp',
+  'https://rukh.w3hc.org',
+  'w3pk',
+  'anthropic',
+  'transactions'
+)
+```
+
+**What it does:**
+- Recursively scans application source files
+- Filters for transaction-relevant code
+- Generates comprehensive markdown documentation
+- Sends to Rukh API for security analysis
+
+**Use cases:**
+- Pre-deployment security audits
+- CI/CD security checks
+- Documentation generation
+- Code review assistance
+
+### Focus Modes
+
+Both browser and Node.js inspection support focus modes:
+
+**`transactions` mode (default):**
+- Only analyzes transaction and signing code
+- Filters for keywords: `signMessage`, `sendTransaction`, `Contract`, `authorization`, etc.
+- Faster analysis, more focused reports
+- Recommended for security audits
+
+**`all` mode:**
+- Analyzes all application code
+- Comprehensive but slower
+- May include irrelevant code in report
+- Use for complete application analysis
+
+### Privacy and Security
+
+**Data handling:**
+- Code is sent to Rukh API for analysis
+- Rukh uses AI models (Anthropic Claude, Mistral, OpenAI)
+- No code is stored permanently by default
+- Reports are generated on-demand
+
+**Recommendations:**
+- Use self-hosted Rukh instance for sensitive code
+- Review reports before sharing externally
+- Inspection tools are read-only (no modifications)
+- Browser inspection requires CORS-enabled scripts
+
+### Integration with Development Workflow
+
+```bash
+# Add to package.json scripts
+{
+  "scripts": {
+    "security:inspect": "tsx scripts/inspect.ts"
+  }
+}
+```
+
+```typescript
+// scripts/inspect.ts
+import { inspect } from 'w3pk/inspect/node'
+import fs from 'fs/promises'
+
+const report = await inspect(
+  process.cwd(),
+  'https://rukh.w3hc.org',
+  'w3pk',
+  'anthropic',
+  'transactions'
+)
+
+await fs.writeFile('SECURITY_REPORT.md', report)
+console.log('✅ Security report generated')
+```
+
+### Empowering End-Users
+
+The browser inspection tools are designed for non-technical users:
+
+```javascript
+// Users can run this in any browser console
+await w3pk.inspectNow()
+```
+
+This democratizes security analysis and helps users make informed decisions about which dApps to trust.
+
+---
 
 ## Conclusion
 

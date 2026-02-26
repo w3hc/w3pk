@@ -24,7 +24,10 @@ export {
   ApiError,
 } from "./core/errors";
 
-export { promptPasskeySelection, authenticateWithPasskey } from "./auth/sync-auth";
+export {
+  promptPasskeySelection,
+  authenticateWithPasskey,
+} from "./auth/sync-auth";
 export type { PasskeySelectionResult } from "./auth/sync-auth";
 
 export { Web3Passkey } from "./core/sdk";
@@ -139,5 +142,11 @@ export {
   getChainById,
   clearCache,
 } from "./chainlist";
+
+export { inspect, inspectNow } from "./inspect/browser";
+export type {
+  BrowserInspectOptions,
+  BrowserInspectResult,
+} from "./inspect/browser";
 
 export default createWeb3Passkey;

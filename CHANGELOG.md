@@ -5,9 +5,20 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-02-26
 
 ### Added
+
+- **Security Inspection Module**: AI-powered analysis of web3 applications to identify transaction and signing methods
+  - Browser-based inspection: `inspect()` and `inspectNow()` - analyze running apps from browser console or app code
+  - Node.js inspection: `gatherCode()` and `inspect()` - scan local application files for security analysis
+  - Integration with Rukh API for AI-powered security report generation
+  - Focus modes: analyze all code or focus on transaction/signing operations only
+  - Keyword-based filtering for transaction-relevant code (signMessage, sendTransaction, Contract interactions, etc.)
+  - Smart snippet extraction with context for efficient analysis
+  - Export via `w3pk/inspect` (browser) and `w3pk/inspect/node` (Node.js)
+  - Comprehensive JSDoc documentation for all inspection APIs
+  - TypeScript types: `BrowserInspectOptions`, `BrowserInspectResult`, `InspectOptions`, `InspectResult`
 
 - **`getEIP1193Provider()` method**: Returns an EIP-1193 compatible provider backed by the SDK, enabling direct integration with ethers `BrowserProvider`, viem's `custom` transport, wagmi connectors, RainbowKit, and any other EIP-1193 consumer
   - Supported methods: `eth_accounts`, `eth_requestAccounts`, `eth_chainId`, `eth_sendTransaction`, `personal_sign`, `eth_sign`, `eth_signTypedData_v4`, `wallet_switchEthereumChain`

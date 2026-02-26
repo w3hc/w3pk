@@ -50,4 +50,32 @@ export default defineConfig([
     platform: "browser",
     target: "es2020",
   },
+  // Inspect browser version
+  {
+    entry: {
+      "inspect/index": "src/inspect/index.ts",
+      "inspect/browser": "src/inspect/browser.ts",
+    },
+    format: ["cjs", "esm"],
+    dts: true,
+    sourcemap: true,
+    minify: false,
+    splitting: false,
+    platform: "browser",
+    target: "es2020",
+  },
+  // Inspect Node.js version
+  {
+    entry: {
+      "inspect/node": "src/inspect/node.ts",
+    },
+    format: ["cjs", "esm"],
+    dts: true,
+    sourcemap: true,
+    minify: false,
+    splitting: false,
+    platform: "node",
+    target: "es2020",
+    external: ["fs", "path"], // Keep Node.js built-ins external
+  },
 ]);

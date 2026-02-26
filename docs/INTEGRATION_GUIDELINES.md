@@ -698,7 +698,7 @@ const result = await w3pk.signMessage(message, {
 
 **Use for:**
 - Web3 authentication flows
-- dApp login
+- App login
 - Decentralized identity
 - Session management
 
@@ -1426,7 +1426,7 @@ const strictWallet = await w3pk.deriveWallet('STRICT')
 // ✅ Verify package integrity on app initialization
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4'
+const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4'
 
 async function initializeApp() {
   const isValid = await verifyBuildHash(TRUSTED_HASH)
@@ -1486,7 +1486,7 @@ class WalletManager {
 
   async initialize() {
     // Verify package integrity
-    const TRUSTED_HASH = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4'
+    const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4'
     const isValid = await verifyBuildHash(TRUSTED_HASH)
     if (!isValid) throw new Error('Package integrity check failed')
   }
@@ -1578,10 +1578,311 @@ Use this checklist to ensure proper integration:
 
 ---
 
+## Security Inspection
+
+w3pk includes built-in tools for analyzing your application's transaction and signing methods. This helps with security audits, documentation, and transparency.
+
+### When to Use Inspection
+
+**During Development:**
+- Pre-deployment security audits
+- Code review assistance
+- Documentation generation
+- CI/CD security checks
+
+**In Production:**
+- Provide transparency to end-users
+- Enable security researchers to audit your dApp
+- Build trust by making signing methods visible
+
+### Browser Inspection (End-User)
+
+Enable end-users to inspect your dApp from their browser console:
+
+```typescript
+import { inspect, inspectNow } from 'w3pk'
+
+// Your app can expose this for transparency
+window.inspectApp = async () => {
+  const result = await inspect({
+    rukhUrl: 'https://rukh.w3hc.org',
+    model: 'anthropic',
+    focusMode: 'transactions'
+  })
+  console.log(result.report)
+}
+
+// Or users can run directly
+await inspectNow()
+```
+
+**Add to your documentation:**
+
+```markdown
+## Security Transparency
+
+Our application can be audited at any time. To inspect transaction methods:
+
+1. Open browser DevTools console (F12)
+2. Run: `await inspectNow()`
+3. Review the security report
+
+Or visit our pre-generated security report: [SECURITY_REPORT.md](./SECURITY_REPORT.md)
+```
+
+### Node.js Inspection (Developer)
+
+Integrate inspection into your development workflow:
+
+**1. Create inspection script:**
+
+```typescript
+// scripts/security-inspect.ts
+import { inspect } from 'w3pk/inspect/node'
+import fs from 'fs/promises'
+
+async function main() {
+  console.log('🔍 Running security inspection...')
+
+  const report = await inspect(
+    process.cwd(),
+    'https://rukh.w3hc.org',
+    'w3pk',
+    'anthropic',
+    'transactions'
+  )
+
+  // Save report
+  await fs.writeFile('SECURITY_REPORT.md', report)
+
+  console.log('✅ Security report saved to SECURITY_REPORT.md')
+}
+
+main().catch(console.error)
+```
+
+**2. Add to package.json:**
+
+```json
+{
+  "scripts": {
+    "security:inspect": "tsx scripts/security-inspect.ts",
+    "precommit": "npm run security:inspect"
+  }
+}
+```
+
+**3. Run before deployment:**
+
+```bash
+npm run security:inspect
+git add SECURITY_REPORT.md
+git commit -m "Update security report"
+```
+
+### CI/CD Integration
+
+Add inspection to your CI/CD pipeline:
+
+```yaml
+# .github/workflows/security.yml
+name: Security Inspection
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run security inspection
+        run: npm run security:inspect
+
+      - name: Upload report
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: SECURITY_REPORT.md
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs')
+            const report = fs.readFileSync('SECURITY_REPORT.md', 'utf8')
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🔍 Security Inspection Report\n\n${report}`
+            })
+```
+
+### Focus Modes
+
+Choose the appropriate focus mode for your use case:
+
+**`transactions` mode (recommended):**
+```typescript
+const report = await inspect(
+  '../my-dapp',
+  'https://rukh.w3hc.org',
+  'w3pk',
+  'anthropic',
+  'transactions'  // Only transaction/signing code
+)
+```
+
+**Use when:**
+- Security audits
+- User-facing reports
+- Quick analysis
+- CI/CD checks
+
+**`all` mode:**
+```typescript
+const report = await inspect(
+  '../my-dapp',
+  'https://rukh.w3hc.org',
+  'w3pk',
+  'anthropic',
+  'all'  // All application code
+)
+```
+
+**Use when:**
+- Comprehensive documentation
+- Full code review
+- Understanding entire architecture
+- Deep security analysis
+
+### Best Practices
+
+**1. Regular inspections:**
+```json
+{
+  "scripts": {
+    "weekly": "npm run security:inspect && git diff SECURITY_REPORT.md"
+  }
+}
+```
+
+**2. Version control reports:**
+```bash
+# Track changes to signing methods over time
+git add SECURITY_REPORT.md
+git commit -m "security: update inspection report"
+```
+
+**3. Make reports public:**
+```markdown
+<!-- In your README.md -->
+## Security
+
+Our application has been inspected for transaction and signing methods.
+See [SECURITY_REPORT.md](./SECURITY_REPORT.md) for details.
+
+Latest inspection: 2025-02-24
+```
+
+**4. Self-hosted Rukh for sensitive code:**
+```typescript
+// Use your own Rukh instance for private repos
+const report = await inspect(
+  process.cwd(),
+  'https://rukh.w3hc.org',
+  'w3pk',
+  'anthropic',
+  'transactions'
+)
+```
+
+**5. Educate users:**
+```html
+<!-- Add to your app UI -->
+<footer>
+  <a href="#" onclick="inspectNow(); return false;">
+    🔍 Inspect this app's security
+  </a>
+</footer>
+```
+
+### Privacy Considerations
+
+**What's sent to Rukh API:**
+- Application source code (or snippets in transactions mode)
+- File paths (relative to project root)
+- Focus mode settings
+
+**What's NOT sent:**
+- User data or credentials
+- Private keys or mnemonics
+- Environment variables
+- Database contents
+
+**Recommendations:**
+- Review generated markdown before sending to external APIs
+- Use self-hosted Rukh for proprietary code
+- Use `transactions` mode to minimize code sharing
+- Add inspection to `.gitignore` if containing sensitive paths
+
+### Example: Complete Integration
+
+```typescript
+// src/lib/security.ts
+import { inspect, inspectNow } from 'w3pk'
+
+export async function runSecurityInspection() {
+  if (typeof window === 'undefined') {
+    // Node.js environment (build time)
+    const { inspect } = await import('w3pk/inspect/node')
+    return inspect(process.cwd(), 'https://rukh.w3hc.org')
+  } else {
+    // Browser environment (runtime)
+    return inspect({
+      rukhUrl: 'https://rukh.w3hc.org',
+      focusMode: 'transactions'
+    })
+  }
+}
+
+// Make available globally for users
+if (typeof window !== 'undefined') {
+  (window as any).inspectApp = inspectNow
+}
+```
+
+```typescript
+// scripts/generate-security-report.ts
+import { runSecurityInspection } from '../src/lib/security'
+import fs from 'fs/promises'
+
+const report = await runSecurityInspection()
+await fs.writeFile('public/SECURITY_REPORT.md', report)
+console.log('✅ Security report generated')
+```
+
+---
+
 ## Further Reading
 
 - [Quick Start Guide](./QUICK_START.md)
 - [API Reference](./API_REFERENCE.md)
 - [Security Architecture](./SECURITY.md)
+- [Security Inspection](./INSPECTION.md)
 - [Recovery & Backup System](./RECOVERY.md)
 - [Build Verification](./BUILD_VERIFICATION.md)
