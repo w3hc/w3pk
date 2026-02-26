@@ -40,7 +40,7 @@ async function example2_VerifyBuildHash() {
   try {
     // Known hash from a trusted source (e.g., GitHub release notes)
     const trustedHash =
-      "bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4";
+      "bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4";
 
     console.log(`Verifying against trusted hash: ${trustedHash}`);
 
@@ -50,7 +50,7 @@ async function example2_VerifyBuildHash() {
       console.log("✅ Build integrity verified! Package is authentic.");
     } else {
       console.log(
-        "⚠️  Warning: Build hash mismatch! Package may be compromised."
+        "⚠️  Warning: Build hash mismatch! Package may be compromised.",
       );
     }
   } catch (error) {
@@ -65,7 +65,7 @@ async function example3_ComputeHashFromCDN() {
     // Compute hash for a specific version from unpkg CDN
     const version = "0.7.6";
     const hash = await getW3pkBuildHash(
-      `https://unpkg.com/w3pk@${version}/dist`
+      `https://unpkg.com/w3pk@${version}/dist`,
     );
 
     console.log(`Version: ${version}`);
@@ -85,7 +85,7 @@ async function example4_CompareLocalAndCDN() {
     console.log("Computing hashes...");
     const localHash = await getCurrentBuildHash();
     const cdnHash = await getW3pkBuildHash(
-      `https://unpkg.com/w3pk@${version}/dist`
+      `https://unpkg.com/w3pk@${version}/dist`,
     );
 
     console.log(`\nLocal build hash:  ${localHash}`);

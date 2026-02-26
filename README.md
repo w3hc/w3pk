@@ -59,6 +59,7 @@ const endpoints = await w3pk.getEndpoints(1)
 - EIP-7951 PRIMARY mode (P-256 passkey signing)
 - Build verification (IPFS CIDv1 hashing)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
+- AI-powered host app inspection
 
 ## API
 
@@ -379,16 +380,59 @@ import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
 const hash = await getCurrentBuildHash()
 
 // Verify against trusted hash
-const TRUSTED_HASH = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4'
+const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
+```
+
+### Security Inspection
+
+Analyze web3 applications to understand their transaction and signing methods:
+
+**Browser (analyze current page):**
+```typescript
+import { inspect, inspectNow } from 'w3pk'
+
+// Full inspection with custom options
+const result = await inspect({
+  appUrl: 'https://example.com',
+  rukhUrl: 'https://rukh.w3hc.org',
+  model: 'anthropic',
+  focusMode: 'transactions'
+})
+console.log(result.report)
+
+// Quick console inspection
+await inspectNow()  // Logs report directly to console
+```
+
+**Node.js (analyze local files):**
+```typescript
+import { inspect, gatherCode } from 'w3pk/inspect/node'
+
+// Generate security report via Rukh API
+const report = await inspect(
+  '../my-dapp',           // App path
+  'https://rukh.w3hc.org', // Rukh API URL
+  'w3pk',                  // Context
+  'anthropic',             // Model
+  'transactions'           // Focus mode
+)
+
+// Or just gather code for analysis
+const result = await gatherCode({
+  appPath: '../my-dapp',
+  focusMode: 'transactions',
+  maxFileSizeKB: 500
+})
+console.log(`Analyzed ${result.includedFiles.length} files`)
 ```
 
 ## Security & Verification
 
-### Current Build Hash (v0.8.8)
+### Current Build Hash (v0.9.0)
 
 ```
-bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4
+bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4
 ```
 
 **Verify package integrity:**
@@ -396,7 +440,7 @@ bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4
 ```typescript
 import { verifyBuildHash } from 'w3pk'
 
-const TRUSTED_HASH = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4'
+const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4'
 const isValid = await verifyBuildHash(TRUSTED_HASH)
 
 if (!isValid) {
@@ -410,6 +454,7 @@ if (!isValid) {
 - [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md)
 - [API Reference](./docs/API_REFERENCE.md)
 - [Build Verification](./docs/BUILD_VERIFICATION.md)
+- [Security Inspection](./docs/INSPECTION.md)
 - [EIP-7951](./docs/EIP-7951.md)
 - [Security Architecture](./docs/SECURITY.md)
 - [Recovery & Backup System](./docs/RECOVERY.md)

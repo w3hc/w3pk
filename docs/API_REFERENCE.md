@@ -21,6 +21,9 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
   - [Validation Utilities](#validation-utilities)
   - [Build Verification Utilities](#build-verification-utilities)
   - [Wallet Generation Utilities](#wallet-generation-utilities)
+- [Security Inspection](#security-inspection)
+  - [Browser Inspection](#browser-inspection)
+  - [Node.js Inspection](#nodejs-inspection)
 - [Error Types](#error-types)
 - [Type Definitions](#type-definitions)
 
@@ -3013,7 +3016,7 @@ Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
 ```typescript
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4
+// => bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4
 ```
 
 ---
@@ -3040,7 +3043,7 @@ const hash = await getW3pkBuildHash('http://localhost:3000/dist')
 Verify if the current build matches an expected hash.
 
 ```typescript
-const trustedHash = 'bafybeig2xoiu2hfcjexz6cwtjcjf4u4vwxzcm66zhnqivhh6jvi7nx2qa4'
+const trustedHash = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4'
 const isValid = await verifyBuildHash(trustedHash)
 
 if (isValid) {
@@ -3421,6 +3424,208 @@ Clear chainlist cache.
 
 ```typescript
 clearCache()
+```
+
+---
+
+## Security Inspection
+
+The w3pk SDK includes built-in tools for analyzing web3 applications to identify transaction and signing methods. This helps developers and end-users understand the security posture of dApps.
+
+### Browser Inspection
+
+Browser-based inspection analyzes the currently running web application by fetching JavaScript sources and extracting transaction-related code.
+
+#### `inspect(options?: BrowserInspectOptions): Promise<BrowserInspectResult>`
+
+Analyzes the current web application and returns a security report via Rukh API.
+
+**Import:**
+
+```typescript
+import { inspect } from 'w3pk'
+```
+
+**Parameters:**
+
+```typescript
+interface BrowserInspectOptions {
+  appUrl?: string;      // App URL to inspect (default: window.location.origin)
+  rukhUrl?: string;     // Rukh API endpoint (default: 'https://rukh.w3hc.org')
+  context?: string;     // Context for analysis (default: 'w3pk')
+  model?: 'anthropic' | 'mistral' | 'openai';  // AI model (default: 'anthropic')
+  focusMode?: 'transactions' | 'all';  // Focus mode (default: 'transactions')
+}
+```
+
+**Returns:**
+
+```typescript
+interface BrowserInspectResult {
+  report: string;           // Security report markdown
+  analyzedFiles: string[];  // JavaScript files analyzed
+  appUrl: string;          // URL that was inspected
+}
+```
+
+**Example:**
+
+```typescript
+import { inspect } from 'w3pk'
+
+// Inspect current application
+const result = await inspect({
+  appUrl: window.location.origin,
+  rukhUrl: 'https://rukh.w3hc.org',
+  model: 'anthropic',
+  focusMode: 'transactions'
+})
+
+console.log('Security Report:')
+console.log(result.report)
+console.log(`Analyzed ${result.analyzedFiles.length} files`)
+```
+
+---
+
+#### `inspectNow(options?: BrowserInspectOptions): Promise<void>`
+
+Quick inspection helper that logs the security report directly to the browser console. Perfect for end-users running inspections from DevTools.
+
+**Example:**
+
+```typescript
+import { inspectNow } from 'w3pk'
+
+// Quick console inspection
+await inspectNow()
+
+// With custom options
+await inspectNow({
+  rukhUrl: 'https://rukh.w3hc.org',
+  model: 'anthropic'
+})
+```
+
+**Browser Console Usage:**
+
+```javascript
+// End-users can run this directly in browser console
+await w3pk.inspectNow()
+```
+
+---
+
+### Node.js Inspection
+
+Node.js-based inspection scans local application files for security analysis during development or CI/CD.
+
+#### `gatherCode(options?: InspectOptions): Promise<InspectResult>`
+
+Scans application source files and generates a markdown document with collected code.
+
+**Import:**
+
+```typescript
+import { gatherCode } from 'w3pk/inspect/node'
+```
+
+**Parameters:**
+
+```typescript
+interface InspectOptions {
+  appPath?: string;              // Root directory (default: process.cwd())
+  includePatterns?: string[];    // File patterns to include (default: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.json'])
+  excludeDirs?: string[];        // Directories to exclude (default: ['node_modules', 'dist', '.next', '.git', 'build', 'coverage'])
+  maxFileSizeKB?: number;        // Max file size in KB (default: 500)
+  focusMode?: 'transactions' | 'all';  // Focus mode (default: 'all')
+}
+```
+
+**Returns:**
+
+```typescript
+interface InspectResult {
+  markdown: string;           // Generated markdown with code
+  includedFiles: string[];    // Files that were included
+  totalSizeKB: number;       // Total size in KB
+}
+```
+
+**Example:**
+
+```typescript
+import { gatherCode } from 'w3pk/inspect/node'
+
+const result = await gatherCode({
+  appPath: '../my-dapp',
+  focusMode: 'transactions',
+  maxFileSizeKB: 500
+})
+
+console.log(`Collected ${result.includedFiles.length} files`)
+console.log(`Total size: ${result.totalSizeKB} KB`)
+
+// Save to file
+await fs.writeFile('app-code.md', result.markdown)
+```
+
+---
+
+#### `inspect(appPath, rukhUrl?, context?, model?, focusMode?): Promise<string>`
+
+Inspects an application and returns a security report via Rukh API.
+
+**Import:**
+
+```typescript
+import { inspect } from 'w3pk/inspect/node'
+```
+
+**Parameters:**
+
+- `appPath: string` - Path to the application to inspect
+- `rukhUrl?: string` - Rukh API endpoint (default: 'https://rukh.w3hc.org')
+- `context?: string` - Context name (default: 'w3pk')
+- `model?: 'anthropic' | 'mistral' | 'openai'` - AI model (default: 'anthropic')
+- `focusMode?: 'transactions' | 'all'` - Focus mode (default: 'transactions')
+
+**Returns:**
+
+- `Promise<string>` - Markdown-formatted security report
+
+**Example:**
+
+```typescript
+import { inspect } from 'w3pk/inspect/node'
+
+const report = await inspect(
+  '../genji-passkey',          // App path
+  'https://rukh.w3hc.org',     // Rukh API
+  'w3pk',                       // Context
+  'anthropic',                  // Model
+  'transactions'                // Focus mode
+)
+
+console.log('Security Report:')
+console.log(report)
+
+// Save report
+await fs.writeFile('security-report.md', report)
+```
+
+**CLI Usage:**
+
+```bash
+# Create a simple script
+cat > inspect.ts << 'EOF'
+import { inspect } from 'w3pk/inspect/node'
+const report = await inspect('../my-dapp')
+console.log(report)
+EOF
+
+# Run with tsx
+npx tsx inspect.ts > report.md
 ```
 
 ---

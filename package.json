@@ -1,6 +1,6 @@
 {
   "name": "w3pk",
-  "version": "0.8.8",
+  "version": "0.9.0",
   "description": "WebAuthn SDK for passwordless authentication, encrypted wallets, ERC-5564 stealth addresses, and zero-knowledge proofs",
   "author": "Julien Béranger",
   "license": "GPL-3.0",
@@ -63,6 +63,16 @@
       "types": "./dist/chainlist/index.d.ts",
       "import": "./dist/chainlist/index.mjs",
       "require": "./dist/chainlist/index.js"
+    },
+    "./inspect": {
+      "types": "./dist/inspect/index.d.ts",
+      "import": "./dist/inspect/index.mjs",
+      "require": "./dist/inspect/index.js"
+    },
+    "./inspect/node": {
+      "types": "./dist/inspect/node.d.ts",
+      "import": "./dist/inspect/node.mjs",
+      "require": "./dist/inspect/node.js"
     }
   },
   "sideEffects": false,
