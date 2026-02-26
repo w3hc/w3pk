@@ -2174,29 +2174,52 @@ Since `requireAuth` and sessions can be bypassed by code execution, here are **e
 
 ### 1. Build Verification
 
-Verify the integrity of the w3pk package before using it in production:
+Verify the integrity of the w3pk package before using it in production by querying the DAO-maintained onchain registry:
 
 ```typescript
-import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
+import { getCurrentBuildHash } from 'w3pk'
+import { ethers } from 'ethers'
+import fs from 'fs'
+import path from 'path'
 
-// On application startup
-const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4' // From GitHub releases
+// W3PK Version Registry on OP Mainnet
+const REGISTRY_ADDRESS = '0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a'
+const REGISTRY_ABI = [
+  'function getCidByVersion(string version) view returns (string)',
+]
+
+// Get installed w3pk version from package.json
+const getInstalledW3pkVersion = (): string => {
+  const packageJsonPath = path.join(__dirname, '../package.json')
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'))
+  const w3pkVersion = packageJson.dependencies['w3pk']
+  return w3pkVersion.replace(/^[~^]/, '') // Remove ^ or ~ prefix
+}
 
 async function verifyW3pkIntegrity() {
   try {
     const currentHash = await getCurrentBuildHash()
-    const isValid = await verifyBuildHash(TRUSTED_HASH)
+    const installedVersion = getInstalledW3pkVersion()
+
+    // Query onchain registry for the specific installed version
+    const provider = new ethers.JsonRpcProvider('https://mainnet.optimism.io')
+    const registry = new ethers.Contract(REGISTRY_ADDRESS, REGISTRY_ABI, provider)
+    const onchainCid = await registry.getCidByVersion(`v${installedVersion}`)
+
+    const isValid = currentHash === onchainCid
 
     if (!isValid) {
       console.error('⚠️  W3PK build verification failed!')
-      console.error('Expected:', TRUSTED_HASH)
+      console.error('Installed version:', installedVersion)
+      console.error('Expected CID:', onchainCid)
       console.error('Got:', currentHash)
 
       if (process.env.NODE_ENV === 'production') {
         throw new Error('W3PK package integrity check failed')
       }
     } else {
-      console.log('✅ W3PK build verified')
+      console.log('✅ W3PK build verified against onchain registry')
+      console.log('Version:', installedVersion)
     }
   } catch (error) {
     console.error('Build verification error:', error)
@@ -2207,18 +2230,19 @@ await verifyW3pkIntegrity()
 ```
 
 **Best practices:**
-- ✅ Store trusted hashes in your backend or secure configuration
+- ✅ Query the DAO-maintained onchain registry as the source of truth
+- ✅ Verify the specific installed version from `package.json` (not just latest)
 - ✅ Verify on application startup
 - ✅ Fail securely in production if verification fails
-- ✅ Compare hashes from multiple sources (npm, CDN, GitHub releases)
+- ✅ Use reliable RPC endpoints for onchain queries
 - ✅ Use HTTPS when fetching build files
-- ✅ Monitor for unexpected hash changes
+- ✅ Cache verification results to reduce RPC calls
 
-**Where to get trusted hashes:**
-1. GitHub releases (check signed release notes)
-2. Official documentation
-3. Multiple CDN sources for comparison
-4. Build locally and compare: `pnpm build && pnpm build:hash`
+**Onchain Registry:**
+- **Contract:** [`0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a`](https://optimistic.etherscan.io/address/0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a)
+- **Network:** OP Mainnet (Chain ID: 10)
+- **Governance:** DAO-controlled via contract ownership
+- **Version Format:** Use `v` prefix (e.g., `v0.9.0`, `v0.9.1`)
 
 See [Build Verification Guide](./BUILD_VERIFICATION.md) for detailed documentation.
 

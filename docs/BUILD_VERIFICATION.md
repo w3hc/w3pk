@@ -1,6 +1,6 @@
 # Build Verification
 
-W3PK provides utilities to compute and verify IPFS hashes of package builds, enabling reproducible builds and supply chain verification.
+W3PK provides utilities to compute and verify IPFS hashes of package builds, with a DAO-maintained onchain registry for trusted release verification.
 
 ## Overview
 
@@ -10,6 +10,56 @@ The build verification system computes an IPFS CIDv1 hash from the concatenated 
 - **Reproducible builds**: Verify that builds produce consistent outputs
 - **Security auditing**: Check that you're running the expected code
 - **Supply chain verification**: Detect tampering or compromised packages
+- **Onchain verification**: Compare against DAO-maintained registry on OP Mainnet
+
+## Onchain Registry
+
+W3PK maintains an immutable onchain registry of official release hashes:
+
+- **Contract Address:** [`0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a`](https://optimistic.etherscan.io/address/0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a)
+- **Network:** OP Mainnet (Chain ID: 10)
+- **Purpose:** Decentralized source of truth for verified W3PK builds
+- **Governance:** DAO-controlled via contract ownership
+
+### Available Contract Methods
+
+```solidity
+// Get CID for a specific version (recommended)
+function getCidByVersion(string version) view returns (string cid)
+
+// Get the latest release information
+function getLatestRelease() view returns (string version, string cid, uint256 timestamp)
+
+// Get version for a specific CID
+function getVersionByCid(string cid) view returns (string version)
+```
+
+### Verification Approaches
+
+**Option 1: Verify Installed Version (Recommended)**
+
+Query the registry for the specific version installed in your `package.json`. This ensures you're verifying the exact version your app depends on.
+
+```typescript
+// Get version from package.json (e.g., "^0.9.0" or "~0.9.0")
+const installedVersion = packageJson.dependencies['w3pk'].replace(/^[~^]/, ''); // "0.9.0"
+
+// Query registry (note: version must include "v" prefix)
+const onchainCid = await registry.getCidByVersion(`v${installedVersion}`); // "v0.9.0"
+```
+
+**Note:** The registry expects version strings with a `v` prefix (e.g., `v0.9.0`, `v0.9.1`).
+
+**Option 2: Check Against Latest**
+
+Compare your build against the latest release. Useful for warning users about outdated versions.
+
+```typescript
+const [latestVersion, latestCid] = await registry.getLatestRelease();
+const isLatest = currentHash === latestCid;
+```
+
+Host applications should query this registry to verify their W3PK installation.
 
 ## API Reference
 
@@ -116,31 +166,69 @@ The hash is also saved to `dist/BUILD_HASH.txt` for reference.
 
 ## Integration Examples
 
-### React Component
+### React Component with Onchain Verification
 
 ```typescript
-import { getCurrentBuildHash, verifyBuildHash } from 'w3pk';
-import { useState, useEffect } from 'react';
+import { getCurrentBuildHash } from 'w3pk';
+import { ethers } from 'ethers';
+import { useState, useEffect, useRef } from 'react';
+import packageJson from '../package.json';
+
+const REGISTRY_ADDRESS = '0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a';
+const REGISTRY_ABI = [
+  'function getCidByVersion(string version) view returns (string)',
+  'function getLatestRelease() view returns (string version, string cid, uint256 timestamp)',
+];
+
+// Get installed w3pk version from package.json
+const getInstalledW3pkVersion = (): string => {
+  const w3pkVersion = packageJson.dependencies['w3pk'] as string;
+  return w3pkVersion.replace(/^[~^]/, ''); // Remove ^ or ~ prefix
+};
 
 function BuildVerification() {
   const [buildHash, setBuildHash] = useState<string>('');
+  const [trustedHash, setTrustedHash] = useState<string>('');
+  const [installedVersion, setInstalledVersion] = useState<string>('');
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
+  const hasVerified = useRef(false);
 
   useEffect(() => {
+    if (hasVerified.current) return;
+
     async function verify() {
+      hasVerified.current = true;
+
       try {
         // Get current build hash
         const hash = await getCurrentBuildHash();
         setBuildHash(hash);
 
-        // Fetch trusted hash from your backend
-        const response = await fetch('/api/w3pk/trusted-hash');
-        const trustedHash = await response.text();
+        // Get installed w3pk version from package.json
+        const version = getInstalledW3pkVersion();
+        setInstalledVersion(version);
+
+        // Query onchain registry for the specific installed version
+        const provider = new ethers.JsonRpcProvider('https://mainnet.optimism.io');
+        const registry = new ethers.Contract(REGISTRY_ADDRESS, REGISTRY_ABI, provider);
+        const onchainCid = await registry.getCidByVersion(`v${version}`);
+        setTrustedHash(onchainCid);
 
         // Verify
-        const verified = await verifyBuildHash(trustedHash);
+        const verified = hash === onchainCid;
         setIsVerified(verified);
+
+        // Log to console
+        console.log('🔐 W3PK Build Verification');
+        console.log('═'.repeat(50));
+        console.log('Installed version:', version);
+        console.log('Current build hash:', hash);
+        console.log('Expected hash:    ', onchainCid);
+        console.log('Verification:     ', verified ? '✅ VERIFIED' : '❌ FAILED');
+        console.log('Registry contract:', REGISTRY_ADDRESS);
+        console.log('Network:          OP Mainnet');
+        console.log('═'.repeat(50));
       } catch (error) {
         console.error('Build verification failed:', error);
         setIsVerified(false);
@@ -152,12 +240,14 @@ function BuildVerification() {
     verify();
   }, []);
 
-  if (loading) return <div>Verifying build...</div>;
+  if (loading) return <div>Verifying w3pk version against onchain registry...</div>;
 
   return (
     <div>
       <h3>W3PK Build Verification</h3>
-      <p><strong>Hash:</strong> {buildHash}</p>
+      <p><strong>Installed Version:</strong> v{installedVersion}</p>
+      <p><strong>Local Hash:</strong> <code>{buildHash}</code></p>
+      <p><strong>Onchain Hash:</strong> <code>{trustedHash}</code></p>
       <p>
         <strong>Status:</strong>{' '}
         {isVerified ? (
@@ -166,6 +256,12 @@ function BuildVerification() {
           <span style={{ color: 'red' }}>⚠️  Verification Failed</span>
         )}
       </p>
+      {isVerified && (
+        <p style={{ fontSize: '0.875rem', color: '#666' }}>
+          This app is running a verified and trusted version of W3PK.
+          The cryptographic build hash matches the DAO-maintained onchain registry.
+        </p>
+      )}
     </div>
   );
 }
@@ -174,85 +270,153 @@ function BuildVerification() {
 ### Next.js App
 
 ```typescript
-// app/page.tsx
+// app/api/verify-w3pk/route.ts
 import { getCurrentBuildHash } from 'w3pk';
+import { ethers } from 'ethers';
+import { NextResponse } from 'next/server';
+import packageJson from '../../../../package.json';
 
-export default async function Home() {
-  // Compute hash at build time
-  const buildHash = await getCurrentBuildHash();
+const REGISTRY_ADDRESS = '0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a';
+const REGISTRY_ABI = ['function getCidByVersion(string version) view returns (string)'];
 
-  return (
-    <div>
-      <h1>My W3PK App</h1>
-      <p>Using W3PK build: {buildHash}</p>
-    </div>
-  );
+export async function GET() {
+  try {
+    const installedVersion = (packageJson.dependencies as any)['w3pk'].replace(/^[~^]/, '');
+    const currentHash = await getCurrentBuildHash();
+
+    const provider = new ethers.JsonRpcProvider('https://mainnet.optimism.io');
+    const registry = new ethers.Contract(REGISTRY_ADDRESS, REGISTRY_ABI, provider);
+    const onchainCid = await registry.getCidByVersion(`v${installedVersion}`);
+
+    return NextResponse.json({
+      verified: currentHash === onchainCid,
+      installedVersion,
+      localHash: currentHash,
+      onchainCid,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Verification failed', message: (error as Error).message },
+      { status: 500 }
+    );
+  }
 }
 ```
 
-### Backend Verification (Node.js)
+### Backend Verification with Onchain Registry (Node.js)
 
 ```typescript
 // server.ts
-import { getW3pkBuildHash } from 'w3pk';
+import { getCurrentBuildHash } from 'w3pk';
+import { ethers } from 'ethers';
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
 
-// Store trusted hash (from GitHub releases, etc.)
-const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4';
+const REGISTRY_ADDRESS = '0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a';
+const REGISTRY_ABI = [
+  'function getCidByVersion(string version) view returns (string)',
+  'function getLatestRelease() view returns (string version, string cid, uint256 timestamp)',
+];
+
+// Get installed w3pk version from package.json
+const getInstalledW3pkVersion = (): string => {
+  const packageJsonPath = path.join(__dirname, '../package.json');
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+  const w3pkVersion = packageJson.dependencies['w3pk'];
+  return w3pkVersion.replace(/^[~^]/, '');
+};
 
 app.get('/api/w3pk/verify', async (req, res) => {
   try {
-    const currentHash = await getW3pkBuildHash(
-      'https://unpkg.com/w3pk@0.7.6/dist'
-    );
+    const currentHash = await getCurrentBuildHash();
+    const installedVersion = getInstalledW3pkVersion();
+
+    // Query onchain registry for the installed version
+    const provider = new ethers.JsonRpcProvider('https://mainnet.optimism.io');
+    const registry = new ethers.Contract(REGISTRY_ADDRESS, REGISTRY_ABI, provider);
+    const onchainCid = await registry.getCidByVersion(`v${installedVersion}`);
 
     res.json({
-      verified: currentHash === TRUSTED_HASH,
-      hash: currentHash,
-      trustedHash: TRUSTED_HASH,
+      verified: currentHash === onchainCid,
+      installedVersion,
+      localHash: currentHash,
+      onchainCid,
+      registry: REGISTRY_ADDRESS,
+      network: 'OP Mainnet',
     });
   } catch (error) {
-    res.status(500).json({ error: 'Verification failed' });
+    res.status(500).json({
+      error: 'Verification failed',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
-});
-
-app.get('/api/w3pk/trusted-hash', (req, res) => {
-  res.send(TRUSTED_HASH);
 });
 ```
 
-### Startup Verification
+### Startup Verification with Onchain Registry
 
 ```typescript
 // main.ts
-import { verifyBuildHash, getCurrentBuildHash } from 'w3pk';
+import { getCurrentBuildHash } from 'w3pk';
+import { ethers } from 'ethers';
+import fs from 'fs';
+import path from 'path';
 
-const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4';
+const REGISTRY_ADDRESS = '0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a';
+const REGISTRY_ABI = [
+  'function getCidByVersion(string version) view returns (string)',
+];
+
+// Get installed w3pk version from package.json
+const getInstalledW3pkVersion = (): string => {
+  const packageJsonPath = path.join(__dirname, '../package.json');
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+  const w3pkVersion = packageJson.dependencies['w3pk'];
+  return w3pkVersion.replace(/^[~^]/, '');
+};
 
 async function verifyAndStart() {
-  console.log('Verifying W3PK build integrity...');
+  console.log('🔐 Verifying W3PK build against onchain registry...\n');
 
   try {
+    // Get local build hash
     const hash = await getCurrentBuildHash();
-    console.log('Build hash:', hash);
+    const installedVersion = getInstalledW3pkVersion();
 
-    const isValid = await verifyBuildHash(TRUSTED_HASH);
+    console.log('Installed version:', installedVersion);
+    console.log('Local build hash: ', hash);
+
+    // Query onchain registry for the specific installed version
+    const provider = new ethers.JsonRpcProvider('https://mainnet.optimism.io');
+    const registry = new ethers.Contract(REGISTRY_ADDRESS, REGISTRY_ABI, provider);
+    const onchainCid = await registry.getCidByVersion(`v${installedVersion}`);
+
+    console.log('Expected hash:    ', onchainCid);
+    console.log('Registry:         ', REGISTRY_ADDRESS);
+    console.log('Network:          OP Mainnet\n');
+
+    const isValid = hash === onchainCid;
 
     if (!isValid) {
-      console.error('⚠️  WARNING: W3PK build verification failed!');
-      console.error('The installed package does not match the trusted hash.');
-      console.error('This could indicate a compromised package.');
+      console.error('❌ W3PK build verification FAILED!');
+      console.error('The installed package does not match the onchain registry.');
+      console.error('This could indicate a compromised package, development version, or tampering.\n');
 
       if (process.env.NODE_ENV === 'production') {
         process.exit(1); // Abort in production
       }
     } else {
-      console.log('✅ W3PK build verified successfully');
+      console.log('✅ W3PK build verified successfully against onchain registry\n');
     }
   } catch (error) {
     console.error('Build verification error:', error);
+
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1); // Fail secure in production
+    }
   }
 
   // Continue with app initialization...
@@ -264,11 +428,12 @@ verifyAndStart();
 
 ## Security Best Practices
 
-1. **Store trusted hashes securely**: Keep the expected build hash in your backend or configuration, not hardcoded in client code
+1. **Use onchain registry**: Query the DAO-maintained registry on OP Mainnet as the source of truth
 2. **Verify on startup**: Check the build hash when your application initializes
 3. **Use HTTPS**: Always fetch build files over HTTPS to prevent MITM attacks
-4. **Multiple sources**: Compare hashes from different sources (npm, CDN, GitHub releases)
+4. **Multiple RPC endpoints**: Use reliable RPC providers for onchain queries
 5. **Fail secure**: In production, consider failing to start if verification fails
+6. **Cache verification results**: Cache onchain query results to reduce RPC calls
 
 ## How It Works
 
