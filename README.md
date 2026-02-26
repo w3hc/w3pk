@@ -57,7 +57,7 @@ const endpoints = await w3pk.getEndpoints(1)
 - EIP-7702 network detection (329+ networks)
 - External wallet integration (delegate MetaMask/Ledger to w3pk via EIP-7702)
 - EIP-7951 PRIMARY mode (P-256 passkey signing)
-- Build verification (IPFS CIDv1 hashing)
+- Build verification (IPFS CID hashing + DAO-maintained onchain registry)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
 - AI-powered host app inspection
 
@@ -374,14 +374,30 @@ const result = await w3pk.simulateRecoveryScenario({
 ### Build Verification
 
 ```typescript
-import { getCurrentBuildHash, verifyBuildHash } from 'w3pk'
+import { getCurrentBuildHash } from 'w3pk'
+import { ethers } from 'ethers'
+import packageJson from './package.json'
+
+// Get installed w3pk version from package.json
+const installedVersion = packageJson.dependencies['w3pk'].replace(/^[~^]/, '') // Remove ^ or ~
 
 // Get IPFS hash of installed build
 const hash = await getCurrentBuildHash()
+console.log('Installed version:', installedVersion)
+console.log('Local build hash:', hash)
 
-// Verify against trusted hash
-const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4'
-const isValid = await verifyBuildHash(TRUSTED_HASH)
+// Verify against DAO-maintained onchain registry (OP Mainnet)
+const REGISTRY = '0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a'
+const ABI = ['function getCidByVersion(string version) view returns (string)']
+const provider = new ethers.JsonRpcProvider('https://mainnet.optimism.io')
+const registry = new ethers.Contract(REGISTRY, ABI, provider)
+
+// Query registry for the specific installed version (note: "v" prefix required)
+const onchainCid = await registry.getCidByVersion(`v${installedVersion}`)
+const isValid = hash === onchainCid
+
+console.log('Onchain CID:', onchainCid)
+console.log('Verified:', isValid ? '✅' : '❌')
 ```
 
 ### Security Inspection
@@ -429,24 +445,15 @@ console.log(`Analyzed ${result.includedFiles.length} files`)
 
 ## Security & Verification
 
-### Current Build Hash (v0.9.0)
+### Onchain Build Registry
 
-```
-bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4
-```
+W3PK maintains a DAO-controlled onchain registry of verified build hashes on OP Mainnet:
 
-**Verify package integrity:**
+- **Registry Contract:** [`0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a`](https://optimistic.etherscan.io/address/0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a)
+- **Network:** OP Mainnet (Chain ID: 10)
+- **Purpose:** Immutable source of truth for official W3PK releases
 
-```typescript
-import { verifyBuildHash } from 'w3pk'
-
-const TRUSTED_HASH = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4'
-const isValid = await verifyBuildHash(TRUSTED_HASH)
-
-if (!isValid) {
-  throw new Error('Package integrity check failed!')
-}
-```
+Host applications should verify their installed W3PK build against this registry. See [Build Verification](./docs/BUILD_VERIFICATION.md) for implementation details.
 
 ## Documentation
 

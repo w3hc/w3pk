@@ -5,6 +5,30 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-02-26
+
+### Added
+
+- **Onchain Build Registry**: DAO-maintained version registry on OP Mainnet for decentralized build verification
+  - Contract address: [`0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a`](https://optimistic.etherscan.io/address/0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a)
+  - Host applications can verify W3PK builds against immutable onchain registry
+  - Provides decentralized source of truth for official releases
+  - DAO-controlled governance via contract ownership
+
+### Changed
+
+- **Build Verification Documentation**: Updated all documentation to reference onchain registry
+  - `README.md`: Added onchain registry section with contract details
+  - `docs/BUILD_VERIFICATION.md`: All examples now query onchain registry instead of hardcoded hashes
+  - `docs/SECURITY.md`: Updated security best practices to use onchain verification
+  - Replaced "on-chain" terminology with "onchain" throughout
+
+### Documentation
+
+- Updated integration examples to show onchain registry verification pattern
+- Added OP Mainnet registry contract information across all relevant docs
+- Clarified that host applications (not SDK) should perform build verification
+
 ## [0.9.0] - 2026-02-26
 
 ### Added
