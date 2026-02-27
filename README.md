@@ -11,6 +11,8 @@ Passwordless Web3 authentication SDK with encrypted wallets and privacy features
 ## Install
 ```bash
 npm install w3pk ethers
+# or
+npm install w3pk viem
 ```
 
 ## Quick Start
@@ -33,9 +35,6 @@ const tx = await w3pk.sendTransaction({ to: '0x...', value: 1n * 10n**18n, chain
 
 // EIP-1193 provider (ethers, viem, wagmi, RainbowKit)
 const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
-
-// Derive wallets (STANDARD/STRICT/YOLO modes)
-const wallet = await w3pk.deriveWallet('STANDARD', 'GAMING')
 
 // Get RPC endpoints
 const endpoints = await w3pk.getEndpoints(1)
@@ -85,17 +84,28 @@ await w3pk.logout()
 
 ### Wallet Derivation
 
+w3pk supports multiple security modes for deriving wallets with different privacy and security trade-offs:
+
 ```typescript
-// STANDARD mode - address only (no private key)
+// PRIMARY mode - WebAuthn P-256 passkey (EIP-7951)
+// Uses hardware-backed passkey directly, no seed phrase involved
+const primaryWallet = await w3pk.deriveWallet('PRIMARY')
+// Returns: { address, publicKey, origin, mode: 'PRIMARY', tag: 'MAIN' }
+
+// STANDARD mode - Default balanced security (recommended)
+// Returns address only, private key stays in SDK for signing
 const mainWallet = await w3pk.deriveWallet('STANDARD')
-// Returns: { address, index, origin, tag: 'MAIN' }
+// Returns: { address, index, origin, mode: 'STANDARD', tag: 'MAIN' }
 
-// YOLO mode - includes private key for app-specific use
+// YOLO mode - Private key exposed to app
+// Use only when app needs direct key access (advanced use cases)
 const gamingWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
-// Returns: { address, privateKey, index, origin, tag: 'GAMING' }
+// Returns: { address, privateKey, index, origin, mode: 'YOLO', tag: 'GAMING' }
 
-// STRICT mode - address only, no persistent sessions allowed
+// STRICT mode - Maximum security, re-auth required every time
+// Requires biometric/PIN for each call - impractical for most apps
 const strictWallet = await w3pk.deriveWallet('STRICT', 'SECURE')
+// Returns: { address, privateKey, index, origin, mode: 'STRICT', tag: 'SECURE' }
 
 // Different tags generate different addresses
 console.log(mainWallet.address !== gamingWallet.address) // true
@@ -421,6 +431,8 @@ console.log(result.report)
 await inspectNow()  // Logs report directly to console
 ```
 
+**Note:** Inspection API calls are sponsored by the [W3HC (Web3 Hackers Collective)](https://w3hc.org).
+
 **Node.js (analyze local files):**
 ```typescript
 import { inspect, gatherCode } from 'w3pk/inspect/node'
@@ -464,6 +476,7 @@ Host applications should verify their installed W3PK build against this registry
 - [Security Inspection](./docs/INSPECTION.md)
 - [EIP-7951](./docs/EIP-7951.md)
 - [Security Architecture](./docs/SECURITY.md)
+- [Post-Quantum Cryptography](./docs/POST_QUANTUM.md) - Quantum-safe migration roadmap
 - [Recovery & Backup System](./docs/RECOVERY.md)
 - [Portability Guide](./docs/PORTABILITY.md)
 - [ZK Proofs](./docs/ZK.md)

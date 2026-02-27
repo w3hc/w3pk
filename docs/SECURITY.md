@@ -3634,6 +3634,7 @@ Both browser and Node.js inspection support focus modes:
 - Rukh uses AI models (Anthropic Claude, Mistral, OpenAI)
 - No code is stored permanently by default
 - Reports are generated on-demand
+- API calls are sponsored by the [W3HC (Web3 Hackers Collective)](https://w3hc.org)
 
 **Recommendations:**
 - Use self-hosted Rukh instance for sensitive code
@@ -3679,6 +3680,25 @@ await w3pk.inspectNow()
 ```
 
 This democratizes security analysis and helps users make informed decisions about which dApps to trust.
+
+---
+
+## Post-Quantum Cryptography
+
+w3pk is preparing for the future quantum computing threat. While quantum computers capable of breaking current cryptography (ECDSA, secp256k1) are estimated to be **10-15 years away**, we have a comprehensive migration roadmap in place.
+
+**Current Status:**
+- ✅ **Quantum-resistant encryption** - AES-256-GCM provides 128-bit quantum security
+- ✅ **Migration-ready architecture** - Account abstraction ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) / [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337)) enables smooth transition
+- ⚠️ **Signature vulnerability** - secp256k1 and P-256 are vulnerable to quantum attacks (Shor's algorithm)
+
+**Migration Strategy:**
+1. **Phase 2 (interim):** [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) account abstraction with [Kohaku](https://github.com/ethereum/kohaku) post-quantum signatures
+2. **Phase 4 (long-term):** [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) native account abstraction with validation frames and protocol-layer STARK aggregation
+
+**Timeline:** 18-36 months for full quantum-safe deployment (aligned with [Ethereum's quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132))
+
+**📄 For detailed information, see [Post-Quantum Cryptography](./POST_QUANTUM.md)**
 
 ---
 

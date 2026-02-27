@@ -3440,6 +3440,8 @@ Browser-based inspection analyzes the currently running web application by fetch
 
 Analyzes the current web application and returns a security report via Rukh API.
 
+**Note:** API calls are sponsored by the [W3HC (Web3 Hackers Collective)](https://w3hc.org).
+
 **Import:**
 
 ```typescript
