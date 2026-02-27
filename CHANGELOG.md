@@ -5,6 +5,25 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-02-27
+
+### Added
+
+- **Post-Quantum Cryptography Documentation**: Comprehensive roadmap for quantum-safe migration
+  - New `docs/POST_QUANTUM.md` document (formerly `QUANTUM_READINESS.md`)
+  - Aligned with [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132) (February 2026)
+  - 4-phase migration strategy: EIP-7702 → ERC-4337 (interim) → EIP-8141 (long-term)
+  - Gas cost estimates for post-quantum signatures (ERC-4337: ~300-850k gas, EIP-8141: near-zero with STARK aggregation)
+  - Integration plan with [Ethereum Kohaku](https://github.com/ethereum/kohaku) for interim solution
+  - Hash function selection discussion (Poseidon2/Poseidon1/BLAKE3)
+  - Timeline: 18-36 months for full quantum-safe deployment
+  - Active links to all EIPs, NIST standards, and research papers
+
+### Documentation
+
+- **Post-Quantum Cryptography section added to `docs/SECURITY.md`**: Summary of quantum threat, migration strategy, and link to detailed documentation
+- **Updated `README.md`**: Added Post-Quantum Cryptography to documentation list
+
 ## [0.9.1] - 2026-02-26
 
 ### Added

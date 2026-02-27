@@ -3682,6 +3682,25 @@ This democratizes security analysis and helps users make informed decisions abou
 
 ---
 
+## Post-Quantum Cryptography
+
+w3pk is preparing for the future quantum computing threat. While quantum computers capable of breaking current cryptography (ECDSA, secp256k1) are estimated to be **10-15 years away**, we have a comprehensive migration roadmap in place.
+
+**Current Status:**
+- ✅ **Quantum-resistant encryption** - AES-256-GCM provides 128-bit quantum security
+- ✅ **Migration-ready architecture** - Account abstraction ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) / [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337)) enables smooth transition
+- ⚠️ **Signature vulnerability** - secp256k1 and P-256 are vulnerable to quantum attacks (Shor's algorithm)
+
+**Migration Strategy:**
+1. **Phase 2 (interim):** [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) account abstraction with [Kohaku](https://github.com/ethereum/kohaku) post-quantum signatures
+2. **Phase 4 (long-term):** [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) native account abstraction with validation frames and protocol-layer STARK aggregation
+
+**Timeline:** 18-36 months for full quantum-safe deployment (aligned with [Ethereum's quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132))
+
+**📄 For detailed information, see [Post-Quantum Cryptography](./POST_QUANTUM.md)**
+
+---
+
 ## Conclusion
 
 w3pk's security model combines **WebAuthn authentication** with **deterministic encryption** to provide strong protection against remote attacks and convenient biometric access. Understanding both the strengths and limitations is critical for secure deployment.
