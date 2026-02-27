@@ -1597,7 +1597,9 @@ w3pk includes built-in tools for analyzing your application's transaction and si
 
 ### Browser Inspection (End-User)
 
-Enable end-users to inspect your dApp from their browser console:
+Enable end-users to inspect your dApp from their browser console.
+
+**Note:** Inspection API calls are sponsored by the [W3HC (Web3 Hackers Collective)](https://w3hc.org).
 
 ```typescript
 import { inspect, inspectNow } from 'w3pk'

@@ -3634,6 +3634,7 @@ Both browser and Node.js inspection support focus modes:
 - Rukh uses AI models (Anthropic Claude, Mistral, OpenAI)
 - No code is stored permanently by default
 - Reports are generated on-demand
+- API calls are sponsored by the [W3HC (Web3 Hackers Collective)](https://w3hc.org)
 
 **Recommendations:**
 - Use self-hosted Rukh instance for sensitive code

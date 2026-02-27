@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Post-Quantum Cryptography section added to `docs/SECURITY.md`**: Summary of quantum threat, migration strategy, and link to detailed documentation
 - **Updated `README.md`**: Added Post-Quantum Cryptography to documentation list
+- **Security Inspection**: Added W3HC sponsorship acknowledgment for inspection API calls in `README.md` and `docs/SECURITY.md`
 
 ## [0.9.1] - 2026-02-26
 

@@ -431,6 +431,8 @@ console.log(result.report)
 await inspectNow()  // Logs report directly to console
 ```
 
+**Note:** Inspection API calls are sponsored by the [W3HC (Web3 Hackers Collective)](https://w3hc.org).
+
 **Node.js (analyze local files):**
 ```typescript
 import { inspect, gatherCode } from 'w3pk/inspect/node'
