@@ -108,7 +108,20 @@ async function runTests() {
     const socialRecovery = new SocialRecoveryManager();
     const testMnemonic =
       "test test test test test test test test test test test junk";
-    const testAddress = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb";
+
+    // Derive the actual address from the mnemonic
+    const { Wallet } = await import("ethers");
+    const wallet = Wallet.fromPhrase(testMnemonic);
+    const testAddress = wallet.address;
+
+    // Create a password-encrypted backup file
+    const { BackupFileManager } = await import("../src/backup/backup-file");
+    const backupManager = new BackupFileManager();
+    const { json: backupFileJson } = await backupManager.createPasswordBackup(
+      testMnemonic,
+      testAddress,
+      "test-password-123"
+    );
 
     const guardians = [
       { name: "Alice", email: "alice@example.com" },
@@ -119,7 +132,7 @@ async function runTests() {
     ];
 
     const result = await socialRecovery.setupSocialRecovery(
-      testMnemonic,
+      backupFileJson,
       testAddress,
       guardians,
       3
@@ -159,6 +172,15 @@ async function runTests() {
     const wallet = Wallet.fromPhrase(testMnemonic);
     const testAddress = wallet.address;
 
+    // Create a password-encrypted backup file
+    const { BackupFileManager } = await import("../src/backup/backup-file");
+    const backupManager = new BackupFileManager();
+    const { json: backupFileJson } = await backupManager.createPasswordBackup(
+      testMnemonic,
+      testAddress,
+      "test-password-123"
+    );
+
     const guardians = [
       { name: "Alice", email: "alice@example.com" },
       { name: "Bob" },
@@ -166,7 +188,7 @@ async function runTests() {
     ];
 
     const result = await socialRecovery.setupSocialRecovery(
-      testMnemonic,
+      backupFileJson,
       testAddress,
       guardians,
       2
@@ -212,6 +234,15 @@ async function runTests() {
     const wallet = Wallet.fromPhrase(testMnemonic);
     const testAddress = wallet.address;
 
+    // Create a password-encrypted backup file
+    const { BackupFileManager } = await import("../src/backup/backup-file");
+    const backupManager = new BackupFileManager();
+    const { json: backupFileJson } = await backupManager.createPasswordBackup(
+      testMnemonic,
+      testAddress,
+      "test-password-123"
+    );
+
     const guardians = [
       { name: "Guardian1" },
       { name: "Guardian2" },
@@ -222,7 +253,7 @@ async function runTests() {
 
     // Setup social recovery
     const result = await socialRecovery.setupSocialRecovery(
-      testMnemonic,
+      backupFileJson,
       testAddress,
       guardians,
       3
@@ -234,7 +265,7 @@ async function runTests() {
     const invite3 = await socialRecovery.generateGuardianInvite(result[2]);
 
     // Recover from shares
-    const { mnemonic, ethereumAddress } =
+    const { backupFileJson: recoveredBackupJson, ethereumAddress } =
       await socialRecovery.recoverFromGuardians([
         invite1.shareCode,
         invite2.shareCode,
@@ -242,12 +273,27 @@ async function runTests() {
       ]);
 
     console.assert(
-      mnemonic === testMnemonic,
-      "Recovered mnemonic should match original"
+      recoveredBackupJson === backupFileJson,
+      "Recovered backup file JSON should match original"
     );
     console.assert(
       ethereumAddress.toLowerCase() === testAddress.toLowerCase(),
       "Address should match"
+    );
+
+    // Now decrypt the backup file with password to verify it works
+    const recoveredBackupFile = await backupManager.parseBackupFile(
+      recoveredBackupJson
+    );
+    const { mnemonic: recoveredMnemonic } =
+      await backupManager.restoreWithPassword(
+        recoveredBackupFile,
+        "test-password-123"
+      );
+
+    console.assert(
+      recoveredMnemonic === testMnemonic,
+      "Decrypted mnemonic should match original"
     );
 
     console.log("✅ Recovery from guardians working correctly");
@@ -265,12 +311,21 @@ async function runTests() {
     const wallet = Wallet.fromPhrase(testMnemonic);
     const testAddress = wallet.address;
 
+    // Create a password-encrypted backup file
+    const { BackupFileManager } = await import("../src/backup/backup-file");
+    const backupManager = new BackupFileManager();
+    const { json: backupFileJson } = await backupManager.createPasswordBackup(
+      testMnemonic,
+      testAddress,
+      "test-password-123"
+    );
+
     const guardians = Array.from({ length: 5 }, (_, i) => ({
       name: `Guardian${i + 1}`,
     }));
 
     const result = await socialRecovery.setupSocialRecovery(
-      testMnemonic,
+      backupFileJson,
       testAddress,
       guardians,
       3
@@ -300,9 +355,18 @@ async function runTests() {
       invites[4].shareCode,
     ]);
 
-    console.assert(combo1.mnemonic === testMnemonic, "Combo 1 should recover");
-    console.assert(combo2.mnemonic === testMnemonic, "Combo 2 should recover");
-    console.assert(combo3.mnemonic === testMnemonic, "Combo 3 should recover");
+    console.assert(
+      combo1.backupFileJson === backupFileJson,
+      "Combo 1 should recover"
+    );
+    console.assert(
+      combo2.backupFileJson === backupFileJson,
+      "Combo 2 should recover"
+    );
+    console.assert(
+      combo3.backupFileJson === backupFileJson,
+      "Combo 3 should recover"
+    );
 
     console.log("✅ All share combinations work");
   }
@@ -319,10 +383,19 @@ async function runTests() {
     const wallet = Wallet.fromPhrase(testMnemonic);
     const testAddress = wallet.address;
 
+    // Create a password-encrypted backup file
+    const { BackupFileManager } = await import("../src/backup/backup-file");
+    const backupManager = new BackupFileManager();
+    const { json: backupFileJson } = await backupManager.createPasswordBackup(
+      testMnemonic,
+      testAddress,
+      "test-password-123"
+    );
+
     const guardians = [{ name: "Alice" }, { name: "Bob" }, { name: "Charlie" }];
 
     const result = await socialRecovery.setupSocialRecovery(
-      testMnemonic,
+      backupFileJson,
       testAddress,
       guardians,
       2
@@ -366,10 +439,19 @@ async function runTests() {
     const wallet = Wallet.fromPhrase(testMnemonic);
     const testAddress = wallet.address;
 
+    // Create a password-encrypted backup file
+    const { BackupFileManager } = await import("../src/backup/backup-file");
+    const backupManager = new BackupFileManager();
+    const { json: backupFileJson } = await backupManager.createPasswordBackup(
+      testMnemonic,
+      testAddress,
+      "test-password-123"
+    );
+
     const guardians = [{ name: "Alice" }, { name: "Bob" }];
 
     const result = await socialRecovery.setupSocialRecovery(
-      testMnemonic,
+      backupFileJson,
       testAddress,
       guardians,
       2
@@ -407,10 +489,19 @@ async function runTests() {
     const wallet = Wallet.fromPhrase(testMnemonic);
     const testAddress = wallet.address;
 
+    // Create a password-encrypted backup file
+    const { BackupFileManager } = await import("../src/backup/backup-file");
+    const backupManager = new BackupFileManager();
+    const { json: backupFileJson } = await backupManager.createPasswordBackup(
+      testMnemonic,
+      testAddress,
+      "test-password-123"
+    );
+
     const guardians = [{ name: "Alice" }, { name: "Bob" }, { name: "Charlie" }];
 
     const result = await socialRecovery.setupSocialRecovery(
-      testMnemonic,
+      backupFileJson,
       testAddress,
       guardians,
       2
@@ -444,10 +535,19 @@ async function runTests() {
     const wallet = Wallet.fromPhrase(testMnemonic);
     const testAddress = wallet.address;
 
+    // Create a password-encrypted backup file
+    const { BackupFileManager } = await import("../src/backup/backup-file");
+    const backupManager = new BackupFileManager();
+    const { json: backupFileJson } = await backupManager.createPasswordBackup(
+      testMnemonic,
+      testAddress,
+      "test-password-123"
+    );
+
     const guardians = [{ name: "Alice" }, { name: "Bob" }];
 
     await socialRecovery.setupSocialRecovery(
-      testMnemonic,
+      backupFileJson,
       testAddress,
       guardians,
       2

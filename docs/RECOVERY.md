@@ -264,15 +264,25 @@ await sdk.importFromSync(syncData);
 
 ### **3. Social Recovery**
 
-**Purpose**: Distribute encrypted wallet data among trusted guardians using Shamir Secret Sharing (M-of-N)
+**Purpose**: Distribute encrypted backup file fragments among trusted guardians using Shamir Secret Sharing (M-of-N)
 
 **Setup (3-of-5 example):**
 ```typescript
+import { SocialRecoveryManager } from 'w3pk';
+
 const sdk = createWeb3Passkey();
 await sdk.login();
 
-// Create encrypted backup and split among guardians
-const { guardianShares } = await sdk.setupSocialRecovery(
+// Step 1: Create password-encrypted backup file
+const password = 'MySecurePassword123!'; // User must remember this
+const { blob } = await sdk.createBackupFile('password', password);
+const backupFileJson = await blob.text();
+
+// Step 2: Split backup file among guardians
+const socialRecovery = new SocialRecoveryManager();
+const guardians = await socialRecovery.setupSocialRecovery(
+  backupFileJson, // Encrypted backup file JSON
+  sdk.user.ethereumAddress,
   [
     { name: 'Alice', email: 'alice@example.com' },
     { name: 'Bob', email: 'bob@example.com' },
@@ -280,84 +290,61 @@ const { guardianShares } = await sdk.setupSocialRecovery(
     { name: 'David', email: 'david@example.com' },
     { name: 'Eve', email: 'eve@example.com' },
   ],
-  3, // threshold: need 3 shares to recover
-  'OptionalPassword' // encrypts backup before splitting
+  3 // threshold: need 3 shares to recover
 );
 
-// Generate invitation for each guardian
-for (const share of guardianShares) {
-  const invitation = await sdk.generateGuardianInvite(share);
-  // Send invitation.downloadBlob or invitation.qrCodeDataURL to guardian
+// Step 3: Generate invitation for each guardian
+for (const guardian of guardians) {
+  const invite = await socialRecovery.generateGuardianInvite(guardian);
+  // Send invite.qrCode and invite.explainer to guardian
+  // Guardian stores their share safely (password manager, etc.)
 }
 ```
 
-**Recover Wallet (Two Options):**
-
-**Option 1: Recover and register new passkey (recommended for lost devices)**
+**Recover Wallet:**
 ```typescript
+import { SocialRecoveryManager } from 'w3pk';
+
 const sdk = createWeb3Passkey();
+const socialRecovery = new SocialRecoveryManager();
 
 // Step 1: Collect shares from 3+ guardians
-const shares = [aliceShare, bobShare, charlieShare];
+const shares = [aliceShareCode, bobShareCode, charlieShareCode];
 
-// Step 2: Combine shares and decrypt to get mnemonic and address
-const { mnemonic, ethereumAddress } = await sdk.recoverFromGuardians(
-  shares,
-  'OptionalPassword' // password used during setupSocialRecovery (if any)
-);
+// Step 2: Reconstruct encrypted backup file from shares
+const { backupFileJson, ethereumAddress } = await socialRecovery.recoverFromGuardians(shares);
 
-// Step 3: Create a new password-protected backup from recovered mnemonic
-const { BackupFileManager } = await import('w3pk/backup/backup-file');
-const manager = new BackupFileManager();
-const { backupFile } = await manager.createPasswordBackup(
-  mnemonic,
-  ethereumAddress,
-  'NewPassword123!' // Choose a new password
-);
+// Step 3: Decrypt backup file with password
+const password = prompt('Enter your backup password');
 
-// Step 4: Register new passkey using the backup
-const backupData = JSON.stringify(backupFile);
-await sdk.registerWithBackupFile(backupData, 'NewPassword123!', 'username');
+// Step 4: Register new passkey with recovered backup file
+await sdk.registerWithBackupFile(backupFileJson, password, 'username');
 // Now logged in with new passkey, credentials stored locally ✅
 ```
 
-**Option 2: Recover and import to existing passkey**
-```typescript
-const sdk = createWeb3Passkey();
-
-// Step 1: Login with existing WebAuthn credential
-await sdk.login();
-
-// Step 2: Collect shares and recover mnemonic
-const shares = [aliceShare, bobShare, charlieShare];
-const { mnemonic } = await sdk.recoverFromGuardians(
-  shares,
-  'OptionalPassword'
-);
-
-// Step 3: Import mnemonic to current logged-in user
-await sdk.importMnemonic(mnemonic);
-// Credentials stored locally under current passkey ✅
-```
-
 **Encryption**:
-1. Create BackupFile (password/passkey encrypted)
-2. Serialize to JSON
-3. Split using Shamir Secret Sharing (M-of-N)
-4. Each guardian gets one share
+1. User creates password-encrypted BackupFile (AES-256-GCM)
+2. Serialize BackupFile to JSON
+3. Split JSON using Shamir Secret Sharing (M-of-N threshold)
+4. Each guardian gets one encrypted fragment
+5. Recovery requires: threshold shares + original password
 
 **Use Case**: Forgot password, lost all devices, ultimate safety net
 
-**Security**: No single guardian can recover wallet alone
+**Security**: No single guardian can recover wallet alone. Guardians hold fragments of an already-encrypted backup file.
 
 **Pros:**
 - ✅ No single point of failure
+- ✅ Double encryption: backup is encrypted, then fragments are distributed
+- ✅ Guardians never see plaintext wallet data
+- ✅ Password protection even after collecting shares
 - ✅ Survives your own forgetfulness
 - ✅ Survives any 2 guardians disappearing
 - ✅ Highest security and redundancy
 
 **Cons:**
 - ⚠️ Requires trusted friends/family
+- ⚠️ Must remember password (guardians don't have it)
 - ⚠️ Setup complexity
 - ⚠️ Recovery takes time (24-48 hours)
 - ⚠️ Coordination required
@@ -365,9 +352,10 @@ await sdk.importMnemonic(mnemonic);
 **Recovery scenarios:**
 | Scenario | Can Recover? | How |
 |----------|--------------|-----|
-| Forgot password + lost devices | ✅ Yes | Contact 3 guardians → combine shares |
-| Lost backup + lost passkey | ✅ Yes | Contact 3 guardians |
+| Lost all devices | ✅ Yes | Contact 3 guardians → combine shares → enter password |
+| Lost backup + lost passkey | ✅ Yes | Contact 3 guardians → reconstruct backup file → enter password |
 | 2 guardians unavailable | ✅ Yes | Still have 3 others |
+| Forgot password + have shares | ❌ No | Backup file is encrypted with password |
 | All guardians lost shares | ❌ No | Need another recovery layer |
 
 ---
@@ -396,45 +384,81 @@ await sdk.importMnemonic(mnemonic);
 ### **Social Recovery Cryptography**
 
 ```typescript
-Shamir Secret Sharing Algorithm:
+Backup File-Based Shamir Secret Sharing:
 
 Example: 3-of-5 scheme
-- Split secret S into 5 shares: s1, s2, s3, s4, s5
-- Any 3 shares can reconstruct S
-- Any 2 shares reveal ZERO information about S
-- Each guardian only has an encrypted piece
+
+Step 1: Create Encrypted Backup File
+- User creates password-encrypted backup file
+- Backup contains: { encryptedMnemonic, ethereumAddress, ... }
+- Encryption: PBKDF2(password) → AES-256-GCM
+- Result: BackupFile JSON (already encrypted)
+
+Step 2: Split Backup File
+- Serialize BackupFile to JSON string
+- Convert JSON to bytes
+- Split bytes using Shamir Secret Sharing (3-of-5)
+- Result: 5 shares of encrypted data
+
+Step 3: Distribute Shares
+- Each guardian gets one share (hex-encoded fragment)
+- Shares are fragments of the encrypted backup file
+- Guardians never see the plaintext mnemonic
+- Guardians don't have the password
+
+Recovery Process:
+- Collect 3+ shares from guardians
+- Combine shares → reconstruct BackupFile JSON
+- Decrypt with password → extract mnemonic
+- Register new passkey or import to existing
 
 Mathematical basis:
-- Polynomial interpolation over finite field
+- Polynomial interpolation over finite field GF(256)
 - Degree = threshold - 1 (e.g., degree-2 polynomial for 3-of-5)
 - Points on polynomial = shares
-- Reconstruct polynomial with 3 points → get secret
+- Any 3 points → reconstruct polynomial → recover secret
+- Any 2 points → mathematically impossible to recover
+```
 
-Share encryption:
-Each share is encrypted with guardian's public key:
-- Guardian generates key pair (on their device)
-- Share encrypted with guardian's public key
-- Only guardian can decrypt their share
-- Prevents share theft from coordinator
+**Security Model:**
+```
+Double Encryption:
+Layer 1: Backup file encrypted with password (AES-256-GCM)
+Layer 2: Encrypted backup split into shares (Shamir)
+
+Result:
+- Guardians hold fragments of encrypted data
+- Even with threshold shares, password still required
+- No single guardian has access to wallet
+- No collusion of guardians can bypass password
+
+Attack Scenarios:
+✅ Attacker steals 2 shares → Cannot reconstruct
+✅ Attacker steals 3+ shares → Still needs password
+✅ Attacker has password → Still needs threshold shares
+❌ Attacker has password + threshold shares → Can recover
 ```
 
 **Trust model:**
 ```
 Coordinator (You):
+- Must remember password (guardians don't have it)
 - Cannot recover from less than threshold shares
-- Can revoke/replace guardians
-- Can update threshold
+- Can revoke/replace guardians (requires new setup)
+- Can verify guardian shares are distributed
 
 Guardians:
-- Cannot recover alone
-- Cannot collude unless threshold met
+- Hold encrypted fragments only
+- Cannot decrypt without password
+- Cannot recover alone (need threshold + password)
 - Can verify share validity
-- Can export/backup their share
+- Can store share safely (it's already encrypted)
 
 Attacker:
 - Cannot recover with < threshold shares
-- Cannot brute-force (mathematically secure)
-- Must compromise guardians directly
+- Cannot decrypt backup without password
+- Must compromise both guardians AND password
+- Mathematically secure (Shamir + AES-256-GCM)
 ```
 
 ---
@@ -485,24 +509,36 @@ await w3pk.importFromSync(backupData);
 ### Social Recovery
 
 ```typescript
-// Setup
-const { guardianShares } = await w3pk.setupSocialRecovery(guardians, threshold, password);
+import { SocialRecoveryManager } from 'w3pk';
 
-// Generate invitations
-const invitation = await w3pk.generateGuardianInvite(guardianShare);
+// Setup - Create password-encrypted backup and split among guardians
+const { blob } = await w3pk.createBackupFile('password', 'MyPassword123!');
+const backupFileJson = await blob.text();
 
-// Recover (returns mnemonic - then register or import)
-const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares, password);
+const socialRecovery = new SocialRecoveryManager();
+const guardians = await socialRecovery.setupSocialRecovery(
+  backupFileJson,
+  w3pk.user.ethereumAddress,
+  [
+    { name: 'Alice', email: 'alice@example.com' },
+    { name: 'Bob', email: 'bob@example.com' },
+    { name: 'Charlie', email: 'charlie@example.com' }
+  ],
+  2 // threshold
+);
 
-// Option 1: Register new passkey (stores credentials)
-const { BackupFileManager } = await import('w3pk/backup/backup-file');
-const manager = new BackupFileManager();
-const { backupFile } = await manager.createPasswordBackup(mnemonic, ethereumAddress, 'newpass');
-await w3pk.registerWithBackupFile(JSON.stringify(backupFile), 'newpass', 'username');
+// Generate invitations for guardians
+for (const guardian of guardians) {
+  const invite = await socialRecovery.generateGuardianInvite(guardian);
+  // Send invite.qrCode and invite.shareCode to guardian
+}
 
-// Option 2: Import to existing passkey (stores credentials)
-await w3pk.login();
-await w3pk.importMnemonic(mnemonic);
+// Recover - Collect shares and reconstruct encrypted backup file
+const shares = [aliceShareCode, bobShareCode]; // JSON strings from guardians
+const { backupFileJson, ethereumAddress } = await socialRecovery.recoverFromGuardians(shares);
+
+// Decrypt and register with password
+await w3pk.registerWithBackupFile(backupFileJson, 'MyPassword123!', 'username');
 ```
 
 ---
@@ -705,17 +741,20 @@ Platform-specific:
 3. Contact your guardians (need 3 of 5)
 4. Each guardian provides their share:
    - Scan QR code, OR
-   - Enter share code manually
-5. After 3 shares collected:
-   - System reconstructs backup file
-   - Enter password if used during setup
-   - System extracts mnemonic
-6. Choose recovery path:
-   - "Register New Passkey" → Creates new WebAuthn credential, stores locally ✅
-   - "Login & Import" → Login with existing passkey, import mnemonic ✅
+   - Paste share code manually (JSON format)
+5. After collecting threshold shares (e.g., 3):
+   - System reconstructs encrypted backup file ✅
+   - Backup file is still encrypted
+6. Enter your password:
+   - This is the password you set during social recovery setup
+   - Guardians DO NOT have this password
+   - System decrypts backup file → extracts mnemonic
+7. Choose username and register:
+   - System creates new passkey on your device
+   - Wallet credentials stored locally ✅
 
 Timeline: ~24-48 hours (depends on guardian availability)
-Note: Either path stores credentials locally after recovery
+Security: Requires both guardian shares AND your password
 ```
 
 #### **Method 4: Manual Mnemonic Import**
@@ -764,7 +803,7 @@ A: You'll need to use another recovery method (passkey sync or social recovery).
 A: Mathematically secure with Shamir's Secret Sharing. Any 2 guardians cannot recover (need 3 of 5).
 
 **Q: Can guardians steal my wallet?**
-A: No, each guardian only has an encrypted piece. They need 3 pieces minimum, and even then, the backup may be password-protected.
+A: No. Guardians hold encrypted fragments of an already-encrypted backup file. Even if they collude and combine all shares, they still need your password to decrypt the backup file. The password is never shared with guardians.
 
 **Q: What happens if a guardian loses their share?**
 A: No problem! You only need 3 out of 5. As long as 3 guardians have their shares, you can recover.

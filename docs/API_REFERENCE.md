@@ -2308,11 +2308,23 @@ const hybridBackup = await w3pk.createBackupFile('hybrid', 'MySecurePassword123!
 
 ---
 
-### `setupSocialRecovery(guardians: Guardian[], threshold: number): Promise<Guardian[]>`
+## Social Recovery API
 
-Set up social recovery with M-of-N guardian shares using Shamir Secret Sharing.
+Social recovery is handled by the `SocialRecoveryManager` class, which splits password-encrypted backup files into guardian shares using Shamir Secret Sharing.
+
+### Import
+
+```typescript
+import { SocialRecoveryManager } from 'w3pk';
+```
+
+### `SocialRecoveryManager.setupSocialRecovery(backupFileJson: string, ethereumAddress: string, guardians: Guardian[], threshold: number): Promise<Guardian[]>`
+
+Set up social recovery by splitting an encrypted backup file among guardians.
 
 **Parameters:**
+- `backupFileJson: string` - Password-encrypted backup file JSON
+- `ethereumAddress: string` - Ethereum address for verification
 - `guardians: Guardian[]`
   ```typescript
   interface Guardian {
@@ -2323,15 +2335,27 @@ Set up social recovery with M-of-N guardian shares using Shamir Secret Sharing.
   ```
 - `threshold: number` - Number of guardians required to recover (M in M-of-N)
 
-**Returns:** Array of guardians with encrypted shares
+**Returns:** Array of guardians with encrypted share fragments
 
-**Security:** Forces fresh authentication
+**Security:**
+- Guardians receive fragments of an already-encrypted backup file
+- Password is never shared with guardians
+- Requires both threshold shares + password to recover
 
 **Example:**
 
 ```typescript
-// Setup 3-of-5 social recovery
-const guardians = await w3pk.setupSocialRecovery(
+import { SocialRecoveryManager } from 'w3pk';
+
+// Step 1: Create password-encrypted backup file
+const { blob } = await w3pk.createBackupFile('password', 'MySecurePassword123!');
+const backupFileJson = await blob.text();
+
+// Step 2: Setup social recovery with 3-of-5 threshold
+const socialRecovery = new SocialRecoveryManager();
+const guardians = await socialRecovery.setupSocialRecovery(
+  backupFileJson,
+  w3pk.user.ethereumAddress,
   [
     { name: 'Alice', email: 'alice@example.com' },
     { name: 'Bob', phone: '+1234567890' },
@@ -2340,19 +2364,19 @@ const guardians = await w3pk.setupSocialRecovery(
     { name: 'Eve', email: 'eve@example.com' }
   ],
   3  // Need 3 guardians to recover
-)
+);
 
-console.log('Social recovery configured with', guardians.length, 'guardians')
+console.log('Social recovery configured with', guardians.length, 'guardians');
 ```
 
 ---
 
-### `generateGuardianInvite(guardianId: string): Promise<GuardianInvite>`
+### `SocialRecoveryManager.generateGuardianInvite(guardian: Guardian): Promise<GuardianInvite>`
 
-Generate invitation for a guardian with their recovery share.
+Generate invitation for a guardian with their encrypted share fragment.
 
 **Parameters:**
-- `guardianId: string` - Guardian ID
+- `guardian: Guardian` - Guardian object with share
 
 **Returns:**
 
@@ -2360,57 +2384,89 @@ Generate invitation for a guardian with their recovery share.
 interface GuardianInvite {
   guardianId: string;
   qrCode: string;        // Data URL for QR code
-  shareCode: string;     // Text code for manual entry
+  shareCode: string;     // JSON string for manual entry
   explainer: string;     // Educational text for guardian
-  link?: string;         // Optional deep link
 }
 ```
 
 **Example:**
 
 ```typescript
-const invite = await w3pk.generateGuardianInvite(guardian.id)
+const socialRecovery = new SocialRecoveryManager();
 
-// Show QR code to guardian
-console.log('Show this QR code to guardian:', invite.qrCode)
-console.log('Or share this code:', invite.shareCode)
-console.log('Instructions:', invite.explainer)
+for (const guardian of guardians) {
+  const invite = await socialRecovery.generateGuardianInvite(guardian);
+
+  // Show QR code to guardian
+  console.log('QR code:', invite.qrCode);
+  console.log('Share code:', invite.shareCode);
+  console.log('Instructions:', invite.explainer);
+
+  // Send via email, messaging app, etc.
+}
 ```
 
 ---
 
-### `recoverFromGuardians(shares: string[]): Promise<RecoveryResult>`
+### `SocialRecoveryManager.recoverFromGuardians(shares: string[]): Promise<{ backupFileJson: string; ethereumAddress: string }>`
 
-Recover wallet from guardian shares (Shamir Secret Sharing).
+Reconstruct encrypted backup file from guardian shares.
 
 **Parameters:**
-- `shares: string[]` - Array of share data from guardians (JSON strings)
+- `shares: string[]` - Array of share codes from guardians (JSON strings)
 
 **Returns:**
 
 ```typescript
-interface RecoveryResult {
-  mnemonic: string;
-  ethereumAddress: string;
+{
+  backupFileJson: string;      // Reconstructed encrypted backup file
+  ethereumAddress: string;     // Ethereum address from backup
 }
 ```
 
 **Example:**
 
 ```typescript
-// Collect shares from 3 guardians
+import { SocialRecoveryManager } from 'w3pk';
+
+const socialRecovery = new SocialRecoveryManager();
+
+// Step 1: Collect shares from 3+ guardians
 const shares = [
-  aliceShare,  // JSON string from Alice
-  bobShare,    // JSON string from Bob
-  charlieShare // JSON string from Charlie
-]
+  aliceShareCode,   // JSON string from Alice
+  bobShareCode,     // JSON string from Bob
+  charlieShareCode  // JSON string from Charlie
+];
 
-const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares)
-console.log('Wallet recovered:', ethereumAddress)
-console.log('Mnemonic:', mnemonic)
+// Step 2: Reconstruct encrypted backup file
+const { backupFileJson, ethereumAddress } = await socialRecovery.recoverFromGuardians(shares);
+console.log('Backup file reconstructed for:', ethereumAddress);
 
-// Now import the mnemonic
-await w3pk.importMnemonic(mnemonic)
+// Step 3: Decrypt with password and register
+const password = 'MySecurePassword123!'; // Password set during setup
+await w3pk.registerWithBackupFile(backupFileJson, password, 'username');
+console.log('Wallet recovered and registered!');
+```
+
+---
+
+### `SocialRecoveryManager.getSocialRecoveryConfig(): SocialRecoveryConfig | null`
+
+Get current social recovery configuration from localStorage.
+
+**Returns:** Social recovery configuration or null if not set up
+
+**Example:**
+
+```typescript
+const socialRecovery = new SocialRecoveryManager();
+const config = socialRecovery.getSocialRecoveryConfig();
+
+if (config) {
+  console.log('Threshold:', config.threshold);
+  console.log('Total guardians:', config.totalGuardians);
+  console.log('Guardians:', config.guardians);
+}
 ```
 
 ---

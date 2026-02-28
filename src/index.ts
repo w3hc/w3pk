@@ -111,6 +111,8 @@ export type {
   EncryptedBackupInfo,
 } from "./backup/types";
 
+export { SocialRecoveryManager } from "./recovery";
+
 export type {
   Guardian,
   GuardianInvite,
