@@ -8,7 +8,7 @@ export interface Guardian {
   email?: string;
   phone?: string;
   publicKey?: string; // For encrypting their share
-  shareEncrypted: string;
+  shareEncrypted: string; // Encrypted fragment of the backup file JSON
   status: 'pending' | 'active' | 'revoked';
   addedAt: string;
   lastVerified?: string;

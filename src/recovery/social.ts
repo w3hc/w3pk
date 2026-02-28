@@ -48,10 +48,15 @@ export class SocialRecoveryManager {
 
   /**
    * Set up social recovery
-   * Splits mnemonic into M-of-N shares and distributes to guardians
+   * Splits encrypted backup file into M-of-N shares and distributes to guardians
+   *
+   * @param backupFileJson - The complete backup file JSON string (password-encrypted)
+   * @param ethereumAddress - The Ethereum address for verification
+   * @param guardians - Array of guardian information
+   * @param threshold - Minimum number of guardians needed for recovery
    */
   async setupSocialRecovery(
-    mnemonic: string,
+    backupFileJson: string,
     ethereumAddress: string,
     guardians: { name: string; email?: string; phone?: string }[],
     threshold: number
@@ -68,8 +73,8 @@ export class SocialRecoveryManager {
       throw new Error('Cannot have more than 255 guardians');
     }
 
-    // Convert mnemonic to bytes
-    const secretBytes = stringToBytes(mnemonic);
+    // Convert backup file JSON to bytes
+    const secretBytes = stringToBytes(backupFileJson);
 
     // Split into shares
     const shares = splitSecret(secretBytes, threshold, guardians.length);
@@ -253,12 +258,13 @@ You have been chosen as Guardian ${index} of ${total}
 YOUR ROLE:
 ----------
 
-Your friend has entrusted you with a recovery share for their cryptocurrency wallet.
+Your friend has entrusted you with a recovery share for their encrypted wallet backup.
 
 WHAT THIS MEANS:
 - You hold 1 piece of a ${threshold}-piece puzzle
-- ${threshold} guardians needed to recover the wallet
+- ${threshold} guardians needed to reconstruct the backup file
 - You cannot access the wallet alone
+- The backup is encrypted and requires a password
 - This is a responsibility and honor
 
 HOW IT WORKS:
@@ -269,13 +275,14 @@ If your friend loses access to their wallet:
 1. They will contact you to request your share
 2. You provide the QR code or share code below
 3. System collects shares from ${threshold} guardians
-4. Wallet is mathematically reconstructed
-5. Your friend regains access ✓
+4. Encrypted backup file is mathematically reconstructed
+5. Your friend decrypts it with their password and regains access ✓
 
 SECURITY:
 ---------
 
-✓ Your share is encrypted
+✓ Your share contains encrypted data only
+✓ Cannot be decrypted without password
 ✓ Cannot be used alone
 ✓ ${threshold - 1} other guardians needed
 ✓ Safe to store digitally
@@ -309,7 +316,8 @@ If requested:
 1. Friend will contact you
 2. Verify their identity
 3. Provide this QR code or share code
-4. System handles the rest
+4. System reconstructs encrypted backup file
+5. Friend decrypts with their password
 
 HOW TO STORE:
 ------------
@@ -335,25 +343,40 @@ Visit: https://docs.w3pk.org/social-recovery
   }
 
   /**
-   * Recover mnemonic from guardian shares
+   * Recover backup file from guardian shares
+   * Returns the reconstructed backup file JSON that can be used with restoreFromBackupFile()
    */
   async recoverFromGuardians(
     shareData: string[]
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const config = this.getSocialRecoveryConfig();
-    if (!config) {
-      throw new Error('Social recovery not configured');
+  ): Promise<{ backupFileJson: string; ethereumAddress: string }> {
+    if (!shareData || shareData.length === 0) {
+      throw new Error('No guardian shares provided');
     }
 
-    if (shareData.length < config.threshold) {
+    // Parse first share to get threshold and ethereum address
+    const firstShare = JSON.parse(shareData[0]);
+    const threshold = firstShare.threshold;
+    const expectedAddress = firstShare.ethereumAddress;
+
+    if (!threshold) {
+      throw new Error('Invalid share data: missing threshold information');
+    }
+
+    if (shareData.length < threshold) {
       throw new Error(
-        `Need at least ${config.threshold} shares, got ${shareData.length}`
+        `Need at least ${threshold} shares, got ${shareData.length}`
       );
     }
 
-    // Parse share data
+    // Parse all share data
     const shares: RecoveryShare[] = shareData.map((data) => {
       const parsed = JSON.parse(data);
+
+      // Verify all shares are for the same wallet
+      if (parsed.ethereumAddress?.toLowerCase() !== expectedAddress?.toLowerCase()) {
+        throw new Error('Shares are from different wallets - cannot combine');
+      }
+
       return {
         guardianId: parsed.guardianId,
         share: parsed.share,
@@ -364,23 +387,33 @@ Visit: https://docs.w3pk.org/social-recovery
     // Convert shares to bytes
     const shareBytes = shares.map((s) => hexToBytes(s.share));
 
-    // Combine shares
-    const secretBytes = combineShares(shareBytes, config.threshold);
+    // Combine shares to reconstruct backup file JSON
+    const secretBytes = combineShares(shareBytes, threshold);
 
-    // Convert to mnemonic
-    const mnemonic = bytesToString(secretBytes);
+    // Convert to backup file JSON
+    const backupFileJson = bytesToString(secretBytes);
 
-    // Verify
-    const { Wallet } = await import('ethers');
-    const wallet = Wallet.fromPhrase(mnemonic);
+    // Verify it's valid JSON and has the expected structure
+    let backupFile: any;
+    try {
+      backupFile = JSON.parse(backupFileJson);
+    } catch {
+      throw new Error('Recovered data is not valid JSON - invalid shares');
+    }
 
-    if (wallet.address.toLowerCase() !== config.ethereumAddress.toLowerCase()) {
-      throw new Error('Recovered address does not match - invalid shares');
+    // Verify the ethereum address matches what we expected
+    if (!backupFile.ethereumAddress) {
+      throw new Error('Recovered backup file is missing ethereum address');
+    }
+
+    if (expectedAddress &&
+        backupFile.ethereumAddress.toLowerCase() !== expectedAddress.toLowerCase()) {
+      throw new Error('Recovered address does not match share data - invalid shares');
     }
 
     return {
-      mnemonic,
-      ethereumAddress: wallet.address,
+      backupFileJson,
+      ethereumAddress: backupFile.ethereumAddress,
     };
   }
 
@@ -460,10 +493,10 @@ Visit: https://docs.w3pk.org/social-recovery
   }
 
   /**
-   * Add new guardian (requires re-sharing)
+   * Add new guardian (requires re-sharing with new backup file)
    */
   async addGuardian(
-    mnemonic: string,
+    backupFileJson: string,
     newGuardian: { name: string; email?: string; phone?: string }
   ): Promise<Guardian> {
     const config = this.getSocialRecoveryConfig();
@@ -480,7 +513,7 @@ Visit: https://docs.w3pk.org/social-recovery
     ];
 
     const newGuardianObjects = await this.setupSocialRecovery(
-      mnemonic,
+      backupFileJson,
       config.ethereumAddress,
       updatedGuardians,
       config.threshold

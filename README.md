@@ -355,8 +355,13 @@ console.log('Security Score:', status.securityScore.total) // 0-100
 // Create encrypted backup file
 const { blob, filename } = await w3pk.createBackupFile('password', password)
 
-// Setup social recovery (M-of-N guardians)
-await w3pk.setupSocialRecovery(
+// Setup social recovery (M-of-N guardians) - guardians store backup file fragments
+import { SocialRecoveryManager } from 'w3pk'
+const backupFileJson = await blob.text()
+const socialRecovery = new SocialRecoveryManager()
+const guardians = await socialRecovery.setupSocialRecovery(
+  backupFileJson,
+  w3pk.user.ethereumAddress,
   [
     { name: 'Alice', email: 'alice@example.com' },
     { name: 'Bob', phone: '+1234567890' },
@@ -366,10 +371,11 @@ await w3pk.setupSocialRecovery(
 )
 
 // Generate guardian invite
-const invite = await w3pk.generateGuardianInvite(guardianShare)
+const invite = await socialRecovery.generateGuardianInvite(guardians[0])
 
-// Recover from guardian shares
-const { mnemonic } = await w3pk.recoverFromGuardians([share1, share2])
+// Recover from guardian shares - reconstructs encrypted backup file
+const { backupFileJson } = await socialRecovery.recoverFromGuardians([share1, share2])
+await w3pk.registerWithBackupFile(backupFileJson, password, 'username')
 
 // Restore from backup file
 await w3pk.restoreFromBackupFile(encryptedData, password)

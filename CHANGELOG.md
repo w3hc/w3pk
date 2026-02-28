@@ -5,6 +5,71 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-02-28
+
+### Changed
+
+- **BREAKING: Social Recovery Now Uses Backup File Fragments**: Completely redesigned social recovery system for improved security
+  - Guardians now store fragments of encrypted backup files instead of mnemonic fragments
+  - **Double encryption security model**: Backup file is encrypted with password (Layer 1), then split into shares (Layer 2)
+  - Password is never shared with guardians - only the coordinator knows it
+  - Recovery requires both threshold guardian shares AND the original password
+  - Even if all guardians collude, they cannot decrypt the backup file without the password
+
+- **SocialRecoveryManager API Changes**:
+  - `setupSocialRecovery()` now takes `backupFileJson` instead of `mnemonic`
+  - `recoverFromGuardians()` now returns `{ backupFileJson, ethereumAddress }` instead of `{ mnemonic, ethereumAddress }`
+  - `addGuardian()` now requires `backupFileJson` parameter
+
+### Security
+
+- **Improved Guardian Security**: Guardians hold fragments of encrypted data only
+  - Mathematically proven security with Shamir Secret Sharing (GF(256) polynomial interpolation)
+  - Attack with threshold shares still requires password to decrypt
+  - No single guardian or collusion of guardians can access wallet without password
+  - Guardians can safely store shares in password managers (already encrypted)
+
+### Documentation
+
+- Updated `docs/RECOVERY.md` with new backup file-based social recovery flow
+- Updated `docs/API_REFERENCE.md` with new `SocialRecoveryManager` API
+- Updated guardian explainer text to clarify encrypted backup file fragments
+- Added detailed cryptography section explaining double encryption model
+- Updated all recovery workflow examples and FAQ
+
+### Migration Guide
+
+For existing host applications using social recovery:
+
+**Before (v0.9.2 and earlier):**
+```typescript
+// Setup - splits mnemonic
+const guardians = await setupSocialRecovery(guardiansList, threshold);
+
+// Recovery - returns mnemonic
+const { mnemonic } = await recoverFromGuardians(shares);
+```
+
+**After (v0.9.3+):**
+```typescript
+import { SocialRecoveryManager } from 'w3pk';
+
+// Setup - create password-encrypted backup and split it
+const { blob } = await w3pk.createBackupFile('password', 'MyPassword123!');
+const backupFileJson = await blob.text();
+const socialRecovery = new SocialRecoveryManager();
+const guardians = await socialRecovery.setupSocialRecovery(
+  backupFileJson,
+  ethereumAddress,
+  guardiansList,
+  threshold
+);
+
+// Recovery - reconstruct backup file, then decrypt with password
+const { backupFileJson } = await socialRecovery.recoverFromGuardians(shares);
+await w3pk.registerWithBackupFile(backupFileJson, 'MyPassword123!', 'username');
+```
+
 ## [0.9.2] - 2026-02-27
 
 ### Added
