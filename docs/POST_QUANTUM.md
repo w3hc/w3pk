@@ -1290,14 +1290,299 @@ const delegation = await w3pk.requestExternalWalletDelegation({
 
 ---
 
+## ML-KEM Encryption
+
+w3pk supports ML-KEM-1024 encryption for quantum-resistant data protection with multi-recipient support and deterministic key derivation from private keys.
+
+### Deterministic Key Derivation
+
+Derive ML-KEM keypairs deterministically from any private key material (Ethereum keys, random seeds, etc.):
+
+```typescript
+import { deriveMLKemKeypair, mlkemEncryptWithKey, mlkemDecryptWithKey } from 'w3pk';
+
+// Derive ML-KEM keypair from Ethereum private key
+const ethPrivateKey = '0x1234...'; // Your wallet private key
+const keypair = await deriveMLKemKeypair(ethPrivateKey, 'my-app');
+// Returns: { publicKey: Uint8Array(1568), privateKey: Uint8Array(3168) }
+
+// Share your public key with others
+const publicKeyBase64 = Buffer.from(keypair.publicKey).toString('base64');
+
+// Later: Recreate keypair from same private key (deterministic!)
+const sameKeypair = await deriveMLKemKeypair(ethPrivateKey, 'my-app');
+// sameKeypair.publicKey === keypair.publicKey ✅
+```
+
+### Encrypt/Decrypt with w3pk Instance (Recommended)
+
+The easiest way to use ML-KEM encryption - no private key exposure:
+
+```typescript
+import { createWeb3Passkey } from 'w3pk';
+
+const w3pk = createWeb3Passkey();
+await w3pk.login();
+
+// 1. Share your public key with others
+const myPublicKey = await w3pk.deriveMLKemPublicKey();
+// Send myPublicKey to the server or publish it
+
+// 2. Get server's public key
+const serverPubKey = await fetch('/api/mlkem-public-key').then(r => r.text());
+
+// 3. Encrypt for yourself + server
+const encrypted = await w3pk.mlkemEncrypt(
+  'my secret data',
+  [serverPubKey]  // Server can decrypt
+);
+// You can also decrypt because you're auto-added as recipient
+
+// 4. Later: Decrypt locally (server never sees plaintext!)
+const plaintext = await w3pk.mlkemDecrypt(encrypted);
+```
+
+**Security:** Your Ethereum private key never leaves the w3pk instance, matching the security model of `signMessage()` and `sendTransaction()`.
+
+**Supported Modes:**
+- ✅ **STANDARD** (default) - Private key derived internally, not exposed to app
+- ✅ **STRICT** - Same as STANDARD but always requires WebAuthn re-authentication
+- ✅ **YOLO** - Private key available to app
+- ❌ **PRIMARY** - Not supported (uses P-256 WebAuthn keys, not Ethereum keys)
+
+### Encrypt/Decrypt with Key Derivation (Low-level API)
+
+For advanced use cases where you manage private keys directly:
+
+```typescript
+// Client encrypts for themselves + server
+const serverKeypair = await deriveMLKemKeypair(serverEthKey, 'server');
+const encrypted = await mlkemEncryptWithKey(
+  'my secret data',
+  myEthPrivateKey,              // Sender's private key (auto-added as recipient)
+  [serverKeypair.publicKey],    // Additional recipients
+  'client'                       // Context for sender's key derivation
+);
+
+// Later: Client decrypts locally (no server needed!)
+const plaintext = await mlkemDecryptWithKey(
+  encrypted,
+  myEthPrivateKey,              // Same private key used for encryption
+  'client'                       // Same context
+);
+
+// Or: Server decrypts for operations
+const plaintext = await mlkemDecryptWithKey(
+  encrypted,
+  serverEthKey,
+  'server'
+);
+```
+
+### Direct Encryption (Without Key Derivation)
+
+For maximum flexibility, use raw public keys directly:
+
+```typescript
+import { mlkemEncrypt, mlkemDecrypt } from 'w3pk';
+
+// Single recipient
+const publicKey = 'base64_encoded_public_key...'; // 1568 bytes
+const encrypted = await mlkemEncrypt('my secret data', publicKey);
+
+// Multiple recipients (encrypt once, multiple people can decrypt)
+const encrypted = await mlkemEncrypt('my secret data', [
+  publicKey1,
+  publicKey2,
+  publicKey3
+]);
+// Returns: { recipients: [...], encryptedData, iv, authTag }
+
+// Decrypt with your private key (auto-detects which recipient you are)
+const privateKey = 'base64_encoded_private_key...'; // 3168 bytes
+const plaintext = await mlkemDecrypt(encrypted, privateKey);
+// Returns: 'my secret data'
+
+// Or specify your public key for faster lookup
+const plaintext = await mlkemDecrypt(encrypted, privateKey, publicKey);
+```
+
+### Security Properties
+
+- ✅ **ML-KEM-1024** (NIST FIPS 203) - Post-quantum secure
+- ✅ **AES-256-GCM** - 128-bit quantum security (sufficient)
+- ✅ **Key zeroization** - Shared secrets securely wiped from memory
+- ✅ **Hybrid encryption** - KEM + symmetric cipher for efficiency
+- ✅ **Cross-platform** - Works in browser and Node.js
+
+### API Reference
+
+#### Instance Methods (Recommended)
+
+These methods work with your w3pk wallet instance - no private key exposure:
+
+#### `w3pk.deriveMLKemPublicKey(options?): Promise<string>`
+
+Derives your ML-KEM-1024 public key that can be shared for encryption.
+
+**Parameters:**
+- `options.context` - Context string for domain separation (default: `'mlkem-v1'`)
+- `options.mode` - Security mode: `'STANDARD'`, `'STRICT'`, or `'YOLO'` (default: `'STANDARD'`)
+- `options.tag` - Tag for address derivation (default: `'MAIN'`)
+- `options.origin` - Origin for derivation (default: current origin)
+- `options.requireAuth` - Force WebAuthn re-authentication (default: false, always true in STRICT mode)
+
+**Note:** PRIMARY mode is not supported as it uses P-256 WebAuthn keys instead of Ethereum keys.
+
+**Returns:** Base64-encoded ML-KEM public key (1568 bytes)
+
+**Example:**
+```typescript
+const w3pk = createWeb3Passkey();
+await w3pk.login();
+const pubKey = await w3pk.deriveMLKemPublicKey();
+```
+
+#### `w3pk.mlkemEncrypt(plaintext: string, recipientPublicKeys: Array<string | Uint8Array>, options?): Promise<EncryptedPayload>`
+
+Encrypts data for yourself and additional recipients.
+
+**Parameters:**
+- `plaintext` - The data to encrypt
+- `recipientPublicKeys` - Array of recipient ML-KEM public keys (base64 or Uint8Array)
+- `options.context` - Context string (default: `'mlkem-v1'`)
+- `options.mode` - Security mode: `'STANDARD'`, `'STRICT'`, or `'YOLO'` (default: `'STANDARD'`)
+- `options.tag` - Tag for address derivation (default: `'MAIN'`)
+- `options.origin` - Origin (default: current origin)
+- `options.requireAuth` - Force re-authentication (default: false, always true in STRICT mode)
+
+**Returns:** Encrypted payload
+
+**Example:**
+```typescript
+const encrypted = await w3pk.mlkemEncrypt('secret', [serverPubKey]);
+```
+
+#### `w3pk.mlkemDecrypt(payload: EncryptedPayload, options?): Promise<string>`
+
+Decrypts data encrypted for your wallet.
+
+**Parameters:**
+- `payload` - The encrypted payload
+- `options.context` - Context string (default: `'mlkem-v1'`, must match encryption)
+- `options.mode` - Security mode: `'STANDARD'`, `'STRICT'`, or `'YOLO'` (default: `'STANDARD'`)
+- `options.tag` - Tag (default: `'MAIN'`)
+- `options.origin` - Origin (default: current origin)
+- `options.requireAuth` - Force re-authentication (default: false, always true in STRICT mode)
+
+**Returns:** Decrypted plaintext
+
+**Example:**
+```typescript
+const plaintext = await w3pk.mlkemDecrypt(encrypted);
+```
+
+---
+
+#### Low-Level Functions
+
+These functions require managing private keys directly:
+
+#### `deriveMLKemKeypair(privateKey: string | Uint8Array, context?: string): Promise<MLKemKeypair>`
+
+Derives a deterministic ML-KEM-1024 keypair from any private key material using HKDF-SHA256.
+
+**Parameters:**
+- `privateKey` - Private key material (hex string with optional `0x` prefix, or Uint8Array)
+- `context` - Optional context string for domain separation (default: `'mlkem-v1'`)
+
+**Returns:** `MLKemKeypair` object containing:
+- `publicKey` - ML-KEM-1024 public key (Uint8Array, 1568 bytes)
+- `privateKey` - ML-KEM-1024 private key (Uint8Array, 3168 bytes)
+
+**Security:** Uses HKDF with salt `"mlkem-keypair-v1"` and the provided context to derive a 64-byte seed, then generates a deterministic ML-KEM keypair. Same input always produces same output. All sensitive material is zeroized after use.
+
+#### `mlkemEncryptWithKey(plaintext: string, senderPrivateKey: string | Uint8Array, recipientPublicKeys: Array<string | Uint8Array>, senderContext?: string): Promise<EncryptedPayload>`
+
+Convenience function that derives the sender's ML-KEM keypair, then encrypts for sender + recipients.
+
+**Parameters:**
+- `plaintext` - The data to encrypt
+- `senderPrivateKey` - Sender's private key (hex string or Uint8Array)
+- `recipientPublicKeys` - Array of recipient ML-KEM public keys
+- `senderContext` - Optional context for sender's key derivation (default: `'mlkem-v1'`)
+
+**Returns:** `EncryptedPayload` (sender's public key is automatically included as first recipient)
+
+**Use case:** Encrypt data so both you and a server can decrypt independently.
+
+#### `mlkemDecryptWithKey(payload: EncryptedPayload, privateKey: string | Uint8Array, context?: string): Promise<string>`
+
+Convenience function that derives an ML-KEM keypair, then decrypts the payload.
+
+**Parameters:**
+- `payload` - The encrypted payload
+- `privateKey` - Private key material (hex string or Uint8Array)
+- `context` - Optional context for key derivation (default: `'mlkem-v1'`)
+
+**Returns:** Decrypted plaintext string
+
+**Use case:** Decrypt data using your Ethereum private key without managing separate ML-KEM keys.
+
+#### `mlkemEncrypt(plaintext: string, publicKeys: (string | Uint8Array) | Array<string | Uint8Array>): Promise<EncryptedPayload>`
+
+Encrypts data using ML-KEM-1024 + AES-256-GCM for one or more recipients.
+
+**Parameters:**
+- `plaintext` - The data to encrypt
+- `publicKeys` - Single public key or array of ML-KEM-1024 public keys (base64 strings or Uint8Arrays, 1568 bytes each)
+
+**Returns:** `EncryptedPayload` object containing:
+- `recipients` - Array of recipient entries, each containing:
+  - `publicKey` - Base64 recipient public key (1568 bytes)
+  - `ciphertext` - Base64 ML-KEM ciphertext for this recipient (1600 bytes: 1568 KEM + 32 encrypted AES key)
+- `encryptedData` - Base64 AES-encrypted data (shared across all recipients)
+- `iv` - Base64 initialization vector (12 bytes)
+- `authTag` - Base64 authentication tag (16 bytes)
+
+**How it works:**
+1. Generates a random AES-256 key
+2. Encrypts plaintext with AES-256-GCM using that key
+3. For each recipient: encapsulates a shared secret with their ML-KEM public key, then XOR-encrypts the AES key with the shared secret
+4. Each recipient can decrypt using their private key to recover the AES key, then decrypt the data
+
+#### `mlkemDecrypt(payload: EncryptedPayload, privateKey: string | Uint8Array, publicKey?: string | Uint8Array): Promise<string>`
+
+Decrypts data encrypted with `mlkemEncrypt()`.
+
+**Parameters:**
+- `payload` - The encrypted payload from `mlkemEncrypt()`
+- `privateKey` - ML-KEM-1024 private key (base64 string or Uint8Array, 3168 bytes)
+- `publicKey` - (Optional) Your ML-KEM-1024 public key for faster recipient lookup (base64 string or Uint8Array, 1568 bytes)
+
+**Returns:** Decrypted plaintext string
+
+**Throws:** Error if decryption fails (invalid key, no matching recipient, corrupted data, or tampered auth tag)
+
+**Note:** If `publicKey` is not provided, the function will try each recipient until it finds a match (slower but convenient)
+
+---
+
 ## Document Maintenance
 
-**Version:** 1.1
-**Last Updated:** 2026-02-27
-**Next Review:** 2026-08-27 (6 months)
+**Version:** 1.2
+**Last Updated:** 2026-03-21
+**Next Review:** 2026-09-21 (6 months)
 **Maintained By:** Julien Béranger ([@julienbrg](https://github.com/julienbrg))
 
 **Changelog:**
+- 2026-03-21: Added ML-KEM encryption utilities with deterministic key derivation
+  - Documented `deriveMLKemKeypair()` function for HKDF-based key derivation from private keys
+  - Documented `mlkemEncryptWithKey()` and `mlkemDecryptWithKey()` convenience functions
+  - Documented `mlkemEncrypt()` function for direct post-quantum encryption
+  - Documented `mlkemDecrypt()` function for decryption
+  - Added security properties and comprehensive API reference
+  - Linked to NIST FIPS 203 (ML-KEM) standard
 - 2026-02-27: **Updated to align with [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132)** (February 2026)
   - Added Ethereum's four quantum-vulnerable components
   - Integrated [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) (native AA) as long-term solution

@@ -20,6 +20,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
 - [Standalone Utilities](#standalone-utilities)
   - [Validation Utilities](#validation-utilities)
   - [Build Verification Utilities](#build-verification-utilities)
+  - [Post-Quantum Cryptography](#post-quantum-cryptography)
   - [Wallet Generation Utilities](#wallet-generation-utilities)
 - [Security Inspection](#security-inspection)
   - [Browser Inspection](#browser-inspection)
@@ -3262,6 +3263,189 @@ This ensures compatibility with Ethereum's signature malleability protection.
 **Related:**
 - Used internally by `signMessageWithPasskey()`
 - See [EIP-7951 Implementation Guide](../docs/EIP-7951.md)
+
+---
+
+### Post-Quantum Cryptography
+
+w3pk provides ML-KEM-1024 encryption both as instance methods (recommended) and standalone functions.
+
+#### Instance Methods (Recommended)
+
+Use these methods with your w3pk wallet instance - no private key exposure:
+
+##### `w3pk.deriveMLKemPublicKey(options?): Promise<string>`
+
+Derive your ML-KEM-1024 public key for sharing with others.
+
+**Parameters:**
+```typescript
+{
+  context?: string;        // Domain separation (default: 'mlkem-v1')
+  mode?: SecurityMode;     // 'STANDARD', 'STRICT', or 'YOLO' (default: 'STANDARD')
+  tag?: string;            // Address derivation tag (default: 'MAIN')
+  origin?: string;         // Origin (default: current origin)
+  requireAuth?: boolean;   // Force re-auth (default: false, always true in STRICT)
+}
+```
+
+**Returns:** Base64-encoded public key (1568 bytes)
+
+**Example:**
+```typescript
+const w3pk = createWeb3Passkey();
+await w3pk.login();
+
+const myPubKey = await w3pk.deriveMLKemPublicKey();
+// Share myPubKey with others
+```
+
+**Note:** PRIMARY mode not supported (uses P-256 WebAuthn keys).
+
+---
+
+##### `w3pk.mlkemEncrypt(plaintext: string, recipientPublicKeys: Array<string | Uint8Array>, options?): Promise<EncryptedPayload>`
+
+Encrypt data for yourself and additional recipients.
+
+**Parameters:**
+```typescript
+{
+  context?: string;        // Domain separation (default: 'mlkem-v1')
+  mode?: SecurityMode;     // Security mode (default: 'STANDARD')
+  tag?: string;            // Tag (default: 'MAIN')
+  origin?: string;         // Origin (default: current)
+  requireAuth?: boolean;   // Force re-auth (default: false)
+}
+```
+
+**Example:**
+```typescript
+const serverPubKey = await fetch('/api/mlkem-key').then(r => r.text());
+
+const encrypted = await w3pk.mlkemEncrypt(
+  'my secret data',
+  [serverPubKey]  // You + server can both decrypt
+);
+```
+
+---
+
+##### `w3pk.mlkemDecrypt(payload: EncryptedPayload, options?): Promise<string>`
+
+Decrypt data encrypted for your wallet.
+
+**Parameters:** Same options as `mlkemEncrypt`
+
+**Example:**
+```typescript
+const plaintext = await w3pk.mlkemDecrypt(encrypted);
+```
+
+---
+
+#### Standalone Functions
+
+Low-level functions for direct key management:
+
+```typescript
+import { mlkemEncrypt, mlkemDecrypt, deriveMLKemKeypair, type EncryptedPayload } from 'w3pk'
+```
+
+##### `deriveMLKemKeypair(privateKey: string | Uint8Array, context?: string): Promise<MLKemKeypair>`
+
+Derive deterministic ML-KEM keypair from any private key using HKDF-SHA256.
+
+**Parameters:**
+- `privateKey` - Ethereum private key (hex with optional `0x` prefix or Uint8Array)
+- `context` - Context string for domain separation (default: `'mlkem-v1'`)
+
+**Returns:**
+```typescript
+{
+  publicKey: Uint8Array;   // 1568 bytes
+  privateKey: Uint8Array;  // 3168 bytes
+}
+```
+
+**Example:**
+```typescript
+const keypair = await deriveMLKemKeypair('0x1234...', 'my-app');
+```
+
+---
+
+##### `mlkemEncrypt(plaintext: string, publicKeys: (string | Uint8Array) | Array<string | Uint8Array>): Promise<EncryptedPayload>`
+
+Encrypt data using ML-KEM-1024 (post-quantum KEM) + AES-256-GCM for one or more recipients.
+
+**Parameters:**
+- `plaintext: string` - The data to encrypt
+- `publicKeys: (string | Uint8Array) | Array<string | Uint8Array>` - Single public key or array of ML-KEM-1024 public keys (1568 bytes each)
+
+**Returns:**
+```typescript
+{
+  recipients: Array<{
+    publicKey: string;    // Base64 recipient public key (1568 bytes)
+    ciphertext: string;   // Base64 ML-KEM ciphertext for this recipient (1600 bytes)
+  }>;
+  encryptedData: string;  // Base64 AES-encrypted data (shared across all recipients)
+  iv: string;             // Base64 initialization vector (12 bytes)
+  authTag: string;        // Base64 authentication tag (16 bytes)
+}
+```
+
+**Example:**
+
+```typescript
+import { mlkemEncrypt } from 'w3pk'
+
+// Single recipient
+const encrypted = await mlkemEncrypt('my secret data', publicKey1)
+
+// Multiple recipients
+const encrypted = await mlkemEncrypt('my secret data', [publicKey1, publicKey2, publicKey3])
+
+console.log('Recipients:', encrypted.recipients.length)
+```
+
+**Security:**
+- ✅ **Quantum-resistant** - ML-KEM-1024 (NIST FIPS 203)
+- ✅ **Multi-recipient support** - Encrypt once for multiple recipients
+- ✅ **Key zeroization** - All secrets securely wiped from memory
+- ✅ **Authenticated encryption** - AES-256-GCM with 128-bit auth tag
+
+---
+
+#### `mlkemDecrypt(payload: EncryptedPayload, privateKey: string | Uint8Array, publicKey?: string | Uint8Array): Promise<string>`
+
+Decrypt data encrypted with `mlkemEncrypt()`.
+
+**Parameters:**
+- `payload: EncryptedPayload` - The encrypted payload from `mlkemEncrypt()`
+- `privateKey: string | Uint8Array` - ML-KEM-1024 private key (3168 bytes)
+- `publicKey?: string | Uint8Array` - (Optional) Your public key for faster recipient lookup (1568 bytes)
+
+**Returns:** `string` - Decrypted plaintext
+
+**Example:**
+
+```typescript
+import { mlkemDecrypt } from 'w3pk'
+
+// Auto-detect which recipient you are
+const plaintext = await mlkemDecrypt(encrypted, privateKey)
+
+// Or specify your public key for faster lookup
+const plaintext = await mlkemDecrypt(encrypted, privateKey, myPublicKey)
+```
+
+**Throws:** Error if decryption fails (invalid key, no matching recipient, corrupted data, or tampered auth tag)
+
+**Related:**
+- See [POST_QUANTUM.md](../docs/POST_QUANTUM.md) for full quantum readiness roadmap
+- See [NIST FIPS 203](https://csrc.nist.gov/pubs/fips/203/final) for ML-KEM specification
 
 ---
 

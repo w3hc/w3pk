@@ -5,6 +5,51 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **ML-KEM Post-Quantum Encryption with Deterministic Key Derivation**:
+  - **Instance Methods (Recommended)**:
+    - `w3pk.deriveMLKemPublicKey(options?)` - Derive your ML-KEM public key for sharing
+    - `w3pk.mlkemEncrypt(plaintext, recipientPublicKeys, options?)` - Encrypt for self + recipients
+    - `w3pk.mlkemDecrypt(payload, options?)` - Decrypt encrypted data
+    - Supports STANDARD, STRICT, and YOLO modes (PRIMARY mode not supported)
+    - Default mode: STANDARD (private key never exposed to app)
+  - **Deterministic Key Derivation**:
+    - `deriveMLKemKeypair(privateKey, context)` - Derive ML-KEM keypair from Ethereum private key using HKDF-SHA256
+    - Same input always produces same output (reproducible keys)
+    - No need to store separate ML-KEM keys
+  - **Low-Level Functions**:
+    - `mlkemEncrypt()` - Encrypt data using ML-KEM-1024 + AES-256-GCM for one or multiple recipients
+    - `mlkemDecrypt()` - Decrypt ML-KEM encrypted data with auto-detection of recipient
+    - `mlkemEncryptWithKey()` - Convenience function with automatic key derivation
+    - `mlkemDecryptWithKey()` - Convenience function with automatic key derivation
+  - **Security Features**:
+    - NIST FIPS 203 compliant (ML-KEM-1024)
+    - Multi-recipient encryption - Encrypt once, multiple people can decrypt
+    - HKDF-based deterministic derivation with domain separation
+    - Hybrid encryption: KEM for key exchange + AES-256-GCM for data
+    - Secure key zeroization - all secrets wiped from memory after use
+    - Cross-platform compatible (browser and Node.js)
+  - **Key Sizes**:
+    - ML-KEM public key: 1568 bytes
+    - ML-KEM private key: 3168 bytes
+    - Ciphertext per recipient: 1600 bytes (1568 KEM + 32 encrypted AES key)
+
+### Documentation
+
+- **Updated `docs/POST_QUANTUM.md`**:
+  - Added deterministic key derivation section
+  - Added w3pk instance methods (recommended usage)
+  - Added mode support matrix (STANDARD/STRICT/YOLO)
+  - Comprehensive API reference for all ML-KEM functions
+- **Updated `docs/API_REFERENCE.md`**:
+  - Added instance methods section for ML-KEM
+  - Added deterministic key derivation function
+  - Reorganized into instance methods vs standalone functions
+- **Updated CHANGELOG.md**: Documented ML-KEM feature addition with full details
+
 ## [0.9.3] - 2026-02-28
 
 ### Changed
