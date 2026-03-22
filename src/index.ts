@@ -151,4 +151,14 @@ export type {
   BrowserInspectResult,
 } from "./inspect/browser";
 
+export {
+  mlkemEncrypt,
+  mlkemDecrypt,
+  mlkemEncryptWithKey,
+  mlkemDecryptWithKey,
+  deriveMLKemKeypair,
+  type EncryptedPayload,
+  type MLKemKeypair,
+} from "./crypto/mlkem";
+
 export default createWeb3Passkey;

@@ -2290,4 +2290,241 @@ export class Web3Passkey {
   setSessionDuration(hours: number): void {
     this.sessionManager.setSessionDuration(hours);
   }
+
+  /**
+   * Derive ML-KEM-1024 public key from the current wallet
+   *
+   * Returns the public key that can be shared with others for encryption.
+   * The keypair is derived deterministically from the wallet's private key.
+   *
+   * @param options - Optional configuration
+   * @param options.context - Context string for domain separation (default: 'mlkem-v1')
+   * @param options.mode - Security mode (default: 'YOLO' to access private key)
+   * @param options.tag - Tag for address derivation (default: 'MAIN')
+   * @param options.origin - Origin for derivation (default: current origin)
+   * @param options.requireAuth - Force WebAuthn re-authentication
+   * @returns Base64-encoded ML-KEM public key (1568 bytes)
+   *
+   * @example
+   * ```typescript
+   * const w3pk = createWeb3Passkey();
+   * await w3pk.login();
+   *
+   * const publicKey = await w3pk.deriveMLKemPublicKey();
+   * // Share publicKey with others so they can encrypt data for you
+   * ```
+   */
+  async deriveMLKemPublicKey(options?: {
+    context?: string;
+    mode?: SecurityMode;
+    tag?: string;
+    origin?: string;
+    requireAuth?: boolean;
+  }): Promise<string> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to derive ML-KEM public key");
+    }
+
+    const { deriveMLKemKeypair } = await import("../crypto/mlkem");
+    const { Wallet } = await import("ethers");
+
+    const effectiveMode = options?.mode || 'STANDARD';
+    const effectiveTag = options?.tag || DEFAULT_TAG;
+    const origin = options?.origin || getCurrentOrigin();
+    const context = options?.context || 'mlkem-v1';
+    const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+
+    // PRIMARY mode uses P-256 WebAuthn keys, not Ethereum keys
+    // ML-KEM derivation requires an Ethereum private key
+    if (effectiveMode === 'PRIMARY') {
+      throw new WalletError(
+        "ML-KEM encryption is not supported in PRIMARY mode. " +
+        "PRIMARY mode uses P-256 WebAuthn keys which cannot derive ML-KEM keypairs. " +
+        "Use STANDARD, STRICT, or YOLO mode instead."
+      );
+    }
+
+    const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
+    const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+
+    let privateKey: string;
+    if (derived.privateKey) {
+      // YOLO mode: private key is directly available
+      privateKey = derived.privateKey;
+    } else {
+      // STANDARD/STRICT modes: derive from mnemonic
+      const { deriveWalletFromMnemonic } = await import("../wallet/generate");
+      const wallet = deriveWalletFromMnemonic(mnemonic, derived.index);
+      privateKey = wallet.privateKey;
+    }
+
+    const keypair = await deriveMLKemKeypair(privateKey, context);
+
+    // Convert to base64 for easy sharing
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(keypair.publicKey).toString('base64');
+    } else {
+      // Browser fallback
+      return btoa(String.fromCharCode(...Array.from(keypair.publicKey)));
+    }
+  }
+
+  /**
+   * Encrypt data using ML-KEM-1024 for self + additional recipients
+   *
+   * Encrypts data such that you (the sender) and specified recipients can decrypt.
+   * Your ML-KEM keypair is derived from your wallet, so you can always decrypt later.
+   *
+   * @param plaintext - The data to encrypt
+   * @param recipientPublicKeys - Array of recipient ML-KEM public keys (base64 strings or Uint8Arrays)
+   * @param options - Optional configuration
+   * @param options.context - Context string for key derivation (default: 'mlkem-v1')
+   * @param options.mode - Security mode (default: 'YOLO' to access private key)
+   * @param options.tag - Tag for address derivation (default: 'MAIN')
+   * @param options.origin - Origin for derivation (default: current origin)
+   * @param options.requireAuth - Force WebAuthn re-authentication
+   * @returns Encrypted payload that can be decrypted by sender or recipients
+   *
+   * @example
+   * ```typescript
+   * const w3pk = createWeb3Passkey();
+   * await w3pk.login();
+   *
+   * // Get server's public key
+   * const serverPubKey = await fetch('/api/mlkem-public-key').then(r => r.text());
+   *
+   * // Encrypt for yourself + server
+   * const encrypted = await w3pk.mlkemEncrypt(
+   *   'my secret data',
+   *   [serverPubKey]
+   * );
+   *
+   * // Later: decrypt with the same wallet
+   * const decrypted = await w3pk.mlkemDecrypt(encrypted);
+   * ```
+   */
+  async mlkemEncrypt(
+    plaintext: string,
+    recipientPublicKeys: Array<string | Uint8Array>,
+    options?: {
+      context?: string;
+      mode?: SecurityMode;
+      tag?: string;
+      origin?: string;
+      requireAuth?: boolean;
+    }
+  ): Promise<any> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to encrypt data");
+    }
+
+    const { mlkemEncryptWithKey } = await import("../crypto/mlkem");
+
+    const effectiveMode = options?.mode || 'STANDARD';
+    const effectiveTag = options?.tag || DEFAULT_TAG;
+    const origin = options?.origin || getCurrentOrigin();
+    const context = options?.context || 'mlkem-v1';
+    const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+
+    if (effectiveMode === 'PRIMARY') {
+      throw new WalletError(
+        "ML-KEM encryption is not supported in PRIMARY mode. " +
+        "Use STANDARD, STRICT, or YOLO mode instead."
+      );
+    }
+
+    const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
+    const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+
+    let privateKey: string;
+    if (derived.privateKey) {
+      // YOLO mode: private key is directly available
+      privateKey = derived.privateKey;
+    } else {
+      // STANDARD/STRICT modes: derive from mnemonic
+      const { deriveWalletFromMnemonic } = await import("../wallet/generate");
+      const wallet = deriveWalletFromMnemonic(mnemonic, derived.index);
+      privateKey = wallet.privateKey;
+    }
+
+    return await mlkemEncryptWithKey(
+      plaintext,
+      privateKey,
+      recipientPublicKeys,
+      context
+    );
+  }
+
+  /**
+   * Decrypt ML-KEM encrypted data using current wallet
+   *
+   * Decrypts data that was encrypted for this wallet.
+   * The ML-KEM keypair is derived from your wallet's private key.
+   *
+   * @param payload - The encrypted payload (from mlkemEncrypt)
+   * @param options - Optional configuration
+   * @param options.context - Context string for key derivation (default: 'mlkem-v1', must match encryption)
+   * @param options.mode - Security mode (default: 'YOLO' to access private key)
+   * @param options.tag - Tag for address derivation (default: 'MAIN')
+   * @param options.origin - Origin for derivation (default: current origin)
+   * @param options.requireAuth - Force WebAuthn re-authentication
+   * @returns Decrypted plaintext
+   *
+   * @example
+   * ```typescript
+   * const w3pk = createWeb3Passkey();
+   * await w3pk.login();
+   *
+   * // Retrieve encrypted data
+   * const encrypted = await fetch('/api/my-data').then(r => r.json());
+   *
+   * // Decrypt locally (server never sees plaintext!)
+   * const plaintext = await w3pk.mlkemDecrypt(encrypted);
+   * ```
+   */
+  async mlkemDecrypt(
+    payload: any,
+    options?: {
+      context?: string;
+      mode?: SecurityMode;
+      tag?: string;
+      origin?: string;
+      requireAuth?: boolean;
+    }
+  ): Promise<string> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to decrypt data");
+    }
+
+    const { mlkemDecryptWithKey } = await import("../crypto/mlkem");
+
+    const effectiveMode = options?.mode || 'STANDARD';
+    const effectiveTag = options?.tag || DEFAULT_TAG;
+    const origin = options?.origin || getCurrentOrigin();
+    const context = options?.context || 'mlkem-v1';
+    const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+
+    if (effectiveMode === 'PRIMARY') {
+      throw new WalletError(
+        "ML-KEM encryption is not supported in PRIMARY mode. " +
+        "Use STANDARD, STRICT, or YOLO mode instead."
+      );
+    }
+
+    const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
+    const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+
+    let privateKey: string;
+    if (derived.privateKey) {
+      // YOLO mode: private key is directly available
+      privateKey = derived.privateKey;
+    } else {
+      // STANDARD/STRICT modes: derive from mnemonic
+      const { deriveWalletFromMnemonic } = await import("../wallet/generate");
+      const wallet = deriveWalletFromMnemonic(mnemonic, derived.index);
+      privateKey = wallet.privateKey;
+    }
+
+    return await mlkemDecryptWithKey(payload, privateKey, context);
+  }
 }
