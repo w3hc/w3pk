@@ -10,17 +10,25 @@ We are requesting a security audit for w3pk, a TypeScript-based crypto wallet th
 
 The following folders were excluded from the scope:
 
-- [docs](https://github.com/w3hc/w3pk/tree/main/docs)
-- [examples](https://github.com/w3hc/w3pk/tree/main/examples)
-- [scripts](https://github.com/w3hc/w3pk/tree/main/scripts)
-- [standalone](https://github.com/w3hc/w3pk/tree/main/standalone)
-- [test](https://github.com/w3hc/w3pk/tree/main/test)
+- [`docs`](https://github.com/w3hc/w3pk/tree/main/docs)
+- [`examples`](https://github.com/w3hc/w3pk/tree/main/examples)
+- [`scripts`](https://github.com/w3hc/w3pk/tree/main/scripts)
+- [`standalone`](https://github.com/w3hc/w3pk/tree/main/standalone)
+- [`test`](https://github.com/w3hc/w3pk/tree/main/test)
 
 In the `src` folder, these were also excluded: 
 
 - [`src/inspect`](https://github.com/w3hc/w3pk/tree/main/src/inspect)
-- [src/zk](https://github.com/w3hc/w3pk/tree/main/src/zk)
-- [src/education](https://github.com/w3hc/w3pk/tree/main/src/education)
+- [`src/zk`](https://github.com/w3hc/w3pk/tree/main/src/zk)
+- [`src/education`](https://github.com/w3hc/w3pk/tree/main/src/education)
+
+### Note
+
+The AI inspection feature is excluded from the scope because the feature will be removed.
+
+The Solidity part is a very simple contract storing the latest build hash for verification. This part is also excluded from the audit scope.
+
+The ZK primitives/helpers don't need specific audit for now.
 
 ## Website
 
