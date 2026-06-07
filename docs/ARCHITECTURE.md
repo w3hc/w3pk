@@ -148,33 +148,42 @@ m/44'/60'/0'/0/2  ← Third address
 
 **Purpose**: Link WebAuthn authentication to wallet encryption
 
-**Implementation**: [src/wallet/crypto.ts:21-66](src/wallet/crypto.ts#L21-L66)
+**Implementation**: [src/wallet/crypto.ts](src/wallet/crypto.ts)
 
-**Process**:
+✅ **SECURITY**: Uses PRF-based encryption with authenticator-held secrets and random salts
+
+**SECURE Implementation (PRF-based)**:
 ```typescript
 function deriveEncryptionKeyFromWebAuthn(
-  credentialId: string,
-  publicKey: string
+  prfOutput: ArrayBuffer,  // From WebAuthn PRF extension
+  salt: Uint8Array         // Random 32-byte salt
 ): CryptoKey {
-  // Step 1: Combine inputs
-  const keyMaterial = `w3pk-v4:${credentialId}:${publicKey}`;
+  // Step 1: Validate inputs
+  assert(prfOutput.byteLength === 32);
+  assert(salt.byteLength === 32);
 
-  // Step 2: Hash with SHA-256
-  const hash = SHA256(keyMaterial);
+  // Step 2: Import PRF output (authenticator-held secret)
+  const keyMaterial = importKey(prfOutput);
 
-  // Step 3: PBKDF2 key derivation (210,000 iterations)
-  const encryptionKey = PBKDF2(hash, salt, 210000);
+  // Step 3: PBKDF2 key derivation with random salt
+  const encryptionKey = PBKDF2(keyMaterial, salt, 210000);
 
   // Result: AES-256-GCM key (NEVER STORED)
   return encryptionKey;
 }
 ```
 
-**Properties**:
-- **Deterministic**: Same inputs → Same output
-- **Secure**: 210,000 PBKDF2 iterations (OWASP 2023)
-- **Stateless**: No key storage required
-- **Authentication-gated**: Requires biometric/PIN to access inputs
+**Security Properties**:
+- **Authenticator Secret**: Uses PRF output from hardware (never exposed to application)
+- **Random Salts**: Each encryption uses unique 32-byte salt (prevents precomputation)
+- **PBKDF2**: 210,000 iterations (OWASP 2023 recommendation)
+- **AES-256-GCM**: Strong authenticated encryption
+- **Authentication-gated**: Requires biometric/PIN to trigger PRF
+
+**Implementation Note**:
+The SDK uses `deriveEncryptionKeyAuto()` as a helper that:
+1. Uses PRF-based encryption when available (secure)
+2. Falls back to v2 implementation for existing wallets without PRF support
 
 ---
 
@@ -217,11 +226,12 @@ STEP 2: Create WebAuthn Credential (INDEPENDENT)
 
 STEP 3: Derive Encryption Key
 ┌──────────────────────────────────────┐
-│  deriveEncryptionKeyFromWebAuthn()   │
+│ deriveEncryptionKeyFromWebAuthn()    │
 │                                      │
-│  Input: credentialId + publicKey     │
+│ Input: PRF output (32 bytes secret)  │
+│        + random salt (32 bytes)      │
 │       ↓                              │
-│  SHA-256 hash                        │
+│  Import PRF as key material          │
 │       ↓                              │
 │  PBKDF2 (210,000 iterations)         │
 │       ↓                              │
@@ -486,43 +496,29 @@ const signedTx = await wallet.signTransaction(tx);
 **Implementation**: [src/wallet/crypto.ts:21-66](src/wallet/crypto.ts#L21-L66)
 
 ```javascript
+// SECURE: PRF-based key derivation
 async function deriveEncryptionKeyFromWebAuthn(
-  credentialId: string,
-  publicKey: string
+  prfOutput: ArrayBuffer,  // From WebAuthn PRF extension
+  salt: Uint8Array         // Random 32-byte salt
 ): Promise<CryptoKey> {
-  // 1. Combine inputs into key material
-  const keyMaterial = `w3pk-v4:${credentialId}:${publicKey}`;
-
-  // 2. SHA-256 hash
-  const keyMaterialHash = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(keyMaterial)
-  );
-
-  // 3. Import as PBKDF2 base key
-  const importedKey = await crypto.subtle.importKey(
+  // 1. Import PRF output as key material (authenticator secret)
+  const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    keyMaterialHash,
+    prfOutput,  // SECRET from authenticator
     { name: "PBKDF2" },
     false,
     ["deriveKey"]
   );
 
-  // 4. Generate deterministic salt
-  const salt = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode("w3pk-salt-v4")
-  );
-
-  // 5. Derive AES-256-GCM key
+  // 2. Derive AES-256-GCM key with PBKDF2
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: new Uint8Array(salt),
+      salt: salt,  // Random 32-byte salt (stored with ciphertext)
       iterations: 210000,  // OWASP 2023 recommendation
       hash: "SHA-256",
     },
-    importedKey,
+    keyMaterial,  // PRF output from authenticator
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"]
@@ -530,11 +526,12 @@ async function deriveEncryptionKeyFromWebAuthn(
 }
 ```
 
-**Properties**:
-- **Deterministic**: Same inputs always produce same output
-- **Secure**: 210,000 iterations make brute-force impractical
+**Security Properties**:
+- **Authenticator-Bound**: PRF output is hardware-held secret (never exposed)
+- **Unique Salts**: Each encryption uses random salt (no precomputation)
+- **Strong KDF**: 210,000 PBKDF2 iterations make brute-force impractical (OWASP 2023)
 - **Stateless**: No need to store the encryption key
-- **Fast enough**: ~100-200ms on modern devices
+- **Fast**: ~100-200ms on modern devices
 
 ---
 
