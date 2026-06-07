@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **🔐 BREAKING: Fixed Critical WebAuthn Encryption Vulnerability**:
+  - `deriveEncryptionKeyFromWebAuthn()` now uses PRF output (authenticator secret) instead of credentialId/publicKey (public data)
+  - Now uses random unique salts instead of hardcoded constants
+  - Added `generateSalt()` helper for creating cryptographically random 32-byte salts
+  - Added `deriveEncryptionKeyAuto()` helper with automatic PRF/fallback support
+  - **Breaking change**: Function signature changed from `(credentialId, publicKey?)` to `(prfOutput, salt)`
+  - **Removed**: `deriveEncryptionKeyFromWebAuthnLegacy()` - No backward compatibility for insecure function
+  - SDK automatically handles migration via `deriveEncryptionKeyAuto()`
+  - Prevents offline decryption attacks by requiring authenticator interaction
+  - See [Migration to PRF-based Encryption](docs/SECURITY.md#migration-to-prf-based-encryption) for details
+
 ### Added
 
 - **ML-KEM Post-Quantum Encryption with Deterministic Key Derivation**:

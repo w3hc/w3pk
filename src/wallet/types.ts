@@ -13,6 +13,8 @@ export interface EncryptedWalletData {
   credentialId: string;
   // Challenge is NOT stored - generated fresh for each operation
   createdAt: string;
+  // Random salt for PRF-based encryption (32 bytes, base64 encoded)
+  salt?: string;
 }
 
 export interface WalletStorage {

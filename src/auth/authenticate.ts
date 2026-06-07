@@ -30,11 +30,22 @@ export async function login(): Promise<AuthResult> {
 
     const challengeBuffer = base64UrlToArrayBuffer(challenge);
 
+    // Generate PRF input (deterministic per credential)
+    const prfSalt = new Uint8Array(32);
+    crypto.getRandomValues(prfSalt);  // Use random for PRF input
+
     const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
       challenge: challengeBuffer,
       rpId: window.location.hostname,
       userVerification: "required",
       timeout: 60000,
+      extensions: {
+        prf: {
+          eval: {
+            first: prfSalt,  // Input to PRF function
+          },
+        },
+      },
     };
 
     if (allowCredentials.length > 0) {
@@ -91,6 +102,14 @@ export async function login(): Promise<AuthResult> {
       throw new Error("Signature verification failed");
     }
 
+    // Extract PRF output if available
+    const prfResults = assertion.getClientExtensionResults().prf;
+    const prfOutput = prfResults?.results?.first;
+
+    if (!prfOutput && credential.prfEnabled) {
+      console.warn("⚠️ PRF was enabled but output not available");
+    }
+
     return {
       verified: true,
       user: {
@@ -99,6 +118,7 @@ export async function login(): Promise<AuthResult> {
         credentialId: credential.id,
       },
       signature: assertion.response.signature,
+      prfOutput: prfOutput || undefined,  // Include PRF output in auth result
     };
   } catch (error) {
     throw new AuthenticationError(

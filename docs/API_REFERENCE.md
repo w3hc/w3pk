@@ -3208,7 +3208,89 @@ console.log(encoded) // => SGVsbG8gV29ybGQ=
 ### Cryptographic Utilities
 
 ```typescript
-import { extractRS } from 'w3pk'
+import {
+  extractRS,
+  deriveEncryptionKeyFromWebAuthn,
+  generateSalt
+} from 'w3pk'
+```
+
+#### `deriveEncryptionKeyFromWebAuthn(prfOutput: ArrayBuffer, salt: Uint8Array): Promise<CryptoKey>`
+
+**🔐 SECURE - WebAuthn PRF-based encryption**
+
+Derives an AES-256-GCM encryption key from WebAuthn PRF (Pseudo-Random Function) extension output.
+
+**Security:**
+- Uses authenticator-held secrets via PRF extension (never exposed)
+- Implements random unique salts (no precomputation attacks)
+- PBKDF2 with 210,000 iterations (OWASP 2023 recommendation)
+- Prevents offline decryption attacks
+
+**Parameters:**
+- `prfOutput: ArrayBuffer` - 32-byte secret from WebAuthn PRF extension
+- `salt: Uint8Array` - 32-byte random salt (generate with `generateSalt()`)
+
+**Returns:** `Promise<CryptoKey>` - AES-256-GCM key for encryption/decryption
+
+**Example:**
+```typescript
+// 1. Enable PRF during WebAuthn registration
+const credential = await navigator.credentials.create({
+  publicKey: {
+    challenge: new Uint8Array(32),
+    rp: { name: "Example" },
+    user: { id: userId, name: "user", displayName: "User" },
+    pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+    extensions: {
+      prf: {}  // Enable PRF extension
+    }
+  }
+});
+
+// 2. Get PRF output during authentication
+const assertion = await navigator.credentials.get({
+  publicKey: {
+    challenge: new Uint8Array(32),
+    extensions: {
+      prf: {
+        eval: {
+          first: new Uint8Array(32)  // Salt for PRF
+        }
+      }
+    }
+  }
+});
+
+const prfOutput = assertion.getClientExtensionResults().prf.results.first;
+
+// 3. Generate and store salt
+const salt = generateSalt();  // Store this with your ciphertext
+
+// 4. Derive encryption key
+const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+  prfOutput,
+  salt
+);
+
+// 5. Encrypt sensitive data
+const encrypted = await crypto.subtle.encrypt(
+  { name: "AES-GCM", iv: crypto.getRandomValues(new Uint8Array(12)) },
+  encryptionKey,
+  new TextEncoder().encode("secret data")
+);
+```
+
+#### `generateSalt(): Uint8Array`
+
+Generates a cryptographically secure random 32-byte salt for encryption.
+
+**Returns:** `Uint8Array` - 32 random bytes
+
+**Example:**
+```typescript
+const salt = generateSalt();
+// Store salt alongside ciphertext for later decryption
 ```
 
 #### `extractRS(derSignature: Uint8Array): { r: string; s: string }`

@@ -20,11 +20,11 @@ export class VaultSync {
     const deviceFingerprint = await getDeviceFingerprint();
 
     // Encrypt mnemonic (using same method as wallet storage)
-    const { deriveEncryptionKeyFromWebAuthn, encryptData } = await import(
+    const { deriveEncryptionKeyAuto, encryptData } = await import(
       '../wallet/crypto'
     );
 
-    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+    const encryptionKey = await deriveEncryptionKeyAuto(
       credentialId,
       publicKey
     );
@@ -83,11 +83,11 @@ export class VaultSync {
     publicKey: string
   ): Promise<string> {
     // Derive decryption key
-    const { deriveEncryptionKeyFromWebAuthn, decryptData } = await import(
+    const { deriveEncryptionKeyAuto, decryptData } = await import(
       '../wallet/crypto'
     );
 
-    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+    const encryptionKey = await deriveEncryptionKeyAuto(
       credentialId,
       publicKey
     );

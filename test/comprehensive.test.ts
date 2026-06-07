@@ -10,7 +10,7 @@ import {
   deriveWalletFromMnemonic,
 } from "../src/wallet/generate";
 import {
-  deriveEncryptionKeyFromWebAuthn,
+  deriveEncryptionKeyAuto,
   encryptData,
   decryptData,
 } from "../src/wallet/crypto";
@@ -73,8 +73,8 @@ async function runTests() {
     const credentialId = "test-credential-id";
     const publicKey = "test-public-key";
 
-    // Derive key from WebAuthn credential metadata (secure method)
-    const key = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
+    // Derive key from WebAuthn credential metadata (fallback method when PRF not available)
+    const key = await deriveEncryptionKeyAuto(undefined, undefined, credentialId, publicKey);
     const encrypted = await encryptData(testData, key);
     const decrypted = await decryptData(encrypted, key);
 
