@@ -1128,6 +1128,36 @@ See: [Migration to PRF-based Encryption](#migration-to-prf-based-encryption)
 
 ---
 
+### v0.9.4+ - ERC-5564 Stealth Scalar Reduction Fix (High Severity)
+
+#### Fixed stealth address scalar reduction vulnerability
+
+**What changed:**
+- Added `reduceScalarModN()` function to properly reduce scalars modulo secp256k1 curve order
+- Updated `generateStealthAddress()`, `checkStealthAddress()`, and `computeStealthPrivateKey()` to use reduced scalars
+- Ensures the same reduced scalar `s_h` is used consistently in both public-key and private-key operations
+
+**Security improvements:**
+- ✅ Prevents intermittent failures when keccak256(sharedSecret) ≥ curve order
+- ✅ Eliminates risk of unspendable stealth funds caused by inconsistent scalar handling
+- ✅ Ensures derived stealth address always matches derived private key
+- ✅ Validates scalars are in valid range [1, n-1] and rejects zero
+
+**Technical details:**
+- ERC-5564 computes `s_h = keccak256(sharedSecret)` and uses it as a scalar
+- Previously, `s_h` was used directly without reduction modulo `n` (secp256k1 curve order)
+- Public-key path: `stealthPubKey = spendingPubKey + (s_h × G)` would fail if `s_h ≥ n`
+- Private-key path: `stealthPrivKey = spendingKey + s_h` reduced the sum but not `s_h` itself
+- Inconsistent scalar values between paths could result in address/key mismatch
+- Now both paths use the same properly-reduced scalar
+
+**Impact:**
+- Non-breaking change (pure bugfix)
+- All existing stealth addresses remain valid
+- Eliminates edge-case failures and unspendable funds
+
+---
+
 #### No Backward Compatibility
 **Decision:** Complete removal of insecure legacy function
 

@@ -130,10 +130,13 @@ export function generateStealthAddress(
     // Extract view tag (first byte of hashed shared secret)
     const viewTag = "0x" + hashedSharedSecret.slice(2, 4);
 
+    // Reduce s_h modulo curve order to ensure it's a valid scalar
+    const reducedScalar = reduceScalarModN(hashedSharedSecret);
+
     // Compute stealth public key: P_stealth = spending_pubkey + (s_h × G)
     const stealthPubKey = addPublicKeys(
       spendingPubKey,
-      multiplyGeneratorByScalar(hashedSharedSecret)
+      multiplyGeneratorByScalar(reducedScalar)
     );
 
     // Derive stealth address from stealth public key
@@ -190,10 +193,13 @@ export function checkStealthAddress(
       }
     }
 
+    // Reduce s_h modulo curve order to ensure it's a valid scalar
+    const reducedScalar = reduceScalarModN(hashedSharedSecret);
+
     // Compute stealth public key: P_stealth = spending_pubkey + (s_h × G)
     const stealthPubKey = addPublicKeys(
       spendingPubKey,
-      multiplyGeneratorByScalar(hashedSharedSecret)
+      multiplyGeneratorByScalar(reducedScalar)
     );
 
     // Derive stealth address from stealth public key
@@ -237,8 +243,11 @@ export function computeStealthPrivateKey(
     // Hash the shared secret: s_h = keccak256(s)
     const hashedSharedSecret = ethers.keccak256(sharedSecret);
 
+    // Reduce s_h modulo curve order to ensure it's a valid scalar
+    const reducedScalar = reduceScalarModN(hashedSharedSecret);
+
     // Compute stealth private key: privkey_stealth = spending_privkey + s_h (mod n)
-    const stealthPrivKey = addPrivateKeys(spendingKey, hashedSharedSecret);
+    const stealthPrivKey = addPrivateKeys(spendingKey, reducedScalar);
 
     return stealthPrivKey;
   } catch (error) {
@@ -376,6 +385,34 @@ function addPublicKeys(pubKey1: string, pubKey2: string): string {
     return compressPublicKey((x3 + p) % p, (y3 + p) % p);
   } catch (error) {
     throw new CryptoError("Failed to add public keys", error);
+  }
+}
+
+/**
+ * Reduce a scalar modulo the secp256k1 curve order
+ * Ensures the scalar is in the valid range [1, n-1]
+ *
+ * @param scalar - The scalar to reduce (as hex string)
+ * @returns Reduced scalar in valid range
+ * @throws CryptoError if scalar is zero after reduction
+ */
+function reduceScalarModN(scalar: string): string {
+  try {
+    // SECP256k1 curve order
+    const n = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141");
+
+    const s = BigInt(scalar);
+    const reduced = s % n;
+
+    // Reject zero scalar
+    if (reduced === 0n) {
+      throw new Error("Scalar reduced to zero (invalid)");
+    }
+
+    // Convert back to hex with proper padding
+    return "0x" + reduced.toString(16).padStart(64, "0");
+  } catch (error) {
+    throw new CryptoError("Failed to reduce scalar modulo curve order", error);
   }
 }
 

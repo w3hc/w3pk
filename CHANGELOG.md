@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added validation to verify all shares have consistent threshold values
   - Added test coverage for recovery with excess shares
 
+- **🔴 HIGH: Fixed stealth scalar reduction vulnerability (ERC-5564)**
+  - Added `reduceScalarModN()` function to properly reduce scalars modulo secp256k1 curve order
+  - Fixed potential unspendable stealth funds caused by inconsistent scalar handling
+  - Fixed intermittent failures when keccak256 hash ≥ curve order
+  - Updated `generateStealthAddress()` to reduce `s_h` before scalar multiplication
+  - Updated `checkStealthAddress()` to use consistently reduced scalar
+  - Updated `computeStealthPrivateKey()` to use same reduced scalar as public-key operations
+  - Ensures derived stealth address always matches derived private key
+  - All stealth address tests pass with proper scalar reduction
+
 ### Security
 
 - **🔐 BREAKING: Fixed Critical WebAuthn Encryption Vulnerability**:
