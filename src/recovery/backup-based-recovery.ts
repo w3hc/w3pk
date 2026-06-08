@@ -20,6 +20,7 @@ export interface GuardianShare {
   guardianName: string;
   shareData: string; // Hex-encoded Shamir share
   shareIndex: number;
+  threshold: number; // Number of shares required to recover (M in M-of-N)
   createdAt: string;
   walletAddress: string; // For verification
 }
@@ -70,6 +71,7 @@ export class SocialRecovery {
       guardianName: guardian.name,
       shareData: bytesToHex(shares[index]),
       shareIndex: index + 1,
+      threshold, // Store the original threshold in each share
       createdAt: new Date().toISOString(),
       walletAddress: backupFile.ethereumAddress,
     }));
@@ -93,19 +95,36 @@ export class SocialRecovery {
       throw new Error('At least 2 shares required for recovery');
     }
 
-    // Verify all shares are for the same wallet
+    // Extract threshold from first share
+    const threshold = shares[0].threshold;
     const firstAddress = shares[0].walletAddress;
-    const allMatch = shares.every(share => share.walletAddress === firstAddress);
+
+    if (!threshold) {
+      throw new Error('Invalid share: missing threshold information');
+    }
+
+    if (shares.length < threshold) {
+      throw new Error(
+        `Need at least ${threshold} shares to recover, but only ${shares.length} provided`
+      );
+    }
+
+    // Verify all shares are for the same wallet and have consistent threshold
+    const allMatch = shares.every(
+      share =>
+        share.walletAddress === firstAddress &&
+        share.threshold === threshold
+    );
 
     if (!allMatch) {
-      throw new Error('Shares are from different wallets - cannot combine');
+      throw new Error('Shares are from different wallets or have inconsistent thresholds');
     }
 
     // Convert hex shares back to bytes
     const shareBytes = shares.map(share => hexToBytes(share.shareData));
 
-    // Combine shares using Shamir (threshold = number of shares provided)
-    const recoveredBytes = combineShares(shareBytes, shares.length);
+    // Combine shares using Shamir with the original threshold
+    const recoveredBytes = combineShares(shareBytes, threshold);
 
     // Convert back to string and parse JSON
     const backupJson = bytesToString(recoveredBytes);
@@ -138,6 +157,7 @@ export class SocialRecovery {
       walletAddress: share.walletAddress,
       shareData: share.shareData,
       shareIndex: share.shareIndex,
+      threshold: share.threshold,
       createdAt: share.createdAt,
       message: message || `You have been chosen as a recovery guardian for wallet ${share.walletAddress.substring(0, 10)}...`,
     };
@@ -219,11 +239,16 @@ ${share.shareData}
       throw new Error('Invalid guardian share format');
     }
 
+    if (!data.threshold) {
+      throw new Error('Invalid guardian share: missing threshold information');
+    }
+
     return {
       guardianId: crypto.randomUUID(), // Generate new ID for this import
       guardianName: data.guardianName,
       shareData: data.shareData,
       shareIndex: data.shareIndex,
+      threshold: data.threshold,
       createdAt: data.createdAt,
       walletAddress: data.walletAddress,
     };
@@ -268,6 +293,7 @@ ${share.shareData}
         walletAddress: share.walletAddress,
         shareData: share.shareData,
         shareIndex: share.shareIndex,
+        threshold: share.threshold,
         createdAt: share.createdAt,
       },
       null,

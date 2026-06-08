@@ -108,6 +108,23 @@ async function testSocialRecovery() {
     throw new Error('Recovered backup address mismatch!');
   }
 
+  // Test recovery with MORE shares than threshold (this was the bug scenario)
+  const moreSharesForRecovery = [
+    setup.guardianShares[0], // Alice
+    setup.guardianShares[1], // Bob
+    setup.guardianShares[2], // Charlie
+    setup.guardianShares[3], // David
+  ];
+
+  console.log(`  ✓ Testing recovery with ${moreSharesForRecovery.length} shares (more than threshold of 3)`);
+
+  const recoveredBackup2 = await recovery.recoverFromShares(moreSharesForRecovery);
+
+  if (recoveredBackup2.ethereumAddress !== backupFile.ethereumAddress) {
+    throw new Error('Recovery with 4 shares failed - this was the bug!');
+  }
+
+  console.log(`  ✓ Recovery with 4 shares successful (bug fix verified)`);
   console.log('  ✅ Social recovery test PASSED\n');
 }
 
@@ -122,6 +139,7 @@ async function testGuardianInvitation() {
     guardianName: 'Alice',
     shareData: 'abcdef1234567890',
     shareIndex: 1,
+    threshold: 3,
     createdAt: new Date().toISOString(),
     walletAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7',
   };
