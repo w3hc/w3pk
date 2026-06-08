@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `blockstore-core`: 6.1.1 → 7.0.1
   - `ipfs-unixfs-importer`: 16.0.1 → 17.0.1
 
+### Fixed
+
+- **🔴 CRITICAL: Fixed broken `recoverFromShares` threshold logic in social recovery**
+  - `SocialRecovery.recoverFromShares()` now correctly reads threshold from share metadata instead of using the number of shares provided
+  - Added `threshold` field to `GuardianShare` interface to store original threshold value
+  - All share serialization/deserialization methods now include threshold information
+  - Fixed bug where recovery would fail when providing more shares than the minimum threshold (e.g., 4 shares for 3-of-5 setup)
+  - Added validation to verify all shares have consistent threshold values
+  - Added test coverage for recovery with excess shares
+
 ### Security
 
 - **🔐 BREAKING: Fixed Critical WebAuthn Encryption Vulnerability**:
