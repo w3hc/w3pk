@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated all dependencies to latest versions
+  - `typescript`: 5.9.3 → 6.0.3
+  - `@types/node`: 24.10.0 → 25.9.2
+  - `@ipld/car`: 5.4.2 → 5.4.6
+  - `blockstore-core`: 6.1.1 → 7.0.1
+  - `ipfs-unixfs-importer`: 16.0.1 → 17.0.1
+
 ### Security
 
 - **🔐 BREAKING: Fixed Critical WebAuthn Encryption Vulnerability**:
