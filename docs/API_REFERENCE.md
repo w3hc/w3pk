@@ -1614,6 +1614,8 @@ const w3pk = createWeb3Passkey({
 
 All stealth address methods are accessed via `w3pk.stealth.*`
 
+> **🔒 Security Note:** The ERC-5564 implementation properly reduces all scalars modulo the secp256k1 curve order to prevent unspendable funds. The same reduced scalar is used consistently in both public-key operations (`s_h × G`) and private-key operations (`spendingKey + s_h`) to ensure the derived stealth address always matches the derived private key.
+
 ### `stealth.generateStealthAddress(options?: { requireAuth?: boolean }): Promise<StealthAddressResult>`
 
 Generate a fresh ERC-5564 compliant stealth address for a recipient.
