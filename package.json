@@ -107,7 +107,6 @@
     "test:siwe": "tsx test/siwe.test.ts",
     "prepublishOnly": "pnpm build",
     "build:hash": "node scripts/compute-build-hash.mjs",
-    "release:notes": "node scripts/generate-release-notes.mjs",
     "html": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true && tsup && npx serve . -l 3000 & sleep 5 && open http://localhost:3000/standalone/checker.html"
   },
   "packageManager": "pnpm@10.6.4",
