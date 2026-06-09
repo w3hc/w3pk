@@ -207,9 +207,6 @@ export async function register(
       },
       timeout: 60000,
       attestation: "none",
-      extensions: {
-        prf: {},  // Enable PRF extension for secure key derivation
-      },
     };
 
     const credential = await navigator.credentials.create({
@@ -218,12 +215,6 @@ export async function register(
 
     if (!credential) {
       throw new Error("Failed to create credential");
-    }
-
-    // Check if PRF is enabled
-    const prfEnabled = credential.getClientExtensionResults().prf?.enabled;
-    if (!prfEnabled) {
-      console.warn("⚠️ PRF extension not supported - falling back to legacy encryption");
     }
 
     // Extract public key from attestation object
@@ -241,7 +232,6 @@ export async function register(
       createdAt: new Date().toISOString(),
       lastUsed: new Date().toISOString(),
       signCount: 0, // Initialize signature counter
-      prfEnabled: prfEnabled || false,  // Store PRF support status
     });
 
     const attestationObject = credential.response.attestationObject;

@@ -30,12 +30,10 @@ import {
   DEFAULT_MODE,
 } from "../wallet/origin-derivation";
 import {
-  deriveEncryptionKeyAuto,
+  deriveEncryptionKeyFromWebAuthn,
   encryptData,
   decryptData,
-  generateSalt,
 } from "../wallet/crypto";
-import { arrayBufferToBase64Url, base64UrlToArrayBuffer } from "../utils/base64";
 import { StealthAddressModule } from "../stealth";
 import { SessionManager } from "./session";
 import { CredentialStorage } from "../auth/storage";
@@ -158,13 +156,7 @@ export class Web3Passkey {
     const credential = await storage.getCredentialById(walletData.credentialId);
     const publicKey = credential?.publicKey;
 
-    // Parse salt if available
-    const salt = walletData.salt ? base64UrlToArrayBuffer(walletData.salt) : undefined;
-
-    // Derive encryption key (uses PRF if available, falls back to legacy)
-    const encryptionKey = await deriveEncryptionKeyAuto(
-      authResult.prfOutput,
-      salt ? new Uint8Array(salt) : undefined,
+    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
       walletData.credentialId,
       publicKey
     );
@@ -221,12 +213,7 @@ export class Web3Passkey {
       const credentialId = credential.id;
       const publicKey = credential.publicKey;
 
-      // For initial registration, we can't get PRF output without re-authenticating
-      // Store without encryption initially, will be encrypted on first login if PRF is available
-      const salt = generateSalt();
-      const encryptionKey = await deriveEncryptionKeyAuto(
-        undefined,  // No PRF output yet (would need re-auth)
-        undefined,  // No salt for legacy mode
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
         credentialId,
         publicKey
       );
@@ -238,8 +225,6 @@ export class Web3Passkey {
         encryptedMnemonic,
         credentialId,
         createdAt: new Date().toISOString(),
-        // Salt will be used on next encryption if PRF becomes available
-        salt: credential.prfEnabled ? arrayBufferToBase64Url(salt) : undefined,
       });
 
       await this.sessionManager.startSession(
@@ -344,9 +329,7 @@ export class Web3Passkey {
         mnemonic = restoredMnemonic;
       } else {
         // Decrypt from wallet storage (requires WebAuthn authentication)
-        const encryptionKey = await deriveEncryptionKeyAuto(
-          undefined,
-          undefined,
+        const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
           walletData.credentialId,
           publicKey
         );
@@ -642,9 +625,7 @@ export class Web3Passkey {
       const credential = await storage.getCredentialById(credentialId);
       const publicKey = credential?.publicKey;
 
-      const encryptionKey = await deriveEncryptionKeyAuto(
-        undefined,
-        undefined,
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
         credentialId,
         publicKey
       );
@@ -1864,9 +1845,7 @@ export class Web3Passkey {
         await storage.updateCredentialAddress(credential.id, ethereumAddress);
 
         // Encrypt and store the wallet data with new address
-        const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyAuto(
-          undefined,
-          undefined,
+        const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyFromWebAuthn(
           credential.id,
           credential.publicKey
         );
@@ -1994,10 +1973,8 @@ export class Web3Passkey {
 
     if (credential) {
       // Encrypt and store wallet data
-      const { deriveEncryptionKeyAuto, encryptData } = await import("../wallet/crypto");
-      const encryptionKey = await deriveEncryptionKeyAuto(
-        undefined,
-        undefined,
+      const { deriveEncryptionKeyFromWebAuthn, encryptData } = await import("../wallet/crypto");
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
         credential.id,
         credential.publicKey
       );
@@ -2193,9 +2170,7 @@ export class Web3Passkey {
     backupManager.markBackupVerified(ethereumAddress);
 
     // Store the wallet with current credential
-    const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyAuto(
-      undefined,
-      undefined,
+    const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyFromWebAuthn(
       credential.id,
       credential.publicKey
     );

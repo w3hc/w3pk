@@ -12,7 +12,7 @@
  */
 
 import { StorageError, CryptoError } from "./errors";
-import { encryptData, decryptData, deriveEncryptionKeyAuto } from "../wallet/crypto";
+import { encryptData, decryptData, deriveEncryptionKeyFromWebAuthn } from "../wallet/crypto";
 import type { SecurityMode } from "../types";
 
 /**
@@ -223,7 +223,7 @@ export async function encryptMnemonicForPersistence(
   publicKey: string
 ): Promise<string> {
   try {
-    const encryptionKey = await deriveEncryptionKeyAuto(undefined, undefined, credentialId, publicKey);
+    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
     return await encryptData(mnemonic, encryptionKey);
   } catch (error) {
     throw new CryptoError("Failed to encrypt mnemonic for persistence", error);
@@ -239,7 +239,7 @@ export async function decryptMnemonicFromPersistence(
   publicKey: string
 ): Promise<string> {
   try {
-    const encryptionKey = await deriveEncryptionKeyAuto(undefined, undefined, credentialId, publicKey);
+    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
     return await decryptData(encryptedMnemonic, encryptionKey);
   } catch (error) {
     throw new CryptoError("Failed to decrypt mnemonic from persistence", error);

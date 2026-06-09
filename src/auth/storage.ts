@@ -17,7 +17,6 @@ export interface StoredCredential {
   createdAt: string;
   lastUsed: string;
   signCount?: number; // Signature counter for authenticator cloning detection
-  prfEnabled?: boolean; // Whether PRF extension is supported
 }
 
 /**
