@@ -428,6 +428,8 @@ console.log('Verified:', isValid ? '✅' : '❌')
 
 ### Security Inspection
 
+> **⚠️ Privacy Notice:** This optional feature sends application source code to an external API (Rukh) for AI analysis. User IP address will be visible to the API server.
+
 Analyze web3 applications to understand their transaction and signing methods:
 
 **Browser (analyze current page):**
