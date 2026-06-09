@@ -44,6 +44,12 @@ export interface BrowserInspectOptions {
    * @default 'transactions'
    */
   focusMode?: "transactions" | "all";
+
+  /**
+   * Maximum total size in KB for all collected code (prevents exceeding API token limits)
+   * @default 100
+   */
+  maxTotalSizeKB?: number;
 }
 
 /**
@@ -139,10 +145,11 @@ function extractTransactionSnippets(
  * snippets, and formats them as markdown for analysis.
  *
  * @param appUrl - The base URL of the application being inspected
+ * @param maxTotalSizeKB - Maximum total size in KB for all collected code
  * @returns Markdown-formatted source code with transaction-related snippets
  * @internal
  */
-async function fetchAppSource(appUrl: string): Promise<string> {
+async function fetchAppSource(appUrl: string, maxTotalSizeKB: number = 100): Promise<string> {
   let markdown = `# Application Code Analysis\n\n`;
   markdown += `**App URL:** ${appUrl}\n\n`;
   markdown += `**Note:** Only transaction-related code snippets shown\n\n`;
@@ -161,8 +168,17 @@ async function fetchAppSource(appUrl: string): Promise<string> {
   markdown += `## JavaScript Files (${scriptUrls.length})\n\n`;
 
   let totalSnippets = 0;
+  let cumulativeSizeKB = 0;
+  const maxTotalBytes = maxTotalSizeKB * 1024;
 
   for (const scriptUrl of scriptUrls.slice(0, 15)) {
+    // Check if we've reached the size limit
+    if (cumulativeSizeKB >= maxTotalSizeKB) {
+      console.warn(`[W3PK Inspect] Reached total size limit of ${maxTotalSizeKB} KB - stopping collection`);
+      markdown += `\n**Note:** Collection stopped - reached ${maxTotalSizeKB} KB limit\n`;
+      break;
+    }
+
     try {
       const response = await fetch(scriptUrl);
       if (!response.ok) continue;
@@ -171,11 +187,20 @@ async function fetchAppSource(appUrl: string): Promise<string> {
       const snippets = extractTransactionSnippets(content);
 
       if (snippets && !snippets.includes("No transaction code found")) {
+        const snippetSize = new Blob([snippets]).size / 1024;
+
+        // Check if adding this snippet would exceed the limit
+        if (cumulativeSizeKB + snippetSize > maxTotalSizeKB) {
+          console.warn(`[W3PK Inspect] Skipping ${new URL(scriptUrl).pathname} - would exceed total size limit`);
+          break;
+        }
+
         markdown += `### \`${new URL(scriptUrl).pathname}\`\n\n`;
         markdown += "```javascript\n";
         markdown += snippets;
         markdown += "\n```\n\n---\n\n";
         totalSnippets++;
+        cumulativeSizeKB += snippetSize;
       }
     } catch (error) {
       // Skip files that can't be fetched
@@ -233,13 +258,15 @@ export async function inspect(
     context = "w3pk",
     model = "anthropic",
     focusMode = "transactions",
+    maxTotalSizeKB = 100,
   } = options;
 
   console.log("[W3PK Inspect] Starting inspection of", appUrl);
   console.log("[W3PK Inspect] Focus mode:", focusMode);
+  console.log("[W3PK Inspect] Max total size:", maxTotalSizeKB, "KB");
 
   // Fetch and analyze source code
-  const sourceMarkdown = await fetchAppSource(appUrl);
+  const sourceMarkdown = await fetchAppSource(appUrl, maxTotalSizeKB);
 
   console.log("[W3PK Inspect] Collected source code, sending to Rukh API...");
 

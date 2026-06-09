@@ -3075,7 +3075,7 @@ Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
 ```typescript
 const hash = await getCurrentBuildHash()
 console.log('Build hash:', hash)
-// => bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4
+// => bafybeicce26ztznqcdn6n6j6hhnoye37nb7nt7gtubelwk2ku4txbp7acy
 ```
 
 ---
