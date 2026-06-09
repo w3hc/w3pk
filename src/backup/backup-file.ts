@@ -15,7 +15,7 @@ import {
   deriveAddressChecksum,
 } from './encryption';
 import {
-  deriveEncryptionKeyAuto,
+  deriveEncryptionKeyFromWebAuthn,
   encryptData,
   decryptData,
 } from '../wallet/crypto';
@@ -71,7 +71,7 @@ export class BackupFileManager {
     credentialId: string,
     publicKey: string
   ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
-    const encryptionKey = await deriveEncryptionKeyAuto(
+    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
       credentialId,
       publicKey
     );
@@ -117,7 +117,7 @@ export class BackupFileManager {
     publicKey: string
   ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
     // First encrypt with passkey
-    const passkeyKey = await deriveEncryptionKeyAuto(
+    const passkeyKey = await deriveEncryptionKeyFromWebAuthn(
       credentialId,
       publicKey
     );
@@ -190,7 +190,7 @@ export class BackupFileManager {
 
     if (backupFile.encryptionMethod === 'passkey') {
       // Decrypt with passkey only
-      const encryptionKey = await deriveEncryptionKeyAuto(
+      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
         credentialId,
         publicKey
       );
@@ -296,7 +296,7 @@ export class BackupFileManager {
     );
 
     // Then decrypt with passkey
-    const passkeyKey = await deriveEncryptionKeyAuto(
+    const passkeyKey = await deriveEncryptionKeyFromWebAuthn(
       credentialId,
       publicKey
     );

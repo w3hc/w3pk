@@ -17,9 +17,6 @@ export interface AuthResult {
   // SECURITY: Signature is needed to derive encryption keys
   // This ensures keys can only be derived after biometric/PIN authentication
   signature?: ArrayBuffer;
-  // PRF output from WebAuthn authenticator (32-byte secret)
-  // Used for secure key derivation (fixes OPUS findings #1 and #3)
-  prfOutput?: ArrayBuffer;
 }
 
 /**
@@ -35,11 +32,6 @@ export interface RegistrationCredential {
     publicKey?: ArrayBuffer;
     publicKeyAlgorithm?: number;
   };
-  getClientExtensionResults(): {
-    prf?: {
-      enabled?: boolean;
-    };
-  };
 }
 
 /**
@@ -54,13 +46,5 @@ export interface AuthenticationCredential {
     authenticatorData: ArrayBuffer;
     signature: ArrayBuffer;
     userHandle?: ArrayBuffer;
-  };
-  getClientExtensionResults(): {
-    prf?: {
-      results?: {
-        first?: ArrayBuffer;
-        second?: ArrayBuffer;
-      };
-    };
   };
 }

@@ -2,8 +2,6 @@
 
 This document explains the security model of w3pk and how wallet protection works.
 
-✅ **SECURITY**: Uses PRF-based encryption with authenticator-held secrets and random salts to prevent offline decryption attacks. See [PRF-based Encryption](#migration-to-prf-based-encryption) section below.
-
 ## Overview
 
 w3pk provides **multiple layers of security** to protect user wallets:
@@ -14,7 +12,7 @@ w3pk provides **multiple layers of security** to protect user wallets:
 4. **Mode-based access control** - STANDARD/STRICT modes are view-only, YOLO mode provides full access
 5. **Encrypted storage** - AES-256-GCM encryption at rest
 6. **Secure sessions** - In-memory and optional persistent sessions (disabled in STRICT mode)
-7. **PRF-based encryption** - WebAuthn PRF extension for secure key derivation (v0.9.4+)
+7. **Persistent session encryption** - WebAuthn-derived key encryption for "Remember Me" functionality
 
 ## Enhanced Security Model (v0.8.0+)
 
@@ -1083,96 +1081,45 @@ Signature:   ${authorization.r.substring(0, 10)}...
 
 This section tracks major security-related changes to w3pk's implementation.
 
-### v0.9.4+ - PRF-Based Encryption (Critical Security Fix)
+### v0.7.0+ (Current)
 
-#### BREAKING: `deriveEncryptionKeyFromWebAuthn()` signature changed
-**Impact:** Fixes critical encryption vulnerabilities (BREAKING CHANGE)
+#### PRF-based Encryption (Optional Enhancement)
+**Impact:** Security improvement when available
 
 **What changed:**
-- `deriveEncryptionKeyFromWebAuthn()` signature changed from `(credentialId, publicKey?)` to `(prfOutput, salt)`
-- Now uses WebAuthn PRF extension to obtain authenticator-held secrets
-- Implements random unique salts instead of hardcoded constants
+- Added `deriveEncryptionKeyFromWebAuthn()` function for PRF-based encryption
+- Added `deriveEncryptionKeyAuto()` helper with automatic PRF detection and fallback
+- Implements random unique salts when using PRF
 - Added `generateSalt()` helper for creating cryptographic random salts
 
-**Security improvements:**
-- ✅ Key material now derived from authenticator secret (PRF output), not public credentialId/publicKey
-- ✅ Uses random 32-byte salts stored with ciphertext, not hardcoded constants
+**Security improvements (when PRF available):**
+- ✅ Key material derived from authenticator secret (PRF output), not public credentialId/publicKey
+- ✅ Uses random 32-byte salts stored with ciphertext
 - ✅ Eliminates offline decryption vulnerability
 - ✅ Prevents precomputation attacks
 
-**Migration required:**
+**Current implementation:**
 ```typescript
-// ❌ OLD (v0.9.3 and earlier) - INSECURE
-const key = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
-
-// ✅ NEW (v0.9.4+) - SECURE
-const assertion = await navigator.credentials.get({
-  publicKey: {
-    challenge: new Uint8Array(32),
-    extensions: {
-      prf: { eval: { first: new Uint8Array(32) } }
-    }
-  }
-});
-const prfOutput = assertion.getClientExtensionResults().prf.results.first;
-const salt = generateSalt();  // Store with ciphertext
-const key = await deriveEncryptionKeyFromWebAuthn(prfOutput, salt);
+// SDK automatically uses PRF when available
+const key = await deriveEncryptionKeyAuto(
+  prfOutput,      // undefined if PRF not available
+  salt,           // undefined if PRF not available
+  credentialId,   // used in fallback mode
+  publicKey       // used in fallback mode
+);
 ```
 
 **Status:**
-- ✅ Secure implementation complete
-- 🔴 Breaking change - migration required
-- 📖 Migration guide below
+- ✅ PRF support added for Chrome 108+, Safari 17+
+- ⚠️ **Legacy fallback active**: Uses credentialId/publicKey when PRF unavailable
+- ⚠️ **Known vulnerability**: Legacy encryption vulnerable to offline decryption attacks
+- 🔴 **Firefox not supported**: Firefox does not implement PRF extension yet
+- 📖 See [BROWSER_COMPATIBILITY.md](BROWSER_COMPATIBILITY.md) for details
 
-See: [Migration to PRF-based Encryption](#migration-to-prf-based-encryption)
-
----
-
-### v0.9.4+ - ERC-5564 Stealth Scalar Reduction Fix (High Severity)
-
-#### Fixed stealth address scalar reduction vulnerability
-
-**What changed:**
-- Added `reduceScalarModN()` function to properly reduce scalars modulo secp256k1 curve order
-- Updated `generateStealthAddress()`, `checkStealthAddress()`, and `computeStealthPrivateKey()` to use reduced scalars
-- Ensures the same reduced scalar `s_h` is used consistently in both public-key and private-key operations
-
-**Security improvements:**
-- ✅ Prevents intermittent failures when keccak256(sharedSecret) ≥ curve order
-- ✅ Eliminates risk of unspendable stealth funds caused by inconsistent scalar handling
-- ✅ Ensures derived stealth address always matches derived private key
-- ✅ Validates scalars are in valid range [1, n-1] and rejects zero
-
-**Technical details:**
-- ERC-5564 computes `s_h = keccak256(sharedSecret)` and uses it as a scalar
-- Previously, `s_h` was used directly without reduction modulo `n` (secp256k1 curve order)
-- Public-key path: `stealthPubKey = spendingPubKey + (s_h × G)` would fail if `s_h ≥ n`
-- Private-key path: `stealthPrivKey = spendingKey + s_h` reduced the sum but not `s_h` itself
-- Inconsistent scalar values between paths could result in address/key mismatch
-- Now both paths use the same properly-reduced scalar
-
-**Impact:**
-- Non-breaking change (pure bugfix)
-- All existing stealth addresses remain valid
-- Eliminates edge-case failures and unspendable funds
-
----
-
-#### No Backward Compatibility
-**Decision:** Complete removal of insecure legacy function
-
-**What was removed:**
-- Removed `deriveEncryptionKeyFromWebAuthnLegacy()` function entirely
-- No backward compatibility layer for insecure encryption
-
-**Why:**
-- Legacy function had critical security vulnerabilities
-- Offline decryption attack risk unacceptable
-- Clean break ensures no accidental use of insecure method
-
-**Migration:** All call sites updated to use `deriveEncryptionKeyAuto()` which:
-- Uses PRF-based encryption when available (secure)
-- Falls back to v2 implementation internally for wallets without PRF support
+**Recommendation:**
+- Backup files use password-based encryption (portable across devices)
+- Local device storage uses PRF when available, legacy fallback otherwise
+- Users should create password-protected backups for security
 
 ### v0.7.0 - RP ID Auto-Detection (Security Hardening)
 
@@ -3746,159 +3693,6 @@ await w3pk.inspectNow()
 ```
 
 This democratizes security analysis and helps users make informed decisions about which dApps to trust.
-
----
-
-## Migration to PRF-based Encryption
-
-### Overview
-
-The secure `deriveEncryptionKeyFromWebAuthn()` uses PRF-based encryption to prevent vulnerabilities:
-- **Fixed**: Now derives encryption key from authenticator-held secret (PRF output), not public credential data
-- **Fixed**: Uses random unique salts, not hardcoded constants
-
-**Benefits**: Prevents offline decryption attacks by requiring authenticator interaction.
-
-### Migration Steps
-
-#### 1. Enable PRF Extension in Registration
-
-```typescript
-// Update WebAuthn registration to enable PRF
-const credential = await navigator.credentials.create({
-  publicKey: {
-    challenge: crypto.getRandomValues(new Uint8Array(32)),
-    rp: {
-      name: "Your App",
-      id: window.location.hostname
-    },
-    user: {
-      id: userId,
-      name: username,
-      displayName: username
-    },
-    pubKeyCredParams: [{ alg: -7, type: "public-key" }],
-    authenticatorSelection: {
-      authenticatorAttachment: "platform",
-      userVerification: "required"
-    },
-    extensions: {
-      prf: {}  // ← Enable PRF extension
-    }
-  }
-});
-
-// Check if PRF is supported
-const prfEnabled = credential.getClientExtensionResults().prf?.enabled;
-if (!prfEnabled) {
-  console.warn("PRF not supported on this authenticator");
-  // Fall back to legacy method or require different authenticator
-}
-```
-
-#### 2. Capture PRF Output During Authentication
-
-```typescript
-// Get PRF output during WebAuthn assertion
-const prfSalt = crypto.getRandomValues(new Uint8Array(32));
-
-const assertion = await navigator.credentials.get({
-  publicKey: {
-    challenge: crypto.getRandomValues(new Uint8Array(32)),
-    rpId: window.location.hostname,
-    extensions: {
-      prf: {
-        eval: {
-          first: prfSalt  // Input to PRF (can be constant per credential)
-        }
-      }
-    }
-  }
-});
-
-// Extract PRF output
-const prfResults = assertion.getClientExtensionResults().prf;
-if (!prfResults?.results?.first) {
-  throw new Error("PRF output not available");
-}
-const prfOutput = prfResults.results.first;  // 32-byte secret
-```
-
-#### 3. Generate and Store Salt with Ciphertext
-
-```typescript
-import { deriveEncryptionKeyFromWebAuthn, generateSalt } from 'w3pk';
-
-// Generate random salt (do this once per encryption)
-const salt = generateSalt();  // 32 random bytes
-
-// Derive secure encryption key
-const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
-  prfOutput,  // From authenticator (secret)
-  salt        // Random (store with ciphertext)
-);
-
-// Encrypt wallet data
-const encrypted = await crypto.subtle.encrypt(
-  { name: "AES-GCM", iv: crypto.getRandomValues(new Uint8Array(12)) },
-  encryptionKey,
-  new TextEncoder().encode(mnemonic)
-);
-
-// Store both salt and ciphertext together
-await storage.save({
-  encryptedMnemonic: base64(encrypted),
-  salt: base64(salt),  // ← Must be stored for decryption
-  credentialId: credential.id
-});
-```
-
-#### 4. Decrypt Using Stored Salt
-
-```typescript
-// Load encrypted data
-const data = await storage.load();
-const salt = base64Decode(data.salt);
-const encryptedMnemonic = base64Decode(data.encryptedMnemonic);
-
-// Get PRF output (same as step 2)
-const assertion = await navigator.credentials.get({
-  publicKey: {
-    challenge: crypto.getRandomValues(new Uint8Array(32)),
-    extensions: {
-      prf: { eval: { first: prfSalt } }
-    }
-  }
-});
-const prfOutput = assertion.getClientExtensionResults().prf.results.first;
-
-// Derive key with stored salt
-const encryptionKey = await deriveEncryptionKeyFromWebAuthn(prfOutput, salt);
-
-// Decrypt
-const decrypted = await crypto.subtle.decrypt(
-  { name: "AES-GCM", iv: extractIV(encryptedMnemonic) },
-  encryptionKey,
-  encryptedMnemonic
-);
-```
-
-### Browser Support
-
-PRF extension support (as of 2026):
-- ✅ Chrome/Edge 108+ (Windows Hello, Touch ID)
-- ✅ Safari 17+ (Touch ID, Face ID)
-- ✅ Firefox 122+ (limited)
-- ⚠️ Check with `getClientExtensionResults().prf.enabled`
-
-### Impact on Existing Users
-
-✅ **NO BREAKING CHANGE for SDK users**: The SDK handles migration automatically via `deriveEncryptionKeyAuto()`.
-
-**For direct API users:**
-- **Function signature changed**: `deriveEncryptionKeyFromWebAuthn()` now requires `(prfOutput, salt)` parameters
-- **Legacy function removed**: No `deriveEncryptionKeyFromWebAuthnLegacy()` available
-- **Migration path**: Use PRF-based encryption or use the auto-fallback helper
 
 ---
 
