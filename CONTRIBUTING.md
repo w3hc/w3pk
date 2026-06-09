@@ -589,20 +589,17 @@ pnpm build:hash
 # 3. Update README.md
 # Edit the "Security & Verification" section with new version and hash
 
-# 4. Generate release notes
-pnpm release:notes
-
-# 5. Commit changes
+# 4. Commit changes
 git add package.json README.md
 git commit -m "chore: release v0.7.7"
 git push
 
-# 6. Create GitHub release
+# 5. Create GitHub release
 # - Go to: https://github.com/w3hc/w3pk/releases/new
 # - Auto-generate release notes
 # - Append content from .github/release-notes-addon.md
 
-# 7. Publish to npm
+# 6. Publish to npm
 pnpm publish
 ```
 

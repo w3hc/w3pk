@@ -40,6 +40,12 @@ export interface InspectOptions {
   maxFileSizeKB?: number;
 
   /**
+   * Maximum total size in KB for all collected code (prevents exceeding API token limits)
+   * @default 100
+   */
+  maxTotalSizeKB?: number;
+
+  /**
    * Focus mode: filters files to only include those relevant to specific features
    * - 'transactions': Only files with signing, transactions, or blockchain operations
    * - 'all': Include all files (default)
@@ -164,13 +170,15 @@ function isTransactionRelevant(content: string, filename: string): boolean {
  * @param dir - The directory path to walk
  * @param options - Inspection options with filters and limits
  * @param rootDir - The root directory for calculating relative paths
+ * @param cumulativeSizeKB - Tracks total size collected so far
  * @returns Array of file objects with path, content, and relative path
  * @internal
  */
 async function walkDirectory(
   dir: string,
   options: Required<InspectOptions>,
-  rootDir: string
+  rootDir: string,
+  cumulativeSizeKB: { value: number } = { value: 0 }
 ): Promise<{ path: string; content: string; relativePath: string }[]> {
   const files: { path: string; content: string; relativePath: string }[] = [];
 
@@ -178,6 +186,12 @@ async function walkDirectory(
     const entries = await fs.readdir(dir, { withFileTypes: true });
 
     for (const entry of entries) {
+      // Check if we've reached the total size limit
+      if (cumulativeSizeKB.value >= options.maxTotalSizeKB) {
+        console.warn(`Reached total size limit of ${options.maxTotalSizeKB} KB - stopping collection`);
+        break;
+      }
+
       const fullPath = path.join(dir, entry.name);
       const relativePath = path.relative(rootDir, fullPath);
 
@@ -188,7 +202,7 @@ async function walkDirectory(
         }
 
         // Recursively walk subdirectory
-        const subFiles = await walkDirectory(fullPath, options, rootDir);
+        const subFiles = await walkDirectory(fullPath, options, rootDir, cumulativeSizeKB);
         files.push(...subFiles);
       } else if (entry.isFile()) {
         // Check if file matches include patterns
@@ -225,6 +239,17 @@ async function walkDirectory(
           }
         }
 
+        // Calculate content size
+        const contentSizeKB = Buffer.byteLength(content, 'utf-8') / 1024;
+
+        // Check if adding this file would exceed the total limit
+        if (cumulativeSizeKB.value + contentSizeKB > options.maxTotalSizeKB) {
+          console.warn(`Skipping ${relativePath} - would exceed total size limit (${(cumulativeSizeKB.value + contentSizeKB).toFixed(2)} KB > ${options.maxTotalSizeKB} KB)`);
+          break;
+        }
+
+        // Add file and update cumulative size
+        cumulativeSizeKB.value += contentSizeKB;
         files.push({ path: fullPath, content, relativePath });
       }
     }
@@ -275,6 +300,7 @@ export async function gatherCode(options: InspectOptions = {}): Promise<InspectR
       '.turbo'
     ],
     maxFileSizeKB: options.maxFileSizeKB || 500,
+    maxTotalSizeKB: options.maxTotalSizeKB || 100,
     focusMode: options.focusMode || 'all'
   };
 

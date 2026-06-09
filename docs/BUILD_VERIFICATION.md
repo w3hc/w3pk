@@ -72,7 +72,7 @@ import { getCurrentBuildHash } from 'w3pk';
 
 const hash = await getCurrentBuildHash();
 console.log('Build hash:', hash);
-// => bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4
+// => bafybeicce26ztznqcdn6n6j6hhnoye37nb7nt7gtubelwk2ku4txbp7acy
 ```
 
 ### `getW3pkBuildHash(distUrl)`
@@ -108,7 +108,7 @@ Verifies if the current build matches an expected hash.
 ```typescript
 import { verifyBuildHash } from 'w3pk';
 
-const trustedHash = 'bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4';
+const trustedHash = 'bafybeicce26ztznqcdn6n6j6hhnoye37nb7nt7gtubelwk2ku4txbp7acy';
 const isValid = await verifyBuildHash(trustedHash);
 
 if (isValid) {
@@ -152,7 +152,7 @@ Output:
 📊 Total size: 273992 bytes
 
 🔐 IPFS Build Hash (CIDv1):
-   bafybeiafdhdxz3c3nhxtrhe7zpxfco5dlywpvzzscl277hojn7zosmrob4
+   bafybeicce26ztznqcdn6n6j6hhnoye37nb7nt7gtubelwk2ku4txbp7acy
    bafyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 📌 Version: x.x.x

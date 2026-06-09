@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-06-09
+
+### Changed
+
+- **Inspection Module**: Added total size limit for code sent to Rukh API
+  - Added `maxTotalSizeKB` option to `BrowserInspectOptions` (default: 100 KB)
+  - Added `maxTotalSizeKB` option to `InspectOptions` (default: 100 KB)
+  - Prevents exceeding Claude API token limits (200K tokens)
+  - Browser inspection now tracks cumulative snippet size and stops collection at limit
+  - Node.js inspection now tracks cumulative file size and stops collection at limit
+  - Warnings logged when size limit is reached
+  - Context files (~178 KB) + inspection code (100 KB) + overhead stays well under 200K token limit
+
+## [0.10.0] - 2026-06-09
+
 ### Changed
 
 - Updated all dependencies to latest versions
