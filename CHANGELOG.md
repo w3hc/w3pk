@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - ML-KEM private key: 3168 bytes
     - Ciphertext per recipient: 1600 bytes (1568 KEM + 32 encrypted AES key)
 
+### Changed
+
+- **`logout()` and `clearSession()` now surface persistent storage failures**: Previously, a failure to clear persistent sessions from IndexedDB was swallowed with a `console.warn`, so apps could believe a device was fully logged out while a persistent session remained. These methods now throw a `StorageError` in that case. The in-memory session is always cleared (and `onAuthStateChanged(false)` still fires) before the error propagates, so apps only need to handle the error if they want to inform the user or retry the cleanup. Internal expiry cleanup and the stale-session recovery path in `login()` are unaffected.
+
 ### Documentation
 
 - **Updated `docs/POST_QUANTUM.md`**:
