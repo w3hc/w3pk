@@ -113,7 +113,10 @@ export class SessionManager {
 
     // Check if session expired
     if (new Date() > new Date(this.session.expiresAt)) {
-      this.clearSession();
+      // Fire-and-forget: expiry cleanup has no caller to surface errors to
+      this.clearSession().catch((error) =>
+        console.warn('[w3pk] Failed to clear expired session:', error)
+      );
       return null;
     }
 
@@ -129,7 +132,10 @@ export class SessionManager {
     }
 
     if (new Date() > new Date(this.session.expiresAt)) {
-      this.clearSession();
+      // Fire-and-forget: expiry cleanup has no caller to surface errors to
+      this.clearSession().catch((error) =>
+        console.warn('[w3pk] Failed to clear expired session:', error)
+      );
       return null;
     }
 
@@ -152,7 +158,10 @@ export class SessionManager {
     }
 
     if (new Date() > new Date(this.session.expiresAt)) {
-      this.clearSession();
+      // Fire-and-forget: expiry cleanup has no caller to surface errors to
+      this.clearSession().catch((error) =>
+        console.warn('[w3pk] Failed to clear expired session:', error)
+      );
       return 0;
     }
 
@@ -168,7 +177,10 @@ export class SessionManager {
     }
 
     if (new Date() > new Date(this.session.expiresAt)) {
-      this.clearSession();
+      // Fire-and-forget: expiry cleanup has no caller to surface errors to
+      this.clearSession().catch((error) =>
+        console.warn('[w3pk] Failed to clear expired session:', error)
+      );
       throw new Error("Session expired, cannot extend");
     }
 
@@ -311,6 +323,12 @@ export class SessionManager {
   /**
    * Manually clear the session (logout or security requirement)
    * Also clears ALL persistent sessions from IndexedDB
+   *
+   * The in-memory session is always cleared, even if clearing persistent
+   * storage fails — in that case a StorageError is thrown so callers know
+   * a persistent session may still exist on the device
+   *
+   * @throws {StorageError} if persistent sessions could not be cleared
    */
   async clearSession(): Promise<void> {
     // Overwrite mnemonic in memory before clearing
@@ -322,11 +340,7 @@ export class SessionManager {
     // Clear ALL persistent sessions from IndexedDB on logout
     // This ensures no WebAuthn prompts appear after logout
     if (this.persistentConfig.enabled) {
-      try {
-        await this.persistentStorage.clear();
-      } catch (error) {
-        console.warn('[w3pk] Failed to clear persistent sessions:', error);
-      }
+      await this.persistentStorage.clear();
     }
   }
 

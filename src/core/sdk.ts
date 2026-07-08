@@ -281,7 +281,10 @@ export class Web3Passkey {
 
         if (!walletData) {
           // Wallet was deleted but session still exists - clear session and retry with auth
-          await this.sessionManager.clearSession();
+          // A failed persistent clear shouldn't abort the retry; login() will re-authenticate
+          await this.sessionManager.clearSession().catch((error) =>
+            console.warn('[w3pk] Failed to clear stale session:', error)
+          );
           return this.login(); // Retry with authentication
         }
 
@@ -360,12 +363,21 @@ export class Web3Passkey {
 
   /**
    * Logout current user and clear session
+   *
+   * The user is always logged out in memory, even if clearing persistent
+   * storage fails — in that case a StorageError is thrown so the app knows
+   * a persistent session may still exist on the device
+   *
+   * @throws {StorageError} if persistent sessions could not be cleared
    */
   async logout(): Promise<void> {
     this.currentUser = null;
     this.currentWallet = null;
-    await this.sessionManager.clearSession();
-    this.config.onAuthStateChanged?.(false, undefined);
+    try {
+      await this.sessionManager.clearSession();
+    } finally {
+      this.config.onAuthStateChanged?.(false, undefined);
+    }
   }
 
   get isAuthenticated(): boolean {
@@ -2278,6 +2290,8 @@ export class Web3Passkey {
   /**
    * Clear active session
    * Also clears ALL persistent sessions from IndexedDB
+   *
+   * @throws {StorageError} if persistent sessions could not be cleared
    */
   async clearSession(): Promise<void> {
     await this.sessionManager.clearSession();
