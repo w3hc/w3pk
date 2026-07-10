@@ -11,6 +11,66 @@ import { CryptoError } from "../core/errors";
 import { arrayBufferToBase64Url, safeAtob } from "../utils/base64";
 
 /**
+ * Fixed input for the WebAuthn PRF extension.
+ *
+ * The PRF output is HMAC(credential-scoped authenticator secret, input), so a
+ * fixed input yields a per-credential secret that is DETERMINISTIC across
+ * assertions (required: the key derived at one login must decrypt what a
+ * previous login encrypted) yet never exists outside the authenticator.
+ * Randomizing this input is what made the pre-#126 PRF integration
+ * unfinishable — outputs could never be reproduced at the next login.
+ */
+export const PRF_INPUT = new TextEncoder().encode("w3pk-prf-input-v1");
+
+const PRF_HKDF_INFO = new TextEncoder().encode("w3pk-prf-session-key-v1");
+
+/**
+ * Derive the persistent-session encryption key from a WebAuthn PRF output.
+ *
+ * SECURITY:
+ * - The PRF output is a 32-byte secret released by the authenticator only
+ *   during a user-verified assertion — unlike credentialId/publicKey, it is
+ *   not derivable from anything stored on disk.
+ * - HKDF-SHA256 (PRF output is full-entropy key material; no stretching
+ *   needed) into a NON-EXTRACTABLE AES-GCM key: scripts can use the returned
+ *   CryptoKey but can never read its bytes.
+ */
+export async function derivePrfSessionKey(
+  prfOutput: BufferSource
+): Promise<CryptoKey> {
+  try {
+    const byteLength =
+      prfOutput instanceof ArrayBuffer ? prfOutput.byteLength : prfOutput.byteLength;
+    if (byteLength !== 32) {
+      throw new Error(`PRF output must be 32 bytes, got ${byteLength}`);
+    }
+
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      prfOutput,
+      "HKDF",
+      false,
+      ["deriveKey"]
+    );
+
+    return crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: new Uint8Array(32),
+        info: PRF_HKDF_INFO,
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      false, // non-extractable: storable and usable, never readable
+      ["encrypt", "decrypt"]
+    );
+  } catch (error: any) {
+    throw new CryptoError("Failed to derive session key from PRF output", error);
+  }
+}
+
+/**
  * Derive encryption key from WebAuthn credential
  *
  * SECURITY:

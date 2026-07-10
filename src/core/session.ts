@@ -3,23 +3,25 @@
  *
  * SECURITY:
  * - In-memory sessions: Mnemonic is stored in RAM only (cleared on page refresh)
- * - Persistent sessions: Encrypted mnemonic stored in IndexedDB (survives page refresh)
+ * - Persistent sessions: Mnemonic encrypted under a WebAuthn-PRF-derived key
+ *   in IndexedDB (survives page refresh). PRF-capable authenticators only —
+ *   no PRF, no persistence, no weaker fallback.
  * - Persistent sessions ONLY for STANDARD and YOLO modes (STRICT mode excluded)
  * - Automatically cleared after session expires
  * - Can be manually revoked at any time
  *
  * AUTHENTICATION MODES:
- * - requireReauth: true (default): Biometric prompt on every page refresh (more secure)
- * - requireReauth: false: Silent session restore without prompt (maximum convenience)
+ * - requireReauth: true (default): Biometric prompt on every page refresh; the
+ *   decryption key is re-derived from that assertion's PRF output and never
+ *   stored — the blob is hardware-bound at rest
+ * - requireReauth: false: Silent restore without prompt via a stored
+ *   NON-EXTRACTABLE CryptoKey, re-keyed at every real (prompted) login
  */
 
 import type { SecurityMode } from "../types";
 import type { PersistentSessionConfig } from "./persistent-session";
-import {
-  PersistentSessionStorage,
-  encryptMnemonicForPersistence,
-  decryptMnemonicFromPersistence,
-} from "./persistent-session";
+import { PersistentSessionStorage } from "./persistent-session";
+import { encryptData, decryptData } from "../wallet/crypto";
 
 export interface SessionData {
   mnemonic: string;
@@ -50,17 +52,23 @@ export class SessionManager {
    * Start a new session with the decrypted mnemonic
    * Optionally persists session to IndexedDB for STANDARD/YOLO modes
    *
+   * Persistence requires a PRF session key, which only exists when the
+   * session started from a real user-verified assertion on a PRF-capable
+   * authenticator. Without it the session is in-memory only — silent
+   * remember-me is a PRF-gated feature, never downgraded to weaker crypto.
+   *
    * @param mnemonic - The decrypted mnemonic
    * @param credentialId - WebAuthn credential ID
    * @param ethereumAddress - User's ethereum address
-   * @param publicKey - WebAuthn public key for encryption
+   * @param prfSessionKey - Non-extractable AES key derived from this
+   *   assertion's PRF output (see derivePrfSessionKey)
    * @param securityMode - Security mode (STRICT sessions are never persisted)
    */
   async startSession(
     mnemonic: string,
     credentialId: string,
     ethereumAddress?: string,
-    publicKey?: string,
+    prfSessionKey?: CryptoKey,
     securityMode?: SecurityMode
   ): Promise<void> {
     const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
@@ -74,21 +82,27 @@ export class SessionManager {
     if (
       this.persistentConfig.enabled &&
       securityMode !== 'STRICT' &&
-      ethereumAddress &&
-      publicKey
+      ethereumAddress
     ) {
-      try {
-        const encryptedMnemonic = await encryptMnemonicForPersistence(
-          mnemonic,
-          credentialId,
-          publicKey
+      if (!prfSessionKey) {
+        console.info(
+          '[w3pk] Authenticator did not provide a PRF output — persistent ' +
+            'session not stored on this device (in-memory session only)'
         );
+        return;
+      }
+
+      try {
+        const encryptedMnemonic = await encryptData(mnemonic, prfSessionKey);
 
         const persistentExpiresAt =
           Date.now() + this.persistentConfig.duration * 60 * 60 * 1000;
 
         await this.persistentStorage.store({
           encryptedMnemonic,
+          // Key stored only for silent restore; with requireReauth the next
+          // assertion re-derives it, keeping the blob hardware-bound at rest
+          sessionKey: this.persistentConfig.requireReauth ? undefined : prfSessionKey,
           expiresAt: persistentExpiresAt,
           credentialId,
           ethereumAddress,
@@ -188,20 +202,25 @@ export class SessionManager {
   }
 
   /**
-   * Restore session from persistent storage
+   * Restore session from persistent storage after a user-verified assertion
    * Returns decrypted mnemonic if persistent session exists and is valid
+   *
+   * The caller passes the key derived from the CURRENT assertion's PRF
+   * output. The PRF input is fixed, so the authenticator returns the same
+   * secret it returned when the blob was encrypted — no key ever touches
+   * disk on this path.
    *
    * @param ethereumAddress - User's ethereum address
    * @param credentialId - WebAuthn credential ID
-   * @param publicKey - WebAuthn public key for decryption
+   * @param prfSessionKey - Key derived from this assertion's PRF output
    * @returns Mnemonic if session restored, null otherwise
    */
   async restoreFromPersistentStorage(
     ethereumAddress: string,
     credentialId: string,
-    publicKey: string
+    prfSessionKey?: CryptoKey
   ): Promise<string | null> {
-    if (!this.persistentConfig.enabled) {
+    if (!this.persistentConfig.enabled || !prfSessionKey) {
       return null;
     }
 
@@ -219,11 +238,10 @@ export class SessionManager {
         return null;
       }
 
-      // Decrypt mnemonic
-      const mnemonic = await decryptMnemonicFromPersistence(
+      // Decrypt mnemonic with the assertion-derived key
+      const mnemonic = await decryptData(
         persistentSession.encryptedMnemonic,
-        credentialId,
-        publicKey
+        prfSessionKey
       );
 
       // Start in-memory session with restored mnemonic
@@ -247,7 +265,8 @@ export class SessionManager {
 
   /**
    * Attempt silent session restore without requiring WebAuthn prompt
-   * Only works if requireReauth is false and a valid persistent session exists
+   * Only works if requireReauth is false and a valid persistent session
+   * exists with a stored (non-extractable) session key
    *
    * @returns User info if session restored, null otherwise
    */
@@ -255,7 +274,6 @@ export class SessionManager {
     mnemonic: string;
     ethereumAddress: string;
     credentialId: string;
-    publicKey: string;
   } | null> {
     // Only attempt silent restore if enabled and requireReauth is false
     if (!this.persistentConfig.enabled || this.persistentConfig.requireReauth) {
@@ -290,11 +308,16 @@ export class SessionManager {
           continue;
         }
 
-        // Decrypt mnemonic
-        const mnemonic = await decryptMnemonicFromPersistence(
+        // Silent restore needs the stored non-extractable key; records
+        // written under requireReauth deliberately don't have one
+        if (!persistentSession.sessionKey) {
+          continue;
+        }
+
+        // Decrypt mnemonic with the stored non-extractable key
+        const mnemonic = await decryptData(
           persistentSession.encryptedMnemonic,
-          credential.id,
-          credential.publicKey
+          persistentSession.sessionKey
         );
 
         // Start in-memory session with restored mnemonic
@@ -309,7 +332,6 @@ export class SessionManager {
           mnemonic,
           ethereumAddress: credential.ethereumAddress,
           credentialId: credential.id,
-          publicKey: credential.publicKey,
         };
       }
 
@@ -349,5 +371,14 @@ export class SessionManager {
    */
   setSessionDuration(hours: number): void {
     this.sessionDuration = hours * 60 * 60 * 1000;
+  }
+
+  /**
+   * Update persistent-session duration (affects sessions persisted from now
+   * on; the currently stored blob keeps its original expiry until the next
+   * real login re-keys it)
+   */
+  setPersistentSessionDuration(hours: number): void {
+    this.persistentConfig.duration = hours;
   }
 }

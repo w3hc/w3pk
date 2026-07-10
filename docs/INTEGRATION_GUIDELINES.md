@@ -1412,13 +1412,10 @@ const strictWallet = await w3pk.deriveWallet('STRICT')
 ```
 
 **Persistent Session Security:**
-- STANDARD mode: Persistent sessions ✅ allowed
-- YOLO mode: Persistent sessions ✅ allowed
-- STRICT mode: Persistent sessions ❌ NEVER allowed
-- Sessions encrypted with WebAuthn-derived keys
-- Requires valid credential to decrypt
-- Time-limited expiration
-- Origin-isolated via IndexedDB
+- STANDARD / YOLO: persistent sessions allowed. STRICT: ❌ NEVER allowed.
+- Time-limited expiration; origin-isolated via IndexedDB.
+- ⚠️ The at-rest key is derived from **public** credential metadata in the same browser profile, not an authenticator secret — a persistent session is **decryptable by anyone who can read this origin's storage**, for the whole duration it's enabled. "Remember Me" is a UX-for-security trade-off that widens the exposure window; it does not add a new trust dependency beyond the origin-code integrity you already rely on. Keep the duration short for higher-value wallets and don't enable on shared devices.
+- Decide this deliberately against your threat model: **[SECURITY.md → At-Rest Encryption](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt)**.
 
 ### Build Verification
 

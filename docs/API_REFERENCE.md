@@ -57,6 +57,8 @@ interface PersistentSessionConfig {
 }
 ```
 
+**PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. On authenticators without PRF support, no persistent session is stored — the device falls back to in-memory sessions only (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored as a non-extractable `CryptoKey` to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
+
 **Example:**
 
 ```typescript
@@ -2847,13 +2849,12 @@ Enable persistent sessions to maintain user login across page refreshes.
 4. `requireReauth: true` prompts for biometric on refresh (more secure)
 5. `requireReauth: false` silently restores session (more convenient)
 
-**Security:**
-- Sessions only persist for STANDARD and YOLO modes
-- STRICT mode sessions are NEVER persisted
-- Encrypted at rest with WebAuthn-derived key
-- Requires valid WebAuthn credential to decrypt
-- Time-limited expiration
-- Origin-isolated via IndexedDB
+**Security (read the trade-off):**
+- Sessions only persist for STANDARD and YOLO modes; STRICT mode is NEVER persisted
+- Time-limited expiration; origin-isolated via IndexedDB
+- ⚠️ The "WebAuthn-derived key" is derived from **public** credential metadata stored in the same browser profile, **not** from an authenticator-held secret. A persistent session is therefore **decryptable by anyone who can read this origin's storage** (malicious extension, XSS exfil, disk image), and it keeps the seed in that state for the whole duration it's enabled. This is a UX-for-security trade-off, not hardware-backed protection.
+- Enabling "Remember Me" does not add a new trust dependency (you already trust your origin's code), it **widens the window** in which a compromise of your origin can reach the seed. Keep `duration` short for higher-value wallets; don't enable on shared/untrusted devices.
+- Full threat model: **[SECURITY.md → At-Rest Encryption](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt)**.
 
 **Example:**
 

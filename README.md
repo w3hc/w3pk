@@ -257,6 +257,8 @@ await w3pk.clearSession()
 
 **Note:** STRICT mode never allows persistent sessions.
 
+**PRF-keyed persistence:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension (an authenticator-held secret, released only during a biometric/PIN-verified assertion) and re-keyed at every real login. Authenticators without PRF support get in-memory sessions only — there is no weaker at-rest fallback. See [Security Architecture](./docs/SECURITY.md) for details.
+
 ### RPC Endpoints
 
 ```typescript
