@@ -6,7 +6,7 @@ import {
   arrayBufferToBase64Url,
   base64UrlToArrayBuffer,
 } from "../utils/base64";
-import { generateChallenge } from "../wallet/crypto";
+import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 
 /**
  * Extract the public key from WebAuthn attestation object
@@ -162,7 +162,7 @@ function extractCoseCoordinate(coseKey: Uint8Array, key: number): Uint8Array | n
 
 export async function register(
   options: RegisterOptions
-): Promise<{ signature: ArrayBuffer }> {
+): Promise<{ signature: ArrayBuffer; prfOutput?: ArrayBuffer }> {
   try {
     const { username, ethereumAddress } = options;
 
@@ -207,6 +207,17 @@ export async function register(
       },
       timeout: 60000,
       attestation: "none",
+      // Ask for a PRF evaluation at creation. Platforms that support it
+      // return the secret immediately (persistent session available right
+      // after registration); platforms that only evaluate on get() return
+      // nothing here and the first login() provides it instead.
+      extensions: {
+        prf: {
+          eval: {
+            first: PRF_INPUT,
+          },
+        },
+      } as AuthenticationExtensionsClientInputs,
     };
 
     const credential = await navigator.credentials.create({
@@ -236,7 +247,9 @@ export async function register(
 
     const attestationObject = credential.response.attestationObject;
 
-    return { signature: attestationObject };
+    const prfOutput = credential.getClientExtensionResults?.().prf?.results?.first;
+
+    return { signature: attestationObject, prfOutput };
   } catch (error) {
     throw new RegistrationError(
       error instanceof Error ? error.message : "Registration failed",

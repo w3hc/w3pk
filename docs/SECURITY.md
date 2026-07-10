@@ -6,13 +6,82 @@ This document explains the security model of w3pk and how wallet protection work
 
 w3pk provides **multiple layers of security** to protect user wallets:
 
-1. **WebAuthn authentication** - Biometric/PIN gating for wallet access
-2. **Application isolation** - Apps cannot access master mnemonic
+1. **WebAuthn authentication** - Biometric/PIN gating for wallet access **via the SDK**
+2. **Application isolation** - Apps cannot access master mnemonic through the SDK API
 3. **Origin-specific derivation** - Each website gets unique isolated addresses
 4. **Mode-based access control** - STANDARD/STRICT modes are view-only, YOLO mode provides full access
-5. **Encrypted storage** - AES-256-GCM encryption at rest
+5. **Encrypted storage** - AES-256-GCM at rest, under a key derived from *public* credential metadata (see the honest boundary below)
 6. **Secure sessions** - In-memory and optional persistent sessions (disabled in STRICT mode)
-7. **Persistent session encryption** - WebAuthn-derived key encryption for "Remember Me" functionality
+
+> **Before you rely on any of this for a threat model, read [At-Rest Encryption: What It Protects, and What It Doesn't](#at-rest-encryption-what-it-protects-and-what-it-doesnt) immediately below.** The biometric prompt gates the *SDK*, not the *ciphertext*: an attacker who can read this origin's browser storage can decrypt the seed offline without any prompt. The at-rest encryption is not a defense against that. This is a deliberate design; the section explains exactly what is and isn't protected.
+
+## At-Rest Encryption: What It Protects, and What It Doesn't
+
+The short version: **treat the encrypted wallet on disk as decryptable by anyone who can read this origin's browser storage.** The real security boundaries are WebAuthn's origin binding, your application's code integrity, and device security — not the at-rest ciphertext.
+
+### How the at-rest key is derived (and why that matters)
+
+The AES-256-GCM key that encrypts the wallet mnemonic is derived from **public credential metadata**, not from a secret held by the authenticator:
+
+```
+key = PBKDF2( SHA-256("w3pk-v4:" + credentialId + ":" + publicKey),
+              salt = SHA-256("w3pk-salt-v4"),   // fixed constant, present in the source
+              210_000 iterations, SHA-256 )
+```
+
+Every input to that key lives in the browser profile:
+
+- `credentialId` — stored next to the ciphertext in **IndexedDB**
+- `publicKey` — stored in **plaintext in localStorage** (it's needed for key derivation)
+- `salt` — a **constant string** in the open-source code
+
+So an attacker who can read this origin's localStorage **and** IndexedDB — a malicious browser extension, a one-shot XSS that exfiltrates storage, a disk image of an unlocked device, or a Time Machine / cloud backup of the browser profile — can recompute the key and decrypt the seed **offline, with no biometric/PIN prompt and without ever calling the SDK.** The prompt gates SDK control flow (a UX and anti-casual-misuse boundary), not the cryptography at rest.
+
+**What at-rest encryption does buy you:** protection against a wallet blob that leaks *in isolation* (e.g. only the IndexedDB object, without localStorage's public key) and against casual inspection. It is **not** a defense against read access to the full browser profile. The [Threat Model](#threat-model) section has the per-scenario matrix.
+
+### "Remember Me" (persistent sessions): PRF-keyed, renewed at every real login
+
+`persistentSession.enabled: true` stores the encrypted mnemonic in IndexedDB so the user isn't prompted on every page refresh. Unlike wallet storage, the persistent-session blob is **not** encrypted under a public-data-derived key. It is encrypted under a key derived (HKDF-SHA256) from the **WebAuthn PRF extension output** — a per-credential secret the authenticator releases only during a user-verified (biometric/PIN) assertion. Nothing stored on disk can recompute it. Every real login re-evaluates the PRF (with a fixed input, so the output is deterministic per credential) and re-keys the blob; the session expiry *is* the renewal boundary.
+
+The at-rest guarantee then depends on `requireReauth`:
+
+- **`requireReauth: true` (default):** the key is **never stored**. Every restore re-derives it from a live assertion's PRF output. A storage-read attacker (extension, storage-exfiltrating XSS, disk image, cloud backup of the profile) gets ciphertext that cannot be decrypted without the physical authenticator — the blob is hardware-bound at rest.
+- **`requireReauth: false` (silent "Remember Me"):** the PRF-derived key is stored alongside the blob as a **non-extractable `CryptoKey`**, so restore works without a prompt. Scripts (including XSS) can *use* it while it lives but can never read its bytes, and it cannot be recomputed from any stored strings. The honest limit: an attacker who copies the **full browser profile** at the storage-engine level carries the key material with it. Silent restore fundamentally requires a usable key on disk; this is the strongest form it can take.
+- **No PRF support** (older authenticators, some browser/OS combos): persistent sessions are **not stored at all** — the device gets in-memory sessions only. There is deliberately no fallback to weaker encryption.
+
+What "Remember Me" still changes is the **exposure window**, not the trust model: a compromise of the already-trusted origin (XSS, a malicious npm dependency, a compromised script/CDN) can use the live session *any time within the configured duration*, including while the tab is idle and across browser restarts — instead of only while the wallet is actively in use.
+
+**Reasonable to accept** for a hot wallet on a user's own device — it's the same bargain as "stay logged in" everywhere. **Guidance:**
+
+- Leave it disabled (the default) if every unlock should require a biometric/PIN prompt.
+- Keep the duration short for higher-value wallets. `sessionDuration: 0` forces a prompt on every operation.
+- `requireReauth: true` (default) still prompts on page refresh and keeps the blob hardware-bound; `requireReauth: false` restores silently for the whole duration.
+- Do not enable it on shared or untrusted devices.
+
+### Origin / hostname / URL scoping
+
+What the credential and stored data are bound to — three *different* scopes, and none of them is the full URL:
+
+| Bound to | Scope | Enforced by |
+|---|---|---|
+| Stored session / wallet / credentials | **Origin** = scheme + host + port | Browser storage partitioning |
+| WebAuthn passkey (RP ID) | **Hostname** (exact host) | Browser WebAuthn API, re-checked on every assertion |
+
+- **Path and query are irrelevant.** `https://app.example.com/wallet` and `https://app.example.com/x?y=1` are the same origin; a remembered session works on every page of the site, not one URL.
+- A different scheme (`http:`), port (`:3000`), or host (`other.example.com`) is a **different origin** with separate storage, and a passkey bound to one exact hostname won't work on another. This is the anti-phishing guarantee — see [Credential Scoping and Domain Isolation](#credential-scoping-and-domain-isolation).
+- **The hole to understand:** origin isolation walls the data off from *other origins*, not from code running *inside* your origin. XSS, a malicious dependency, or a compromised CDN on your own site runs *as* your origin and can use the session exactly like your legitimate code. **"Only this origin" is not "only my code."**
+
+### Backup files (the "floppy disk")
+
+A backup file is portable and independent of any device. What an attacker who obtains **only the file** can do depends on its type:
+
+| Backup type | Decrypts with | Is the file alone enough? |
+|---|---|---|
+| `password` | User password (PBKDF2-SHA256, 310k iters, random per-file salt) | ❌ Needs the password |
+| `passkey` | Key derived from `credentialId` + the credential's **full public key** | ❌ The full public key is **not** in the file (only a truncated fingerprint) |
+| `hybrid` | Password **and** the passkey-derived key | ❌ Needs both |
+
+A backup file on its own is not decryptable in any variant. Note the `passkey` type's caveat differs from the wallet-at-rest case: the full public key it needs lives in device storage or a synced authenticator, not in the file — but it *is* public metadata, so a `passkey` backup **combined with** a storage dump (or a synced device) is decryptable without a password. Password and hybrid backups stay gated by the password regardless. **For a backup that leaves the device (cloud, USB, guardians), prefer `password` or `hybrid`.**
 
 ## Enhanced Security Model (v0.8.0+)
 
@@ -306,19 +375,20 @@ console.assert(
 
 ### ✅ Protected Against
 
-1. **File System Access** - Attacker with access to browser storage cannot decrypt wallet
-2. **Malware/Keyloggers** - Encryption key never exists in recoverable form
-3. **Memory Dumps** - Keys are ephemeral and derived on-demand
-4. **Database Theft** - Encrypted wallet is useless without biometric authentication
-5. **JavaScript Injection** - Cannot replay signatures (fresh challenge each time)
+1. **Cross-origin / cross-site access** - Another origin cannot read this origin's storage or use its passkey (browser-enforced)
+2. **Phishing** - Passkey is bound to the exact hostname; a look-alike domain cannot use it
+3. **Partial storage leak** - A wallet blob leaked *without* the localStorage public key is not directly decryptable
+4. **Remote network attacks** - No secret is transmitted; decryption needs local file access
+5. **Signature replay** - Fresh WebAuthn challenge each time
 
 ### ⚠️ NOT Protected Against
 
-1. **Physical coercion** - Forcing user to authenticate
-2. **Compromised authenticator** - If hardware is backdoored
-3. **Active browser session** - If wallet is in memory and user is authenticated
-4. **Offline mnemonic theft** - If attacker has browser storage files (see Threat Model below)
-5. **XSS with active session** - Code injection during authenticated session
+1. **Full browser-profile read access** - An attacker who can read this origin's localStorage **and** IndexedDB derives the key and decrypts the seed offline, with no prompt (see [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt))
+2. **Malicious extension / XSS exfil / disk image / profile backup** - All are forms of the above storage-read attack
+3. **Compromised origin code** - XSS, a malicious dependency, or a compromised CDN runs *as* your origin and can use an active or persistent session
+4. **Physical coercion** - Forcing the user to authenticate
+5. **Compromised authenticator** - If the hardware is backdoored
+6. **Unlocked-device / active-session theft** - Wallet reachable while a session is live
 
 ## Threat Model
 
@@ -1305,59 +1375,36 @@ const encryptionKey = await crypto.subtle.deriveKey(
 )
 ```
 
-**Important security properties:**
+**Important security properties (read honestly):**
 
-- The encryption key is **deterministic** - the same credential metadata always produces the same key
-- An attacker with both localStorage (credential metadata) AND IndexedDB (encrypted wallet) **can derive the encryption key**
-- **The actual security boundary is SDK-enforced authentication** - the SDK requires WebAuthn authentication before allowing any operations
-- This is **authentication-gated encryption**, not signature-based encryption
+- The encryption key is **deterministic** - the same credential metadata always produces the same key.
+- Both key inputs live in the browser profile: `credentialId` in IndexedDB, `publicKey` in plaintext in localStorage, and the salt is a constant in the source. **An attacker who can read this origin's storage can derive the key and decrypt the seed offline.**
+- The biometric/PIN prompt is an **SDK control-flow gate**, not a cryptographic barrier. It stops someone from driving *your SDK* without authenticating; it does **not** stop someone who bypasses the SDK and decrypts the files directly.
+- This is **not** signature-based or PRF-based encryption — the key is not bound to any authenticator-held secret.
 
-**Why this approach is still secure:**
+**What an attacker with storage read access can actually do:**
 
-1. **SDK enforces WebAuthn authentication** before any operation:
-   ```typescript
-   // User must authenticate before the SDK allows decryption
-   await w3pk.login()  // ✅ Triggers biometric/PIN prompt
-   // Now SDK will decrypt wallet internally
-   ```
+```typescript
+// Attacker has copied this origin's localStorage + IndexedDB
+const stolenCredentialId  = "..."   // from IndexedDB (next to the ciphertext)
+const stolenPublicKey     = "..."   // from localStorage (plaintext)
+const stolenEncryptedSeed = "..."   // from IndexedDB
 
-2. **WebAuthn authentication cannot be bypassed** without:
-   - Physical device access AND
-   - User's biometric (fingerprint/face) OR device PIN/password
-   - Browser shows authentication prompt (user can verify domain)
+// Recompute the key from public metadata — no authenticator, no prompt
+const key = deriveEncryptionKeyFromWebAuthn(stolenCredentialId, stolenPublicKey)
+const mnemonic = decryptData(stolenEncryptedSeed, key)   // ✅ seed recovered offline
 
-3. **Even with file access, attacker must authenticate:**
-   ```typescript
-   // Attacker steals files
-   const stolenCredentialId = "..."
-   const stolenPublicKey = "..."
-   const stolenEncryptedWallet = "..."
+// The SDK's login() gate is irrelevant — they already have the mnemonic and
+// can import it into MetaMask, Ledger Live, or any other wallet.
+```
 
-   // Can derive the encryption key
-   const key = deriveEncryptionKeyFromWebAuthn(stolenCredentialId, stolenPublicKey)
+The only thing PBKDF2's 210k iterations add here is a mild slowdown; since the inputs are known exactly (not guessed), there is nothing to brute-force. **Treat the encrypted-at-rest seed as recoverable by anyone with read access to the browser profile for your origin.** The genuine boundaries are documented in [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt) and the [Threat Model](#threat-model).
 
-   // Can decrypt the wallet
-   const mnemonic = decryptData(stolenEncryptedWallet, key)
+**Trade-off: usability.** After a successful `login()`, the SDK caches the decrypted mnemonic in memory (and, if persistent sessions are enabled, on disk) so operations don't re-prompt. That convenience is the reason **wallet storage** accepts the at-rest weakness above rather than binding the key to a per-operation authenticator secret. **Persistent sessions do not share this weakness**: since v0.10.2 their blob is encrypted under a key derived from the WebAuthn PRF extension — an authenticator-held secret that cannot be recomputed from stored data (see [At-Rest Encryption → "Remember Me"](#at-rest-encryption-what-it-protects-and-what-it-doesnt)).
 
-   // BUT: To use the wallet via w3pk SDK, must authenticate
-   await w3pk.login()  // ❌ BLOCKED: Requires user's biometric/PIN
-   ```
+### 2. What's Stored
 
-4. **Protection from offline attacks:**
-   - PBKDF2 with 210,000 iterations slows down brute force
-   - But the real protection is that the attacker needs the actual credential metadata (not guessable)
-   - Credential IDs are 32+ byte random values (256+ bits of entropy)
-
-**Trade-off: Security vs Usability**
-
-This approach enables **secure sessions**:
-- After authentication, the SDK can cache the decrypted mnemonic in memory
-- Operations work without repeated biometric prompts for the session duration
-- Sessions expire after configured time (default: 1 hour)
-
-An alternative approach (signature-based encryption) would require biometric authentication for every single operation, which is more secure but less usable.
-
-### 2. What's Stored (All Safe to Expose)
+> ⚠️ The values below are individually "public," but **together they are sufficient to decrypt the wallet** (see the key derivation above). "No secrets stored" does **not** mean "safe to leak the whole profile."
 
 #### LocalStorage (Credentials)
 ```json
@@ -1380,11 +1427,12 @@ An alternative approach (signature-based encryption) would require biometric aut
 }
 ```
 
-**NO secrets stored:**
+**No *individually* secret values are stored:**
 - No private keys
 - No challenge values
-- No decryption keys
-- Only public identifiers + encrypted data
+- No stored decryption key *object*
+
+**But** the stored public identifiers (`credentialId` + `publicKey`) are exactly the key-derivation inputs, so possessing both stores is equivalent to possessing the decryption key. The absence of a stored key object is not a security boundary here.
 
 ### 3. Metadata Encryption in LocalStorage (v0.7.4+)
 
@@ -1894,7 +1942,7 @@ await navigator.credentials.get({
 - **Key Size:** 256 bits
 - **IV:** Random 12 bytes per encryption
 - **Authentication Tag:** 16 bytes (automatic with GCM)
-- **Additional Authenticated Data:** Ethereum address (for integrity)
+- **Additional Authenticated Data:** none — integrity comes from the GCM authentication tag above; no AAD is bound to the ciphertext
 
 **Entropy Analysis:**
 - Credential IDs are cryptographically random (256+ bits of entropy)
@@ -1903,11 +1951,10 @@ await navigator.credentials.get({
 - PBKDF2 with 210k iterations provides protection against brute force
 
 **Note on Fixed Salt:**
-The salt is fixed (`"w3pk-salt-v4"`) rather than random per user. This is acceptable because:
-- The credential ID itself provides uniqueness (32+ random bytes)
-- Preimage attacks against PBKDF2-SHA256 are not practical
-- The primary threat model is online authentication bypass, not offline brute force
-- An attacker needs the actual credential metadata (not guessable)
+The salt is a fixed constant (`"w3pk-salt-v4"`) rather than random per user, and it is present in the open-source code. Be clear about what this does and doesn't matter for:
+- It provides **no** per-user precomputation resistance — the same code path and salt are used for everyone. A random per-ciphertext salt (stored alongside the ciphertext) would be the correct construction.
+- In this design it changes little in practice, because the key inputs (`credentialId` + `publicKey`) are **not secret** — an attacker with storage access has them exactly, so there is nothing to precompute or brute-force in the first place. The fixed salt is a symptom of the same root issue: the key is derived from public data.
+- This is **not** adequate if the key material were ever a low-entropy secret (e.g. a user password); such a KDF must use a random per-ciphertext salt.
 
 ### Backup Encryption (User-Controlled)
 
@@ -1924,7 +1971,7 @@ The salt is fixed (`"w3pk-salt-v4"`) rather than random per user. This is accept
 - **Key Size:** 256 bits
 - **IV:** Random 12 bytes per encryption
 - **Authentication Tag:** 16 bytes (automatic with GCM)
-- **Additional Authenticated Data:** Ethereum address (for integrity)
+- **Additional Authenticated Data:** none — integrity comes from the GCM authentication tag above; no AAD is bound to the ciphertext
 
 **Password Requirements:**
 Enforced by `isStrongPassword()` utility:
@@ -1983,25 +2030,23 @@ w3pk supports **two types of sessions** (v0.8.2+):
 - ✅ Cleared on logout
 - ✅ Cleared when browser tab closes
 
-**Persistent Session (opt-in):**
-- ✅ Encrypted mnemonic in IndexedDB
-- ✅ Survives page refresh
-- ✅ Encrypted with WebAuthn-derived keys
-- ✅ Time-limited expiration
-- ✅ Only for STANDARD and YOLO modes
-- ❌ NEVER persisted for STRICT mode
+**Persistent Session (opt-in — "Remember Me"):**
+- Mnemonic encrypted in IndexedDB under a **WebAuthn-PRF-derived key** (HKDF-SHA256 of the authenticator's per-credential PRF secret); survives page refresh for the configured duration
+- Re-keyed at every real (prompted) login — the session expiry is the renewal boundary
+- `requireReauth: true`: the key is never stored; every restore re-derives it from a live user-verified assertion (blob is hardware-bound at rest)
+- `requireReauth: false`: the key is stored as a **non-extractable `CryptoKey`** for silent restore — usable by scripts, never readable, not recomputable from stored data
+- Requires a PRF-capable authenticator; without PRF, no persistent session is stored (in-memory only, no weaker fallback)
+- Only for STANDARD and YOLO modes; **NEVER** persisted for STRICT mode
+- Time-limited expiration; cleared on logout / `clearSession()`
 
 **What's NOT cached:**
 - ❌ Private keys (derived on-demand)
 - ❌ WebAuthn signatures (fresh each time)
-- ❌ Encryption keys (derived from signatures)
 
 **Security properties:**
-- Default sessions exist **only in RAM** - never persisted to disk
-- Persistent sessions **encrypted at rest** with WebAuthn-derived keys
-- Automatically cleared after expiration
-- Cleared on logout (both RAM and persistent)
-- Can be manually cleared with `clearSession()`
+- Default (in-memory) sessions exist **only in RAM** - never written to disk
+- Persistent sessions are keyed to the authenticator hardware via the PRF extension — a storage-read attacker cannot recompute the key from anything on disk (with `requireReauth: false`, the residual risk is a full browser-profile copy carrying the non-extractable key material at the storage-engine level; see [At-Rest Encryption → "Remember Me"](#at-rest-encryption-what-it-protects-and-what-it-doesnt))
+- Automatically cleared after expiration; cleared on logout (both RAM and persistent)
 - STRICT mode **always** requires fresh authentication (no persistence)
 
 ### Session Management API
@@ -2817,6 +2862,8 @@ IndexedDB     // Scoped to "https://example.com"
 // - http://example.com → different origin (different protocol)
 ```
 
+> **Caveat:** origin isolation only walls the data off from *other* origins. It does **not** protect against code running *inside* your own origin — XSS, a malicious dependency, or a compromised script/CDN on `example.com` runs *as* `example.com` and can read this storage and use the session. "Scoped to this origin" is not "only my code." See [At-Rest Encryption → Origin scoping](#at-rest-encryption-what-it-protects-and-what-it-doesnt).
+
 #### ✅ No Cross-Site Credential Replay
 
 ```typescript
@@ -3114,7 +3161,7 @@ w3pk implements a **three-layer backup and recovery system** that balances secur
 
 **Security properties:**
 - ✅ **Encrypted in transit** - Platform handles E2E encryption
-- ✅ **Hardware-backed** - Credentials protected by Secure Enclave/TPM
+- ✅ **Hardware-backed *passkey*** - The WebAuthn credential's private key is protected by the Secure Enclave/TPM. Note this hardware backing protects the *passkey (authentication/signing)*, **not** the wallet's at-rest encryption key — that key is derived from public metadata (see [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt)). The seed is not hardware-protected at rest.
 - ✅ **Automatic** - No user action required
 - ⚠️ **Platform trust** - Relies on Apple/Google/Microsoft security
 - ⚠️ **Ecosystem lock-in** - Cannot cross platforms (Apple → Android)

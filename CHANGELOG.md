@@ -5,7 +5,18 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.2] - 2026-07-10
+
+### Changed
+
+- **Persistent sessions are now encrypted with WebAuthn PRF-derived keys** (renewal-boundary PRF):
+  - `login()` and `register()` request the WebAuthn PRF extension with a fixed input, yielding a deterministic per-credential secret that only exists during a user-verified assertion
+  - The persistent-session mnemonic blob is encrypted under an HKDF-SHA256 key derived from that secret — no longer under a key recomputable from stored `credentialId`/`publicKey`
+  - `requireReauth: true`: the key is never stored; every restore re-derives it from a live assertion (blob is hardware-bound at rest)
+  - `requireReauth: false`: the key is stored as a non-extractable `CryptoKey` for silent restore; re-keyed at every real (prompted) login — the persistent-session `duration` is the renewal interval
+  - Authenticators without PRF support no longer get persistent sessions (in-memory sessions only); there is no fallback to weaker encryption
+  - Persistent-session DB bumped to v3: pre-existing records (old encryption scheme) are dropped, users re-key with one normal login
+  - Removed `encryptMnemonicForPersistence` / `decryptMnemonicFromPersistence`; `SessionManager.startSession` and `restoreFromPersistentStorage` now take a PRF-derived `CryptoKey` instead of a WebAuthn public key
 
 ### Added
 

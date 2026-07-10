@@ -31,6 +31,7 @@ import {
 } from "../wallet/origin-derivation";
 import {
   deriveEncryptionKeyFromWebAuthn,
+  derivePrfSessionKey,
   encryptData,
   decryptData,
 } from "../wallet/crypto";
@@ -166,11 +167,16 @@ export class Web3Passkey {
       encryptionKey
     );
 
+    // This assertion's PRF output (re-)keys the persistent session
+    const prfSessionKey = authResult.prfOutput
+      ? await derivePrfSessionKey(authResult.prfOutput)
+      : undefined;
+
     await this.sessionManager.startSession(
       mnemonic,
       walletData.credentialId,
       this.currentUser.ethereumAddress,
-      publicKey,
+      prfSessionKey,
       effectiveMode
     );
 
@@ -192,7 +198,7 @@ export class Web3Passkey {
       const ethereumAddress = this.currentWallet!.address;
       const mnemonic = this.currentWallet!.mnemonic!;
 
-      await register({
+      const registration = await register({
         username: options.username,
         ethereumAddress,
       });
@@ -227,11 +233,17 @@ export class Web3Passkey {
         createdAt: new Date().toISOString(),
       });
 
+      // Some platforms evaluate the PRF at creation; if this one didn't,
+      // the persistent session starts at the first login() instead
+      const prfSessionKey = registration.prfOutput
+        ? await derivePrfSessionKey(registration.prfOutput)
+        : undefined;
+
       await this.sessionManager.startSession(
         mnemonic,
         credentialId,
         ethereumAddress,
-        publicKey,
+        prfSessionKey,
         'STANDARD' // Default security mode for register
       );
 
@@ -319,11 +331,18 @@ export class Web3Passkey {
       const credential = await storage.getCredentialById(walletData.credentialId);
       const publicKey = credential?.publicKey;
 
+      // Key derived from THIS assertion's PRF output: decrypts the existing
+      // persistent session (deterministic PRF input → same key as when the
+      // blob was written) and re-keys the next one
+      const prfSessionKey = result.prfOutput
+        ? await derivePrfSessionKey(result.prfOutput)
+        : undefined;
+
       // Try to restore from persistent session first (if requireReauth is true)
       const restoredMnemonic = await this.sessionManager.restoreFromPersistentStorage(
         this.currentUser.ethereumAddress,
         walletData.credentialId,
-        publicKey || ''
+        prfSessionKey
       );
 
       let mnemonic: string;
@@ -347,7 +366,7 @@ export class Web3Passkey {
           mnemonic,
           walletData.credentialId,
           this.currentUser.ethereumAddress,
-          publicKey,
+          prfSessionKey,
           'STANDARD' // Default security mode
         );
       }
@@ -659,11 +678,15 @@ export class Web3Passkey {
         mnemonic: mnemonic.trim(),
       };
 
+      const prfSessionKey = authResult.prfOutput
+        ? await derivePrfSessionKey(authResult.prfOutput)
+        : undefined;
+
       await this.sessionManager.startSession(
         mnemonic.trim(),
         credentialId,
         this.currentUser.ethereumAddress,
-        publicKey,
+        prfSessionKey,
         'STANDARD' // Default security mode for importMnemonic
       );
     } catch (error) {
@@ -1880,12 +1903,14 @@ export class Web3Passkey {
           ethereumAddress,
         };
 
-        // Start a new session with the restored wallet
+        // Start a new session with the restored wallet.
+        // No fresh assertion (and thus no PRF output) is in scope here, so
+        // the session is in-memory only; the next login() persists it.
         await this.sessionManager.startSession(
           mnemonic,
           credential.id,
           ethereumAddress,
-          credential.publicKey,
+          undefined,
           'STANDARD' // Default security mode
         );
 
@@ -2006,12 +2031,14 @@ export class Web3Passkey {
         credentialId: credential.id,
       };
 
-      // Start session
+      // Start session.
+      // No fresh assertion (and thus no PRF output) is in scope here, so
+      // the session is in-memory only; the next login() persists it.
       await this.sessionManager.startSession(
         mnemonic,
         credential.id,
         ethereumAddress,
-        credential.publicKey,
+        undefined,
         'STANDARD'
       );
 
@@ -2303,6 +2330,17 @@ export class Web3Passkey {
    */
   setSessionDuration(hours: number): void {
     this.sessionManager.setSessionDuration(hours);
+  }
+
+  /**
+   * Update the persistent-session duration (the "Remember Me" window).
+   * Takes effect the next time a session is persisted — i.e. at the next
+   * real (prompted) login, which is also when the blob is re-keyed with a
+   * fresh PRF-derived key. The duration is therefore the renewal interval.
+   * @param hours - Duration in hours
+   */
+  setPersistentSessionDuration(hours: number): void {
+    this.sessionManager.setPersistentSessionDuration(hours);
   }
 
   /**

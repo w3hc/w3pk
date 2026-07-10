@@ -4,23 +4,39 @@
  * Enables "Remember Me" functionality for STANDARD and YOLO mode wallets.
  *
  * SECURITY:
- * - Sessions encrypted with WebAuthn-derived keys
+ * - The mnemonic blob is encrypted with a key derived from the WebAuthn PRF
+ *   extension: a secret the authenticator releases only during a
+ *   user-verified assertion. Nothing stored on disk can re-derive it.
+ * - requireReauth: true  → the key is NOT stored; every restore re-evaluates
+ *   the PRF on a live assertion. The blob is hardware-bound at rest.
+ * - requireReauth: false → the key is stored as a NON-EXTRACTABLE CryptoKey
+ *   so silent restore works without a prompt. Scripts can use it but never
+ *   read its bytes; it is refreshed at every real (prompted) login.
+ * - Authenticators without PRF get no persistent sessions (in-memory only) —
+ *   there is deliberately no weaker fallback encryption.
  * - Only enabled for STANDARD and YOLO modes (STRICT mode excluded)
- * - Time-limited expiration
- * - Origin-isolated via IndexedDB
- * - Requires valid WebAuthn credential to decrypt
+ * - Time-limited expiration; the expiry IS the renewal boundary: when the
+ *   blob expires, the next login prompts, and that assertion's PRF output
+ *   re-keys a fresh blob.
  */
 
-import { StorageError, CryptoError } from "./errors";
-import { encryptData, decryptData, deriveEncryptionKeyFromWebAuthn } from "../wallet/crypto";
+import { StorageError } from "./errors";
 import type { SecurityMode } from "../types";
 
 /**
  * Persistent session data stored in IndexedDB
  */
 export interface PersistentSessionData {
-  /** Encrypted mnemonic for session recovery */
+  /** Mnemonic encrypted under the PRF-derived AES-GCM key */
   encryptedMnemonic: string;
+  /**
+   * The PRF-derived key, stored ONLY when silent restore is enabled
+   * (requireReauth: false). Non-extractable: IndexedDB persists the CryptoKey
+   * object itself via structured clone, never exposing raw bytes to scripts.
+   * Absent when requireReauth is true — decryption then requires a fresh
+   * user-verified assertion.
+   */
+  sessionKey?: CryptoKey;
   /** Expiration timestamp */
   expiresAt: number;
   /** WebAuthn credential ID */
@@ -46,7 +62,10 @@ export interface PersistentSessionConfig {
 }
 
 const DB_NAME = "Web3PasskeyPersistentSessions";
-const DB_VERSION = 2; // Incremented to force recreation of broken databases
+// v3: PRF-keyed encryption. Old records were encrypted under keys derivable
+// from stored data (credentialId + publicKey) — they are dropped, not
+// migrated. Users re-key with one normal login.
+const DB_VERSION = 3;
 const STORE_NAME = "sessions";
 
 /**
@@ -76,11 +95,14 @@ export class PersistentSessionStorage {
       // This ensures the object store is created before the database opens
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const store = db.createObjectStore(STORE_NAME, { keyPath: "ethereumAddress" });
-          // Index by expiration for cleanup
-          store.createIndex("expiresAt", "expiresAt", { unique: false });
+        // Pre-v3 records are encrypted under keys derivable from stored data:
+        // drop them wholesale instead of migrating
+        if (db.objectStoreNames.contains(STORE_NAME)) {
+          db.deleteObjectStore(STORE_NAME);
         }
+        const store = db.createObjectStore(STORE_NAME, { keyPath: "ethereumAddress" });
+        // Index by expiration for cleanup
+        store.createIndex("expiresAt", "expiresAt", { unique: false });
       };
 
       request.onsuccess = () => {
@@ -214,34 +236,3 @@ export class PersistentSessionStorage {
   }
 }
 
-/**
- * Encrypt mnemonic for persistent storage
- */
-export async function encryptMnemonicForPersistence(
-  mnemonic: string,
-  credentialId: string,
-  publicKey: string
-): Promise<string> {
-  try {
-    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
-    return await encryptData(mnemonic, encryptionKey);
-  } catch (error) {
-    throw new CryptoError("Failed to encrypt mnemonic for persistence", error);
-  }
-}
-
-/**
- * Decrypt mnemonic from persistent storage
- */
-export async function decryptMnemonicFromPersistence(
-  encryptedMnemonic: string,
-  credentialId: string,
-  publicKey: string
-): Promise<string> {
-  try {
-    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
-    return await decryptData(encryptedMnemonic, encryptionKey);
-  } catch (error) {
-    throw new CryptoError("Failed to decrypt mnemonic from persistence", error);
-  }
-}

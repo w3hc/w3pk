@@ -6,7 +6,7 @@ import {
   arrayBufferToBase64Url,
   base64UrlToArrayBuffer,
 } from "../utils/base64";
-import { generateChallenge } from "../wallet/crypto";
+import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 
 export async function login(): Promise<AuthResult> {
   try {
@@ -33,8 +33,19 @@ export async function login(): Promise<AuthResult> {
     const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
       challenge: challengeBuffer,
       rpId: window.location.hostname,
+      // PRF requires user verification; keep "required" or PRF output vanishes
       userVerification: "required",
       timeout: 60000,
+      // Evaluate the PRF with a FIXED input: the output is a deterministic
+      // per-credential secret, so the session key derived at this login can
+      // decrypt what the previous login encrypted.
+      extensions: {
+        prf: {
+          eval: {
+            first: PRF_INPUT,
+          },
+        },
+      } as AuthenticationExtensionsClientInputs,
     };
 
     if (allowCredentials.length > 0) {
@@ -91,6 +102,11 @@ export async function login(): Promise<AuthResult> {
       throw new Error("Signature verification failed");
     }
 
+    // Authenticator-held secret released by this user-verified assertion.
+    // Undefined on authenticators without PRF support — persistent sessions
+    // are then disabled for this device (in-memory sessions still work).
+    const prfOutput = assertion.getClientExtensionResults?.().prf?.results?.first;
+
     return {
       verified: true,
       user: {
@@ -99,6 +115,7 @@ export async function login(): Promise<AuthResult> {
         credentialId: credential.id,
       },
       signature: assertion.response.signature,
+      prfOutput,
     };
   } catch (error) {
     throw new AuthenticationError(
