@@ -1312,16 +1312,24 @@ If you discover a security vulnerability in w3pk, please report it responsibly:
 - Attempt to exploit in production systems
 
 **Do:**
-- Email security details to the maintainers (see README.md)
+- Report privately via [GitHub Security Advisories](https://github.com/w3hc/w3pk/security/advisories/new)
 - Provide detailed reproduction steps
 - Wait for confirmation before public disclosure
 - Follow responsible disclosure timeline (typically 90 days)
 
 **We will:**
-- Acknowledge receipt within 48 hours
+- Acknowledge receipt within 48 hours (within 24 hours for a vulnerability reported as actively exploited)
 - Investigate and provide updates
 - Work on a fix and coordinate disclosure
 - Credit you in security advisories (if desired)
+
+### Coordinated Disclosure and Downstream Compliance (EU Cyber Resilience Act)
+
+w3pk is FOSS (GPL-3.0) published outside the course of a commercial activity, which keeps it outside direct CRA "manufacturer" obligations. Applications that embed w3pk and are placed on the EU market commercially are generally the "manufacturer" under the CRA, and carry its vulnerability-handling duties — including the 24-hour early warning and 72-hour report to ENISA/CSIRTs for an actively exploited vulnerability, once the relevant CRA provisions apply.
+
+The acknowledgment timeline above exists to support that: a fast, accurate advisory from us is what lets a downstream integrator meet their own reporting clock. If you are shipping a commercial product built on w3pk, treat our GitHub Security Advisories as your upstream source and don't wait on us past those windows — file your own report on the timeline the CRA requires and update it as we provide details.
+
+**Outside the EU:** no direct equivalent imposes the same fixed vulnerability-reporting clock on a wallet SDK. The US has no mandatory product-security law comparable to the CRA — the closest analogue, the FCC's Cyber Trust Mark, is a voluntary IoT label; sector-specific rules (the SEC's 4-business-day incident disclosure, CISA's CIRCIA reporting) apply to public companies and critical-infrastructure operators, not FOSS maintainers or typical wallet integrators. China's amended Cybersecurity Law (effective January 1, 2026) tightens incident-reporting timelines and adds personal liability for responsible officers, but it is a data/incident-security regime, not a CRA-style product certification, and applies to entities operating in China rather than to this project. Integrators distributing into those markets should check their own obligations under those regimes separately; this section covers the EU CRA specifically because it is the one with reporting deadlines that reach this project's disclosure process.
 
 ## How It Works
 

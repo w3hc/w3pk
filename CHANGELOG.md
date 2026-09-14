@@ -5,6 +5,13 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **docs/SECURITY.md**: fixed the vulnerability-reporting channel (previously pointed at a nonexistent README email; now points to GitHub Security Advisories); added a section on EU Cyber Resilience Act disclosure timelines as they relate to w3pk (FOSS) vs. commercial integrators, with a brief note on the US and China regimes
+- **docs/POST_QUANTUM.md**: refreshed the post-quantum roadmap to reflect current Ethereum PQ migration planning
+
 ## [0.10.2] - 2026-07-10
 
 ### Changed
