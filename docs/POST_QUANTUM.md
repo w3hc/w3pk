@@ -2,1321 +2,160 @@
 
 ## Executive Summary
 
-The w3pk SDK has **strong conventional cryptography** but is vulnerable to future quantum attacks through its ECDSA signature schemes (secp256k1 and P-256). Based on expert consensus, we have **10-15 years** before cryptographically relevant quantum computers (CRQC) pose real threats. Our strategy: **plan deliberately, not panic**.
+w3pk's data-encryption layer is already post-quantum: **ML-KEM-1024** (NIST FIPS 203) ships today for encrypting data at rest and in transit. What remains quantum-vulnerable is **transaction signing** — secp256k1 (Ethereum) and P-256 (WebAuthn passkeys) both fall to Shor's algorithm on a cryptographically relevant quantum computer (CRQC). Expert consensus, including the Ethereum Foundation's own estimate, puts CRQC arrival in the **early-to-mid 2030s**, and no immediate action is required.
 
-This document is aligned with the [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132) (February 2026), which outlines Ethereum's protocol-level approach to quantum threats.
+Crucially, **the signature problem is not ours to solve unilaterally.** A w3pk transaction is only as quantum-safe as the L1 rules that accept it. Ethereum's own migration — the [lean Ethereum](https://blog.ethereum.org/2025/07/31/lean-ethereum) programme — targets **roughly 2029** for core L1 post-quantum infrastructure (consensus signatures, execution-layer verification), with full ecosystem migration extending past that. w3pk's signature strategy is therefore to track that protocol timeline rather than build a bespoke, pre-standard PQ signature stack that would need to be thrown away once the protocol-native path lands.
 
-### Current Status: Quantum-Aware Architecture
+The full technical detail behind Ethereum's plan lives with the Ethereum Foundation's own sources — [pq.ethereum.org](https://pq.ethereum.org/), the [lean Ethereum announcement](https://blog.ethereum.org/2025/07/31/lean-ethereum), and the [EF Protocol Architecture roadmap](https://strawmap.org/) — this document summarizes only what drives w3pk decisions.
 
-w3pk can be characterized as:
+### What w3pk will do when Ethereum is ready
 
-- ✅ **Quantum-aware** - Architecture designed with quantum migration in mind
-- ✅ **Quantum-resistant encryption** - AES-256-GCM provides 128-bit quantum security
-- ✅ **Migration-ready** - Account abstraction (EIP-7702 / EIP-4337) enables smooth transition
-- ⚠️ **Signature vulnerability** - secp256k1 and P-256 vulnerable to Shor's algorithm
-- 🔮 **Timeline to full quantum-readiness** - 18-24 months (Phase 2 completion)
+Ethereum's official target for core L1 post-quantum infrastructure is **~2029** (the EF's own planning language; some trackers cite December 2029 as the working milestone). The action w3pk takes is gated on two concrete protocol events, not on the calendar date itself:
 
-### Risk Assessment
+| Trigger | w3pk action |
+| --- | --- |
+| **EIP-8141 (frame transactions / native account abstraction) ships on mainnet**, with a working PQ signature path (precompile or validation-frame verifier) | Ship an opt-in `quantumSafe` account mode: a validation frame that requires a hybrid classical + PQ signature (secp256k1 + whatever ML-DSA/hash-based scheme Ethereum standardizes). No forced migration — existing EOAs and finalized history remain valid regardless. |
+| **Hybrid mode proves stable in production** (gas costs acceptable, tooling mature, no incidents) | Make `quantumSafe: true` the default for **new** wallets created via `register()`. Existing wallets stay opt-in. |
+| **Ethereum's consensus/execution layers complete PQ migration** (fork milestones L*/M* and beyond) | Offer a one-time, user-initiated migration path from classical-only to hybrid/PQ-only accounts. Never auto-migrate funds or force a breaking change without explicit user action. |
 
-**Low/Moderate Risk Components:**
-- ✅ **Encrypted backups** (AES-256-GCM) - Minimal harvest-now-decrypt-later (HNDL) risk
-- ✅ **Session encryption** (AES-256-GCM) - Quantum-safe with 128-bit security
-- ✅ **PBKDF2** - Moderate risk (Grover's algorithm), easily mitigated
+Until the first trigger fires, w3pk deliberately does **not** deploy interim smart-contract PQ signature verifiers (e.g., pre-standard ERC-4337 PQ verifier contracts). That infrastructure is not part of Ethereum's actual roadmap — the real path is EIP-8141 validation frames — and building on a throwaway interim layer would mean migrating twice. w3pk's only actionable signature-side task today is watching the fork milestones (below) and keeping the SDK's existing [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) account-abstraction support in place, since that's the on-ramp to whatever native AA scheme ships.
 
-**High Risk Components:**
-- ⚠️ **Transaction signatures** (secp256k1 ECDSA) - Shor's algorithm enables private key recovery
-- ⚠️ **WebAuthn passkeys** (P-256 ECDSA) - Same vulnerability as secp256k1
-- ⚠️ **Stealth addresses** (ERC-5564 ECDH) - Key agreement vulnerable to quantum attacks
+### Current status
 
----
+- ✅ **Quantum-resistant encryption, shipped** — ML-KEM-1024 (FIPS 203) + AES-256-GCM, see [ML-KEM Encryption](#ml-kem-encryption) below
+- ✅ **Migration-ready** — [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) account delegation gives a path to whatever account-abstraction scheme Ethereum ships
+- ⚠️ **Signature vulnerability, by design (for now)** — secp256k1 and P-256 signing is classical-only; this tracks Ethereum's own L1 timeline rather than a w3pk-specific one
+- 🔮 **No user action needed today** — nothing here changes what a w3pk integrator or end user does; this is an architecture-tracking document
 
-## Ethereum's Quantum Threat Landscape
+### Risk assessment
 
-Based on the [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132), **four components** of Ethereum are quantum-vulnerable:
+**Low/moderate risk (already mitigated):**
+- ✅ Encrypted backups, session storage (AES-256-GCM) — 128-bit quantum security, negligible harvest-now-decrypt-later (HNDL) exposure
+- ✅ Data encrypted with `mlkemEncrypt`/`mlkemDecrypt` — post-quantum secure today
+- ✅ PBKDF2 key derivation — Grover's algorithm halves effective security; current iteration counts (210k/310k/100k) leave ample margin for the 2030s
 
-1. **Consensus-layer BLS signatures** - Vulnerable to Shor's algorithm
-2. **Data availability (KZG commitments+proofs)** - Relies on elliptic curve pairings
-3. **EOA signatures (ECDSA)** - **w3pk's primary concern**
-4. **Application-layer ZK proofs (KZG or Groth16)** - Pairing-based cryptography
-
-**w3pk addresses #3 (EOA signatures)** through account abstraction and hybrid post-quantum signatures.
-
-### Ethereum's Protocol-Level Solutions
-
-| Component | Current State | Quantum-Safe Solution | Status |
-|-----------|---------------|----------------------|--------|
-| Consensus signatures | BLS12-381 | Hash-based signatures (Winternitz) + STARKs | Research phase |
-| Data availability | KZG | STARKs (recursive proofs for blob verification) | Engineering phase |
-| EOA signatures | ECDSA (secp256k1) | **Native AA (EIP-8141) + hash/lattice signatures** | Specification phase |
-| ZK proofs | KZG/Groth16 | **Protocol-layer recursive proof aggregation** | Research phase |
-
-**Key insight from the [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132):** Quantum-resistant signatures are **~200,000 gas** for hash-based (Winternitz) and require **vectorized math precompiles** for lattice-based schemes. Protocol-layer proof aggregation will reduce costs to near-zero by replacing validation frames with STARKs.
+**High risk (tracks Ethereum's own timeline, not w3pk's):**
+- ⚠️ Transaction signatures (secp256k1 ECDSA) — broken by Shor's algorithm on a CRQC; fix depends on Ethereum shipping EIP-8141 + a PQ verification path
+- ⚠️ WebAuthn passkeys (P-256 ECDSA) — same underlying vulnerability; FIDO Alliance PQ support is not expected before 2027-2028
+- ⚠️ Stealth addresses (ERC-5564 ECDH) — key agreement step is quantum-vulnerable; no standardized PQ replacement exists yet
 
 ---
 
-## Current Cryptographic Architecture
+## Ethereum's post-quantum roadmap (summary)
 
-### Cryptographic Primitives in Use
+Full detail: [pq.ethereum.org](https://pq.ethereum.org/) and the [lean Ethereum announcement](https://blog.ethereum.org/2025/07/31/lean-ethereum). This section extracts only what shapes w3pk's decisions.
 
-#### Asymmetric Cryptography (Quantum-Vulnerable)
+Ethereum depends on four families of public-key cryptography broken by Shor's algorithm: ECDSA (secp256k1) for account signatures, BLS signatures for validator attestations, KZG polynomial commitments for blob data availability, and pairing-based SNARKs at the application layer. The EF's [Post-Quantum team](https://pq.ethereum.org/) frames the realistic failure mode as **stolen funds and impersonation**, not rewriting finalized history — past transactions stay valid regardless of what happens later.
 
-| Component | Algorithm | Use Case | Quantum Threat | Ethereum Equivalent |
-|-----------|-----------|----------|----------------|---------------------|
-| Ethereum Signing | secp256k1 ECDSA | Transaction/message signatures | **HIGH** - Shor's algorithm | EOA signatures (#3) |
-| WebAuthn Passkeys | P-256 (ES256) | Authentication signatures | **HIGH** - Shor's algorithm | Not applicable |
-| Stealth Addresses | secp256k1 ECDH | Privacy-preserving key exchange | **HIGH** - Shor's algorithm | Application-layer |
-| HD Derivation | BIP32/BIP44 | Hierarchical key generation | **HIGH** - Depends on ECDSA | Not applicable |
+The response is the **lean Ethereum** programme (Justin Drake, July 2025), which makes the hash function the single cryptographic primitive across consensus, data, and execution:
 
-#### Symmetric Cryptography (Quantum-Resistant)
+| Layer | Current | Post-quantum replacement | Status |
+| --- | --- | --- | --- |
+| Consensus (validator signatures) | BLS12-381 | **leanXMSS** — hash-based, Merkle-tree signatures | Research/spec phase |
+| Aggregation | Native algebraic (BLS) | **leanVM** — Cairo-inspired zkVM producing one SNARK per slot | Reference implementation exists |
+| Execution (account signatures) | ECDSA (secp256k1) | **EIP-8141 frame transactions** — account-defined validation logic | Specification phase |
+| Data availability | KZG commitments (pairing-based) | STARK-style or lattice-based commitments | Not yet efficient at scale |
 
-| Component | Algorithm | Use Case | Quantum Security |
-|-----------|-----------|----------|------------------|
-| Wallet Encryption | AES-256-GCM | Mnemonic storage | **128-bit** (sufficient) |
-| Backup Encryption | AES-256-GCM | Password-based backups | **128-bit** (sufficient) |
-| Session Storage | AES-256-GCM | Persistent sessions | **128-bit** (sufficient) |
+**Execution layer — EIP-8141** is the piece that matters most for w3pk. It introduces a new transaction type that decomposes validation into **frames**, letting an account define its own signature-checking logic via an `APPROVE` opcode. This is what gives wallets (including w3pk) the ability to adopt a PQ scheme on their own schedule, without a network-wide flag day. It supersedes most of what ERC-4337 does today with off-chain bundlers.
 
-#### Key Derivation Functions
+Whole-scheme verifier drafts already exist: [EIP-8051](https://eips.ethereum.org/EIPS/eip-8051) (`VERIFY_MLDSA`, FIPS 204-compliant, plus a cheaper `VERIFY_MLDSA_ETH` variant), [EIP-8355](https://eips.ethereum.org/EIPS/eip-8355) (extends ML-DSA to security levels III/V), and an older [Falcon](https://eips.ethereum.org/EIPS/eip-7619) proposal. The execution-layer team currently favors a **vector math precompile** (e.g. [EIP-7885](https://eips.ethereum.org/EIPS/eip-7885)) over locking in one whole-scheme verifier, to avoid betting the protocol on an algorithm that later falls to cryptanalysis.
 
-| Component | Algorithm | Parameters | Quantum Resistance |
-|-----------|-----------|------------|-------------------|
-| Wallet Encryption | PBKDF2-SHA256 | 210,000 iterations | **Moderate** (Grover's reduces by ~50%) |
-| Backup Encryption | PBKDF2-SHA256 | 310,000 iterations | **Moderate** (Grover's reduces by ~50%) |
-| Metadata Encryption | PBKDF2-SHA256 | 100,000 iterations | **Moderate** (Grover's reduces by ~50%) |
+### Fork milestones
 
-#### Hash Functions
+These are planning milestones, not commitments — names and ordering may change.
 
-| Component | Algorithm | Use Case | Quantum Security |
-|-----------|-----------|----------|------------------|
-| General Hashing | SHA-256 | Checksums, derivation | **128-bit collision** (sufficient) |
-| Ethereum Hashing | Keccak-256 | ERC-5564, addresses | **128-bit collision** (sufficient) |
+| Fork | Milestone | Layer |
+| --- | --- | --- |
+| I* | PQ key registry | Consensus |
+| J* | PQ signature precompiles | Execution |
+| L* | PQ attestations, real-time CL proofs, leanVM | Consensus + Data |
+| M* | PQ signature aggregation, PQ blobs | Execution + Data |
+| Longer term | Full PQ consensus, PQ transactions, PQ sampling | All layers |
 
-### Architecture Diagram
+The nearest real fork is **Hegotá** (targeted 2027), which is not itself a PQ fork but the gate that decides whether later PQ forks land on schedule. Its two must-ship EIPs are [EIP-7805](https://eips.ethereum.org/EIPS/eip-7805) (FOCIL) and **EIP-8141**. If either hits friction, the whole downstream PQ schedule slips — this is the single most important thing for w3pk to watch.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    WebAuthn Passkey                         │
-│              (P-256 ECDSA - Quantum Vulnerable)             │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ Authentication
-                       ↓
-┌─────────────────────────────────────────────────────────────┐
-│              PBKDF2-SHA256 Key Derivation                   │
-│           (210k iterations - Moderate Quantum Risk)         │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ Derives Encryption Key
-                       ↓
-┌─────────────────────────────────────────────────────────────┐
-│                  AES-256-GCM Encryption                     │
-│            (128-bit quantum security - SAFE)                │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ Decrypts Mnemonic
-                       ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    BIP39 Mnemonic                           │
-│                  (12-word seed phrase)                      │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ BIP44 HD Derivation
-                       ↓
-┌─────────────────────────────────────────────────────────────┐
-│              secp256k1 Private Keys                         │
-│           (ECDSA - Quantum Vulnerable)                      │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ Public Key Generation
-                       ↓
-┌─────────────────────────────────────────────────────────────┐
-│            Ethereum Addresses (Keccak-256)                  │
-│              (Hash function - Quantum Safe)                 │
-└─────────────────────────────────────────────────────────────┘
-```
+### Threat model and residual exposure (EF's own ordering)
+
+1. User accounts — largest pool of value, public keys exposed after first transaction
+2. High-value operational keys — exchanges, bridges
+3. Governance multisigs
+4. Validator keys — affect consensus participation, not direct asset custody
+
+"Harvest now, decrypt later" is a **confidentiality** problem, not an ownership one for signatures: recording transactions today doesn't enable retroactive theft, since blockchains are integrity systems built on signatures, not encryption. The forward-looking risk is that exposed public keys become derivable once a CRQC exists — which is exactly the harvest risk `mlkemEncrypt`/`mlkemDecrypt` already close for **data**, since that scheme provides genuine forward confidentiality today.
+
+On timing: the EF is more conservative than headline quantum-computing news. Most engineering roadmaps place cryptographic relevance in the **early-to-mid 2030s**. [Google Quantum AI's March 2026 analysis](https://research.google/blog/safeguarding-cryptocurrency-by-disclosing-quantum-vulnerabilities-responsibly/) lowered the estimate for breaking 256-bit elliptic curve cryptography to roughly 1,200 logical qubits, and NIST anticipates deprecating ECDSA by 2030 and disallowing it by 2035.
 
 ---
 
-## Post-Quantum Migration Strategy
+## w3pk's current cryptographic architecture
 
-### Implementation Plan Using Ethereum's Native AA Roadmap
+### Asymmetric cryptography (quantum-vulnerable, by protocol necessity)
 
-We align with the [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132) for quantum-safe EOA signatures:
+| Component | Algorithm | Use case | Quantum threat |
+| --- | --- | --- | --- |
+| Ethereum signing | secp256k1 ECDSA | Transaction/message signatures | High — Shor's algorithm |
+| WebAuthn passkeys | P-256 (ES256) | Authentication signatures | High — Shor's algorithm |
+| Stealth addresses | secp256k1 ECDH | Privacy-preserving key exchange | High — Shor's algorithm |
+| HD derivation | BIP32/BIP44 | Hierarchical key generation | High — inherits ECDSA's exposure |
 
-**Ethereum's Native AA Approach (EIP-8141):**
-- ✅ **First-class accounts** that can use any signature algorithm
-- ✅ **Validation frames** - Isolated signature verification with STARKs
-- ✅ **Protocol-layer recursive aggregation** - Reduces gas costs to near-zero
-- ✅ **Hash-based signatures** - ~200,000 gas (Winternitz variants)
-- ✅ **Lattice-based signatures** - Requires vectorized math precompiles
+### Post-quantum cryptography (shipped)
 
-**w3pk Interim Solution (Until EIP-8141):**
+| Component | Algorithm | Use case | Quantum security |
+| --- | --- | --- | --- |
+| Data encryption | ML-KEM-1024 (FIPS 203) + AES-256-GCM | `mlkemEncrypt`/`mlkemDecrypt` — backups, messaging, any data at rest/in transit | Post-quantum secure |
 
-We will leverage the **[Ethereum Kohaku](https://github.com/ethereum/kohaku)** `pq-account` package, which provides:
+### Symmetric cryptography (already quantum-resistant)
 
-- ✅ **ERC-4337 Account Abstraction** - Smart contract accounts with custom signature verification
-- ✅ **Dilithium & Falcon Support** - NIST-standardized post-quantum signature schemes
-- ✅ **Solidity Verifiers** - On-chain signature verification optimized for gas efficiency
-- ✅ **Ethereum Foundation Support** - Official post-quantum cryptography roadmap
+| Component | Algorithm | Use case | Quantum security |
+| --- | --- | --- | --- |
+| Wallet/backup/session encryption | AES-256-GCM | Mnemonic storage, backups, sessions | 128-bit (sufficient) |
 
-**Transition to [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141):** Once native AA is deployed, w3pk will migrate from [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) (bundler-based) to validation frames (protocol-native).
+### Key derivation
 
-### Phase 1: Foundation (0-6 months) - **CURRENT PHASE**
+| Component | Algorithm | Parameters | Quantum resistance |
+| --- | --- | --- | --- |
+| Wallet encryption | PBKDF2-SHA256 | 210,000 iterations | Moderate — Grover's algorithm halves effective security |
+| Backup encryption | PBKDF2-SHA256 | 310,000 iterations | Moderate |
+| Metadata encryption | PBKDF2-SHA256 | 100,000 iterations | Moderate |
 
-**Goal:** Establish quantum migration architecture and protect long-term secrets
+### Hash functions
 
-#### 1.1 Documentation & Planning ⭐ HIGH PRIORITY
-- [x] Document quantum threat model (this document)
-- [ ] Create Architecture Decision Record (ADR) for quantum migration
-- [ ] Establish monitoring for quantum computing advances
-- [ ] Define success criteria for quantum readiness
-
-#### 1.2 Increase Key Derivation Security ⭐ MEDIUM PRIORITY
-**Rationale:** Grover's algorithm reduces PBKDF2 effective security by ~50%
-
-**Implementation:**
-```typescript
-// src/wallet/crypto.ts
-const PBKDF2_ITERATIONS = {
-  backup: {
-    classical: 310_000,
-    quantumReady: 500_000, // Double security margin
-  },
-  wallet: {
-    classical: 210_000,
-    quantumReady: 350_000,
-  },
-  metadata: {
-    classical: 100_000,
-    quantumReady: 200_000,
-  }
-};
-
-// Feature flag for gradual rollout
-export async function deriveEncryptionKeyFromWebAuthn(
-  credentialId: string,
-  publicKey?: string,
-  quantumReady: boolean = false
-): Promise<CryptoKey> {
-  const iterations = quantumReady
-    ? PBKDF2_ITERATIONS.wallet.quantumReady
-    : PBKDF2_ITERATIONS.wallet.classical;
-
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: new Uint8Array(salt),
-      iterations,
-      hash: "SHA-256",
-    },
-    importedKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-```
-
-**Timeline:** 3 months
-**Breaking Changes:** None (backward compatible with feature flag)
-
-#### 1.3 Add Crypto-Agility Infrastructure ⭐ HIGH PRIORITY
-**Rationale:** Enable algorithm swapping without breaking changes
-
-**Implementation:**
-```typescript
-// src/core/config.ts
-export interface CryptoConfig {
-  version: number;
-
-  signatures: {
-    ethereum: 'secp256k1' | 'hybrid-pq';
-    webauthn: 'p256' | 'hybrid-pq';
-    postQuantum?: 'ml-dsa-87' | 'falcon-1024';
-    hybridMode: boolean; // Require both classical + PQ
-  };
-
-  encryption: {
-    symmetric: 'aes-256-gcm';
-    kdf: 'pbkdf2-sha256' | 'argon2id';
-    quantumReady: boolean;
-  };
-
-  minimumSecurityLevel: 'classical' | 'quantum-resistant';
-}
-
-// Default configuration
-export const DEFAULT_CRYPTO_CONFIG: CryptoConfig = {
-  version: 1,
-  signatures: {
-    ethereum: 'secp256k1',
-    webauthn: 'p256',
-    hybridMode: false,
-  },
-  encryption: {
-    symmetric: 'aes-256-gcm',
-    kdf: 'pbkdf2-sha256',
-    quantumReady: false,
-  },
-  minimumSecurityLevel: 'classical',
-};
-```
-
-**Timeline:** 2 months
-**Breaking Changes:** None (extends existing config)
-
-#### 1.4 Audit Current Implementation ⭐ MEDIUM PRIORITY
-- [ ] Review all cryptographic code for side-channel vulnerabilities
-- [ ] Verify constant-time operations for sensitive comparisons
-- [ ] Test backup/recovery edge cases
-- [ ] Conduct security audit of WebAuthn integration
-
-**Timeline:** 3 months
-**Cost:** ~$15,000-30,000 for professional audit
-
-### Phase 2: Infrastructure (6-18 months) - **PREPARE**
-
-**Goal:** Integrate Kohaku pq-account and design hybrid signature system
-
-#### 2.1 Integrate Kohaku PQ Account ⭐ HIGH PRIORITY
-**Rationale:** Leverage Ethereum Foundation's official post-quantum implementation
-
-Kohaku's `pq-account` provides **production-ready ERC-4337 accounts** with:
-- ✅ Hybrid signature verification (classical + post-quantum)
-- ✅ Multiple PQ algorithms: MLDSA (Dilithium), MLDSAETH, FALCON, ETHFALCON
-- ✅ Deployed on Sepolia testnet
-- ✅ Gas-optimized Solidity verifiers
-
-**Kohaku Architecture:**
-```
-┌──────────────────────────────────────────────────────────┐
-│         ERC-4337 User Account Contract                   │
-├──────────────────────────────────────────────────────────┤
-│  • pre_quantum_pubkey (Ethereum address or P-256 point)  │
-│  • post_quantum_pubkey (MLDSA/FALCON public key)         │
-│  • pre_quantum_logic_contract_address                    │
-│  • post_quantum_logic_contract_address                   │
-│  • hybrid_verifier_logic_contract_address                │
-└──────────────────────────────────────────────────────────┘
-                         ↓
-┌──────────────────────────────────────────────────────────┐
-│            Hybrid Verifier Contract                      │
-│         (Sepolia: 0xD22492F0b9dd284a9EC0fFef3C1675...）  │
-├──────────────────────────────────────────────────────────┤
-│  Verifies BOTH signatures:                               │
-│  • ECDSA (K1/R1) via precompiles                         │
-│  • PQ signature via logic contracts                      │
-└──────────────────────────────────────────────────────────┘
-```
-
-**Deployed Verifier Contracts (Sepolia Testnet):**
-
-| Signature Scheme | Contract Address | Description |
-|------------------|------------------|-------------|
-| MLDSA (Dilithium) | `0x10c978aacef41c74e35fc30a4e203bf8d9a9e548` | NIST ML-DSA signature verification |
-| MLDSAETH | `0x710f295f1715c2b08bccdb1d9841b4f833f6dde4` | Ethereum-optimized ML-DSA |
-| FALCON | `0x0724bb7c9e52f3be199964a2d70ff83a103ed99c` | NIST Falcon signature verification |
-| ETHFALCON | `0x146f0d9087001995ca63b648e865f6dbbb2d2915` | Ethereum-optimized Falcon |
-| ECDSA K1 (secp256k1) | `0xe2c354d06cce8f18fd0fd6e763a858b6963456d1` | Classical Ethereum signatures |
-| ECDSA R1 (P-256) | `0x4023f2e318A3c7cbCf2fFAB11A75f99aC9625214` | Classical P-256 (WebAuthn) |
-| **Hybrid Verifier** | `0xD22492F0b9dd284a9EC0fFef3C1675deA9f01d85` | **Dual signature verification** |
-
-**Implementation:**
-```typescript
-// src/pq/kohaku-integration.ts
-import { ethers } from 'ethers';
-
-// Kohaku contract addresses (Sepolia testnet)
-export const KOHAKU_CONTRACTS = {
-  sepolia: {
-    mldsa: '0x10c978aacef41c74e35fc30a4e203bf8d9a9e548',
-    mldsaeth: '0x710f295f1715c2b08bccdb1d9841b4f833f6dde4',
-    falcon: '0x0724bb7c9e52f3be199964a2d70ff83a103ed99c',
-    ethfalcon: '0x146f0d9087001995ca63b648e865f6dbbb2d2915',
-    ecdsaK1: '0xe2c354d06cce8f18fd0fd6e763a858b6963456d1',
-    ecdsaR1: '0x4023f2e318A3c7cbCf2fFAB11A75f99aC9625214',
-    hybridVerifier: '0xD22492F0b9dd284a9EC0fFef3C1675deA9f01d85',
-  },
-  arbitrumSepolia: {
-    mldsa: '0x10c978aacef41c74e35fc30a4e203bf8d9a9e548',
-    mldsaeth: '0x710f295f1715c2b08bccdb1d9841b4f833f6dde4',
-    falcon: '0x0724bb7c9e52f3be199964a2d70ff83a103ed99c',
-    ethfalcon: '0x146f0d9087001995ca63b648e865f6dbbb2d2915',
-    ecdsaK1: '0xe2c354d06cce8f18fd0fd6e763a858b6963456d1',
-    ecdsaR1: '0x4023f2e318A3c7cbCf2fFAB11A75f99aC9625214',
-    hybridVerifier: '0xD22492F0b9dd284a9EC0fFef3C1675deA9f01d85',
-  },
-};
-
-export type PQAlgorithm = 'mldsa' | 'mldsaeth' | 'falcon' | 'ethfalcon';
-export type ClassicalAlgorithm = 'secp256k1' | 'p256';
-
-export interface PQAccountConfig {
-  algorithm: PQAlgorithm;
-  classicalAlgorithm: ClassicalAlgorithm;
-  chainId: number; // 11155111 (Sepolia) or 421614 (Arbitrum Sepolia)
-  hybridMode: boolean; // Require both signatures
-}
-
-/**
- * Deploy w3pk quantum-safe account using Kohaku infrastructure
- * Uses existing Kohaku verifier contracts on Sepolia
- */
-export async function deployW3PKQuantumAccount(
-  config: PQAccountConfig,
-  signer: ethers.Signer
-): Promise<string> {
-  const network = config.chainId === 11155111 ? 'sepolia' : 'arbitrumSepolia';
-  const contracts = KOHAKU_CONTRACTS[network];
-
-  // Get classical public key (secp256k1 or P-256)
-  const classicalAddress = await signer.getAddress();
-  const classicalPubKey = config.classicalAlgorithm === 'p256'
-    ? await extractP256PublicKey(signer) // 64 bytes
-    : classicalAddress; // 20 bytes (Ethereum address)
-
-  // Generate post-quantum keypair (using Kohaku's Python signer or WASM)
-  const pqKeypair = await generatePQKeypair(config.algorithm);
-
-  // Deploy PK contract for MLDSA/MLDSAETH (stores 20KB public key)
-  let pqPubKeyRef: string;
-  if (config.algorithm === 'mldsa' || config.algorithm === 'mldsaeth') {
-    pqPubKeyRef = await deployPKContract(pqKeypair.publicKey, signer);
-  } else {
-    pqPubKeyRef = ethers.hexlify(pqKeypair.publicKey); // FALCON stores directly
-  }
-
-  // Select logic contract addresses
-  const preQuantumLogic = config.classicalAlgorithm === 'secp256k1'
-    ? contracts.ecdsaK1
-    : contracts.ecdsaR1;
-  const postQuantumLogic = contracts[config.algorithm];
-
-  // Deploy ERC-4337 account contract
-  const accountFactory = new ethers.ContractFactory(
-    KOHAKU_ACCOUNT_ABI,
-    KOHAKU_ACCOUNT_BYTECODE,
-    signer
-  );
-
-  const account = await accountFactory.deploy(
-    classicalPubKey,
-    pqPubKeyRef,
-    preQuantumLogic,
-    postQuantumLogic,
-    contracts.hybridVerifier
-  );
-
-  await account.waitForDeployment();
-  const accountAddress = await account.getAddress();
-
-  console.log(`✅ Deployed quantum-safe account: ${accountAddress}`);
-  console.log(`   Classical: ${config.classicalAlgorithm} (${preQuantumLogic})`);
-  console.log(`   Post-Quantum: ${config.algorithm} (${postQuantumLogic})`);
-
-  return accountAddress;
-}
-
-/**
- * Generate post-quantum keypair using Kohaku Python signer
- * Note: Python signer is slow for Falcon (~several seconds)
- */
-async function generatePQKeypair(algorithm: PQAlgorithm): Promise<{
-  publicKey: Uint8Array;
-  privateKey: Uint8Array;
-}> {
-  // Option 1: Use Kohaku Python signer (via child process)
-  // Option 2: Use WASM implementation (faster, browser-compatible)
-  // Option 3: Use liboqs-js (comprehensive)
-
-  // Placeholder - integrate with actual Kohaku Python signer
-  throw new Error('Integrate Kohaku Python signer or WASM alternative');
-}
-
-/**
- * Deploy PK contract for MLDSA public key (~20 KB)
- * Required because MLDSA public keys are too large for direct storage
- */
-async function deployPKContract(
-  publicKey: Uint8Array,
-  signer: ethers.Signer
-): Promise<string> {
-  const pkFactory = new ethers.ContractFactory(
-    PK_CONTRACT_ABI,
-    PK_CONTRACT_BYTECODE,
-    signer
-  );
-
-  const pkContract = await pkFactory.deploy(ethers.hexlify(publicKey));
-  await pkContract.waitForDeployment();
-  const pkAddress = await pkContract.getAddress();
-
-  console.log(`   Deployed PK contract: ${pkAddress}`);
-  return pkAddress;
-}
-
-/**
- * Sign UserOperation with hybrid signatures (classical + PQ)
- */
-export async function signUserOpHybrid(
-  userOp: any, // ERC-4337 UserOperation
-  classicalWallet: ethers.Wallet,
-  pqSigner: any, // Kohaku PQ signer
-  config: PQAccountConfig
-): Promise<string> {
-  const userOpHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address', 'uint256', 'bytes32', 'bytes32', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'bytes32'],
-    [
-      userOp.sender,
-      userOp.nonce,
-      ethers.keccak256(userOp.initCode),
-      ethers.keccak256(userOp.callData),
-      userOp.callGasLimit,
-      userOp.verificationGasLimit,
-      userOp.preVerificationGas,
-      userOp.maxFeePerGas,
-      userOp.maxPriorityFeePerGas,
-      ethers.keccak256(userOp.paymasterAndData),
-    ]
-  ));
-
-  // Classical signature (secp256k1 or P-256)
-  const classicalSig = await classicalWallet.signMessage(
-    ethers.getBytes(userOpHash)
-  );
-
-  // Post-quantum signature (MLDSA, FALCON, etc.)
-  const pqSig = await pqSigner.sign(ethers.getBytes(userOpHash));
-
-  // Pack hybrid signature
-  // Format: [flags (1 byte)][classical sig (65 bytes)][pq sig (variable)]
-  const flags = 0x03; // Both signatures present
-  const packedSig = ethers.concat([
-    new Uint8Array([flags]),
-    ethers.getBytes(classicalSig),
-    pqSig,
-  ]);
-
-  return ethers.hexlify(packedSig);
-}
-```
-
-**Example: Deploying w3pk quantum account:**
-```typescript
-// Example usage in w3pk SDK
-const w3pk = createWeb3Passkey({
-  quantumSafe: true,
-  pqAlgorithm: 'mldsaeth', // Ethereum-optimized Dilithium
-});
-
-await w3pk.register({ username: 'alice' });
-
-// Deploy quantum-safe account on Sepolia
-const pqAccountAddress = await w3pk.deployQuantumAccount({
-  algorithm: 'mldsaeth',
-  classicalAlgorithm: 'secp256k1',
-  chainId: 11155111, // Sepolia
-  hybridMode: true,
-});
-
-// Sign transaction with hybrid signatures
-const tx = await w3pk.sendTransaction({
-  to: '0xRecipient...',
-  value: ethers.parseEther('1'),
-  chainId: 11155111,
-  quantumSafe: true, // Use hybrid signatures
-});
-```
-
-**Gas Costs (Estimated from Kohaku Tests):**
-
-| Operation | Classical (ECDSA) | Hybrid (ECDSA + MLDSA) | Overhead |
-|-----------|-------------------|------------------------|----------|
-| Account deployment | ~250,000 gas | ~3,500,000 gas | **14x** |
-| Transaction verification | ~21,000 gas | ~800,000 gas | **38x** |
-| PK contract deployment | N/A | ~5,000,000 gas | One-time cost |
-
-**Note:** High gas costs are acceptable because:
-1. Users deploy account only once
-2. PK contract deployed only once per user
-3. Transaction verification happens off-chain via bundlers (ERC-4337)
-4. L2 deployment (Arbitrum Sepolia) reduces costs by ~10x
-
-**Timeline:** 6 months (integration + testing + mainnet deployment)
-**Breaking Changes:** None (opt-in via `quantumSafe: true` flag)
-
-#### 2.2 Design Smart Contract Account Abstraction ⭐ HIGH PRIORITY
-**Rationale:** Enable gradual migration without breaking existing wallets
-
-**Architecture Note:** This design follows the validation frame concept from [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141), but implemented using current [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) until native AA is available.
-
-**Smart Contract Architecture:**
-```solidity
-// contracts/W3PKQuantumAccount.sol
-// SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.20;
-
-import "@kohaku-eth/pq-account/contracts/verifiers/DilithiumVerifier.sol";
-import "@account-abstraction/contracts/core/BaseAccount.sol";
-
-/**
- * W3PK Quantum-Safe Smart Contract Account
- * Supports hybrid classical + post-quantum signature verification
- *
- * FUTURE: This will be replaced by EIP-8141 validation frames when available.
- * Validation frames enable protocol-layer STARK aggregation, reducing gas costs
- * from ~800k to near-zero.
- */
-contract W3PKQuantumAccount is BaseAccount {
-    // Legacy secp256k1 owner (backward compatibility)
-    address public legacyOwner;
-
-    // Post-quantum Dilithium public key (2592 bytes for ML-DSA-87)
-    bytes public dilithiumPubKey;
-
-    // Migration state
-    bool public quantumMigrationEnabled;
-    bool public hybridModeRequired; // Both signatures required
-
-    event QuantumMigrationStarted(address indexed account, bytes pqPubKey);
-    event HybridModeEnabled(address indexed account);
-    event SignatureVerified(bool classical, bool postQuantum);
-
-    constructor(
-        address _legacyOwner,
-        bytes memory _dilithiumPubKey
-    ) {
-        legacyOwner = _legacyOwner;
-        dilithiumPubKey = _dilithiumPubKey;
-        quantumMigrationEnabled = false;
-        hybridModeRequired = false;
-    }
-
-    /**
-     * Enable quantum migration (add PQ signature requirement)
-     */
-    function enableQuantumMigration(bytes memory _pqPubKey) external {
-        require(msg.sender == legacyOwner, "Only owner");
-        dilithiumPubKey = _pqPubKey;
-        quantumMigrationEnabled = true;
-        emit QuantumMigrationStarted(address(this), _pqPubKey);
-    }
-
-    /**
-     * Enable hybrid mode (require both signatures)
-     */
-    function enableHybridMode() external {
-        require(msg.sender == legacyOwner, "Only owner");
-        require(quantumMigrationEnabled, "Quantum migration not enabled");
-        hybridModeRequired = true;
-        emit HybridModeEnabled(address(this));
-    }
-
-    /**
-     * Validate signature (hybrid or single)
-     */
-    function _validateSignature(
-        UserOperation calldata userOp,
-        bytes32 userOpHash
-    ) internal virtual override returns (uint256 validationData) {
-        bytes memory signature = userOp.signature;
-
-        // Parse signature format
-        (bool hasClassical, bool hasPostQuantum, bytes memory classicalSig, bytes memory pqSig) =
-            parseHybridSignature(signature);
-
-        bool classicalValid = false;
-        bool pqValid = false;
-
-        // Verify classical secp256k1 signature
-        if (hasClassical) {
-            bytes32 hash = userOpHash.toEthSignedMessageHash();
-            address recovered = hash.recover(classicalSig);
-            classicalValid = (recovered == legacyOwner);
-        }
-
-        // Verify post-quantum Dilithium signature
-        if (hasPostQuantum) {
-            pqValid = DilithiumVerifier.verify(
-                dilithiumPubKey,
-                abi.encodePacked(userOpHash),
-                pqSig
-            );
-        }
-
-        emit SignatureVerified(classicalValid, pqValid);
-
-        // Validation logic based on mode
-        if (hybridModeRequired) {
-            require(classicalValid && pqValid, "Both signatures required");
-        } else if (quantumMigrationEnabled) {
-            require(classicalValid || pqValid, "At least one signature required");
-        } else {
-            require(classicalValid, "Classical signature required");
-        }
-
-        return 0; // Valid
-    }
-
-    /**
-     * Parse hybrid signature format
-     * Format: [flags (1 byte)][classical sig (65 bytes)][pq sig (variable)]
-     */
-    function parseHybridSignature(bytes memory signature)
-        internal pure
-        returns (
-            bool hasClassical,
-            bool hasPostQuantum,
-            bytes memory classicalSig,
-            bytes memory pqSig
-        )
-    {
-        require(signature.length > 0, "Empty signature");
-
-        uint8 flags = uint8(signature[0]);
-        hasClassical = (flags & 0x01) != 0;
-        hasPostQuantum = (flags & 0x02) != 0;
-
-        uint256 offset = 1;
-
-        if (hasClassical) {
-            classicalSig = new bytes(65);
-            for (uint i = 0; i < 65; i++) {
-                classicalSig[i] = signature[offset + i];
-            }
-            offset += 65;
-        }
-
-        if (hasPostQuantum) {
-            uint256 pqLength = signature.length - offset;
-            pqSig = new bytes(pqLength);
-            for (uint i = 0; i < pqLength; i++) {
-                pqSig[i] = signature[offset + i];
-            }
-        }
-    }
-}
-```
-
-**Timeline:** 8 months (including testing and audit)
-**Breaking Changes:** None (opt-in smart contract deployment)
-
-#### 2.3 Evaluate Post-Quantum Signature Algorithms ⭐ MEDIUM PRIORITY
-
-**Ethereum Quantum Resistance Roadmap Recommendations:**
-
-**Hash Function Selection (Critical for Hash-Based Signatures):**
-The [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132) notes this may be "Ethereum's last hash function", with three candidates:
-1. **Poseidon2 + extra rounds** - Potential non-arithmetic layers (eg. Monolith)
-2. **Poseidon1** - Older version, not vulnerable to recent Poseidon2 attacks, but 2x slower
-3. **BLAKE3 or similar** - Most efficient conventional hash
-
-**Signature Algorithm Options:**
-
-**Hash-Based Signatures (Winternitz variants):**
-- ✅ **~200,000 gas** for verification (Vitalik's estimate)
-- ✅ Well-understood security
-- ⚠️ Large signature sizes (~1-3 KB per signature)
-- ⚠️ Stateful (requires careful nonce management)
-
-**Lattice-Based Signatures (ML-DSA / Dilithium):**
-- ✅ NIST-standardized ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final))
-- ✅ Stateless (no nonce management issues)
-- ⚠️ **Extremely high gas costs today** (~800,000 gas)
-- ✅ **Future optimization:** Vectorized math precompiles could reduce costs significantly
-- ✅ The [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132) mentions: "vectorized math precompiles for (+, *, %, dot product, NTT/butterfly)"
-
-**w3pk Strategy:**
-1. **Phase 2 (interim):** Use [Kohaku](https://github.com/ethereum/kohaku)'s Dilithium implementation ([ERC-4337](https://eips.ethereum.org/EIPS/eip-4337))
-2. **Phase 4 (long-term):** Adopt Ethereum's chosen hash function + Winternitz or optimized lattice signatures via [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) validation frames
-
-**Candidate Libraries:**
-```typescript
-// Option 1: Kohaku (Ethereum Foundation - RECOMMENDED for interim)
-import { DilithiumSigner, FalconSigner } from '@kohaku-eth/pq-account';
-
-// Option 2: Open Quantum Safe (comprehensive, C-based)
-import { pqcrypto } from 'liboqs-js';
-
-// Option 3: Future native support (EIP-8141 validation frames)
-// Ethereum protocol will provide vectorized math precompiles
-```
-
-**Evaluation Matrix:**
-
-| Algorithm | Gas Cost (current) | Gas Cost (with EIP-8141) | Security | Recommendation |
-|-----------|-------------------|-------------------------|----------|----------------|
-| **Hash-based (Winternitz)** | N/A | ~200,000 gas | ✅ High | **LONG-TERM** |
-| **Dilithium (Kohaku)** | ~800,000 gas | ~10,000 gas (optimized) | ✅ NIST Level 5 | **INTERIM** |
-| **Falcon (Kohaku)** | ~250,000 gas | ~5,000 gas (optimized) | ✅ NIST Level 5 | Backup |
-
-**Timeline:** 3 months
-**Cost:** Free (open source)
-
-#### 2.4 Create Migration Utilities ⭐ MEDIUM PRIORITY
-**Rationale:** Enable users to upgrade existing wallets to quantum-safe accounts
-
-**Implementation:**
-```typescript
-// src/pq/migration.ts
-export interface MigrationStatus {
-  phase: 'classical' | 'hybrid-testing' | 'hybrid-active' | 'quantum-only';
-  classicalKeyActive: boolean;
-  pqKeyActive: boolean;
-  accountType: 'EOA' | 'smart-contract';
-  migrationProgress: number; // 0-100
-}
-
-/**
- * Migrate existing w3pk wallet to quantum-safe account
- */
-export async function migrateToQuantumAccount(
-  w3pk: Web3Passkey,
-  options: {
-    algorithm: 'dilithium' | 'falcon';
-    testMode?: boolean; // Enable hybrid testing first
-  }
-): Promise<MigrationResult> {
-  // 1. Generate PQ keypair
-  const pqSigner = options.algorithm === 'dilithium'
-    ? new DilithiumSigner()
-    : new FalconSigner();
-  const { publicKey, privateKey } = await pqSigner.generateKeyPair();
-
-  // 2. Deploy smart contract account
-  const classicalAddress = await w3pk.getAddress('STANDARD');
-  const pqAccount = await createPQAccount({
-    algorithm: options.algorithm,
-    hybridMode: !options.testMode, // Start in test mode
-    accountAddress: classicalAddress,
-  });
-
-  // 3. Transfer assets from EOA to smart contract account
-  // (User must manually transfer funds)
-
-  // 4. Store PQ private key (encrypted with WebAuthn)
-  await w3pk.storage.saveEncrypted('pq-private-key', privateKey);
-
-  // 5. Update configuration
-  await w3pk.updateConfig({
-    signatures: {
-      ethereum: 'hybrid-pq',
-      postQuantum: options.algorithm === 'dilithium' ? 'ml-dsa-87' : 'falcon-1024',
-      hybridMode: !options.testMode,
-    },
-  });
-
-  return {
-    success: true,
-    newAccountAddress: pqAccount.address,
-    pqAlgorithm: options.algorithm,
-    phase: options.testMode ? 'hybrid-testing' : 'hybrid-active',
-    instructions: [
-      'Transfer assets from your existing wallet to new quantum-safe account',
-      'Test transactions in hybrid mode',
-      'Enable quantum-only mode when ready',
-    ],
-  };
-}
-
-/**
- * Check migration readiness
- */
-export async function checkMigrationReadiness(): Promise<ReadinessReport> {
-  const checks = {
-    browserSupport: await checkWebAssemblySupport(),
-    librariesLoaded: await checkKohakuLibraries(),
-    accountAbstractionSupport: await checkEIP4337Support(),
-    userFundsAvailable: await checkGasBalance(),
-  };
-
-  const allPassed = Object.values(checks).every(Boolean);
-
-  return {
-    ready: allPassed,
-    checks,
-    estimatedGasCost: '0.05 ETH', // Approximate deployment cost
-    recommendedAction: allPassed
-      ? 'Proceed with migration'
-      : 'Resolve issues before migrating',
-  };
-}
-```
-
-**Timeline:** 4 months
-**Breaking Changes:** None (opt-in migration)
-
-### Phase 3: Transition (18-36 months) - **DEPLOY**
-
-**Goal:** Deploy hybrid signature system and enable user migration
-
-**Important:** This phase assumes [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) as interim solution. Timeline may shift based on [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) native AA deployment.
-
-#### 3.1 Deploy Quantum-Safe Smart Contract Accounts ⭐ HIGH PRIORITY
-- [ ] Audit smart contracts (W3PKQuantumAccount)
-- [ ] Deploy to testnets (Sepolia, Holesky)
-- [ ] Run bug bounty program
-- [ ] Deploy to mainnets (Ethereum, Polygon, Arbitrum)
-- [ ] Create deployment scripts and documentation
-- [ ] **Monitor EIP-8141 progress** - Prepare migration plan from ERC-4337 to validation frames
-
-**Timeline:** 12 months (may extend if waiting for EIP-8141)
-**Cost:** ~$50,000-100,000 (audits + bug bounty)
-
-#### 3.2 Launch Hybrid Signature Mode ⭐ HIGH PRIORITY
-- [ ] Enable hybrid signatures (classical + PQ) by default for new users
-- [ ] Add UI for migration in demo app
-- [ ] Create educational content explaining quantum threats
-- [ ] Monitor gas costs and optimize verifier contracts
-
-**Timeline:** 6 months
-**Breaking Changes:** None (opt-in for existing users)
-
-#### 3.3 Update Documentation & Education ⭐ MEDIUM PRIORITY
-- [ ] Update API documentation for PQ methods
-- [ ] Create migration guides
-- [ ] Publish blog posts on quantum readiness
-- [ ] Record video tutorials
-- [ ] Update integration examples
-
-**Timeline:** 3 months
-
-#### 3.4 Community & Ecosystem Coordination ⭐ MEDIUM PRIORITY
-- [ ] Coordinate with Ethereum Foundation [Kohaku](https://github.com/ethereum/kohaku) team
-- [ ] **Track [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) development** - Participate in discussion and testing
-- [ ] **Monitor Ethereum's hash function selection** - Prepare to adopt chosen hash ([Poseidon2](https://eprint.iacr.org/2023/323)/[Poseidon1](https://eprint.iacr.org/2019/458)/[BLAKE3](https://github.com/BLAKE3-team/BLAKE3))
-- [ ] Participate in [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564) quantum standardization
-- [ ] Engage with wallet providers (MetaMask, Rainbow)
-- [ ] Present at conferences (Devcon, ETHGlobal)
-
-**Timeline:** Ongoing
-
-### Phase 4: Migration (36+ months) - **COMPLETE**
-
-**Goal:** Complete transition to quantum-safe infrastructure
-
-**Critical Dependency:** This phase assumes [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) is deployed. If not, continue with [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) solution.
-
-#### 4.1 Migrate to EIP-8141 Validation Frames ⭐ CRITICAL
-- [ ] **Adopt native AA** once [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) is deployed
-- [ ] **Integrate with protocol-layer proof aggregation** - Leverage STARK-based validation frame verification
-- [ ] **Reduce gas costs to near-zero** - Replace individual signature verifications with aggregated STARKs
-- [ ] **Adopt Ethereum's chosen hash function** - Implement Winternitz signatures with selected hash ([Poseidon2](https://eprint.iacr.org/2023/323)/[Poseidon1](https://eprint.iacr.org/2019/458)/[BLAKE3](https://github.com/BLAKE3-team/BLAKE3))
-- [ ] **Test vectorized math precompiles** - Optimize lattice-based signature verification if precompiles are available
-- [ ] **Deprecate [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) bundler dependency** - Transition to protocol-native validation
-
-**Key Insight from the [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132):**
-> "Validation frames cannot access the outside world, they can only look at their calldata and return a value... it's possible to replace any validation frame with a STARK that verifies it (potentially a single STARK for all validation frames in a block)."
-
-This means transaction validation happens at **mempool layer** with recursive proofs, making w3pk transactions quantum-safe at near-zero gas overhead.
-
-**Timeline:** 12 months (after [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) deployment)
-**Breaking Changes:** Backend migration, transparent to users
-
-#### 4.2 Sunset Legacy Secp256k1-Only Accounts ⭐ LOW PRIORITY
-- [ ] Set deprecation timeline (12 months notice)
-- [ ] Notify users of legacy accounts
-- [ ] Offer free migration assistance
-- [ ] Maintain backward compatibility layer
-- [ ] Archive legacy code
-
-**Timeline:** 12 months
-**Breaking Changes:** Yes (requires user action)
-
-#### 4.3 Default to Post-Quantum for All New Wallets ⭐ HIGH PRIORITY
-- [ ] Update `register()` to create PQ accounts by default
-- [ ] Update `createWeb3Passkey()` config defaults
-- [ ] Remove `quantumReady` feature flags
-- [ ] Simplify migration code paths
-
-**Timeline:** 6 months
-**Breaking Changes:** None (seamless for new users)
-
-#### 4.4 Monitor Quantum Computing Progress ⭐ ONGOING
-- [ ] Subscribe to [NIST PQC](https://csrc.nist.gov/projects/post-quantum-cryptography) mailing list
-- [ ] Track quantum computing announcements critically
-- [ ] Update threat models annually
-- [ ] **Participate in Ethereum quantum working groups** - Stay aligned with protocol development
-- [ ] **Monitor [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) deployment timeline** - Coordinate w3pk Phase 4 accordingly
-
-**Timeline:** Continuous
-
----
-
-## Technical Implementation Details
-
-### Signature Size & Gas Cost Comparison
-
-| Scheme | Signature Size | Public Key Size | Security Level | Gas Cost (ERC-4337) | Gas Cost (EIP-8141) |
-|--------|----------------|-----------------|----------------|---------------------|---------------------|
-| **Classical** |
-| secp256k1 | 65 bytes | 33 bytes | Classical only | ~21,000 gas | ~21,000 gas |
-| P-256 | 64 bytes | 64 bytes | Classical only | ~40,000 gas | ~40,000 gas |
-| **Post-Quantum** |
-| **Winternitz (hash-based)** | ~1,500 bytes | ~1,000 bytes | Quantum-safe | N/A | **~200,000 gas** ⭐ |
-| ML-DSA-65 (Dilithium3) | 3,309 bytes | 1,952 bytes | NIST Level 3 | ~500,000 gas | **~10,000 gas** (w/ precompiles) |
-| ML-DSA-87 (Dilithium5) | 4,627 bytes | 2,592 bytes | NIST Level 5 | ~800,000 gas | **~15,000 gas** (w/ precompiles) |
-| Falcon-512 | 666 bytes | 897 bytes | NIST Level 1 | ~150,000 gas | **~5,000 gas** (w/ precompiles) |
-| Falcon-1024 | 1,280 bytes | 1,793 bytes | NIST Level 5 | ~250,000 gas | **~8,000 gas** (w/ precompiles) |
-| **Hybrid (Classical + PQ)** |
-| secp256k1 + ML-DSA-87 | 4,692 bytes | 2,625 bytes | Quantum-safe | ~850,000 gas | **Near-zero** (STARK aggregation) |
-| secp256k1 + Falcon-1024 | 1,345 bytes | 1,826 bytes | Quantum-safe | ~300,000 gas | **Near-zero** (STARK aggregation) |
-
-**Key Insights:**
-1. **ERC-4337 (Phase 2-3):** Off-chain bundler verification reduces costs, but still ~300k-850k gas per transaction
-2. **EIP-8141 (Phase 4):** Validation frames + STARK aggregation reduces costs to **near-zero** via mempool-layer proof composition
-3. **Winternitz signatures:** Vitalik's recommended approach (~200k gas) when EIP-8141 is deployed
-4. **Vectorized math precompiles:** Enable efficient lattice-based signatures (Dilithium/Falcon) with 10-100x gas reduction
-
-### Hybrid Encryption for Backups
-
-**Current Implementation:**
-```typescript
-// AES-256-GCM only (quantum-resistant symmetric)
-const backup = {
-  encrypted: await encryptWithAES(mnemonic, password),
-  iv: randomIV,
-  salt: randomSalt,
-};
-```
-
-**Hybrid Implementation (Future):**
-```typescript
-import { Kyber1024 } from '@kohaku-eth/ml-kem';
-
-// Hybrid: AES-256-GCM + ML-KEM-1024
-const kyberKEM = new Kyber1024();
-const { publicKey, privateKey } = await kyberKEM.generateKeyPair();
-
-// Encapsulate AES key with Kyber
-const { ciphertext, sharedSecret } = await kyberKEM.encapsulate(publicKey);
-
-// Encrypt mnemonic with AES (using KEM-derived key)
-const aesKey = await deriveKeyFromKEM(sharedSecret);
-const backup = {
-  version: 3,
-  kemCiphertext: ciphertext,       // Kyber encapsulation
-  kemPublicKey: publicKey,          // For decapsulation
-  aesEncrypted: await encryptWithAES(mnemonic, aesKey),
-  algorithm: 'hybrid-aes-kyber1024',
-};
-
-// Decapsulation
-const recovered = await kyberKEM.decapsulate(privateKey, backup.kemCiphertext);
-const aesKey = await deriveKeyFromKEM(recovered);
-const mnemonic = await decryptWithAES(backup.aesEncrypted, aesKey);
-```
-
-**Benefits:**
-- ✅ Protects against harvest-now-decrypt-later attacks
-- ✅ Backward compatible (version field)
-- ✅ Only ~1.5 KB overhead
-- ✅ No gas costs (off-chain backups)
-
-**Timeline:** Phase 2 (12-18 months, pending stable ML-KEM libraries)
-
-### Quantum-Safe Stealth Addresses
-
-**Current ERC-5564 (ECDH-based):**
-```typescript
-// Vulnerable to quantum attacks
-const sharedSecret = computeECDH(ephemeralPrivKey, viewingPubKey);
-const stealthAddress = deriveAddress(sharedSecret);
-```
-
-**Quantum-Safe ERC-5564 (ML-KEM-based):**
-```typescript
-import { Kyber1024 } from '@kohaku-eth/ml-kem';
-
-// Generate ephemeral KEM keypair
-const kem = new Kyber1024();
-const { publicKey: ephemeralPubKey, privateKey: ephemeralPrivKey } =
-  await kem.generateKeyPair();
-
-// Encapsulate to recipient's viewing key
-const { ciphertext: kemCiphertext, sharedSecret } =
-  await kem.encapsulate(recipientViewingPubKey);
-
-// Derive stealth address from shared secret
-const stealthAddress = deriveAddress(sharedSecret);
-
-// Announcement includes KEM ciphertext instead of ephemeral pubkey
-const announcement = {
-  stealthAddress,
-  kemCiphertext,        // ~1,568 bytes (vs 33 bytes for ECDH)
-  viewTag: sharedSecret[0],
-  protocol: 'erc5564-pq',
-};
-```
-
-**Challenges:**
-- ⚠️ Large announcement size (~1,568 bytes vs 33 bytes)
-- ⚠️ Requires ERC-5564 community consensus
-- ⚠️ Not backward compatible
-
-**Timeline:** Phase 4 (36+ months, wait for standards)
-
----
-
-## Quantum Computing Timeline
-
-### Expert Consensus
-
-Based on research from **a16z crypto**, **NIST**, and **Ethereum Foundation**:
-
-- **Conservative estimate:** 10-15 years to CRQC
-- **Optimistic estimate:** 5-10 years to CRQC
-- **Current risk level:** **Low** (but rising)
-
-### What is a CRQC?
-
-A **Cryptographically Relevant Quantum Computer** must:
-- Execute Shor's algorithm to break 256-bit ECDSA in <24 hours
-- Maintain ~10,000+ logical qubits with error correction
-- Achieve gate fidelity >99.9%
-
-**Current state (2026):**
-- IBM: ~1,000 physical qubits (noisy, no error correction)
-- Google: ~100 logical qubits (limited coherence time)
-- D-Wave: Quantum annealing (not useful for Shor's algorithm)
-
-### Risk Prioritization
-
-```
-Priority Ranking (Today):
-1. ⚠️  CVE vulnerabilities & implementation bugs - CRITICAL
-2. ⚠️  Phishing & social engineering attacks - HIGH
-3. ⚠️  Side-channel attacks (timing, power) - HIGH
-4. 📊 Monitor quantum computing progress - MEDIUM
-5. 📋 Plan quantum migration architecture - MEDIUM
-6. 🔮 Deploy post-quantum cryptography - LOW (future)
-```
-
----
-
-## Integration with Existing Features
-
-### Account Abstraction (EIP-7702, EIP-4337, EIP-8141)
-
-**Advantage:** w3pk's existing [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) support provides natural quantum migration path
-
-**Migration Path:**
-1. **Phase 1-2:** [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) (current) - Delegate EOA to smart contract
-2. **Phase 2-3:** [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) - Bundler-based account abstraction with PQ signatures
-3. **Phase 4:** [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) - Native AA with validation frames + STARK aggregation
-
-```typescript
-// Existing EIP-7702 authorization (classical)
-const auth = await w3pk.signAuthorization({
-  contractAddress: '0xSmartContract...',
-  chainId: 1,
-  nonce: 0n,
-});
-
-// Phase 2-3: Hybrid authorization via ERC-4337 (classical + PQ)
-const hybridAuth = await w3pk.signAuthorizationHybrid({
-  contractAddress: '0xQuantumSafeContract...',
-  chainId: 1,
-  nonce: 0n,
-  algorithm: 'ml-dsa-87',
-});
-
-// Phase 4: Native AA with validation frames (EIP-8141)
-const validationFrameAuth = await w3pk.signAuthorizationNativeAA({
-  contractAddress: '0xQuantumSafeContract...',
-  chainId: 1,
-  nonce: 0n,
-  algorithm: 'winternitz', // Or 'ml-dsa-87' with vectorized precompiles
-  useValidationFrames: true, // Protocol-layer STARK aggregation
-});
-```
-
-**Phase 2-3: ERC-4337 Smart Contract Verification:**
-```solidity
-function verifyAuthorization(Authorization memory auth) public view {
-  // Verify classical signature
-  bool classicalValid = ecrecover(auth.hash, auth.signature) == auth.owner;
-
-  // Verify PQ signature
-  bool pqValid = DilithiumVerifier.verify(
-    auth.pqPublicKey,
-    auth.hash,
-    auth.pqSignature
-  );
-
-  require(classicalValid && pqValid, "Hybrid verification failed");
-}
-```
-
-**Phase 4: EIP-8141 Validation Frame (Pseudocode):**
-```solidity
-// Validation frame: isolated, cannot access external state
-function validateUserOp(UserOperation calldata userOp) internal pure returns (bool) {
-  // Parse hybrid signature from calldata
-  (bytes memory classicalSig, bytes memory pqSig) = parseSignature(userOp.signature);
-
-  // Verify both signatures
-  bool classicalValid = verifyECDSA(userOp.hash, classicalSig);
-  bool pqValid = verifyWinternitz(userOp.hash, pqSig); // Or lattice-based
-
-  return classicalValid && pqValid;
-}
-
-// Protocol replaces this validation frame with a STARK proof at mempool layer
-// Gas cost: near-zero (single STARK for entire block's validation frames)
-```
-
-### External Wallet Integration
-
-**Challenge:** MetaMask, Ledger, etc. don't support PQ signatures yet
-
-**Solution:** Use [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) delegation to w3pk's PQ account
-```typescript
-// Delegate external wallet to w3pk's quantum-safe account
-const delegation = await w3pk.requestExternalWalletDelegation({
-  chainId: 1,
-  nonce: 0n,
-  quantumSafe: true, // Use PQ account as delegation target
-});
-
-// External wallet signs classical authorization
-// w3pk's smart contract handles PQ verification
-```
-
-### WebAuthn & Passkeys
-
-**Challenge:** [FIDO Alliance](https://fidoalliance.org/) doesn't support PQ yet
-
-**FIDO Quantum Roadmap:**
-- 2024: Working group formed
-- 2025-2026: Specification development
-- 2027: First implementations
-- 2028+: Browser support
-
-**w3pk Strategy:**
-- ✅ Continue using [P-256](https://eips.ethereum.org/EIPS/eip-7951) for authentication (low risk)
-- ✅ Use PQ for transaction signatures (high risk)
-- ✅ Monitor FIDO specs and update when available
-
----
-
-## Success Metrics
-
-### Phase 1 Success Criteria (0-6 months)
-- [ ] PBKDF2 iterations increased to quantum-ready levels
-- [ ] Crypto-agility infrastructure deployed
-- [ ] Security audit completed with no critical findings
-- [ ] Quantum migration ADR published
-
-### Phase 2 Success Criteria (6-18 months)
-- [ ] Kohaku pq-account integrated
-- [ ] Smart contract accounts deployed to testnet
-- [ ] Migration utilities tested with 100+ users
-- [ ] Gas costs optimized below 300,000 per transaction
-
-### Phase 3 Success Criteria (18-36 months)
-- [ ] 10,000+ users migrated to quantum-safe accounts
-- [ ] Zero critical vulnerabilities in PQ implementation
-- [ ] Average gas cost <200,000 per hybrid transaction
-- [ ] Integration with 5+ major dApps
-
-### Phase 4 Success Criteria (36+ months)
-- [ ] 90%+ of active users on quantum-safe accounts
-- [ ] Legacy account deprecation completed
-- [ ] Quantum-safe by default for all new registrations
-- [ ] Published research papers on implementation
-
----
-
-## Key Takeaways
-
-### For Developers
-
-1. **Don't panic** - You have 10-15 years before quantum computers threaten cryptography
-2. **Plan now, deploy later** - Architecture decisions matter more than rushing code
-3. **Follow the [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132)** - [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) validation frames will solve gas costs
-4. **Use [Kohaku](https://github.com/ethereum/kohaku) as interim** - Leverage Ethereum Foundation's PQ implementation until native AA
-5. **Account abstraction wins** - Smart contract accounts enable smooth migration
-6. **Hybrid signatures** - Maintain backward compatibility during transition
-7. **Prepare for validation frames** - Design with protocol-layer aggregation in mind
-8. **Monitor hash function selection** - Ethereum's choice will impact all applications
-
-### For Users
-
-1. **Your funds are safe today** - No immediate quantum threat
-2. **w3pk is quantum-aware** - We're preparing for the future
-3. **Backups are protected** - AES-256-GCM is quantum-resistant
-4. **Migration will be optional** - You control when to upgrade
-5. **No action needed yet** - We'll notify you when migration is ready
-6. **Education first** - We'll explain every step of the process
-
-### For Auditors
-
-1. **Current implementation is sound** - Standard cryptography best practices
-2. **Quantum threat is acknowledged** - Clear migration roadmap exists
-3. **No premature optimization** - Waiting for mature PQ libraries
-4. **Backward compatibility prioritized** - Hybrid approach prevents breaking changes
-5. **Gas costs optimized** - Off-chain PQ verification via account abstraction
-6. **Continuous monitoring** - Regular security audits planned
-
----
-
-## References & Resources
-
-### Standards & Specifications
-
-- **[EIP-8141: Native Account Abstraction](https://eips.ethereum.org/EIPS/eip-8141)** ⭐ Vitalik's proposed solution for quantum-safe EOAs
-- [EIP-4337: Account Abstraction](https://eips.ethereum.org/EIPS/eip-4337) - Current interim solution
-- [EIP-7702: Set EOA Account Code](https://eips.ethereum.org/EIPS/eip-7702)
-- [EIP-7951: P-256 Signature Verification](https://eips.ethereum.org/EIPS/eip-7951)
-- [ERC-5564: Stealth Address Protocol](https://eips.ethereum.org/EIPS/eip-5564)
-- [NIST FIPS 204: ML-DSA (Dilithium)](https://csrc.nist.gov/pubs/fips/204/final)
-- [NIST FIPS 203: ML-KEM (Kyber)](https://csrc.nist.gov/pubs/fips/203/final)
-
-### Research & Articles
-
-- **[Ethereum Quantum Resistance Roadmap](https://x.com/VitalikButerin/status/2027075026378543132)** ⭐ February 2026 - Ethereum's official quantum plan
-- [Quantum Computing Misconceptions - a16z crypto](https://a16zcrypto.com/posts/article/quantum-computing-misconceptions-realities-blockchains-planning-migrations/)
-- [Post-Quantum Ethereum - Ethereum Research](https://ethresear.ch/t/the-road-to-post-quantum-ethereum-transaction-is-paved-with-account-abstraction-aa/21783)
-- [Ethereum Kohaku Project](https://github.com/ethereum/kohaku)
-- [Open Quantum Safe Project](https://openquantumsafe.org/)
-- [NIST Post-Quantum Cryptography Project](https://csrc.nist.gov/projects/post-quantum-cryptography)
-
-### Hash Functions (Ethereum's "Last Hash Function")
-
-- [Poseidon2](https://eprint.iacr.org/2023/323) - ZK-friendly hash with extra security rounds
-- [Poseidon1 (original)](https://eprint.iacr.org/2019/458) - 2x slower but not vulnerable to Poseidon2 attacks
-- [BLAKE3](https://github.com/BLAKE3-team/BLAKE3) - Efficient conventional cryptographic hash
-
-### Implementation Libraries
-
-- **Ethereum Kohaku** - [`@kohaku-eth/pq-account`](https://github.com/ethereum/kohaku/tree/master/packages/pq-account)
-- **Open Quantum Safe** - [liboqs](https://github.com/open-quantum-safe/liboqs)
-- **PQClean** - [Reference implementations](https://github.com/PQClean/PQClean)
+| Component | Algorithm | Use case | Quantum security |
+| --- | --- | --- | --- |
+| General hashing | SHA-256 | Checksums, derivation | 128-bit collision (sufficient) |
+| Ethereum hashing | Keccak-256 | ERC-5564, addresses | 128-bit collision (sufficient) |
 
 ---
 
 ## ML-KEM Encryption
 
-w3pk supports ML-KEM-1024 encryption for quantum-resistant data protection with multi-recipient support and deterministic key derivation from private keys.
+w3pk supports **ML-KEM-1024** (NIST FIPS 203) encryption for quantum-resistant data protection, with multi-recipient support and deterministic key derivation from private keys. See [`src/crypto/mlkem.ts`](../src/crypto/mlkem.ts).
 
-### Deterministic Key Derivation
+### How it works
 
-Derive ML-KEM keypairs deterministically from any private key material (Ethereum keys, random seeds, etc.):
+1. A random AES-256 key is generated per message.
+2. The plaintext is encrypted with AES-256-GCM using that key.
+3. For each recipient, a shared secret is encapsulated with their ML-KEM-1024 public key, and used to wrap the AES key.
+4. Each recipient decrypts with their private key to recover the AES key, then decrypts the payload.
+
+This is a KEM+DEM hybrid (asymmetric PQ key encapsulation wrapping a symmetric cipher) — not a classical+PQ dual key-exchange combiner. ML-KEM-1024 alone generates the shared secret; there is no secp256k1/X25519 component mixed into the encapsulation step.
+
+### Deterministic key derivation
 
 ```typescript
 import { deriveMLKemKeypair, mlkemEncryptWithKey, mlkemDecryptWithKey } from 'w3pk';
 
-// Derive ML-KEM keypair from Ethereum private key
-const ethPrivateKey = '0x1234...'; // Your wallet private key
+const ethPrivateKey = '0x1234...';
 const keypair = await deriveMLKemKeypair(ethPrivateKey, 'my-app');
-// Returns: { publicKey: Uint8Array(1568), privateKey: Uint8Array(3168) }
+// { publicKey: Uint8Array(1568), privateKey: Uint8Array(3168) }
 
-// Share your public key with others
-const publicKeyBase64 = Buffer.from(keypair.publicKey).toString('base64');
-
-// Later: Recreate keypair from same private key (deterministic!)
+// Same input always produces the same keypair
 const sameKeypair = await deriveMLKemKeypair(ethPrivateKey, 'my-app');
-// sameKeypair.publicKey === keypair.publicKey ✅
 ```
 
-### Encrypt/Decrypt with w3pk Instance (Recommended)
+Uses HKDF-SHA256 with salt `"mlkem-keypair-v1"` and the provided context string to derive a 64-byte seed, from which the ML-KEM-1024 keypair is generated. All sensitive material is zeroized after use.
 
-The easiest way to use ML-KEM encryption - no private key exposure:
+### Encrypt/decrypt with a w3pk instance (recommended)
 
 ```typescript
 import { createWeb3Passkey } from 'w3pk';
@@ -1324,286 +163,212 @@ import { createWeb3Passkey } from 'w3pk';
 const w3pk = createWeb3Passkey();
 await w3pk.login();
 
-// 1. Share your public key with others
 const myPublicKey = await w3pk.deriveMLKemPublicKey();
-// Send myPublicKey to the server or publish it
-
-// 2. Get server's public key
 const serverPubKey = await fetch('/api/mlkem-public-key').then(r => r.text());
 
-// 3. Encrypt for yourself + server
-const encrypted = await w3pk.mlkemEncrypt(
-  'my secret data',
-  [serverPubKey]  // Server can decrypt
-);
-// You can also decrypt because you're auto-added as recipient
+const encrypted = await w3pk.mlkemEncrypt('my secret data', [serverPubKey]);
+// You can also decrypt, since you're auto-added as a recipient
 
-// 4. Later: Decrypt locally (server never sees plaintext!)
 const plaintext = await w3pk.mlkemDecrypt(encrypted);
 ```
 
-**Security:** Your Ethereum private key never leaves the w3pk instance, matching the security model of `signMessage()` and `sendTransaction()`.
+Your Ethereum private key never leaves the w3pk instance, matching the security model of `signMessage()` and `sendTransaction()`.
 
-**Supported Modes:**
-- ✅ **STANDARD** (default) - Private key derived internally, not exposed to app
-- ✅ **STRICT** - Same as STANDARD but always requires WebAuthn re-authentication
-- ✅ **YOLO** - Private key available to app
-- ❌ **PRIMARY** - Not supported (uses P-256 WebAuthn keys, not Ethereum keys)
+**Supported modes:**
+- ✅ **STANDARD** (default) — private key derived internally
+- ✅ **STRICT** — same as STANDARD, always requires WebAuthn re-authentication
+- ✅ **YOLO** — private key available to app
+- ❌ **PRIMARY** — not supported; uses P-256 WebAuthn keys, not Ethereum keys, so there's no secp256k1 material to derive an ML-KEM seed from
 
-### Encrypt/Decrypt with Key Derivation (Low-level API)
-
-For advanced use cases where you manage private keys directly:
+### Low-level API
 
 ```typescript
-// Client encrypts for themselves + server
+import { deriveMLKemKeypair, mlkemEncryptWithKey, mlkemDecryptWithKey, mlkemEncrypt, mlkemDecrypt } from 'w3pk';
+
+// Derive-from-key convenience wrappers
 const serverKeypair = await deriveMLKemKeypair(serverEthKey, 'server');
-const encrypted = await mlkemEncryptWithKey(
-  'my secret data',
-  myEthPrivateKey,              // Sender's private key (auto-added as recipient)
-  [serverKeypair.publicKey],    // Additional recipients
-  'client'                       // Context for sender's key derivation
-);
+const encrypted = await mlkemEncryptWithKey('my secret data', myEthPrivateKey, [serverKeypair.publicKey], 'client');
+const plaintext = await mlkemDecryptWithKey(encrypted, myEthPrivateKey, 'client');
 
-// Later: Client decrypts locally (no server needed!)
-const plaintext = await mlkemDecryptWithKey(
-  encrypted,
-  myEthPrivateKey,              // Same private key used for encryption
-  'client'                       // Same context
-);
-
-// Or: Server decrypts for operations
-const plaintext = await mlkemDecryptWithKey(
-  encrypted,
-  serverEthKey,
-  'server'
-);
+// Direct, key-management-agnostic API
+const encryptedDirect = await mlkemEncrypt('my secret data', [publicKey1, publicKey2]);
+const plaintextDirect = await mlkemDecrypt(encryptedDirect, privateKey);
 ```
 
-### Direct Encryption (Without Key Derivation)
-
-For maximum flexibility, use raw public keys directly:
-
-```typescript
-import { mlkemEncrypt, mlkemDecrypt } from 'w3pk';
-
-// Single recipient
-const publicKey = 'base64_encoded_public_key...'; // 1568 bytes
-const encrypted = await mlkemEncrypt('my secret data', publicKey);
-
-// Multiple recipients (encrypt once, multiple people can decrypt)
-const encrypted = await mlkemEncrypt('my secret data', [
-  publicKey1,
-  publicKey2,
-  publicKey3
-]);
-// Returns: { recipients: [...], encryptedData, iv, authTag }
-
-// Decrypt with your private key (auto-detects which recipient you are)
-const privateKey = 'base64_encoded_private_key...'; // 3168 bytes
-const plaintext = await mlkemDecrypt(encrypted, privateKey);
-// Returns: 'my secret data'
-
-// Or specify your public key for faster lookup
-const plaintext = await mlkemDecrypt(encrypted, privateKey, publicKey);
-```
-
-### Security Properties
-
-- ✅ **ML-KEM-1024** (NIST FIPS 203) - Post-quantum secure
-- ✅ **AES-256-GCM** - 128-bit quantum security (sufficient)
-- ✅ **Key zeroization** - Shared secrets securely wiped from memory
-- ✅ **Hybrid encryption** - KEM + symmetric cipher for efficiency
-- ✅ **Cross-platform** - Works in browser and Node.js
-
-### API Reference
-
-#### Instance Methods (Recommended)
-
-These methods work with your w3pk wallet instance - no private key exposure:
+### API reference
 
 #### `w3pk.deriveMLKemPublicKey(options?): Promise<string>`
+Derives your ML-KEM-1024 public key (base64, 1568 bytes) for sharing.
+**Options:** `context` (default `'mlkem-v1'`), `mode` (`STANDARD`/`STRICT`/`YOLO`), `tag`, `origin`, `requireAuth`.
 
-Derives your ML-KEM-1024 public key that can be shared for encryption.
+#### `w3pk.mlkemEncrypt(plaintext, recipientPublicKeys, options?): Promise<EncryptedPayload>`
+Encrypts for yourself plus additional recipients. Same options as above.
 
-**Parameters:**
-- `options.context` - Context string for domain separation (default: `'mlkem-v1'`)
-- `options.mode` - Security mode: `'STANDARD'`, `'STRICT'`, or `'YOLO'` (default: `'STANDARD'`)
-- `options.tag` - Tag for address derivation (default: `'MAIN'`)
-- `options.origin` - Origin for derivation (default: current origin)
-- `options.requireAuth` - Force WebAuthn re-authentication (default: false, always true in STRICT mode)
+#### `w3pk.mlkemDecrypt(payload, options?): Promise<string>`
+Decrypts data encrypted for your wallet. `context`/`mode`/`tag`/`origin`/`requireAuth` must match encryption.
 
-**Note:** PRIMARY mode is not supported as it uses P-256 WebAuthn keys instead of Ethereum keys.
+#### `deriveMLKemKeypair(privateKey, context?): Promise<MLKemKeypair>`
+Low-level deterministic keypair derivation. Returns `{ publicKey: Uint8Array(1568), privateKey: Uint8Array(3168) }`.
 
-**Returns:** Base64-encoded ML-KEM public key (1568 bytes)
+#### `mlkemEncryptWithKey(plaintext, senderPrivateKey, recipientPublicKeys, senderContext?): Promise<EncryptedPayload>`
+Derives the sender's keypair, then encrypts for sender + recipients (sender's public key is auto-included as first recipient).
 
-**Example:**
-```typescript
-const w3pk = createWeb3Passkey();
-await w3pk.login();
-const pubKey = await w3pk.deriveMLKemPublicKey();
-```
+#### `mlkemDecryptWithKey(payload, privateKey, context?): Promise<string>`
+Derives a keypair, then decrypts.
 
-#### `w3pk.mlkemEncrypt(plaintext: string, recipientPublicKeys: Array<string | Uint8Array>, options?): Promise<EncryptedPayload>`
+#### `mlkemEncrypt(plaintext, publicKeys): Promise<EncryptedPayload>`
+Raw encryption for one or more recipients. Each `publicKeys` entry is base64 or `Uint8Array`, 1568 bytes.
+**Returns:** `{ recipients: [{ publicKey, ciphertext }], encryptedData, iv, authTag }` — `ciphertext` is 1600 bytes (1568 KEM + 32 wrapped AES key), `iv` is 12 bytes, `authTag` is 16 bytes.
 
-Encrypts data for yourself and additional recipients.
+#### `mlkemDecrypt(payload, privateKey, publicKey?): Promise<string>`
+Decrypts a payload from `mlkemEncrypt()`. Passing your `publicKey` (1568 bytes) speeds up recipient lookup; otherwise every recipient entry is tried.
 
-**Parameters:**
-- `plaintext` - The data to encrypt
-- `recipientPublicKeys` - Array of recipient ML-KEM public keys (base64 or Uint8Array)
-- `options.context` - Context string (default: `'mlkem-v1'`)
-- `options.mode` - Security mode: `'STANDARD'`, `'STRICT'`, or `'YOLO'` (default: `'STANDARD'`)
-- `options.tag` - Tag for address derivation (default: `'MAIN'`)
-- `options.origin` - Origin (default: current origin)
-- `options.requireAuth` - Force re-authentication (default: false, always true in STRICT mode)
+### Security properties
 
-**Returns:** Encrypted payload
-
-**Example:**
-```typescript
-const encrypted = await w3pk.mlkemEncrypt('secret', [serverPubKey]);
-```
-
-#### `w3pk.mlkemDecrypt(payload: EncryptedPayload, options?): Promise<string>`
-
-Decrypts data encrypted for your wallet.
-
-**Parameters:**
-- `payload` - The encrypted payload
-- `options.context` - Context string (default: `'mlkem-v1'`, must match encryption)
-- `options.mode` - Security mode: `'STANDARD'`, `'STRICT'`, or `'YOLO'` (default: `'STANDARD'`)
-- `options.tag` - Tag (default: `'MAIN'`)
-- `options.origin` - Origin (default: current origin)
-- `options.requireAuth` - Force re-authentication (default: false, always true in STRICT mode)
-
-**Returns:** Decrypted plaintext
-
-**Example:**
-```typescript
-const plaintext = await w3pk.mlkemDecrypt(encrypted);
-```
+- ✅ ML-KEM-1024 (NIST FIPS 203) — post-quantum secure key encapsulation
+- ✅ AES-256-GCM — 128-bit quantum security for the payload
+- ✅ Key zeroization — shared secrets wiped from memory after use
+- ✅ Cross-platform — browser and Node.js
+- ⚠️ Deterministic derivation from the Ethereum private key means ML-KEM key secrecy is capped by secp256k1 key secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
 
 ---
 
-#### Low-Level Functions
+## What w3pk is deliberately not doing yet
 
-These functions require managing private keys directly:
+- **No interim on-chain PQ signature verifiers.** Pre-EIP-8141 architectures (bundler-based smart-contract accounts with a bolted-on PQ verifier) are not part of Ethereum's actual roadmap and would need to be replaced once EIP-8141 ships. Building on them now means migrating twice for no lasting benefit.
+- **No PQ signing scheme committed in code.** Which exact algorithm to use (ML-DSA via EIP-8051/8355, Falcon via EIP-7619, or a hash-based Winternitz scheme) is still an open execution-layer question upstream. Committing to one now risks shipping the wrong thing.
+- **No changes to WebAuthn/passkey authentication.** FIDO Alliance's own PQ specification work isn't expected to produce browser support before 2027-2028; P-256 stays as-is until that lands.
 
-#### `deriveMLKemKeypair(privateKey: string | Uint8Array, context?: string): Promise<MLKemKeypair>`
+---
 
-Derives a deterministic ML-KEM-1024 keypair from any private key material using HKDF-SHA256.
+## Roadmap maturity: closing the gaps
 
-**Parameters:**
-- `privateKey` - Private key material (hex string with optional `0x` prefix, or Uint8Array)
-- `context` - Optional context string for domain separation (default: `'mlkem-v1'`)
+The trigger table above tracks Ethereum's protocol schedule, which covers *when w3pk can act* on signatures. It does not by itself cover everything a post-quantum migration roadmap needs (per [NIST SP 1800-38](https://www.nccoe.nist.gov/applied-cryptography/migration-to-pqc) and [CISA's Quantum-Readiness guidance](https://www.cisa.gov/resources-tools/resources/quantum-readiness-migration-post-quantum-cryptography)): an inventory alone isn't a plan, and a plan that only reacts to an external protocol isn't crypto-agile. The items below are owned by w3pk directly, independent of Ethereum's timeline, and get checked at every "Next Review" date above.
 
-**Returns:** `MLKemKeypair` object containing:
-- `publicKey` - ML-KEM-1024 public key (Uint8Array, 1568 bytes)
-- `privateKey` - ML-KEM-1024 private key (Uint8Array, 3168 bytes)
+### Internally-owned checkpoints (every review cycle)
 
-**Security:** Uses HKDF with salt `"mlkem-keypair-v1"` and the provided context to derive a 64-byte seed, then generates a deterministic ML-KEM keypair. Same input always produces same output. All sensitive material is zeroized after use.
+- [ ] Re-verify the `mlkem` npm package (currently `mlkem@2.7.0`, [dajiaji/crystals-kyber-js](https://github.com/dajiaji/crystals-kyber-js)) is still maintained, still passes the NIST ML-KEM KAT vectors and the pq-crystals/kyber reference tests, and has no open security advisories.
+- [ ] Re-check the FIDO Alliance's WebAuthn PQ status — no PQ COSE algorithm identifier is registered as of this writing, so P-256 passkeys stay as-is; flag the moment one lands.
+- [ ] Re-check whether `ethers` (currently `^6.0.0`, used for transaction construction and secp256k1 signing) has announced any PQ or hybrid-signing support, since a signing-path change there would predate w3pk's own EIP-8141 integration.
+- [ ] Re-confirm EIP-8141 and the Hegotá fork's status directly against [pq.ethereum.org](https://pq.ethereum.org/) and [strawmap.org](https://strawmap.org/) — don't rely on this document staying current between reviews.
 
-#### `mlkemEncryptWithKey(plaintext: string, senderPrivateKey: string | Uint8Array, recipientPublicKeys: Array<string | Uint8Array>, senderContext?: string): Promise<EncryptedPayload>`
+### Crypto-agility target design (not yet implemented)
 
-Convenience function that derives the sender's ML-KEM keypair, then encrypts for sender + recipients.
+The SDK has no algorithm-selection config today — signing is hardcoded to secp256k1/P-256, and encryption is hardcoded to ML-KEM-1024 + AES-256-GCM. That's fine while there is only one option to choose from, but it means "add hybrid signing" is currently a code change, not a config flip. Per NIST's crypto-agility guidance (CSWP 39), the target shape before the first EIP-8141 trigger fires should be something like:
 
-**Parameters:**
-- `plaintext` - The data to encrypt
-- `senderPrivateKey` - Sender's private key (hex string or Uint8Array)
-- `recipientPublicKeys` - Array of recipient ML-KEM public keys
-- `senderContext` - Optional context for sender's key derivation (default: `'mlkem-v1'`)
+```typescript
+// Target shape — does not exist in src/ yet.
+// Introduce this when the first trigger in "What w3pk will do when Ethereum is ready" fires,
+// not before — there is nothing to make agile until a second signature scheme actually exists.
+interface CryptoConfig {
+  version: number;
+  signatures: {
+    ethereum: 'secp256k1' | 'hybrid-secp256k1-pq';
+    postQuantum?: string; // whatever scheme Ethereum standardizes via EIP-8051/8355/7619
+  };
+}
+```
 
-**Returns:** `EncryptedPayload` (sender's public key is automatically included as first recipient)
+This is a placeholder for design intent, not a commitment to this exact shape — the real interface depends on which PQ scheme Ethereum's execution layer actually standardizes.
 
-**Use case:** Encrypt data so both you and a server can decrypt independently.
+### Operational runbook (draft — to be finalized before the first trigger fires)
 
-#### `mlkemDecryptWithKey(payload: EncryptedPayload, privateKey: string | Uint8Array, context?: string): Promise<string>`
+1. **Dry run on testnet first.** Hybrid signing gets exercised against a testnet deployment of the relevant EIP-8141 validation frame before any mainnet opt-in ships.
+2. **ML-KEM context rotation.** `deriveMLKemKeypair`'s `context` parameter already provides domain separation; if the ML-KEM implementation itself ever needs replacing (library vulnerability, algorithm deprecation), bump the default context (e.g. `mlkem-v2`) rather than reusing `mlkem-v1`, and keep the old context decryptable for existing backups rather than breaking them.
+3. **Fail closed on hybrid mismatch.** If a hybrid account's classical and PQ signatures disagree (one verifies, one doesn't), the transaction is rejected outright. There is no partial-trust mode where either signature alone is accepted once hybrid mode is active for an account.
+4. **No global cutover switch.** Hybrid mode is opt-in per account via the trigger table above. w3pk does not flip existing wallets to hybrid or PQ-only signing without explicit user action, even after Ethereum completes its own migration (fork milestones L*/M* and beyond).
 
-Convenience function that derives an ML-KEM keypair, then decrypts the payload.
+### Dependency PQ posture
 
-**Parameters:**
-- `payload` - The encrypted payload
-- `privateKey` - Private key material (hex string or Uint8Array)
-- `context` - Optional context for key derivation (default: `'mlkem-v1'`)
+| Dependency | Role | PQ status | What we watch |
+| --- | --- | --- | --- |
+| `mlkem` (`^2.7.0`) | ML-KEM-1024 encryption | Post-quantum today | Maintenance activity, KAT test results, disclosed vulnerabilities |
+| `ethers` (`^6.0.0`) | Transaction construction, secp256k1 signing | Classical only | Any announced hybrid/PQ signing support |
+| WebAuthn / FIDO2 | Passkey authentication (P-256) | Classical only | FIDO Alliance PQ working-group output; no registered PQ COSE algorithm yet |
+| Ethereum L1 (via EIP-8141) | Transaction validation | Classical only, PQ path specified but not shipped | Hegotá fork outcome, EIP-8141 mainnet status |
 
-**Returns:** Decrypted plaintext string
+---
 
-**Use case:** Decrypt data using your Ethereum private key without managing separate ML-KEM keys.
+## Quantum computing timeline
 
-#### `mlkemEncrypt(plaintext: string, publicKeys: (string | Uint8Array) | Array<string | Uint8Array>): Promise<EncryptedPayload>`
+- **Conservative estimate:** 10-15 years to a CRQC
+- **EF's own estimate:** early-to-mid 2030s
+- **Google Quantum AI (March 2026):** ~1,200 logical qubits needed to break 256-bit ECC, down from prior estimates
+- **NIST:** deprecating ECDSA by 2030, disallowing it by 2035 (hybrid PQ modes are exempted from the 2035 disallowance per NIST IR 8547, as long as the PQ component is approved)
 
-Encrypts data using ML-KEM-1024 + AES-256-GCM for one or more recipients.
+Dormant-funds exposure — the governance question nobody has answered — is much smaller for Ethereum than for Bitcoin: the EF estimates roughly 0.1% of ETH supply is long-dormant, against ~5% of BTC in early address formats. That gap is part of why "do nothing yet" is a defensible position for Ethereum today.
 
-**Parameters:**
-- `plaintext` - The data to encrypt
-- `publicKeys` - Single public key or array of ML-KEM-1024 public keys (base64 strings or Uint8Arrays, 1568 bytes each)
+---
 
-**Returns:** `EncryptedPayload` object containing:
-- `recipients` - Array of recipient entries, each containing:
-  - `publicKey` - Base64 recipient public key (1568 bytes)
-  - `ciphertext` - Base64 ML-KEM ciphertext for this recipient (1600 bytes: 1568 KEM + 32 encrypted AES key)
-- `encryptedData` - Base64 AES-encrypted data (shared across all recipients)
-- `iv` - Base64 initialization vector (12 bytes)
-- `authTag` - Base64 authentication tag (16 bytes)
+## Key takeaways
 
-**How it works:**
-1. Generates a random AES-256 key
-2. Encrypts plaintext with AES-256-GCM using that key
-3. For each recipient: encapsulates a shared secret with their ML-KEM public key, then XOR-encrypts the AES key with the shared secret
-4. Each recipient can decrypt using their private key to recover the AES key, then decrypt the data
+### For developers
+1. w3pk's data-encryption layer is already post-quantum (ML-KEM-1024) — use it today for anything that needs long-term confidentiality.
+2. Transaction-signature quantum-safety is gated on Ethereum's own protocol timeline, not on w3pk shipping something early.
+3. The actionable trigger is **EIP-8141 reaching mainnet with a working PQ verification path** — see [What w3pk will do when Ethereum is ready](#what-w3pk-will-do-when-ethereum-is-ready).
+4. Watch the **Hegotá** fork (2027) — it's the gate for whether the rest of the PQ schedule holds.
 
-#### `mlkemDecrypt(payload: EncryptedPayload, privateKey: string | Uint8Array, publicKey?: string | Uint8Array): Promise<string>`
+### For users
+1. Your funds are safe today; no immediate quantum threat exists.
+2. Backups and sessions are already quantum-resistant (AES-256-GCM).
+3. Data you encrypt with `mlkemEncrypt` is already post-quantum secure.
+4. Any future signature migration will be opt-in — nothing changes without you choosing it.
 
-Decrypts data encrypted with `mlkemEncrypt()`.
+### For auditors
+1. Current cryptography follows standard best practice; ML-KEM-1024 usage matches FIPS 203.
+2. The signature-side gap is acknowledged and explicitly deferred to Ethereum's protocol timeline, not silently ignored.
+3. No speculative or unverified interim PQ infrastructure has been deployed.
 
-**Parameters:**
-- `payload` - The encrypted payload from `mlkemEncrypt()`
-- `privateKey` - ML-KEM-1024 private key (base64 string or Uint8Array, 3168 bytes)
-- `publicKey` - (Optional) Your ML-KEM-1024 public key for faster recipient lookup (base64 string or Uint8Array, 1568 bytes)
+---
 
-**Returns:** Decrypted plaintext string
+## References
 
-**Throws:** Error if decryption fails (invalid key, no matching recipient, corrupted data, or tampered auth tag)
+### Standards
+- [NIST FIPS 203: ML-KEM](https://csrc.nist.gov/pubs/fips/203/final) — key encapsulation, used by w3pk today
+- [NIST FIPS 204: ML-DSA](https://csrc.nist.gov/pubs/fips/204/final) — signatures, candidate for Ethereum's execution layer
+- [NIST FIPS 205: SLH-DSA](https://csrc.nist.gov/pubs/fips/205/final) — hash-based signatures
+- [EIP-8141: Frame transactions](https://eips.ethereum.org/EIPS/eip-8141) — the trigger this document tracks
+- [EIP-8051](https://eips.ethereum.org/EIPS/eip-8051), [EIP-8355](https://eips.ethereum.org/EIPS/eip-8355) — `VERIFY_MLDSA` precompile drafts
+- [EIP-7619: Falcon](https://eips.ethereum.org/EIPS/eip-7619)
+- [EIP-7702: Set EOA account code](https://eips.ethereum.org/EIPS/eip-7702)
+- [ERC-5564: Stealth address protocol](https://eips.ethereum.org/EIPS/eip-5564)
 
-**Note:** If `publicKey` is not provided, the function will try each recipient until it finds a match (slower but convenient)
+### Ethereum's roadmap
+- [pq.ethereum.org](https://pq.ethereum.org/) — EF Post-Quantum team
+- [lean Ethereum announcement](https://blog.ethereum.org/2025/07/31/lean-ethereum)
+- [leanEthereum GitHub organisation](https://github.com/leanEthereum)
+- [strawmap.org](https://strawmap.org/) — EF Protocol Architecture roadmap
+
+### Other
+- [Google Quantum AI: safeguarding cryptocurrency](https://research.google/blog/safeguarding-cryptocurrency-by-disclosing-quantum-vulnerabilities-responsibly/)
+- [NIST Post-Quantum Cryptography Project](https://csrc.nist.gov/projects/post-quantum-cryptography)
+- [pqaudit.org](https://pqaudit.org/) — independent PQC standards/audit-firm index
 
 ---
 
 ## Document Maintenance
 
-**Version:** 1.2
-**Last Updated:** 2026-03-21
-**Next Review:** 2026-09-21 (6 months)
+**Version:** 2.1
+**Last Updated:** 2026-09-13
+**Next Review:** 2027-03-13 (6 months, or sooner if the Hegotá fork's EIP-8141 status changes)
 **Maintained By:** Julien Béranger ([@julienbrg](https://github.com/julienbrg))
 
 **Changelog:**
+- 2026-09-13: Added "Roadmap maturity: closing the gaps" — internally-owned review checkpoints, a labeled not-yet-implemented crypto-agility target design, a draft operational runbook (testnet dry run, ML-KEM context rotation, fail-closed hybrid verification, no global cutover), and a dependency PQ-posture table (`mlkem`, `ethers`, WebAuthn/FIDO2), per NIST SP 1800-38 and CISA quantum-readiness guidance
+- 2026-09-13: Complete rewrite aligned with the Ethereum Foundation's public post-quantum roadmap (pq.ethereum.org, the lean Ethereum announcement, and the EIPs cited above)
+  - Replaced speculative/unverifiable content (interim ERC-4337 PQ verifier contracts, unconfirmed testnet addresses) with Ethereum's actual documented roadmap (lean Ethereum, leanXMSS, leanVM, EIP-8141, fork milestones)
+  - Added an explicit action-trigger table: what w3pk does, and when, gated on EIP-8141 reaching mainnet with a working PQ verification path
+  - Replaced the "Ethereum quantum resistance roadmap" tweet citation with the EF's actual public sources (pq.ethereum.org, lean Ethereum blog post, strawmap.org)
+  - Corrected the ML-KEM "future" backup/stealth-address examples that referenced a nonexistent `@kohaku-eth/ml-kem` package — w3pk's `mlkemEncrypt`/`mlkemDecrypt` already is that hybrid scheme, using the shipped `mlkem` npm package
+  - Added a dedicated "what w3pk is deliberately not doing yet" section explaining why no interim PQ signature infrastructure is being built
 - 2026-03-21: Added ML-KEM encryption utilities with deterministic key derivation
-  - Documented `deriveMLKemKeypair()` function for HKDF-based key derivation from private keys
-  - Documented `mlkemEncryptWithKey()` and `mlkemDecryptWithKey()` convenience functions
-  - Documented `mlkemEncrypt()` function for direct post-quantum encryption
-  - Documented `mlkemDecrypt()` function for decryption
-  - Added security properties and comprehensive API reference
-  - Linked to NIST FIPS 203 (ML-KEM) standard
-- 2026-02-27: **Updated to align with [Ethereum quantum resistance roadmap](https://x.com/VitalikButerin/status/2027075026378543132)** (February 2026)
-  - Added Ethereum's four quantum-vulnerable components
-  - Integrated [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) (native AA) as long-term solution
-  - Added validation frames + STARK aggregation approach
-  - Updated gas cost estimates for EIP-8141 (near-zero with aggregation)
-  - Added hash function selection discussion ([Poseidon2](https://eprint.iacr.org/2023/323)/[Poseidon1](https://eprint.iacr.org/2019/458)/[BLAKE3](https://github.com/BLAKE3-team/BLAKE3))
-  - Clarified w3pk uses [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) as interim solution until [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141)
-  - Added Phase 4.1: Migration to validation frames
-  - Added active links throughout document for all standards, specifications, and resources
-- 2026-02-26: Initial version, comprehensive quantum readiness assessment
-- 2026-02-26: Added [Kohaku](https://github.com/ethereum/kohaku) pq-account integration plan
-- 2026-02-26: Defined 4-phase migration roadmap with timelines
+- 2026-02-27: Updated to reference Ethereum's quantum roadmap; added EIP-8141 discussion
+- 2026-02-26: Initial version
 
 ---
 
 ## Questions or Feedback?
 
-If you have questions about w3pk's quantum readiness:
-
 1. Open an issue: [GitHub Issues](https://github.com/w3hc/w3pk/issues)
 2. Join the discussion: [Element Matrix](https://matrix.to/#/@julienbrg:matrix.org)
-3. Email: See [README.md](../README.md) for contact details
-
-**Remember:** Quantum computing is an exciting challenge, not a panic-inducing crisis. We're prepared. 🔐
+3. Email: see [README.md](../README.md) for contact details
