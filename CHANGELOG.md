@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **ML-KEM key wrapping is versioned and authenticated** ([#133](https://github.com/w3hc/w3pk/issues/133)):
+  - `mlkemEncrypt` writes `version: 2` payloads: the AES key is wrapped with AES-KW (RFC 3394) under a KEK derived from the ML-KEM shared secret with HKDF-SHA256 (info `w3pk-mlkem-kek-v2`); recipient ciphertexts grow from 1600 to 1608 bytes
+  - `mlkemDecrypt` reads v2 and legacy v1 payloads (no `version`, XOR-wrapped key), rejects IVs that are not 12 bytes and auth tags that are not 16 bytes, and without a public key hint tries each recipient until one passes the authenticated checks
+  - `EncryptedPayload` gains an optional `version` field
+
 - **docs/SECURITY.md**: fixed the vulnerability-reporting channel (previously pointed at a nonexistent README email; now points to GitHub Security Advisories); added a section on EU Cyber Resilience Act disclosure timelines as they relate to w3pk (FOSS) vs. commercial integrators, with a brief note on the US and China regimes
 - **docs/POST_QUANTUM.md**: refreshed the post-quantum roadmap to reflect current Ethereum PQ migration planning
 

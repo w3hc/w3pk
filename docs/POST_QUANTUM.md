@@ -218,15 +218,18 @@ Derives a keypair, then decrypts.
 
 #### `mlkemEncrypt(plaintext, publicKeys): Promise<EncryptedPayload>`
 Raw encryption for one or more recipients. Each `publicKeys` entry is base64 or `Uint8Array`, 1568 bytes.
-**Returns:** `{ recipients: [{ publicKey, ciphertext }], encryptedData, iv, authTag }` — `ciphertext` is 1600 bytes (1568 KEM + 32 wrapped AES key), `iv` is 12 bytes, `authTag` is 16 bytes.
+**Returns:** `{ version: 2, recipients: [{ publicKey, ciphertext }], encryptedData, iv, authTag }` — `ciphertext` is 1608 bytes (1568 KEM + 40 wrapped AES key), `iv` is 12 bytes, `authTag` is 16 bytes.
+
+Each recipient's AES key is wrapped with AES-KW ([RFC 3394](https://datatracker.ietf.org/doc/html/rfc3394)) under a key-encryption key derived from the ML-KEM shared secret with HKDF-SHA256 (empty salt, info `w3pk-mlkem-kek-v2`). Payloads without a `version` field are legacy v1 (AES key XOR-ed with the raw shared secret, 1600-byte `ciphertext`) and still decrypt.
 
 #### `mlkemDecrypt(payload, privateKey, publicKey?): Promise<string>`
-Decrypts a payload from `mlkemEncrypt()`. Passing your `publicKey` (1568 bytes) speeds up recipient lookup; otherwise every recipient entry is tried.
+Decrypts a payload from `mlkemEncrypt()`, v2 or legacy v1. Passing your `publicKey` (1568 bytes) speeds up recipient lookup; otherwise every recipient entry is tried. The IV must be 12 bytes and the auth tag 16 bytes.
 
 ### Security properties
 
 - ✅ ML-KEM-1024 (NIST FIPS 203) — post-quantum secure key encapsulation
 - ✅ AES-256-GCM — 128-bit quantum security for the payload
+- ✅ HKDF-derived KEK + AES-KW — a tampered wrapped key is rejected before the payload is touched
 - ✅ Key zeroization — shared secrets wiped from memory after use
 - ✅ Cross-platform — browser and Node.js
 - ⚠️ Deterministic derivation from the Ethereum private key means ML-KEM key secrecy is capped by secp256k1 key secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
