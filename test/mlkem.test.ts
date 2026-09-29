@@ -250,6 +250,110 @@ async function runTests() {
     passTest('Input format flexibility working');
   });
 
+  const rejectionOf = async (fn: () => Promise<unknown>): Promise<Error> => {
+    try {
+      await fn();
+    } catch (error) {
+      return error as Error;
+    }
+    throw new Error('Expected promise to reject');
+  };
+
+  // Test 12: Versioned v2 payload format
+  await runTest('Encrypt writes v2 payloads with AES-KW wrapped keys', async () => {
+    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const encrypted = await mlkemEncrypt('v2 format', keypair.publicKey);
+
+    assertEqual(encrypted.version, 2, 'Payload should be version 2');
+    assertEqual(
+      Buffer.from(encrypted.recipients[0].ciphertext, 'base64').length,
+      1608,
+      'Recipient ciphertext should be 1568 KEM + 40 wrapped key bytes'
+    );
+
+    passTest('v2 payload format correct');
+  });
+
+  // Test 13: Tampered wrapped key
+  await runTest('Tampered wrapped key is rejected', async () => {
+    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const encrypted = await mlkemEncrypt('tamper test', keypair.publicKey);
+
+    const combined = Buffer.from(encrypted.recipients[0].ciphertext, 'base64');
+    combined[combined.length - 1] ^= 0x01;
+    encrypted.recipients[0].ciphertext = combined.toString('base64');
+
+    await rejectionOf(() => mlkemDecrypt(encrypted, keypair.privateKey, keypair.publicKey));
+
+    passTest('AES-KW integrity check rejects tampering');
+  });
+
+  // Test 14: Legacy v1 payloads still decrypt
+  await runTest('Legacy v1 payload (no version) still decrypts', async () => {
+    const plaintext = 'legacy payload';
+    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const { createMlKem1024 } = await import('mlkem');
+    const mlkem = await createMlKem1024();
+
+    const aesKey = crypto.getRandomValues(new Uint8Array(32));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await crypto.subtle.importKey('raw', aesKey, 'AES-GCM', false, ['encrypt']);
+    const sealed = new Uint8Array(
+      await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext))
+    );
+
+    const [kemCiphertext, sharedSecret] = mlkem.encap(keypair.publicKey);
+    const wrapped = aesKey.map((b, i) => b ^ sharedSecret[i]);
+
+    const legacy = {
+      recipients: [{
+        publicKey: Buffer.from(keypair.publicKey).toString('base64'),
+        ciphertext: Buffer.concat([kemCiphertext, wrapped]).toString('base64'),
+      }],
+      encryptedData: Buffer.from(sealed.slice(0, -16)).toString('base64'),
+      iv: Buffer.from(iv).toString('base64'),
+      authTag: Buffer.from(sealed.slice(-16)).toString('base64'),
+    };
+
+    assertEqual(await mlkemDecrypt(legacy, keypair.privateKey, keypair.publicKey), plaintext, 'With public key');
+    assertEqual(await mlkemDecrypt(legacy, keypair.privateKey), plaintext, 'Without public key');
+
+    passTest('Legacy v1 payloads remain readable');
+  });
+
+  // Test 15: IV and auth tag lengths
+  await runTest('IV must be 12 bytes and auth tag 16 bytes', async () => {
+    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+
+    const badIv = await mlkemEncrypt('iv test', keypair.publicKey);
+    badIv.iv = Buffer.alloc(16).toString('base64');
+    const ivError = await rejectionOf(() => mlkemDecrypt(badIv, keypair.privateKey, keypair.publicKey));
+    assertEqual(ivError.message, 'Invalid IV size: 16 (expected 12)', 'IV size error');
+
+    const shortTag = await mlkemEncrypt('tag test', keypair.publicKey);
+    shortTag.authTag = Buffer.from(shortTag.authTag, 'base64').subarray(0, 4).toString('base64');
+    const tagError = await rejectionOf(() => mlkemDecrypt(shortTag, keypair.privateKey, keypair.publicKey));
+    assertEqual(tagError.message, 'Invalid auth tag size: 4 (expected 16)', 'Auth tag size error');
+
+    passTest('IV and auth tag lengths enforced');
+  });
+
+  // Test 16: Recipient lookup without a public key hint
+  await runTest('Decrypt without public key hint finds the right recipient', async () => {
+    const plaintext = 'no hint';
+    const keypair1 = await deriveMLKemKeypair(testPrivateKey1, 'user1');
+    const keypair2 = await deriveMLKemKeypair(testPrivateKey2, 'user2');
+    const encrypted = await mlkemEncrypt(plaintext, [keypair1.publicKey, keypair2.publicKey]);
+
+    assertEqual(await mlkemDecrypt(encrypted, keypair2.privateKey), plaintext, 'Second recipient should decrypt');
+
+    const outsider = await deriveMLKemKeypair(testPrivateKey1, 'outsider');
+    const error = await rejectionOf(() => mlkemDecrypt(encrypted, outsider.privateKey));
+    assertEqual(error.message, 'No matching recipient found for this private key', 'Outsider rejected');
+
+    passTest('Recipient lookup working without hint');
+  });
+
   endTestSuite();
 }
 

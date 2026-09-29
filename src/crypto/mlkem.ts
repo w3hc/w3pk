@@ -8,6 +8,7 @@ export interface MLKemKeypair {
 }
 
 export interface EncryptedPayload {
+  version?: 2;              // Absent for legacy v1 payloads (XOR-wrapped AES key)
   recipients: Array<{
     publicKey: string;      // Base64 recipient public key (1568 bytes)
     ciphertext: string;     // Base64 ML-KEM ciphertext for this recipient
@@ -16,6 +17,12 @@ export interface EncryptedPayload {
   iv: string;               // Base64 IV
   authTag: string;          // Base64 auth tag
 }
+
+const KEM_CIPHERTEXT_LENGTH = 1568;
+const WRAPPED_KEY_LENGTH = { 1: 32, 2: 40 } as const;
+const IV_LENGTH = 12;
+const AUTH_TAG_LENGTH = 16;
+const KEK_INFO = 'w3pk-mlkem-kek-v2';
 
 /**
  * Securely zero out sensitive data from memory
@@ -56,6 +63,58 @@ function base64ToArrayBuffer(base64: string): Uint8Array {
 
   // Node.js fallback
   return new Uint8Array(Buffer.from(base64, 'base64'));
+}
+
+/**
+ * Derive the AES-KW key-encryption key from an ML-KEM shared secret (v2)
+ */
+async function deriveKek(sharedSecret: Uint8Array, usage: KeyUsage): Promise<CryptoKey> {
+  const kek = hkdf(
+    sha256,
+    sharedSecret,
+    new Uint8Array(0),
+    new TextEncoder().encode(KEK_INFO),
+    32
+  );
+  try {
+    return await crypto.subtle.importKey('raw', kek as BufferSource, 'AES-KW', false, [usage]);
+  } finally {
+    zeroize(kek);
+  }
+}
+
+/**
+ * Recover the AES-GCM data key from a recipient's wrapped key
+ * Throws if the wrapped key fails its integrity check (v2 only)
+ */
+async function unwrapAesKey(
+  version: 1 | 2,
+  sharedSecret: Uint8Array,
+  wrappedKey: Uint8Array
+): Promise<CryptoKey> {
+  if (version === 2) {
+    const kek = await deriveKek(sharedSecret, 'unwrapKey');
+    return crypto.subtle.unwrapKey(
+      'raw',
+      wrappedKey as BufferSource,
+      kek,
+      'AES-KW',
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt']
+    );
+  }
+
+  // Legacy v1: AES key XOR-ed with the raw shared secret, no integrity check
+  const aesKey = new Uint8Array(32);
+  try {
+    for (let i = 0; i < 32; i++) {
+      aesKey[i] = wrappedKey[i] ^ sharedSecret[i];
+    }
+    return await crypto.subtle.importKey('raw', aesKey as BufferSource, { name: 'AES-GCM' }, false, ['decrypt']);
+  } finally {
+    zeroize(aesKey);
+  }
 }
 
 /**
@@ -166,12 +225,12 @@ export async function mlkemEncrypt(
     const encoder = new TextEncoder();
     const data = encoder.encode(plaintext);
 
-    // Import AES key
+    // Import AES key (extractable so it can be wrapped for each recipient)
     const key = await crypto.subtle.importKey(
       'raw',
       aesKey,
       { name: 'AES-GCM' },
-      false,
+      true,
       ['encrypt']
     );
 
@@ -215,17 +274,13 @@ export async function mlkemEncrypt(
       const [ciphertext, sharedSecret] = mlkem.encap(publicKeyBytes);
 
       try {
-        // Use shared secret to encrypt the AES key
-        // We use the first 32 bytes of shared secret as KEK (Key Encryption Key)
-        const kek = sharedSecret.slice(0, 32);
+        // Wrap the AES key with AES-KW under a KEK derived from the shared secret
+        const kek = await deriveKek(sharedSecret, 'wrapKey');
+        const encryptedAesKey = new Uint8Array(
+          await crypto.subtle.wrapKey('raw', key, kek, 'AES-KW')
+        );
 
-        // XOR encrypt the AES key with the KEK (simple but effective)
-        const encryptedAesKey = new Uint8Array(32);
-        for (let i = 0; i < 32; i++) {
-          encryptedAesKey[i] = aesKey[i] ^ kek[i];
-        }
-
-        // Store ciphertext concatenated with encrypted AES key
+        // Store ciphertext concatenated with wrapped AES key
         const combinedCiphertext = new Uint8Array(ciphertext.length + encryptedAesKey.length);
         combinedCiphertext.set(ciphertext, 0);
         combinedCiphertext.set(encryptedAesKey, ciphertext.length);
@@ -240,6 +295,7 @@ export async function mlkemEncrypt(
     }
 
     return {
+      version: 2,
       recipients,
       encryptedData: arrayBufferToBase64(encryptedData),
       iv: arrayBufferToBase64(iv),
@@ -276,13 +332,63 @@ export async function mlkemDecrypt(
     throw new Error(`Invalid ML-KEM private key size: ${privateKeyBytes.length} (expected 3168)`);
   }
 
+  const version = payload.version ?? 1;
+  if (version !== 1 && version !== 2) {
+    throw new Error(`Unsupported payload version: ${String(version)}`);
+  }
+
   // Parse common payload parts
   const encryptedData = base64ToArrayBuffer(payload.encryptedData);
   const iv = base64ToArrayBuffer(payload.iv);
   const authTag = base64ToArrayBuffer(payload.authTag);
 
-  // Find the recipient entry
-  let recipientEntry = null;
+  if (iv.length !== IV_LENGTH) {
+    throw new Error(`Invalid IV size: ${iv.length} (expected ${IV_LENGTH})`);
+  }
+  if (authTag.length !== AUTH_TAG_LENGTH) {
+    throw new Error(`Invalid auth tag size: ${authTag.length} (expected ${AUTH_TAG_LENGTH})`);
+  }
+
+  const expectedLength = KEM_CIPHERTEXT_LENGTH + WRAPPED_KEY_LENGTH[version];
+
+  // Decapsulate a recipient entry and recover its AES key
+  const openRecipient = async (ciphertext: string): Promise<CryptoKey> => {
+    const combinedCiphertext = base64ToArrayBuffer(ciphertext);
+    if (combinedCiphertext.length !== expectedLength) {
+      throw new Error(
+        `Invalid combined ciphertext size: ${combinedCiphertext.length} (expected ${expectedLength})`
+      );
+    }
+
+    const kemCiphertext = combinedCiphertext.slice(0, KEM_CIPHERTEXT_LENGTH);
+    const wrappedKey = combinedCiphertext.slice(KEM_CIPHERTEXT_LENGTH);
+
+    const sharedSecret = mlkem.decap(kemCiphertext, privateKeyBytes);
+    try {
+      return await unwrapAesKey(version, sharedSecret, wrappedKey);
+    } finally {
+      zeroize(sharedSecret);
+    }
+  };
+
+  // Reconstruct ciphertext || tag for WebCrypto API
+  const encryptedWithTag = new Uint8Array(encryptedData.length + authTag.length);
+  encryptedWithTag.set(encryptedData, 0);
+  encryptedWithTag.set(authTag, encryptedData.length);
+
+  const decryptWith = async (ciphertext: string): Promise<string> => {
+    const key = await openRecipient(ciphertext);
+    const decrypted = await crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv as BufferSource,
+        tagLength: 128
+      },
+      key,
+      encryptedWithTag as BufferSource
+    );
+    return new TextDecoder().decode(decrypted);
+  };
 
   if (publicKey) {
     // Use public key to find the correct recipient
@@ -291,92 +397,26 @@ export async function mlkemDecrypt(
       : publicKey;
     const publicKeyBase64 = arrayBufferToBase64(publicKeyBytes);
 
-    recipientEntry = payload.recipients.find(r => r.publicKey === publicKeyBase64);
+    const recipientEntry = payload.recipients.find(r => r.publicKey === publicKeyBase64);
 
     if (!recipientEntry) {
       throw new Error('Public key not found in recipients list');
     }
-  } else {
-    // Try all recipients until one works
-    for (const recipient of payload.recipients) {
-      try {
-        const ciphertext = base64ToArrayBuffer(recipient.ciphertext);
-        const sharedSecret = mlkem.decap(ciphertext, privateKeyBytes);
 
-        // If decap succeeds, we found the right recipient
-        recipientEntry = recipient;
-        zeroize(sharedSecret); // Clean up test attempt
-        break;
-      } catch {
-        // This recipient is not for us, try next one
-        continue;
-      }
-    }
+    return decryptWith(recipientEntry.ciphertext);
+  }
 
-    if (!recipientEntry) {
-      throw new Error('No matching recipient found for this private key');
+  // ML-KEM decapsulation never fails on a wrong key (implicit rejection),
+  // so try each recipient until one passes the authenticated checks
+  for (const recipient of payload.recipients) {
+    try {
+      return await decryptWith(recipient.ciphertext);
+    } catch {
+      continue;
     }
   }
 
-  // Parse combined ciphertext (ML-KEM ciphertext + encrypted AES key)
-  const combinedCiphertext = base64ToArrayBuffer(recipientEntry.ciphertext);
-
-  // ML-KEM-1024 ciphertext is 1568 bytes, encrypted AES key is 32 bytes
-  const kemCiphertextLength = 1568;
-  const kemCiphertext = combinedCiphertext.slice(0, kemCiphertextLength);
-  const encryptedAesKey = combinedCiphertext.slice(kemCiphertextLength);
-
-  // Decapsulate to recover shared secret
-  const sharedSecret = mlkem.decap(kemCiphertext, privateKeyBytes);
-  let aesKey: Uint8Array | null = null;
-
-  try {
-    // Use shared secret to decrypt the AES key
-    const kek = sharedSecret.slice(0, 32);
-
-    // XOR decrypt the AES key
-    aesKey = new Uint8Array(32);
-    for (let i = 0; i < 32; i++) {
-      aesKey[i] = encryptedAesKey[i] ^ kek[i];
-    }
-
-    // Import AES key
-    const key = await crypto.subtle.importKey(
-      'raw',
-      aesKey as BufferSource,
-      { name: 'AES-GCM' },
-      false,
-      ['decrypt']
-    );
-
-    // Reconstruct ciphertext || tag for WebCrypto API
-    const combinedLength = encryptedData.length + authTag.length;
-    const buffer = new ArrayBuffer(combinedLength);
-    const encryptedWithTag = new Uint8Array(buffer);
-    encryptedWithTag.set(encryptedData, 0);
-    encryptedWithTag.set(authTag, encryptedData.length);
-
-    // Decrypt with AES-256-GCM
-    const decrypted = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv.buffer as ArrayBuffer,
-        tagLength: 128
-      },
-      key,
-      buffer
-    );
-
-    // Decode plaintext
-    const decoder = new TextDecoder();
-    return decoder.decode(decrypted);
-  } finally {
-    // CRITICAL: Zero out all sensitive key material from memory
-    zeroize(sharedSecret);
-    if (aesKey) {
-      zeroize(aesKey);
-    }
-  }
+  throw new Error('No matching recipient found for this private key');
 }
 
 /**
