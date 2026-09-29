@@ -3389,9 +3389,10 @@ Encrypt data using ML-KEM-1024 (post-quantum KEM) + AES-256-GCM for one or more 
 **Returns:**
 ```typescript
 {
+  version: 2;             // Payload format (absent on legacy v1 payloads)
   recipients: Array<{
     publicKey: string;    // Base64 recipient public key (1568 bytes)
-    ciphertext: string;   // Base64 ML-KEM ciphertext for this recipient (1600 bytes)
+    ciphertext: string;   // Base64 ML-KEM ciphertext + AES-KW wrapped key (1608 bytes)
   }>;
   encryptedData: string;  // Base64 AES-encrypted data (shared across all recipients)
   iv: string;             // Base64 initialization vector (12 bytes)
