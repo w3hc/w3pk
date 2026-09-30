@@ -116,8 +116,8 @@ export function createSiweMessage(params: SiweMessage): string {
 
   if (params.statement) {
     message += `${params.statement}\n`;
-    message += `\n`;
   }
+  message += `\n`;
 
   message += `URI: ${params.uri}\n`;
   message += `Version: ${params.version}\n`;
