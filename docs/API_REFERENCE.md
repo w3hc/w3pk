@@ -772,6 +772,7 @@ interface SignatureResult {
 - Uses EIP-191 prefix (for EOA accounts)
 - See https://docs.login.xyz for message format
 - Use `createSiweMessage()` helper for proper formatting
+- Not supported in PRIMARY mode (throws): use STANDARD, STRICT or YOLO
 
 **EIP-712 Signing:**
 - Signs structured typed data according to EIP-712 standard
