@@ -140,11 +140,59 @@ async function siweWithValidation() {
   }
 }
 
+// Server-issued nonce, as EIP-4361 recommends (the flow Wulong expects)
+//
+// - Call getAddress() with the same mode and tag you sign with: addresses are
+//   derived per origin, and the nonce is tied to the address that signs.
+// - Use window.location.host as the domain (it includes the port); the server
+//   must accept that host.
+// - Sign within the server's nonce lifetime (5 minutes on Wulong), whatever
+//   expirationTime the message carries.
+async function siweServerNonceExample(apiUrl: string, slot: string) {
+  console.log('\n\n=== SIWE with a Server-Issued Nonce ===\n');
+
+  const w3pk = createWeb3Passkey();
+  await w3pk.login();
+
+  const address = await w3pk.getAddress('STANDARD');
+
+  const { nonce } = await fetch(`${apiUrl}/auth/nonce`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address }),
+  }).then((r) => r.json());
+
+  const message = createSiweMessage({
+    domain: window.location.host,
+    address,
+    uri: window.location.origin,
+    version: '1',
+    chainId: 1,
+    nonce,
+    issuedAt: new Date().toISOString(),
+  });
+
+  const { signature } = await w3pk.signMessage(message, {
+    mode: 'STANDARD',
+    signingMethod: 'SIWE',
+  });
+
+  const response = await fetch(`${apiUrl}/chest/access/${slot}`, {
+    headers: {
+      'x-siwe-message': btoa(message),
+      'x-siwe-signature': signature,
+    },
+  });
+
+  console.log(response.ok ? '✅ Signed in' : `❌ Rejected: ${response.status}`);
+}
+
 // Run examples
 async function main() {
   try {
     await siweLoginExample();
     await siweWithValidation();
+    await siweServerNonceExample('http://localhost:3000', 'my-slot');
   } catch (error) {
     console.error('Error:', error);
   }
