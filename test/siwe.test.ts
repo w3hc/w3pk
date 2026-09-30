@@ -11,6 +11,7 @@ import {
   verifySiweSignature,
   type SiweMessage,
 } from "../src/siwe";
+import { SiweMessage as SiweLibMessage } from "siwe";
 
 async function runTests() {
   console.log("\n🔐 Running SIWE Utility Tests...\n");
@@ -305,6 +306,36 @@ async function runTests() {
     console.log("✅ Roundtrip consistency works");
   }
 
+  // Test 11: Compatibility with the siwe library, with and without a statement
+  console.log("\nTest 11: Compatibility with the siwe library");
+  {
+    const base: SiweMessage = {
+      domain: "localhost:3000",
+      address: "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B",
+      uri: "http://localhost:3000",
+      version: "1",
+      chainId: 1,
+      nonce: generateSiweNonce(),
+      issuedAt: "2026-09-30T10:00:00.000Z",
+    };
+
+    for (const params of [base, { ...base, statement: "Sign in to Wulong" }]) {
+      const message = createSiweMessage(params);
+      const expected = new SiweLibMessage({ ...params }).prepareMessage();
+      if (message !== expected) {
+        throw new Error(`Message differs from siwe output:\n${message}\n---\n${expected}`);
+      }
+
+      const parsed = new SiweLibMessage(message);
+      if (parsed.prepareMessage() !== message) {
+        throw new Error("siwe should parse the message back unchanged");
+      }
+    }
+
+    console.log("  ✓ Messages match siwe's prepareMessage() output");
+    console.log("✅ siwe compatibility works");
+  }
+
   console.log("\n✅ All SIWE Utility Tests Passed!\n");
   console.log("📋 Summary:");
   console.log("  • Nonce generation: Secure random alphanumeric strings");
@@ -317,4 +348,7 @@ async function runTests() {
   console.log("");
 }
 
-runTests().catch(console.error);
+runTests().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

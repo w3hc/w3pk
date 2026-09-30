@@ -696,6 +696,8 @@ const result = await w3pk.signMessage(message, {
 })
 ```
 
+SIWE works in STANDARD, STRICT and YOLO modes; PRIMARY mode throws. Get the address with the same mode and tag you sign with. In production, have the server issue the nonce and tie it to the address, as EIP-4361 recommends; see [examples/siwe-login.ts](../examples/siwe-login.ts).
+
 **Use for:**
 - Web3 authentication flows
 - App login

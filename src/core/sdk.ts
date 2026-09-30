@@ -739,14 +739,23 @@ export class Web3Passkey {
     origin: string;
   }> {
     try {
+      const effectiveMode = options?.mode || DEFAULT_MODE;
+      const signingMethod = options?.signingMethod || 'EIP191';
+
+      // PRIMARY addresses come from the passkey's P-256 key, which cannot produce
+      // an EIP-191 signature that recovers to them
+      if (effectiveMode === 'PRIMARY' && signingMethod === 'SIWE') {
+        throw new WalletError(
+          "SIWE signing is not supported in PRIMARY mode. Use STANDARD, STRICT or YOLO mode."
+        );
+      }
+
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to sign message");
       }
 
-      const effectiveMode = options?.mode || DEFAULT_MODE;
       const effectiveTag = options?.tag || DEFAULT_TAG;
       const origin = options?.origin || getCurrentOrigin();
-      const signingMethod = options?.signingMethod || 'EIP191';
 
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);

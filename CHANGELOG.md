@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **SIWE login against siwe-based servers** ([#135](https://github.com/w3hc/w3pk/issues/135)):
+  - `createSiweMessage` always writes the blank line after the statement slot, so messages without a `statement` follow EIP-4361 and parse with the [siwe](https://github.com/spruceid/siwe) library (previously rejected by siwe v3)
+  - `signMessage` rejects `mode: 'PRIMARY'` with `signingMethod: 'SIWE'`: PRIMARY addresses come from the passkey's P-256 key, so an EIP-191 signature could never recover to them
+  - `examples/siwe-login.ts` shows the server-issued nonce flow
+
 ### Changed
 
 - **ML-KEM key wrapping is versioned and authenticated** ([#133](https://github.com/w3hc/w3pk/issues/133)):
