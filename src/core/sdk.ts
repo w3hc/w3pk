@@ -40,6 +40,7 @@ import { SessionManager } from "./session";
 import { CredentialStorage } from "../auth/storage";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
+import type { BackupStatus } from "../backup/types";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
@@ -197,7 +198,7 @@ export class Web3Passkey {
    */
   async register(options: {
     username: string;
-  }): Promise<{ address: string; username: string }> {
+  }): Promise<{ address: string; username: string; hasBackup: boolean }> {
     try {
       if (!this.currentWallet?.address) {
         await this.generateWallet();
@@ -263,10 +264,13 @@ export class Web3Passkey {
         mnemonic,
       };
 
+      const { BackupManager } = await import("../backup");
+      const hasBackup = await new BackupManager().hasBackup(ethereumAddress);
+
       void this.requestPersistentStorage();
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
-      return { address: ethereumAddress, username: options.username };
+      return { address: ethereumAddress, username: options.username, hasBackup };
     } catch (error) {
       this.config.onError?.(error as any);
       throw error;
@@ -1552,7 +1556,7 @@ export class Web3Passkey {
   /**
    * Get backup status
    */
-  async getBackupStatus(): Promise<any> {
+  async getBackupStatus(): Promise<BackupStatus> {
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated to check backup status");
     }
@@ -1560,6 +1564,24 @@ export class Web3Passkey {
     const { BackupManager } = await import("../backup");
     const backupManager = new BackupManager();
     return backupManager.getBackupStatus(this.currentUser.ethereumAddress);
+  }
+
+  /**
+   * Record that the user wrote down their recovery phrase
+   * Call it once the user confirms, so getBackupStatus() reports a backup
+   */
+  async confirmRecoveryPhraseBackup(): Promise<void> {
+    if (!this.currentUser) {
+      throw new WalletError("Must be authenticated to confirm a backup");
+    }
+
+    const { BackupManager } = await import("../backup");
+    const { deriveAddressChecksum } = await import("../backup/encryption");
+    const { ethereumAddress } = this.currentUser;
+    await new BackupManager().confirmRecoveryPhraseBackup(
+      ethereumAddress,
+      await deriveAddressChecksum(ethereumAddress)
+    );
   }
 
   /**

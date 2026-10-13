@@ -2,7 +2,12 @@
  * Backup and Recovery Type Definitions
  */
 
+export type BackupMethod = 'file' | 'qr' | 'phrase';
+
 export interface BackupStatus {
+  hasBackup: boolean;
+  lastBackupAt?: string;
+  methods: BackupMethod[];
   passkeySync: PasskeySyncStatus;
   recoveryPhrase: RecoveryPhraseStatus;
   socialRecovery?: SocialRecoveryStatus;
@@ -66,7 +71,7 @@ export interface SecurityScore {
 export interface BackupMetadata {
   id: string;
   ethereumAddress: string;
-  method: 'qr' | 'file';
+  method: BackupMethod;
   createdAt: string;
   deviceFingerprint?: string;
   addressChecksum: string; // For verification

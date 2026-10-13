@@ -106,6 +106,7 @@ export type { SiweMessage } from "./siwe";
 
 export type {
   BackupStatus,
+  BackupMethod,
   SecurityScore,
   QRBackupOptions,
   RecoveryScenario,

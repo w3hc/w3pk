@@ -120,6 +120,7 @@ await signer.signAuthorization(
 
 **Backup & Recovery:**
 - `createBackupFile()` - Create encrypted backup
+- `confirmRecoveryPhraseBackup()` - Record that the user wrote down the recovery phrase
 - `restoreFromBackupFile()` - Restore from backup
 - `setupSocialRecovery()` - Split backup among guardians
 - `recoverFromGuardians()` - Recover from guardian shares
@@ -1222,22 +1223,36 @@ async function promptBackupOptions() {
 
 ### Allow Users Multiple Backup Options
 
-**Critical:** Users should set up at least one backup method immediately after registration.
+**Critical:** Users should set up at least one backup method immediately after registration. Browser storage can be wiped (eviction, Safari's 7-day cap, clearing site data), and a wallet without a backup is then lost for good.
 
 ```typescript
-// ✅ Provide multiple backup options
-async function setupBackups() {
+// ✅ Ask for a backup right after registration
+const { hasBackup } = await w3pk.register({ username })
+
+if (!hasBackup) {
+  // "Back up now": a backup file, or the recovery phrase written down
+  const choice = await showBackupNowPrompt()
+
+  if (choice === 'file') {
+    const { blob, filename } = await w3pk.createBackupFile('password', password)
+    downloadFile(blob, filename)
+  } else if (choice === 'phrase') {
+    await showRecoveryPhrase()
+    await w3pk.confirmRecoveryPhraseBackup()
+  }
+}
+
+// ✅ Keep warning while no backup exists
+async function checkBackup() {
   const status = await w3pk.getBackupStatus()
 
-  console.log('Security Score:', status.securityScore.score)
-  console.log('Has passkey sync:', status.securityScore.hasPasskeyBackup)
-  console.log('Has encrypted backup:', status.securityScore.hasEncryptedBackup)
-  console.log('Has social recovery:', status.securityScore.hasSocialRecovery)
-
-  // Warn if security score is low
-  if (status.securityScore.score < 60) {
-    showBackupWarning()
+  if (!status.hasBackup) {
+    showBackupWarning() // the score is capped at 20 ('vulnerable')
   }
+
+  console.log('Security Score:', status.securityScore.total)
+  console.log('Backup methods:', status.methods) // 'file' | 'qr' | 'phrase'
+  console.log('Last backup:', status.lastBackupAt)
 }
 ```
 
@@ -1254,7 +1269,7 @@ Encourage users to enable multiple backup methods:
 // - Microsoft Account (Windows/Edge)
 
 const status = await w3pk.getBackupStatus()
-if (status.securityScore.hasPasskeyBackup) {
+if (status.passkeySync.enabled) {
   console.log('✅ Passkey synced to cloud')
 }
 ```
@@ -1318,11 +1333,10 @@ async function setupSocialRecovery() {
 // Check backup status regularly
 async function checkBackupReminder() {
   const status = await w3pk.getBackupStatus()
-  const daysSinceRegistration = calculateDaysSince(status.createdAt)
+  const daysSinceRegistration = calculateDaysSince(registeredAt) // tracked by your app
 
   // Remind users who haven't set up backup
-  if (!status.securityScore.hasEncryptedBackup &&
-      !status.securityScore.hasSocialRecovery) {
+  if (!status.hasBackup) {
 
     if (daysSinceRegistration === 1) {
       showBackupReminder('urgent')

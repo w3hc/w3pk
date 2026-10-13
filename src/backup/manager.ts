@@ -5,6 +5,7 @@
 
 import type {
   BackupStatus,
+  BackupMethod,
   SecurityScore,
   QRBackupOptions,
   RecoveryScenario,
@@ -40,14 +41,22 @@ export class BackupManager {
     // Detect passkey sync capabilities
     const passkeySync = await this.detectPasskeySync();
 
+    const methods = [...new Set(backups.map((b) => b.method))];
+    const lastBackupAt = backups
+      .map((b) => b.createdAt)
+      .sort()
+      .pop();
+
     // Get encrypted backup info
-    const encryptedBackups: EncryptedBackupInfo[] = backups.map((backup) => ({
-      id: backup.id,
-      method: backup.method,
-      location: 'local', // Could be enhanced to track cloud storage
-      createdAt: backup.createdAt,
-      deviceFingerprint: backup.deviceFingerprint,
-    }));
+    const encryptedBackups: EncryptedBackupInfo[] = backups
+      .filter((backup) => backup.method !== 'phrase')
+      .map((backup) => ({
+        id: backup.id,
+        method: backup.method as EncryptedBackupInfo['method'],
+        location: 'local', // Could be enhanced to track cloud storage
+        createdAt: backup.createdAt,
+        deviceFingerprint: backup.deviceFingerprint,
+      }));
 
     // Get social recovery status
     const socialRecoveryStatus = this.getSocialRecoveryStatus();
@@ -57,6 +66,9 @@ export class BackupManager {
 
     // Build status
     const status: BackupStatus = {
+      hasBackup: methods.length > 0,
+      lastBackupAt,
+      methods,
       passkeySync,
       recoveryPhrase: {
         verified: verificationStatus.verified,
@@ -68,7 +80,8 @@ export class BackupManager {
         passkeySync,
         encryptedBackups,
         socialRecoveryStatus,
-        verificationStatus
+        verificationStatus,
+        methods
       ),
     };
 
@@ -182,6 +195,27 @@ export class BackupManager {
     }
   }
 
+  async hasBackup(ethereumAddress: string): Promise<boolean> {
+    const backups = await this.storage.getBackupsByAddress(ethereumAddress);
+    return backups.length > 0;
+  }
+
+  /**
+   * Record that the user confirmed writing down their recovery phrase
+   */
+  async confirmRecoveryPhraseBackup(
+    ethereumAddress: string,
+    addressChecksum: string
+  ): Promise<void> {
+    await this.storage.storeBackupMetadata({
+      id: crypto.randomUUID(),
+      ethereumAddress,
+      method: 'phrase',
+      createdAt: new Date().toISOString(),
+      addressChecksum,
+    });
+  }
+
   /**
    * Mark backup as verified (called after successful restore)
    */
@@ -218,7 +252,8 @@ export class BackupManager {
     passkeySync: any,
     encryptedBackups: EncryptedBackupInfo[],
     socialRecoveryStatus?: SocialRecoveryStatus,
-    verificationStatus?: { verified: boolean; count: number }
+    verificationStatus?: { verified: boolean; count: number },
+    methods: BackupMethod[] = []
   ): SecurityScore {
     // Calculate social recovery score
     let socialRecoveryScore = 0;
@@ -248,12 +283,18 @@ export class BackupManager {
       socialRecovery: socialRecoveryScore,
     };
 
-    const total = Object.values(breakdown).reduce((sum, val) => sum + val, 0);
+    const sum = Object.values(breakdown).reduce((acc, val) => acc + val, 0);
+    // Without a backup, wiped browser storage loses the wallet for good
+    const total = methods.length > 0 ? sum : Math.min(sum, 20);
 
     let level: SecurityScore['level'];
     let nextMilestone: string;
 
-    if (total <= 20) {
+    if (methods.length === 0) {
+      level = 'vulnerable';
+      nextMilestone =
+        'Create a backup file or confirm your recovery phrase: browser storage can be wiped';
+    } else if (total <= 20) {
       level = 'vulnerable';
       nextMilestone = 'Create encrypted backup to reach "protected" (40+ pts)';
     } else if (total <= 50) {

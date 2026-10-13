@@ -114,6 +114,7 @@ Register a new user with WebAuthn passkey authentication.
 interface RegisterResult {
   address: string;      // Ethereum address (account #0 derived from BIP44)
   username: string;     // Registered username
+  hasBackup: boolean;   // false for a new wallet: prompt for a backup now
 }
 ```
 
@@ -124,15 +125,19 @@ interface RegisterResult {
 4. Encrypts mnemonic using WebAuthn credential (AES-GCM-256)
 5. Stores encrypted wallet in localStorage, next to the credential metadata
 6. Starts 1-hour session with decrypted mnemonic in memory
-7. Returns Ethereum address and username
+7. Returns Ethereum address, username and whether a backup exists
 
 **Example:**
 
 ```typescript
-const { address, username } = await w3pk.register({
+const { address, username, hasBackup } = await w3pk.register({
   username: 'alice'
 })
 console.log('Registered:', username, 'with address:', address)
+
+if (!hasBackup) {
+  showBackupPrompt() // see getBackupStatus()
+}
 ```
 
 ---
@@ -2267,7 +2272,12 @@ Get comprehensive backup status showing what protects the wallet.
 **Returns:**
 
 ```typescript
+type BackupMethod = 'file' | 'qr' | 'phrase';
+
 interface BackupStatus {
+  hasBackup: boolean;        // a backup file, QR code or confirmed phrase exists
+  lastBackupAt?: string;     // ISO 8601 time of the latest backup
+  methods: BackupMethod[];
   passkeySync: PasskeySyncStatus;
   recoveryPhrase: RecoveryPhraseStatus;
   socialRecovery?: SocialRecoveryStatus;
@@ -2275,14 +2285,34 @@ interface BackupStatus {
 }
 ```
 
+Browser storage can be wiped (eviction, Safari's 7-day cap, clearing site data), so a wallet without a backup can be lost for good. While `hasBackup` is `false`, the security score is capped at 20 and its level is `vulnerable`.
+
 **Example:**
 
 ```typescript
 const status = await w3pk.getBackupStatus()
-console.log('Security Score:', status.securityScore.score) // 0-100
-console.log('Passkey sync:', status.passkeySync.enabled)
-console.log('Recovery phrase:', status.recoveryPhrase.status)
+if (!status.hasBackup) {
+  showBackupWarning()
+}
+console.log('Security Score:', status.securityScore.total) // 0-100
+console.log('Level:', status.securityScore.level)
+console.log('Backup methods:', status.methods)
 console.log('Social recovery:', status.socialRecovery?.enabled)
+```
+
+---
+
+### `confirmRecoveryPhraseBackup(): Promise<void>`
+
+Record that the user wrote down their recovery phrase. Call it once the user confirms, so `getBackupStatus()` reports `hasBackup: true` with the `phrase` method.
+
+**Example:**
+
+```typescript
+await showRecoveryPhrase()
+if (await userConfirmsPhraseWrittenDown()) {
+  await w3pk.confirmRecoveryPhraseBackup()
+}
 ```
 
 ---

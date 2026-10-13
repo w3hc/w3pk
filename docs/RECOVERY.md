@@ -58,6 +58,30 @@ Before diving into the recovery system, it's crucial to understand the differenc
 
 ---
 
+## 🚦 Backup Status
+
+Browser storage can be wiped (eviction, Safari's 7-day cap, clearing site data). Without a backup, the wallet is then lost for good, so ask for one right after registration and warn while none exists.
+
+```typescript
+const { hasBackup } = await sdk.register({ username: 'alice' });
+
+if (!hasBackup) {
+  // "Back up now": download a backup file...
+  const { blob, filename } = await sdk.createBackupFile('password', password);
+  // ...or show the recovery phrase, then record the user's confirmation
+  await sdk.confirmRecoveryPhraseBackup();
+}
+
+const status = await sdk.getBackupStatus();
+status.hasBackup;     // true once a backup file, QR code or confirmed phrase exists
+status.lastBackupAt;  // ISO 8601 time of the latest backup
+status.methods;       // e.g. ['file', 'phrase']
+```
+
+While `hasBackup` is `false`, the security score is capped at 20 and its level is `vulnerable`. Backups are recorded per wallet, in localStorage on this device.
+
+---
+
 ## 🎯 Backup File Format
 
 All workflows use the same universal format:
@@ -476,6 +500,16 @@ const { blob, filename } = await w3pk.createBackupFile('passkey');
 
 // Hybrid backup (both password and passkey)
 const { blob, filename } = await w3pk.createBackupFile('hybrid', password);
+```
+
+### Backup Status
+
+```typescript
+// Record that the user wrote down the recovery phrase
+await w3pk.confirmRecoveryPhraseBackup();
+
+// { hasBackup, lastBackupAt, methods, ..., securityScore }
+const status = await w3pk.getBackupStatus();
 ```
 
 ### Restore from Backup
