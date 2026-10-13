@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-10-13
+
+### Added
+
+- **Backup status** ([#140](https://github.com/w3hc/w3pk/issues/140)): apps can tell whether the user has a backup, push for one at registration and warn while none exists
+  - `getBackupStatus()` returns `hasBackup`, `lastBackupAt` and `methods` (`'file' | 'qr' | 'phrase'`), read from the `w3pk_backups` records of the current wallet; it is typed `Promise<BackupStatus>` instead of `any`
+  - `confirmRecoveryPhraseBackup()` records that the user wrote down the recovery phrase
+  - `register()` returns `hasBackup`, `false` for a new wallet
+  - Without a backup, the security score is capped at 20, the level is `vulnerable` and `nextMilestone` asks for a backup
+  - `BackupMethod` is exported from the package root
+
 ### Fixed
 
 - **`login()` succeeding without a wallet** ([#139](https://github.com/w3hc/w3pk/issues/139)): `login()` resolved and fired `onAuthStateChanged(true, …)` when the passkey had no wallet on this device, so the next `getAddress()` threw a generic `Failed to get address`
