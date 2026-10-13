@@ -42,7 +42,11 @@ import { CredentialStorage } from "../auth/storage";
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
-import { AuthenticationError, WalletError } from "./errors";
+import {
+  AuthenticationError,
+  WalletError,
+  WalletMissingError,
+} from "./errors";
 import { getEndpoints } from "../chainlist";
 import { supportsEIP7702 } from "../eip7702";
 
@@ -288,15 +292,9 @@ export class Web3Passkey {
         const storage = new CredentialStorage();
         const credential = await storage.getCredentialById(silentRestore.credentialId);
 
-        this.currentUser = {
-          username: credential?.username || silentRestore.ethereumAddress,
-          ethereumAddress: silentRestore.ethereumAddress,
-          credentialId: silentRestore.credentialId,
-        };
-
         // Verify wallet exists
         const walletData = await this.walletStorage.retrieve(
-          this.currentUser.ethereumAddress
+          silentRestore.ethereumAddress
         );
 
         if (!walletData) {
@@ -307,6 +305,12 @@ export class Web3Passkey {
           );
           return this.login(); // Retry with authentication
         }
+
+        this.currentUser = {
+          username: credential?.username || silentRestore.ethereumAddress,
+          ethereumAddress: silentRestore.ethereumAddress,
+          credentialId: silentRestore.credentialId,
+        };
 
         void this.requestPersistentStorage();
         this.config.onAuthStateChanged?.(true, this.currentUser);
@@ -320,22 +324,22 @@ export class Web3Passkey {
         throw new AuthenticationError("Login failed");
       }
 
+      const walletData = await this.walletStorage.retrieve(
+        result.user.ethereumAddress
+      );
+
+      if (!walletData) {
+        throw new WalletMissingError(
+          result.user.credentialId,
+          result.user.ethereumAddress
+        );
+      }
+
       this.currentUser = {
         username: result.user.username,
         ethereumAddress: result.user.ethereumAddress,
         credentialId: result.user.credentialId,
       };
-
-      const walletData = await this.walletStorage.retrieve(
-        this.currentUser.ethereumAddress
-      );
-
-      // If no wallet data exists, user is logged in but needs to restore from backup
-      if (!walletData) {
-        void this.requestPersistentStorage();
-        this.config.onAuthStateChanged?.(true, this.currentUser);
-        return this.currentUser;
-      }
 
       const storage = new CredentialStorage();
       const credential = await storage.getCredentialById(walletData.credentialId);
