@@ -97,6 +97,19 @@ This document details WebAuthn support across browsers, operating systems, and d
 | **VirtualBox/VMs** | No biometric passthrough | Use password fallback |
 | **Remote Desktop** | Biometrics not forwarded | Use local device |
 
+#### 🗑️ **Storage That Can Be Wiped**
+
+The encrypted wallet, persistent sessions and backup metadata live in localStorage, next to the credential metadata, so they are either all there or all gone. The passkey itself lives in the authenticator and survives all of the cases below, but the wallet does not: the mnemonic is random and can't be rebuilt from the passkey. Users need a backup file or the recovery phrase.
+
+| Environment | What happens | Mitigation |
+|-------------|--------------|------------|
+| **Safari (macOS, iOS)** | localStorage deleted after 7 days of browser use without the user interacting with the site | Add the web app to the Home Screen (exempt), keep a backup |
+| **Any browser: clearing site data** | localStorage deleted with cookies and site data | Keep a backup |
+| **Private/Incognito windows** | localStorage discarded when the window closes | Don't use for a long-lived wallet |
+| **Chrome/Firefox under storage pressure** | Origins without persistent storage can be evicted | w3pk calls `navigator.storage.persist()`; check `w3pk.storagePersisted` |
+
+Chrome grants persistent storage from engagement heuristics (bookmarked, installed, frequently visited) without a prompt; Firefox asks the user; Safari doesn't exempt sites from its 7-day cap. See [SECURITY.md → Storage durability](./SECURITY.md#storage-durability-what-can-still-wipe-the-wallet).
+
 ### Hardware Security Keys
 
 | Key Type | CTAP Version | w3pk Support | Release Date |

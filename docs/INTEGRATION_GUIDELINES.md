@@ -36,13 +36,13 @@ await w3pk.getAddress()
 
 ### Don't Import Internal Classes
 
-Internal implementation classes like `WalletSigner`, `SessionManager`, `IndexedDBWalletStorage`, etc. are **not part of the public API** and may change without notice:
+Internal implementation classes like `WalletSigner`, `SessionManager`, `LocalStorageWalletStorage`, etc. are **not part of the public API** and may change without notice:
 
 ```typescript
 // ❌ Don't do this - internal APIs
 import { WalletSigner } from 'w3pk/wallet/signing'
 import { SessionManager } from 'w3pk/core/session'
-import { IndexedDBWalletStorage } from 'w3pk/wallet/storage'
+import { LocalStorageWalletStorage } from 'w3pk/wallet/storage'
 
 // ✅ Do this instead - public SDK API
 import { createWeb3Passkey } from 'w3pk'
@@ -90,9 +90,9 @@ const auth2 = await w3pk.signAuthorization({
 ```typescript
 // ❌ Don't use internal WalletSigner class directly
 import { WalletSigner } from 'w3pk/wallet/signing'
-import { IndexedDBWalletStorage } from 'w3pk/wallet/storage'
+import { LocalStorageWalletStorage } from 'w3pk/wallet/storage'
 
-const storage = new IndexedDBWalletStorage()
+const storage = new LocalStorageWalletStorage()
 const signer = new WalletSigner(storage)
 
 // This bypasses session management and requires manual credential handling
@@ -1415,7 +1415,7 @@ const strictWallet = await w3pk.deriveWallet('STRICT')
 
 **Persistent Session Security:**
 - STANDARD / YOLO: persistent sessions allowed. STRICT: ❌ NEVER allowed.
-- Time-limited expiration; origin-isolated via IndexedDB.
+- Time-limited expiration; origin-isolated via localStorage.
 - ⚠️ The at-rest key is derived from **public** credential metadata in the same browser profile, not an authenticator secret — a persistent session is **decryptable by anyone who can read this origin's storage**, for the whole duration it's enabled. "Remember Me" is a UX-for-security trade-off that widens the exposure window; it does not add a new trust dependency beyond the origin-code integrity you already rely on. Keep the duration short for higher-value wallets and don't enable on shared devices.
 - Decide this deliberately against your threat model: **[SECURITY.md → At-Rest Encryption](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt)**.
 

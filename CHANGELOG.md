@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Wallets lost to IndexedDB eviction** ([#138](https://github.com/w3hc/w3pk/issues/138)): Chrome's storage-pressure eviction deleted the IndexedDB wallet but kept the credential in localStorage, so the passkey logged in to a wallet that no longer existed
+  - The encrypted wallet (`w3pk_wallet_<address>`), persistent sessions (`w3pk_session_<address>`) and backup metadata (`w3pk_backups`) live in localStorage, next to the credential metadata, so eviction removes all of them or none
+  - The `Web3PasskeyWallet`, `Web3PasskeyPersistentSessions` and `Web3PasskeyBackup` IndexedDB stores are removed with no migration: wallets created before this release need a restore from a backup file or the recovery phrase
+  - With `requireReauth: false`, the PRF-derived session key is stored as base64url next to the blob instead of as a non-extractable `CryptoKey`, since localStorage only holds strings
+  - `navigator.storage.persist()` is requested after register, login and restore, and `w3pk.storagePersisted` exposes the answer
+  - `IndexedDBWalletStorage` is renamed `LocalStorageWalletStorage`; the wallet, session and backup stores take an optional `Storage`
+  - docs/SECURITY.md and docs/BROWSER_COMPATIBILITY.md document what still wipes localStorage (Safari's 7-day cap, clearing site data, private browsing)
+
 - **SIWE login against siwe-based servers** ([#135](https://github.com/w3hc/w3pk/issues/135)):
   - `createSiweMessage` always writes the blank line after the statement slot, so messages without a `statement` follow EIP-4361 and parse with the [siwe](https://github.com/spruceid/siwe) library (previously rejected by siwe v3)
   - `signMessage` rejects `mode: 'PRIMARY'` with `signingMethod: 'SIWE'`: PRIMARY addresses come from the passkey's P-256 key, so an EIP-191 signature could never recover to them
