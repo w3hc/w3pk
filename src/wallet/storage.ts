@@ -1,93 +1,72 @@
 /**
- * IndexedDB storage for encrypted wallet data
+ * localStorage storage for encrypted wallet data
+ *
+ * Lives next to the credential metadata so browser eviction removes both or
+ * neither: a credential is never left without its wallet.
  */
 
 import { StorageError } from "../core/errors";
 import type { EncryptedWalletData, WalletStorage } from "./types";
 
-const DB_NAME = "Web3PasskeyWallet";
-const DB_VERSION = 1;
-const STORE_NAME = "wallets";
+const KEY_PREFIX = "w3pk_wallet_";
 
-export class IndexedDBWalletStorage implements WalletStorage {
-  private db: IDBDatabase | null = null;
+export class LocalStorageWalletStorage implements WalletStorage {
+  constructor(private readonly customStorage?: Storage) {}
 
-  async init(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-      request.onerror = () =>
-        reject(new StorageError("Failed to open database", request.error));
-
-      request.onsuccess = () => {
-        this.db = request.result;
-        resolve();
-      };
-
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: "ethereumAddress" });
-        }
-      };
-    });
+  private get storage(): Storage {
+    if (this.customStorage) return this.customStorage;
+    if (typeof window !== "undefined" && window.localStorage) {
+      return window.localStorage;
+    }
+    throw new StorageError("localStorage is not available");
   }
 
+  async init(): Promise<void> {}
+
   async store(data: EncryptedWalletData): Promise<void> {
-    if (!this.db) await this.init();
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([STORE_NAME], "readwrite");
-      const store = transaction.objectStore(STORE_NAME);
-
-      const request = store.put(data);
-      request.onerror = () =>
-        reject(new StorageError("Failed to store wallet data", request.error));
-      request.onsuccess = () => resolve();
-    });
+    try {
+      this.storage.setItem(
+        KEY_PREFIX + data.ethereumAddress,
+        JSON.stringify(data)
+      );
+    } catch (error) {
+      throw new StorageError("Failed to store wallet data", error);
+    }
   }
 
   async retrieve(ethereumAddress: string): Promise<EncryptedWalletData | null> {
-    if (!this.db) await this.init();
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([STORE_NAME], "readonly");
-      const store = transaction.objectStore(STORE_NAME);
-
-      const request = store.get(ethereumAddress);
-      request.onerror = () =>
-        reject(
-          new StorageError("Failed to retrieve wallet data", request.error)
-        );
-      request.onsuccess = () => resolve(request.result || null);
-    });
+    try {
+      const raw = this.storage.getItem(KEY_PREFIX + ethereumAddress);
+      return raw ? (JSON.parse(raw) as EncryptedWalletData) : null;
+    } catch (error) {
+      throw new StorageError("Failed to retrieve wallet data", error);
+    }
   }
 
   async delete(ethereumAddress: string): Promise<void> {
-    if (!this.db) await this.init();
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([STORE_NAME], "readwrite");
-      const store = transaction.objectStore(STORE_NAME);
-
-      const request = store.delete(ethereumAddress);
-      request.onerror = () =>
-        reject(new StorageError("Failed to delete wallet data", request.error));
-      request.onsuccess = () => resolve();
-    });
+    try {
+      this.storage.removeItem(KEY_PREFIX + ethereumAddress);
+    } catch (error) {
+      throw new StorageError("Failed to delete wallet data", error);
+    }
   }
 
   async clear(): Promise<void> {
-    if (!this.db) await this.init();
+    try {
+      for (const key of this.keys()) {
+        this.storage.removeItem(key);
+      }
+    } catch (error) {
+      throw new StorageError("Failed to clear wallet data", error);
+    }
+  }
 
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction([STORE_NAME], "readwrite");
-      const store = transaction.objectStore(STORE_NAME);
-
-      const request = store.clear();
-      request.onerror = () =>
-        reject(new StorageError("Failed to clear wallet data", request.error));
-      request.onsuccess = () => resolve();
-    });
+  private keys(): string[] {
+    const keys: string[] = [];
+    for (let i = 0; i < this.storage.length; i++) {
+      const key = this.storage.key(i);
+      if (key?.startsWith(KEY_PREFIX)) keys.push(key);
+    }
+    return keys;
   }
 }

@@ -19,7 +19,7 @@
 
 import { register } from "../auth/register";
 import { login } from "../auth/authenticate";
-import { IndexedDBWalletStorage } from "../wallet/storage";
+import { LocalStorageWalletStorage } from "../wallet/storage";
 import {
   generateBIP39Wallet,
 } from "../wallet/generate";
@@ -67,7 +67,7 @@ function hexToUtf8(hex: string): string {
 
 export class Web3Passkey {
   private config: InternalConfig;
-  private walletStorage: IndexedDBWalletStorage;
+  private walletStorage: LocalStorageWalletStorage;
   private currentUser: UserInfo | null = null;
   private currentWallet: GeneratedWallet | null = null;
   private sessionManager: SessionManager;
@@ -77,7 +77,7 @@ export class Web3Passkey {
 
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
-    this.walletStorage = new IndexedDBWalletStorage();
+    this.walletStorage = new LocalStorageWalletStorage();
 
     // Initialize session manager with persistent session config
     const persistentSessionConfig = {
