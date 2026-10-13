@@ -80,7 +80,7 @@ async function testDeviceLossRecovery() {
 
 /**
  * Scenario 2: Storage Deletion Recovery
- * User clears browser data (localStorage + indexedDB deleted)
+ * User clears browser data (localStorage deleted)
  */
 async function testStorageDeletionRecovery() {
   console.log('📝 Scenario 2: Storage Deletion Recovery');
@@ -106,7 +106,7 @@ async function testStorageDeletionRecovery() {
 
   // Simulate storage deletion
   clearStorage();
-  console.log('  ✓ Storage cleared (localStorage + indexedDB)');
+  console.log('  ✓ Storage cleared (localStorage)');
 
   // Restore from external backup
   console.log('  Restoring from external backup...');
