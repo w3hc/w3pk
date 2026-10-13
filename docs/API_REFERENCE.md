@@ -43,7 +43,7 @@ interface Web3PasskeyConfig {
   debug?: boolean;                    // Enable debug mode (default: false)
   onError?: (error: Web3PasskeyError) => void;  // Global error handler
   onAuthStateChanged?: (isAuthenticated: boolean, user?: UserInfo) => void;  // Auth state callback
-  storage?: Storage;                  // Custom storage backend (default: IndexedDB)
+  storage?: Storage;                  // Custom storage backend (default: localStorage)
   sessionDuration?: number;           // Session duration in hours (default: 1)
   persistentSession?: Partial<PersistentSessionConfig>;  // Enable "Remember Me" functionality
   stealthAddresses?: StealthAddressConfig;  // Enable stealth addresses
@@ -57,7 +57,7 @@ interface PersistentSessionConfig {
 }
 ```
 
-**PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. On authenticators without PRF support, no persistent session is stored — the device falls back to in-memory sessions only (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored as a non-extractable `CryptoKey` to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
+**PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. On authenticators without PRF support, no persistent session is stored — the device falls back to in-memory sessions only (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored next to the blob in localStorage to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
 
 **Example:**
 
@@ -122,7 +122,7 @@ interface RegisterResult {
 2. Creates WebAuthn credential (triggers biometric prompt)
 3. Derives Ethereum wallet from mnemonic (path: m/44'/60'/0'/0/0)
 4. Encrypts mnemonic using WebAuthn credential (AES-GCM-256)
-5. Stores encrypted wallet in IndexedDB
+5. Stores encrypted wallet in localStorage, next to the credential metadata
 6. Starts 1-hour session with decrypted mnemonic in memory
 7. Returns Ethereum address and username
 
@@ -153,9 +153,9 @@ interface UserInfo {
 ```
 
 **What happens:**
-1. Retrieves credential ID from IndexedDB
+1. Retrieves credential ID from localStorage
 2. Triggers WebAuthn authentication (biometric prompt)
-3. Retrieves encrypted wallet from IndexedDB
+3. Retrieves encrypted wallet from localStorage
 4. Decrypts mnemonic using WebAuthn signature
 5. Starts new session (1 hour by default)
 6. Returns user info
@@ -213,6 +213,23 @@ Get current user information or `null` if not authenticated.
 const currentUser = w3pk.user
 if (currentUser) {
   console.log('Current user:', currentUser.username)
+}
+```
+
+---
+
+### `storagePersisted: boolean | null` (property)
+
+Whether the browser granted persistent storage. w3pk calls `navigator.storage.persist()` after each register, login and restore without waiting for it. `true` means the origin's storage is exempt from storage-pressure eviction. `null` until the browser answers (Firefox asks the user), or where the API is missing.
+
+Persisted storage still doesn't survive Safari's 7-day cap, clearing site data or private browsing: see [SECURITY.md → Storage durability](./SECURITY.md#storage-durability-what-can-still-wipe-the-wallet).
+
+**Example:**
+
+```typescript
+await w3pk.login()
+if (w3pk.storagePersisted === false) {
+  console.warn('Storage may be evicted: make sure the user has a backup')
 }
 ```
 
@@ -2737,7 +2754,7 @@ console.log('Synced wallet address:', result2.ethereumAddress)
 w3pk provides two types of sessions:
 
 1. **In-Memory Sessions** (default): Cached in RAM, cleared on page refresh
-2. **Persistent Sessions** (opt-in): Encrypted in IndexedDB, survives page refresh
+2. **Persistent Sessions** (opt-in): Encrypted in localStorage, survives page refresh
 
 **Security Modes & Persistence:**
 - **STANDARD mode**: Persistent sessions allowed ✅
@@ -2845,14 +2862,14 @@ Enable persistent sessions to maintain user login across page refreshes.
 
 **How it works:**
 1. On login, mnemonic is encrypted with WebAuthn-derived key
-2. Encrypted session stored in IndexedDB
+2. Encrypted session stored in localStorage
 3. On page refresh, session is automatically restored (if not expired)
 4. `requireReauth: true` prompts for biometric on refresh (more secure)
 5. `requireReauth: false` silently restores session (more convenient)
 
 **Security (read the trade-off):**
 - Sessions only persist for STANDARD and YOLO modes; STRICT mode is NEVER persisted
-- Time-limited expiration; origin-isolated via IndexedDB
+- Time-limited expiration; origin-isolated via localStorage
 - ⚠️ The "WebAuthn-derived key" is derived from **public** credential metadata stored in the same browser profile, **not** from an authenticator-held secret. A persistent session is therefore **decryptable by anyone who can read this origin's storage** (malicious extension, XSS exfil, disk image), and it keeps the seed in that state for the whole duration it's enabled. This is a UX-for-security trade-off, not hardware-backed protection.
 - Enabling "Remember Me" does not add a new trust dependency (you already trust your origin's code), it **widens the window** in which a compromise of your origin can reach the seed. Keep `duration` short for higher-value wallets; don't enable on shared/untrusted devices.
 - Full threat model: **[SECURITY.md → At-Rest Encryption](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt)**.
@@ -3900,7 +3917,7 @@ import {
   - `RegistrationError` - Registration failures
   - `WalletError` - Wallet operations (derivation, signing)
   - `CryptoError` - Cryptographic operations (encryption, decryption)
-  - `StorageError` - Storage operations (IndexedDB)
+  - `StorageError` - Storage operations (localStorage)
   - `ApiError` - API/network errors (RPC, chainlist)
 
 ### Error Handling

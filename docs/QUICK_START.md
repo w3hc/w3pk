@@ -26,7 +26,7 @@ Create a new w3pk instance:
 const w3pk = createWeb3Passkey()
 ```
 
-When you instantiate w3pk, the SDK initializes a connection to your browser's IndexedDB for secure local storage and sets up the WebAuthn configuration tailored to your device. 
+When you instantiate w3pk, the SDK uses your browser's localStorage for secure local storage and sets up the WebAuthn configuration tailored to your device. 
 
 It also prepares the session management system with a default duration of 1 hour, meaning you won't be repeatedly prompted for biometric authentication during that time. Everything happens client-side—no server connection is needed, keeping your wallet truly under your control.
 
@@ -45,7 +45,7 @@ console.log('Address:', address)
 
 Registration is where the magic happens. First, w3pk generates a fresh BIP39 mnemonic—a 12-word recovery phrase that serves as the master key to your wallet. Then your device's biometric prompt appears (Face ID, Touch ID, Windows Hello, or similar), creating a WebAuthn credential tied to your hardware. The SDK derives your Ethereum wallet from the mnemonic using the standard BIP44 path (m/44'/60'/0'/0/0), giving you a proper Ethereum address.
 
-Here's the security layer: the mnemonic gets encrypted using AES-GCM-256 with the WebAuthn credential as the encryption key, meaning only your biometric authentication can decrypt it. The encrypted wallet is stored safely in your browser's IndexedDB. To make your experience smooth, w3pk immediately starts a session by caching the decrypted mnemonic in memory for 1 hour, so you won't need to authenticate again right away. Finally, it returns your Ethereum address and username: you're ready to go!
+Here's the security layer: the mnemonic gets encrypted using AES-GCM-256 with the WebAuthn credential as the encryption key, meaning only your biometric authentication can decrypt it. The encrypted wallet is stored in your browser's localStorage, next to the credential metadata. To make your experience smooth, w3pk immediately starts a session by caching the decrypted mnemonic in memory for 1 hour, so you won't need to authenticate again right away. Finally, it returns your Ethereum address and username: you're ready to go!
 
 ### 4. Sign a Message
 
@@ -78,9 +78,9 @@ await w3pk.login()
 console.log('Logged in')
 ```
 
-Login is a beautifully streamlined process. The SDK retrieves your credential ID from IndexedDB and triggers WebAuthn authentication—this is when your biometric prompt appears. Notice there's no username or password to remember; your device recognizes you through your biometric data.
+Login is a beautifully streamlined process. The SDK retrieves your credential ID from localStorage and triggers WebAuthn authentication—this is when your biometric prompt appears. Notice there's no username or password to remember; your device recognizes you through your biometric data.
 
-Once authenticated, w3pk retrieves your encrypted wallet from IndexedDB and uses the WebAuthn signature as the decryption key to unlock your mnemonic. A fresh session starts immediately, caching the decrypted mnemonic in memory for 1 hour (this is configurable and balances security with user experience—long enough to avoid annoying prompts, short enough to stay secure). The method returns your user info (address and username), and you're good to go. For the next hour, all wallet operations will use this cached session without bothering you with repeated biometric prompts—smooth, secure, and user-friendly.
+Once authenticated, w3pk retrieves your encrypted wallet from localStorage and uses the WebAuthn signature as the decryption key to unlock your mnemonic. A fresh session starts immediately, caching the decrypted mnemonic in memory for 1 hour (this is configurable and balances security with user experience—long enough to avoid annoying prompts, short enough to stay secure). The method returns your user info (address and username), and you're good to go. For the next hour, all wallet operations will use this cached session without bothering you with repeated biometric prompts—smooth, secure, and user-friendly.
 
 ## Complete Example
 

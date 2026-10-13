@@ -31,22 +31,22 @@ key = PBKDF2( SHA-256("w3pk-v4:" + credentialId + ":" + publicKey),
 
 Every input to that key lives in the browser profile:
 
-- `credentialId` — stored next to the ciphertext in **IndexedDB**
+- `credentialId` — stored next to the ciphertext in **localStorage**
 - `publicKey` — stored in **plaintext in localStorage** (it's needed for key derivation)
 - `salt` — a **constant string** in the open-source code
 
-So an attacker who can read this origin's localStorage **and** IndexedDB — a malicious browser extension, a one-shot XSS that exfiltrates storage, a disk image of an unlocked device, or a Time Machine / cloud backup of the browser profile — can recompute the key and decrypt the seed **offline, with no biometric/PIN prompt and without ever calling the SDK.** The prompt gates SDK control flow (a UX and anti-casual-misuse boundary), not the cryptography at rest.
+So an attacker who can read this origin's localStorage — a malicious browser extension, a one-shot XSS that exfiltrates storage, a disk image of an unlocked device, or a Time Machine / cloud backup of the browser profile — can recompute the key and decrypt the seed **offline, with no biometric/PIN prompt and without ever calling the SDK.** The prompt gates SDK control flow (a UX and anti-casual-misuse boundary), not the cryptography at rest.
 
-**What at-rest encryption does buy you:** protection against a wallet blob that leaks *in isolation* (e.g. only the IndexedDB object, without localStorage's public key) and against casual inspection. It is **not** a defense against read access to the full browser profile. The [Threat Model](#threat-model) section has the per-scenario matrix.
+**What at-rest encryption does buy you:** protection against a wallet record that leaks *in isolation* (e.g. only the `w3pk_wallet_<address>` entry, without the credential record's public key) and against casual inspection. It is **not** a defense against read access to the full browser profile. The [Threat Model](#threat-model) section has the per-scenario matrix.
 
 ### "Remember Me" (persistent sessions): PRF-keyed, renewed at every real login
 
-`persistentSession.enabled: true` stores the encrypted mnemonic in IndexedDB so the user isn't prompted on every page refresh. Unlike wallet storage, the persistent-session blob is **not** encrypted under a public-data-derived key. It is encrypted under a key derived (HKDF-SHA256) from the **WebAuthn PRF extension output** — a per-credential secret the authenticator releases only during a user-verified (biometric/PIN) assertion. Nothing stored on disk can recompute it. Every real login re-evaluates the PRF (with a fixed input, so the output is deterministic per credential) and re-keys the blob; the session expiry *is* the renewal boundary.
+`persistentSession.enabled: true` stores the encrypted mnemonic in localStorage so the user isn't prompted on every page refresh. Unlike wallet storage, the persistent-session blob is **not** encrypted under a public-data-derived key. It is encrypted under a key derived (HKDF-SHA256) from the **WebAuthn PRF extension output** — a per-credential secret the authenticator releases only during a user-verified (biometric/PIN) assertion. Nothing stored on disk can recompute it. Every real login re-evaluates the PRF (with a fixed input, so the output is deterministic per credential) and re-keys the blob; the session expiry *is* the renewal boundary.
 
 The at-rest guarantee then depends on `requireReauth`:
 
 - **`requireReauth: true` (default):** the key is **never stored**. Every restore re-derives it from a live assertion's PRF output. A storage-read attacker (extension, storage-exfiltrating XSS, disk image, cloud backup of the profile) gets ciphertext that cannot be decrypted without the physical authenticator — the blob is hardware-bound at rest.
-- **`requireReauth: false` (silent "Remember Me"):** the PRF-derived key is stored alongside the blob as a **non-extractable `CryptoKey`**, so restore works without a prompt. Scripts (including XSS) can *use* it while it lives but can never read its bytes, and it cannot be recomputed from any stored strings. The honest limit: an attacker who copies the **full browser profile** at the storage-engine level carries the key material with it. Silent restore fundamentally requires a usable key on disk; this is the strongest form it can take.
+- **`requireReauth: false` (silent "Remember Me"):** the PRF-derived key is stored as base64url next to the blob, so restore works without a prompt; it is re-imported as a non-extractable `CryptoKey` before use. Anyone who can read this origin's localStorage (XSS, an extension, a disk image or profile backup) can decrypt the blob. This is less of a change than it sounds: when the key was a non-extractable `CryptoKey` in IndexedDB, script on the origin could already *use* it to decrypt, and the browser wrote its raw bytes to the profile on disk. Silent restore fundamentally requires a usable key at rest. The [cross-origin wallet](https://github.com/w3hc/w3pk/issues/156) moves this storage out of the host app's origin, so script on the host page can no longer read it.
 - **No PRF support** (older authenticators, some browser/OS combos): persistent sessions are **not stored at all** — the device gets in-memory sessions only. There is deliberately no fallback to weaker encryption.
 
 What "Remember Me" still changes is the **exposure window**, not the trust model: a compromise of the already-trusted origin (XSS, a malicious npm dependency, a compromised script/CDN) can use the live session *any time within the configured duration*, including while the tab is idle and across browser restarts — instead of only while the wallet is actively in use.
@@ -57,6 +57,21 @@ What "Remember Me" still changes is the **exposure window**, not the trust model
 - Keep the duration short for higher-value wallets. `sessionDuration: 0` forces a prompt on every operation.
 - `requireReauth: true` (default) still prompts on page refresh and keeps the blob hardware-bound; `requireReauth: false` restores silently for the whole duration.
 - Do not enable it on shared or untrusted devices.
+
+### Storage durability: what can still wipe the wallet
+
+The encrypted wallet, persistent sessions and backup metadata live in localStorage, next to the credential metadata. Browsers evict or clear an origin's storage as a whole or by storage type, so they are either all there or all gone: a passkey is never left logging in to a missing wallet. Before v0.10.3 the wallet lived in IndexedDB, and Chrome's storage-pressure eviction could delete it while keeping the credential in localStorage, leaving a wallet that could not be rebuilt from the passkey.
+
+After register, login and restore, w3pk calls `navigator.storage.persist()`. `w3pk.storagePersisted` reports the answer (`null` until the browser answers, or where the API is missing). Persisted storage is exempt from storage-pressure eviction.
+
+What still wipes localStorage, and with it the wallet:
+
+- **Safari's 7-day cap** on script-writable storage: Safari (macOS and iOS) deletes localStorage for a site the user hasn't interacted with for 7 days of browser use. Web apps added to the Home Screen are exempt.
+- **Clearing site data**: "Clear browsing data", site settings, or developer tools.
+- **Private browsing**: storage is discarded when the private window closes.
+- **Storage-pressure eviction** in browsers that don't grant persistence: Chrome grants it from engagement heuristics and Firefox asks the user, so `storagePersisted` may be `false`.
+
+The mnemonic is random, so it cannot be rebuilt from the passkey. Users need a backup file or the recovery phrase to survive any of the above (see [RECOVERY.md](./RECOVERY.md)).
 
 ### Origin / hostname / URL scoping
 
@@ -383,7 +398,7 @@ console.assert(
 
 ### ⚠️ NOT Protected Against
 
-1. **Full browser-profile read access** - An attacker who can read this origin's localStorage **and** IndexedDB derives the key and decrypts the seed offline, with no prompt (see [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt))
+1. **Full browser-profile read access** - An attacker who can read this origin's localStorage derives the key and decrypts the seed offline, with no prompt (see [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt))
 2. **Malicious extension / XSS exfil / disk image / profile backup** - All are forms of the above storage-read attack
 3. **Compromised origin code** - XSS, a malicious dependency, or a compromised CDN runs *as* your origin and can use an active or persistent session
 4. **Physical coercion** - Forcing the user to authenticate
@@ -425,11 +440,11 @@ Understanding w3pk's security boundaries is critical for proper deployment. The 
 **How it works:**
 - Wallet encrypted with AES-256-GCM
 - Key derived from credential ID + public key (PBKDF2, 210k iterations)
-- Requires both localStorage (metadata) AND IndexedDB (encrypted wallet)
+- Requires both the credential record and the wallet record from localStorage
 
 **Limitations:**
 - **Key is deterministic** - same metadata = same key
-- An attacker with BOTH localStorage AND IndexedDB can decrypt offline
+- An attacker with read access to localStorage can decrypt offline
 - Does NOT require fresh authentication to derive the key
 - Protection is authentication-gating by SDK, not cryptographic impossibility
 
@@ -1386,17 +1401,17 @@ const encryptionKey = await crypto.subtle.deriveKey(
 **Important security properties (read honestly):**
 
 - The encryption key is **deterministic** - the same credential metadata always produces the same key.
-- Both key inputs live in the browser profile: `credentialId` in IndexedDB, `publicKey` in plaintext in localStorage, and the salt is a constant in the source. **An attacker who can read this origin's storage can derive the key and decrypt the seed offline.**
+- Both key inputs live in the browser profile: `credentialId` next to the ciphertext and `publicKey` in plaintext, both in localStorage, and the salt is a constant in the source. **An attacker who can read this origin's storage can derive the key and decrypt the seed offline.**
 - The biometric/PIN prompt is an **SDK control-flow gate**, not a cryptographic barrier. It stops someone from driving *your SDK* without authenticating; it does **not** stop someone who bypasses the SDK and decrypts the files directly.
 - This is **not** signature-based or PRF-based encryption — the key is not bound to any authenticator-held secret.
 
 **What an attacker with storage read access can actually do:**
 
 ```typescript
-// Attacker has copied this origin's localStorage + IndexedDB
-const stolenCredentialId  = "..."   // from IndexedDB (next to the ciphertext)
-const stolenPublicKey     = "..."   // from localStorage (plaintext)
-const stolenEncryptedSeed = "..."   // from IndexedDB
+// Attacker has copied this origin's localStorage
+const stolenCredentialId  = "..."   // from w3pk_wallet_<address> (next to the ciphertext)
+const stolenPublicKey     = "..."   // from w3pk_credential_<id> (plaintext)
+const stolenEncryptedSeed = "..."   // from w3pk_wallet_<address>
 
 // Recompute the key from public metadata — no authenticator, no prompt
 const key = deriveEncryptionKeyFromWebAuthn(stolenCredentialId, stolenPublicKey)
@@ -1425,7 +1440,7 @@ The only thing PBKDF2's 210k iterations add here is a mild slowdown; since the i
 }
 ```
 
-#### IndexedDB (Encrypted Wallet)
+#### LocalStorage (Encrypted Wallet, `w3pk_wallet_<address>`)
 ```json
 {
   "ethereumAddress": "0x1234...5678",
@@ -1587,9 +1602,8 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │ IndexedDB (Origin-Scoped)                              │ │
-│  │ Database: w3pk                                          │ │
-│  │ Store: wallets                                          │ │
+│  │ localStorage (Origin-Scoped)                           │ │
+│  │ Key: w3pk_wallet_<address>                             │ │
 │  │                                                          │ │
 │  │ {                                                        │ │
 │  │   "ethereumAddress": "0x1234...",     // PUBLIC        │ │
@@ -1600,7 +1614,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │  │                                                          │ │
 │  │ ⚠️  Encrypted mnemonic requires decryption key          │ │
 │  │ ⚠️  Key can be derived from localStorage metadata       │ │
-│  │ ⚠️  Both needed for offline decryption                  │ │
+│  │ ⚠️  Both records needed for offline decryption          │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
@@ -1643,17 +1657,13 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │  │ File System (Browser Profile Directory)                │ │
 │  │                                                          │ │
 │  │ ~/Library/Application Support/Google/Chrome/Default/   │ │
-│  │   ├─ Local Storage/                                    │ │
-│  │   │   └─ https_example.com_0.localstorage              │ │
-│  │   │       → Contains credential metadata (plaintext)   │ │
-│  │   │                                                      │ │
-│  │   └─ IndexedDB/                                        │ │
-│  │       └─ https_example.com_0/w3pk/                     │ │
-│  │           → Contains encrypted wallet                   │ │
+│  │   └─ Local Storage/                                    │ │
+│  │       └─ https_example.com_0.localstorage              │ │
+│  │           → Credential metadata and encrypted wallet   │ │
 │  │                                                          │ │
 │  │ ⚠️  Files stored on disk (not encrypted by browser)     │ │
 │  │ ⚠️  OS-level encryption (FileVault/BitLocker) needed    │ │
-│  │ ⚠️  Attacker with file access can copy both             │ │
+│  │ ⚠️  Attacker with file access can copy all of it        │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
@@ -1662,7 +1672,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 #### Browser Security Mechanisms
 
 **Origin Isolation:**
-- localStorage and IndexedDB are **automatically scoped** to origin
+- localStorage is **automatically scoped** to origin
 - `https://example.com` cannot access `https://attacker.com` storage
 - Even subdomains are isolated: `app.example.com` ≠ `example.com`
 - Protocol matters: `http://example.com` ≠ `https://example.com`
@@ -1696,7 +1706,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 | Storage Layer | What's Stored | Protection | Attack Surface |
 |---------------|---------------|------------|----------------|
 | **localStorage** | Credential metadata (public) | Origin isolation | ⚠️ XSS, file access |
-| **IndexedDB** | Encrypted wallet | Origin isolation + AES-256-GCM | ⚠️ XSS, file access + decryption |
+| **localStorage** | Encrypted wallet, persistent sessions | Origin isolation + AES-256-GCM | ⚠️ XSS, file access + decryption |
 | **Memory** | Plaintext mnemonic (during session) | Process isolation (weak) | ❌ XSS, memory dumps |
 | **Secure Enclave** | WebAuthn private key | Hardware protection | ✅ Very strong (HW attacks only) |
 | **File System** | Browser profile directory | OS permissions | ⚠️ Malware, physical access |
@@ -1715,7 +1725,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 8. SDK encrypts mnemonic with AES-256-GCM
 9. SDK stores:
    - localStorage: credentialId, publicKey, address (plaintext)
-   - IndexedDB: encryptedMnemonic (ciphertext)
+   - localStorage: encryptedMnemonic (ciphertext)
 10. Secure Enclave stores: privateKey (hardware-protected)
 ```
 
@@ -1728,7 +1738,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 5. Browser returns: signature
 6. SDK verifies signature matches publicKey
 7. SDK derives encryption key from credentialId + publicKey
-8. SDK decrypts wallet from IndexedDB
+8. SDK decrypts wallet from localStorage
 9. SDK stores plaintext mnemonic in memory (session)
 10. Session expires after configured duration
 ```
@@ -1759,24 +1769,20 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 **Chrome/Chromium (macOS):**
 ```
 ~/Library/Application Support/Google/Chrome/Default/
-  ├─ Local Storage/leveldb/
-  │   └─ https_example.com_0.localstorage
-  └─ IndexedDB/
-      └─ https_example.com_0/
+  └─ Local Storage/leveldb/
+      └─ https_example.com_0.localstorage
 ```
 
 **Chrome/Chromium (Windows):**
 ```
 %LOCALAPPDATA%\Google\Chrome\User Data\Default\
-  ├─ Local Storage\leveldb\
-  └─ IndexedDB\
+  └─ Local Storage\leveldb\
 ```
 
 **Firefox (macOS):**
 ```
 ~/Library/Application Support/Firefox/Profiles/<profile>/
-  ├─ webappsstore.sqlite  (localStorage)
-  └─ storage/default/https+++example.com/  (IndexedDB)
+  └─ storage/default/https+++example.com/ls/  (localStorage)
 ```
 
 **Safari (macOS):**
@@ -2028,7 +2034,7 @@ await w3pk.deriveWallet(1)      // ✅ Prompts for biometric (session expired)
 w3pk supports **two types of sessions** (v0.8.2+):
 
 1. **In-Memory Sessions** (default): RAM-only, cleared on page refresh
-2. **Persistent Sessions** (opt-in): Encrypted in IndexedDB, survives page refresh
+2. **Persistent Sessions** (opt-in): Encrypted in localStorage, survives page refresh
 
 **In-Memory Session (default):**
 - ✅ Decrypted mnemonic cached in RAM only
@@ -2039,10 +2045,10 @@ w3pk supports **two types of sessions** (v0.8.2+):
 - ✅ Cleared when browser tab closes
 
 **Persistent Session (opt-in — "Remember Me"):**
-- Mnemonic encrypted in IndexedDB under a **WebAuthn-PRF-derived key** (HKDF-SHA256 of the authenticator's per-credential PRF secret); survives page refresh for the configured duration
+- Mnemonic encrypted in localStorage under a **WebAuthn-PRF-derived key** (HKDF-SHA256 of the authenticator's per-credential PRF secret); survives page refresh for the configured duration
 - Re-keyed at every real (prompted) login — the session expiry is the renewal boundary
 - `requireReauth: true`: the key is never stored; every restore re-derives it from a live user-verified assertion (blob is hardware-bound at rest)
-- `requireReauth: false`: the key is stored as a **non-extractable `CryptoKey`** for silent restore — usable by scripts, never readable, not recomputable from stored data
+- `requireReauth: false`: the key is stored as base64url next to the blob for silent restore — readable by anything that can read this origin's localStorage, until the [cross-origin wallet](https://github.com/w3hc/w3pk/issues/156) moves it out of the host app's origin
 - Requires a PRF-capable authenticator; without PRF, no persistent session is stored (in-memory only, no weaker fallback)
 - Only for STANDARD and YOLO modes; **NEVER** persisted for STRICT mode
 - Time-limited expiration; cleared on logout / `clearSession()`
@@ -2053,7 +2059,7 @@ w3pk supports **two types of sessions** (v0.8.2+):
 
 **Security properties:**
 - Default (in-memory) sessions exist **only in RAM** - never written to disk
-- Persistent sessions are keyed to the authenticator hardware via the PRF extension — a storage-read attacker cannot recompute the key from anything on disk (with `requireReauth: false`, the residual risk is a full browser-profile copy carrying the non-extractable key material at the storage-engine level; see [At-Rest Encryption → "Remember Me"](#at-rest-encryption-what-it-protects-and-what-it-doesnt))
+- Persistent sessions are keyed to the authenticator hardware via the PRF extension — a storage-read attacker cannot recompute the key from anything on disk (except with `requireReauth: false`, where the key is stored next to the blob; see [At-Rest Encryption → "Remember Me"](#at-rest-encryption-what-it-protects-and-what-it-doesnt))
 - Automatically cleared after expiration; cleared on logout (both RAM and persistent)
 - STRICT mode **always** requires fresh authentication (no persistence)
 
@@ -2851,7 +2857,6 @@ await w3pk.login()
 
 The attacker **cannot** use your `example.com` credential even if they:
 - Copy your localStorage data
-- Copy your IndexedDB data
 - Trick you into visiting their site
 - Use an identical UI
 
@@ -2862,7 +2867,6 @@ The browser enforces that credentials for `example.com` can only be used on `exa
 ```typescript
 // Browser storage is automatically scoped by origin
 localStorage  // Scoped to "https://example.com"
-IndexedDB     // Scoped to "https://example.com"
 
 // A different origin cannot access this storage
 // - https://attacker.com → different origin
@@ -2963,8 +2967,8 @@ const w3pk = createWeb3Passkey({
   "createdAt": 1234567890
 }
 
-// IndexedDB (origin-scoped by browser)
-// Store: wallets
+// localStorage (origin-scoped by browser)
+// Key: w3pk_wallet_<address>
 {
   "ethereumAddress": "0x1234...",
   "encryptedMnemonic": "v1kT...",  // AES-GCM encrypted
@@ -2981,9 +2985,8 @@ const w3pk = createWeb3Passkey({
 
 **Security properties:**
 
-1. **localStorage**: Origin-scoped by browser (cannot access from different origin)
-2. **IndexedDB**: Origin-scoped by browser + encrypted with WebAuthn signature
-3. **Authenticator**: RP ID-bound + hardware-protected
+1. **localStorage**: Origin-scoped by browser (cannot access from different origin); the wallet is also encrypted under a key derived from the credential metadata
+2. **Authenticator**: RP ID-bound + hardware-protected
 
 ### Common Questions
 
@@ -3087,10 +3090,6 @@ Modern authenticators (TouchID, Windows Hello, YubiKey) have **built-in secure s
 │  │ • Username                       │    │
 │  │ • Public key (safe)              │    │
 │  │ • Ethereum address              │    │
-│  └─────────────────────────────────┘    │
-│                                          │
-│  IndexedDB                               │
-│  ┌─────────────────────────────────┐    │
 │  │ • Encrypted wallet              │    │
 │  │ • Credential ID                 │    │
 │  └─────────────────────────────────┘    │
@@ -3146,7 +3145,7 @@ Modern authenticators (TouchID, Windows Hello, YubiKey) have **built-in secure s
 - ❌ **NOT** the wallet mnemonic
 
 **The wallet mnemonic is stored:**
-- In browser IndexedDB (encrypted)
+- In browser localStorage (encrypted)
 - Can only be decrypted with WebAuthn signature
 - Requires fresh biometric authentication
 
@@ -3606,7 +3605,7 @@ console.log('Write this down:', mnemonic)
 | Best for | Convenience + Security | General use | High-value holdings |
 
 **\*File access = theft?**
-- **w3pk:** Can decrypt mnemonic with localStorage + IndexedDB. Requires device encryption for full protection.
+- **w3pk:** Can decrypt mnemonic with localStorage. Requires device encryption for full protection.
 - **MetaMask:** Can decrypt vault with password. Weak passwords are vulnerable to brute force.
 - **Hardware Wallet:** Private keys never leave device. File access doesn't help attacker.
 
@@ -3800,7 +3799,7 @@ w3pk's security model combines **WebAuthn authentication** with **deterministic 
 An attacker would need different things depending on their goal:
 
 **To decrypt the wallet offline (outside w3pk):**
-- Access to browser storage files (localStorage + IndexedDB)
+- Access to browser storage files (localStorage)
 - Can then import mnemonic into any wallet
 
 **To use the wallet via w3pk SDK:**

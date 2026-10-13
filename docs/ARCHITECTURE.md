@@ -105,7 +105,7 @@ interface WebAuthnCredential {
 - Standards: BIP32, BIP39, BIP44, EIP-155
 - Curve: secp256k1 (Bitcoin/Ethereum standard)
 - Algorithm: ECDSA + Keccak-256
-- Storage: IndexedDB (AES-256-GCM encrypted)
+- Storage: localStorage (AES-256-GCM encrypted)
 - Managed by: Application (w3pk)
 
 **Capabilities**:
@@ -231,10 +231,10 @@ STEP 3: Derive Encryption Key
 
 STEP 4: Encrypt & Store
 ┌────────────────────────────┬────────────────────────────┐
-│  localStorage              │  IndexedDB                 │
+│  localStorage              │  localStorage              │
 │  ─────────────             │  ─────────────             │
 │                            │                            │
-│  w3pk_credential_*:        │  Web3PasskeyWallet:        │
+│  w3pk_credential_*:        │  w3pk_wallet_<address>:    │
 │  {                         │  {                         │
 │    id: "hash(abc123)",     │    ethereumAddress,        │
 │    publicKey (plaintext),  │    encryptedMnemonic,      │
@@ -268,9 +268,9 @@ STEP 1: WebAuthn Authentication
 
 STEP 2: Fetch Stored Data
 ┌────────────────────────────┬────────────────────────────┐
-│  localStorage              │  IndexedDB                 │
+│  localStorage              │  localStorage              │
 │                            │                            │
-│  Get by credentialId:      │  Get by credentialId:      │
+│  Get by credentialId:      │  Get by address:           │
 │  → publicKey               │  → encryptedMnemonic       │
 └─────────────┬──────────────┴──────────────┬─────────────┘
               │                             │
@@ -393,15 +393,16 @@ User wants to send 1 ETH
 
 **Why publicKey is plaintext**: It's needed to derive the encryption key. It's the **public** part of the WebAuthn key pair—not sensitive.
 
-### IndexedDB Structure
+### Wallet Storage
 
-**Database**: `Web3PasskeyWallet`
-**Store**: `wallets`
-**Key Path**: `ethereumAddress`
+**Storage**: localStorage, next to the credential metadata, so browser eviction removes both or neither
+**Key**: `w3pk_wallet_<ethereumAddress>`
 **Purpose**: Encrypted wallet storage
 
+Persistent sessions use `w3pk_session_<ethereumAddress>` and backup metadata `w3pk_backups`, in the same localStorage.
+
 ```typescript
-// Example record in IndexedDB
+// Example record in localStorage
 {
   ethereumAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
   encryptedMnemonic: "U2FsdGVkX1+vupppZksvRf...",  // AES-256-GCM blob
@@ -563,7 +564,7 @@ Layer 2: Encryption Key Derivation
 Layer 3: Encrypted Mnemonic Storage
 ┌─────────────────────────────────────┐
 │  ✅ AES-256-GCM encryption          │
-│  ✅ IndexedDB storage               │
+│  ✅ localStorage storage            │
 │  ✅ Cannot decrypt without Layers 1&2│
 └─────────────────────────────────────┘
          ↓ REVEALS
@@ -749,7 +750,7 @@ Passkey (Face ID) → Decrypt mnemonic → Use wallet
 |---------|----------|---------------|------------|
 | **Curve** | P-256 | secp256k1 | N/A (uses AES) |
 | **Purpose** | Authentication | Transactions | Encryption |
-| **Storage** | Secure Enclave | IndexedDB | None (derived) |
+| **Storage** | Secure Enclave | localStorage | None (derived) |
 | **Backup** | iCloud/Google | 12-word phrase | N/A |
 | **Standards** | FIDO2, W3C | BIP32/39/44 | PBKDF2, AES-GCM |
 | **Managed By** | OS | App | App |
@@ -808,7 +809,7 @@ Scenarios:
 }
 ```
 
-### What's in IndexedDB?
+### What's in `w3pk_wallet_<address>`?
 
 ```json
 {

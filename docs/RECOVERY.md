@@ -621,7 +621,7 @@ src/backup/
 ├── backup-file.ts              # Main backup orchestration
 ├── types.ts                    # TypeScript interfaces
 ├── encryption.ts               # PBKDF2 + AES-256-GCM utilities
-└── storage.ts                  # IndexedDB for metadata
+└── storage.ts                  # localStorage for metadata
 
 src/sync/
 ├── backup-sync.ts              # DeviceSyncManager class

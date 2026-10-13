@@ -107,7 +107,7 @@ What DOESN'T sync:
 LAYER 2: ENCRYPTED WALLET (Local)
 ----------------------------------
 Your wallet is encrypted and stored in:
-- Browser's IndexedDB
+- Browser's localStorage
 - Encrypted with passkey-derived key
 - Can ONLY be decrypted with passkey
 

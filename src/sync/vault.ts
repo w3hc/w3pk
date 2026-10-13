@@ -164,7 +164,7 @@ Layer 1: Passkey (Auto-Syncs)
 Layer 2: Encrypted Wallet (In Browser)
 --------------------------------------
 ✓ Your 12-word mnemonic (encrypted)
-✓ Stored in browser's IndexedDB
+✓ Stored in browser's localStorage
 ✓ Can ONLY be decrypted with passkey
 ✓ Requires authentication to access
 
@@ -176,7 +176,7 @@ Device 1 (iPhone)          iCloud Keychain          Device 2 (Mac)
      |-- Passkey Created -------->|                         |
      |                            |                         |
      |-- Wallet Encrypted --------|                         |
-     |    (in IndexedDB)          |                         |
+     |    (in localStorage)       |                         |
      |                            |                         |
      |                            |<----- Login on Mac -----|
      |                            |                         |
@@ -205,7 +205,7 @@ What Gets Synced:
 What Stays Local:
 ----------------
 
-✗ Encrypted mnemonic (in IndexedDB)
+✗ Encrypted mnemonic (in localStorage)
   - Must authenticate to decrypt
   - Requires passkey access
   - Platform-specific storage

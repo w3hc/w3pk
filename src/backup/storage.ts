@@ -1,63 +1,31 @@
 /**
- * IndexedDB Storage for Backup Metadata
+ * localStorage Storage for Backup Metadata
  */
 
 import type { BackupMetadata } from './types';
 
+const STORAGE_KEY = 'w3pk_backups';
+
 export class BackupStorage {
-  private dbName = 'Web3PasskeyBackup';
-  private version = 1;
-  private db: IDBDatabase | null = null;
+  constructor(private readonly customStorage?: Storage) {}
 
-  /**
-   * Initialize the database
-   */
-  async init(): Promise<void> {
-    // Skip initialization in non-browser environments
-    if (typeof indexedDB === 'undefined') {
-      return Promise.resolve();
+  private get storage(): Storage | null {
+    if (this.customStorage) return this.customStorage;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage;
     }
-
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, this.version);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        this.db = request.result;
-        resolve();
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-
-        // Create backups object store
-        if (!db.objectStoreNames.contains('backups')) {
-          const store = db.createObjectStore('backups', { keyPath: 'id' });
-          store.createIndex('ethereumAddress', 'ethereumAddress', {
-            unique: false,
-          });
-          store.createIndex('method', 'method', { unique: false });
-          store.createIndex('createdAt', 'createdAt', { unique: false });
-        }
-      };
-    });
+    return null; // Non-browser environment
   }
+
+  async init(): Promise<void> {}
 
   /**
    * Store backup metadata
    */
   async storeBackupMetadata(metadata: BackupMetadata): Promise<void> {
-    if (!this.db) await this.init();
-    if (!this.db) return Promise.resolve(); // Non-browser environment
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['backups'], 'readwrite');
-      const store = transaction.objectStore('backups');
-      const request = store.put(metadata);
-
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
+    const backups = this.readAll().filter((b) => b.id !== metadata.id);
+    backups.push(metadata);
+    this.writeAll(backups);
   }
 
   /**
@@ -66,52 +34,21 @@ export class BackupStorage {
   async getBackupsByAddress(
     ethereumAddress: string
   ): Promise<BackupMetadata[]> {
-    if (!this.db) await this.init();
-    if (!this.db) return Promise.resolve([]); // Non-browser environment
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['backups'], 'readonly');
-      const store = transaction.objectStore('backups');
-      const index = store.index('ethereumAddress');
-      const request = index.getAll(ethereumAddress);
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+    return this.readAll().filter((b) => b.ethereumAddress === ethereumAddress);
   }
 
   /**
    * Get backup by ID
    */
   async getBackupById(id: string): Promise<BackupMetadata | null> {
-    if (!this.db) await this.init();
-    if (!this.db) return Promise.resolve(null); // Non-browser environment
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['backups'], 'readonly');
-      const store = transaction.objectStore('backups');
-      const request = store.get(id);
-
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
+    return this.readAll().find((b) => b.id === id) ?? null;
   }
 
   /**
    * Delete backup metadata
    */
   async deleteBackup(id: string): Promise<void> {
-    if (!this.db) await this.init();
-    if (!this.db) return Promise.resolve(); // Non-browser environment
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['backups'], 'readwrite');
-      const store = transaction.objectStore('backups');
-      const request = store.delete(id);
-
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
+    this.writeAll(this.readAll().filter((b) => b.id !== id));
   }
 
   /**
@@ -120,17 +57,15 @@ export class BackupStorage {
   async getBackupCountByMethod(
     method: 'qr' | 'file'
   ): Promise<number> {
-    if (!this.db) await this.init();
-    if (!this.db) return Promise.resolve(0); // Non-browser environment
+    return this.readAll().filter((b) => b.method === method).length;
+  }
 
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['backups'], 'readonly');
-      const store = transaction.objectStore('backups');
-      const index = store.index('method');
-      const request = index.count(method);
+  private readAll(): BackupMetadata[] {
+    const raw = this.storage?.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as BackupMetadata[]) : [];
+  }
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+  private writeAll(backups: BackupMetadata[]): void {
+    this.storage?.setItem(STORAGE_KEY, JSON.stringify(backups));
   }
 }

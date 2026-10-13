@@ -19,7 +19,7 @@
 
 import { register } from "../auth/register";
 import { login } from "../auth/authenticate";
-import { IndexedDBWalletStorage } from "../wallet/storage";
+import { LocalStorageWalletStorage } from "../wallet/storage";
 import {
   generateBIP39Wallet,
 } from "../wallet/generate";
@@ -67,9 +67,10 @@ function hexToUtf8(hex: string): string {
 
 export class Web3Passkey {
   private config: InternalConfig;
-  private walletStorage: IndexedDBWalletStorage;
+  private walletStorage: LocalStorageWalletStorage;
   private currentUser: UserInfo | null = null;
   private currentWallet: GeneratedWallet | null = null;
+  private persisted: boolean | null = null;
   private sessionManager: SessionManager;
 
   public stealth?: StealthAddressModule;
@@ -77,7 +78,7 @@ export class Web3Passkey {
 
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
-    this.walletStorage = new IndexedDBWalletStorage();
+    this.walletStorage = new LocalStorageWalletStorage();
 
     // Initialize session manager with persistent session config
     const persistentSessionConfig = {
@@ -169,7 +170,10 @@ export class Web3Passkey {
 
     // This assertion's PRF output (re-)keys the persistent session
     const prfSessionKey = authResult.prfOutput
-      ? await derivePrfSessionKey(authResult.prfOutput)
+      ? await derivePrfSessionKey(
+          authResult.prfOutput,
+          this.sessionManager.storesSessionKey
+        )
       : undefined;
 
     await this.sessionManager.startSession(
@@ -236,7 +240,10 @@ export class Web3Passkey {
       // Some platforms evaluate the PRF at creation; if this one didn't,
       // the persistent session starts at the first login() instead
       const prfSessionKey = registration.prfOutput
-        ? await derivePrfSessionKey(registration.prfOutput)
+        ? await derivePrfSessionKey(
+            registration.prfOutput,
+            this.sessionManager.storesSessionKey
+          )
         : undefined;
 
       await this.sessionManager.startSession(
@@ -252,6 +259,7 @@ export class Web3Passkey {
         mnemonic,
       };
 
+      void this.requestPersistentStorage();
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
       return { address: ethereumAddress, username: options.username };
@@ -300,6 +308,7 @@ export class Web3Passkey {
           return this.login(); // Retry with authentication
         }
 
+        void this.requestPersistentStorage();
         this.config.onAuthStateChanged?.(true, this.currentUser);
         return this.currentUser;
       }
@@ -323,6 +332,7 @@ export class Web3Passkey {
 
       // If no wallet data exists, user is logged in but needs to restore from backup
       if (!walletData) {
+        void this.requestPersistentStorage();
         this.config.onAuthStateChanged?.(true, this.currentUser);
         return this.currentUser;
       }
@@ -335,7 +345,10 @@ export class Web3Passkey {
       // persistent session (deterministic PRF input → same key as when the
       // blob was written) and re-keys the next one
       const prfSessionKey = result.prfOutput
-        ? await derivePrfSessionKey(result.prfOutput)
+        ? await derivePrfSessionKey(
+            result.prfOutput,
+            this.sessionManager.storesSessionKey
+          )
         : undefined;
 
       // Try to restore from persistent session first (if requireReauth is true)
@@ -371,6 +384,7 @@ export class Web3Passkey {
         );
       }
 
+      void this.requestPersistentStorage();
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
       return this.currentUser;
@@ -405,6 +419,25 @@ export class Web3Passkey {
 
   get user(): UserInfo | null {
     return this.currentUser;
+  }
+
+  /**
+   * Whether the browser granted persistent storage (`navigator.storage.persist()`),
+   * requested after each register, login and restore: true means the origin's
+   * storage is exempt from storage-pressure eviction. null until the browser
+   * answers (Firefox asks the user), or where the API is missing.
+   */
+  get storagePersisted(): boolean | null {
+    return this.persisted;
+  }
+
+  private async requestPersistentStorage(): Promise<void> {
+    if (typeof navigator === "undefined" || !navigator.storage?.persist) return;
+    try {
+      this.persisted = await navigator.storage.persist();
+    } catch {
+      this.persisted = false;
+    }
   }
 
   /**
@@ -679,7 +712,10 @@ export class Web3Passkey {
       };
 
       const prfSessionKey = authResult.prfOutput
-        ? await derivePrfSessionKey(authResult.prfOutput)
+        ? await derivePrfSessionKey(
+            authResult.prfOutput,
+            this.sessionManager.storesSessionKey
+          )
         : undefined;
 
       await this.sessionManager.startSession(
@@ -1924,6 +1960,7 @@ export class Web3Passkey {
         );
 
         // Notify app of auth state change with updated user
+        void this.requestPersistentStorage();
         this.config.onAuthStateChanged?.(true, this.currentUser);
       }
     }
@@ -2051,6 +2088,7 @@ export class Web3Passkey {
         'STANDARD'
       );
 
+      void this.requestPersistentStorage();
       this.config.onAuthStateChanged?.(true, this.currentUser);
     }
 
@@ -2325,7 +2363,7 @@ export class Web3Passkey {
 
   /**
    * Clear active session
-   * Also clears ALL persistent sessions from IndexedDB
+   * Also clears ALL persistent sessions from localStorage
    *
    * @throws {StorageError} if persistent sessions could not be cleared
    */
