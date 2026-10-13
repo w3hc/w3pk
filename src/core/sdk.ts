@@ -70,6 +70,7 @@ export class Web3Passkey {
   private walletStorage: LocalStorageWalletStorage;
   private currentUser: UserInfo | null = null;
   private currentWallet: GeneratedWallet | null = null;
+  private persisted: boolean | null = null;
   private sessionManager: SessionManager;
 
   public stealth?: StealthAddressModule;
@@ -258,6 +259,7 @@ export class Web3Passkey {
         mnemonic,
       };
 
+      void this.requestPersistentStorage();
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
       return { address: ethereumAddress, username: options.username };
@@ -306,6 +308,7 @@ export class Web3Passkey {
           return this.login(); // Retry with authentication
         }
 
+        void this.requestPersistentStorage();
         this.config.onAuthStateChanged?.(true, this.currentUser);
         return this.currentUser;
       }
@@ -329,6 +332,7 @@ export class Web3Passkey {
 
       // If no wallet data exists, user is logged in but needs to restore from backup
       if (!walletData) {
+        void this.requestPersistentStorage();
         this.config.onAuthStateChanged?.(true, this.currentUser);
         return this.currentUser;
       }
@@ -380,6 +384,7 @@ export class Web3Passkey {
         );
       }
 
+      void this.requestPersistentStorage();
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
       return this.currentUser;
@@ -414,6 +419,25 @@ export class Web3Passkey {
 
   get user(): UserInfo | null {
     return this.currentUser;
+  }
+
+  /**
+   * Whether the browser granted persistent storage (`navigator.storage.persist()`),
+   * requested after each register, login and restore: true means the origin's
+   * storage is exempt from storage-pressure eviction. null until the browser
+   * answers (Firefox asks the user), or where the API is missing.
+   */
+  get storagePersisted(): boolean | null {
+    return this.persisted;
+  }
+
+  private async requestPersistentStorage(): Promise<void> {
+    if (typeof navigator === "undefined" || !navigator.storage?.persist) return;
+    try {
+      this.persisted = await navigator.storage.persist();
+    } catch {
+      this.persisted = false;
+    }
   }
 
   /**
@@ -1936,6 +1960,7 @@ export class Web3Passkey {
         );
 
         // Notify app of auth state change with updated user
+        void this.requestPersistentStorage();
         this.config.onAuthStateChanged?.(true, this.currentUser);
       }
     }
@@ -2063,6 +2088,7 @@ export class Web3Passkey {
         'STANDARD'
       );
 
+      void this.requestPersistentStorage();
       this.config.onAuthStateChanged?.(true, this.currentUser);
     }
 
