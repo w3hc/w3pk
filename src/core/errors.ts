@@ -58,3 +58,34 @@ export class ApiError extends Web3PasskeyError {
     this.name = "ApiError";
   }
 }
+
+/**
+ * The passkey authenticated, but this device has no credential metadata.
+ * The app should start a sync or restore flow.
+ */
+export class SyncRequiredError extends Web3PasskeyError {
+  constructor(public credentialId: string) {
+    super(
+      "Passkey authenticated but this device has no data for it. Sync this device or restore from a backup.",
+      "SYNC_REQUIRED"
+    );
+    this.name = "SyncRequiredError";
+  }
+}
+
+/**
+ * The credential metadata is on this device, but the wallet record is gone.
+ * The app should offer a restore from backup.
+ */
+export class WalletMissingError extends Web3PasskeyError {
+  constructor(
+    public credentialId: string,
+    public ethereumAddress: string
+  ) {
+    super(
+      "Passkey authenticated but no wallet was found on this device. Restore it from a backup.",
+      "WALLET_MISSING"
+    );
+    this.name = "WalletMissingError";
+  }
+}

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`login()` succeeding without a wallet** ([#139](https://github.com/w3hc/w3pk/issues/139)): `login()` resolved and fired `onAuthStateChanged(true, …)` when the passkey had no wallet on this device, so the next `getAddress()` threw a generic `Failed to get address`
+  - `SyncRequiredError` (`credentialId`, code `SYNC_REQUIRED`): the passkey authenticated, but this device has no credential metadata; replaces the plain `AuthenticationError` message apps had to match by text
+  - `WalletMissingError` (`credentialId`, `ethereumAddress`, code `WALLET_MISSING`): the credential metadata is here, but the wallet record is gone
+  - In both cases the user is not logged in and `onAuthStateChanged(true, …)` never fires
+  - Both are exported from the package root
+
 - **Wallets lost to IndexedDB eviction** ([#138](https://github.com/w3hc/w3pk/issues/138)): Chrome's storage-pressure eviction deleted the IndexedDB wallet but kept the credential in localStorage, so the passkey logged in to a wallet that no longer existed
   - The encrypted wallet (`w3pk_wallet_<address>`), persistent sessions (`w3pk_session_<address>`) and backup metadata (`w3pk_backups`) live in localStorage, next to the credential metadata, so eviction removes all of them or none
   - The `Web3PasskeyWallet`, `Web3PasskeyPersistentSessions` and `Web3PasskeyBackup` IndexedDB stores are removed with no migration: wallets created before this release need a restore from a backup file or the recovery phrase
