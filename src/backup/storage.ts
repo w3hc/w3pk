@@ -2,7 +2,7 @@
  * localStorage Storage for Backup Metadata
  */
 
-import type { BackupMetadata } from './types';
+import type { BackupMetadata, BackupMethod } from './types';
 
 const STORAGE_KEY = 'w3pk_backups';
 
@@ -55,7 +55,7 @@ export class BackupStorage {
    * Get count of backups by method
    */
   async getBackupCountByMethod(
-    method: 'qr' | 'file'
+    method: BackupMethod
   ): Promise<number> {
     return this.readAll().filter((b) => b.method === method).length;
   }
