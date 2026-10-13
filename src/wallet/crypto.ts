@@ -8,7 +8,11 @@
  */
 
 import { CryptoError } from "../core/errors";
-import { arrayBufferToBase64Url, safeAtob } from "../utils/base64";
+import {
+  arrayBufferToBase64Url,
+  base64UrlToArrayBuffer,
+  safeAtob,
+} from "../utils/base64";
 
 /**
  * Fixed input for the WebAuthn PRF extension.
@@ -32,11 +36,12 @@ const PRF_HKDF_INFO = new TextEncoder().encode("w3pk-prf-session-key-v1");
  *   during a user-verified assertion — unlike credentialId/publicKey, it is
  *   not derivable from anything stored on disk.
  * - HKDF-SHA256 (PRF output is full-entropy key material; no stretching
- *   needed) into a NON-EXTRACTABLE AES-GCM key: scripts can use the returned
- *   CryptoKey but can never read its bytes.
+ *   needed) into an AES-GCM key, non-extractable unless `extractable` is set
+ *   so that silent restore (requireReauth: false) can store it.
  */
 export async function derivePrfSessionKey(
-  prfOutput: BufferSource
+  prfOutput: BufferSource,
+  extractable = false
 ): Promise<CryptoKey> {
   try {
     const byteLength =
@@ -62,11 +67,39 @@ export async function derivePrfSessionKey(
       },
       keyMaterial,
       { name: "AES-GCM", length: 256 },
-      false, // non-extractable: storable and usable, never readable
+      extractable,
       ["encrypt", "decrypt"]
     );
   } catch (error: any) {
     throw new CryptoError("Failed to derive session key from PRF output", error);
+  }
+}
+
+/**
+ * Export an extractable PRF session key as base64url, for silent restore
+ */
+export async function exportSessionKey(key: CryptoKey): Promise<string> {
+  try {
+    return arrayBufferToBase64Url(await crypto.subtle.exportKey("raw", key));
+  } catch (error: any) {
+    throw new CryptoError("Failed to export session key", error);
+  }
+}
+
+/**
+ * Import a stored PRF session key as a non-extractable AES-GCM key
+ */
+export async function importSessionKey(rawKey: string): Promise<CryptoKey> {
+  try {
+    return await crypto.subtle.importKey(
+      "raw",
+      base64UrlToArrayBuffer(rawKey),
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  } catch (error: any) {
+    throw new CryptoError("Failed to import session key", error);
   }
 }
 

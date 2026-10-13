@@ -4,7 +4,7 @@
  * SECURITY:
  * - In-memory sessions: Mnemonic is stored in RAM only (cleared on page refresh)
  * - Persistent sessions: Mnemonic encrypted under a WebAuthn-PRF-derived key
- *   in IndexedDB (survives page refresh). PRF-capable authenticators only —
+ *   in localStorage (survives page refresh). PRF-capable authenticators only —
  *   no PRF, no persistence, no weaker fallback.
  * - Persistent sessions ONLY for STANDARD and YOLO modes (STRICT mode excluded)
  * - Automatically cleared after session expires
@@ -14,14 +14,19 @@
  * - requireReauth: true (default): Biometric prompt on every page refresh; the
  *   decryption key is re-derived from that assertion's PRF output and never
  *   stored — the blob is hardware-bound at rest
- * - requireReauth: false: Silent restore without prompt via a stored
- *   NON-EXTRACTABLE CryptoKey, re-keyed at every real (prompted) login
+ * - requireReauth: false: Silent restore without prompt via the stored raw
+ *   key, re-keyed at every real (prompted) login
  */
 
 import type { SecurityMode } from "../types";
 import type { PersistentSessionConfig } from "./persistent-session";
 import { PersistentSessionStorage } from "./persistent-session";
-import { encryptData, decryptData } from "../wallet/crypto";
+import {
+  encryptData,
+  decryptData,
+  exportSessionKey,
+  importSessionKey,
+} from "../wallet/crypto";
 
 export interface SessionData {
   mnemonic: string;
@@ -50,7 +55,7 @@ export class SessionManager {
 
   /**
    * Start a new session with the decrypted mnemonic
-   * Optionally persists session to IndexedDB for STANDARD/YOLO modes
+   * Optionally persists session to localStorage for STANDARD/YOLO modes
    *
    * Persistence requires a PRF session key, which only exists when the
    * session started from a real user-verified assertion on a PRF-capable
@@ -60,7 +65,7 @@ export class SessionManager {
    * @param mnemonic - The decrypted mnemonic
    * @param credentialId - WebAuthn credential ID
    * @param ethereumAddress - User's ethereum address
-   * @param prfSessionKey - Non-extractable AES key derived from this
+   * @param prfSessionKey - AES key derived from this
    *   assertion's PRF output (see derivePrfSessionKey)
    * @param securityMode - Security mode (STRICT sessions are never persisted)
    */
@@ -102,7 +107,9 @@ export class SessionManager {
           encryptedMnemonic,
           // Key stored only for silent restore; with requireReauth the next
           // assertion re-derives it, keeping the blob hardware-bound at rest
-          sessionKey: this.persistentConfig.requireReauth ? undefined : prfSessionKey,
+          sessionKey: this.persistentConfig.requireReauth
+            ? undefined
+            : await exportSessionKey(prfSessionKey),
           expiresAt: persistentExpiresAt,
           credentialId,
           ethereumAddress,
@@ -266,7 +273,7 @@ export class SessionManager {
   /**
    * Attempt silent session restore without requiring WebAuthn prompt
    * Only works if requireReauth is false and a valid persistent session
-   * exists with a stored (non-extractable) session key
+   * exists with a stored session key
    *
    * @returns User info if session restored, null otherwise
    */
@@ -308,16 +315,15 @@ export class SessionManager {
           continue;
         }
 
-        // Silent restore needs the stored non-extractable key; records
-        // written under requireReauth deliberately don't have one
+        // Silent restore needs the stored key; records written under
+        // requireReauth deliberately don't have one
         if (!persistentSession.sessionKey) {
           continue;
         }
 
-        // Decrypt mnemonic with the stored non-extractable key
         const mnemonic = await decryptData(
           persistentSession.encryptedMnemonic,
-          persistentSession.sessionKey
+          await importSessionKey(persistentSession.sessionKey)
         );
 
         // Start in-memory session with restored mnemonic
@@ -344,7 +350,7 @@ export class SessionManager {
 
   /**
    * Manually clear the session (logout or security requirement)
-   * Also clears ALL persistent sessions from IndexedDB
+   * Also clears ALL persistent sessions from localStorage
    *
    * The in-memory session is always cleared, even if clearing persistent
    * storage fails — in that case a StorageError is thrown so callers know
@@ -359,11 +365,19 @@ export class SessionManager {
     }
     this.session = null;
 
-    // Clear ALL persistent sessions from IndexedDB on logout
+    // Clear ALL persistent sessions from localStorage on logout
     // This ensures no WebAuthn prompts appear after logout
     if (this.persistentConfig.enabled) {
       await this.persistentStorage.clear();
     }
+  }
+
+  /**
+   * Whether the PRF session key is stored for silent restore, in which case
+   * it must be derived extractable
+   */
+  get storesSessionKey(): boolean {
+    return this.persistentConfig.enabled && !this.persistentConfig.requireReauth;
   }
 
   /**

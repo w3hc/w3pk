@@ -169,7 +169,10 @@ export class Web3Passkey {
 
     // This assertion's PRF output (re-)keys the persistent session
     const prfSessionKey = authResult.prfOutput
-      ? await derivePrfSessionKey(authResult.prfOutput)
+      ? await derivePrfSessionKey(
+          authResult.prfOutput,
+          this.sessionManager.storesSessionKey
+        )
       : undefined;
 
     await this.sessionManager.startSession(
@@ -236,7 +239,10 @@ export class Web3Passkey {
       // Some platforms evaluate the PRF at creation; if this one didn't,
       // the persistent session starts at the first login() instead
       const prfSessionKey = registration.prfOutput
-        ? await derivePrfSessionKey(registration.prfOutput)
+        ? await derivePrfSessionKey(
+            registration.prfOutput,
+            this.sessionManager.storesSessionKey
+          )
         : undefined;
 
       await this.sessionManager.startSession(
@@ -335,7 +341,10 @@ export class Web3Passkey {
       // persistent session (deterministic PRF input → same key as when the
       // blob was written) and re-keys the next one
       const prfSessionKey = result.prfOutput
-        ? await derivePrfSessionKey(result.prfOutput)
+        ? await derivePrfSessionKey(
+            result.prfOutput,
+            this.sessionManager.storesSessionKey
+          )
         : undefined;
 
       // Try to restore from persistent session first (if requireReauth is true)
@@ -679,7 +688,10 @@ export class Web3Passkey {
       };
 
       const prfSessionKey = authResult.prfOutput
-        ? await derivePrfSessionKey(authResult.prfOutput)
+        ? await derivePrfSessionKey(
+            authResult.prfOutput,
+            this.sessionManager.storesSessionKey
+          )
         : undefined;
 
       await this.sessionManager.startSession(
@@ -2325,7 +2337,7 @@ export class Web3Passkey {
 
   /**
    * Clear active session
-   * Also clears ALL persistent sessions from IndexedDB
+   * Also clears ALL persistent sessions from localStorage
    *
    * @throws {StorageError} if persistent sessions could not be cleared
    */

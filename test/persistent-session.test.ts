@@ -2,13 +2,20 @@
  * Tests for persistent session functionality
  *
  * Persistent sessions are encrypted under a key derived from the WebAuthn
- * PRF extension output. The PRF/crypto tests run everywhere (Node has
- * WebCrypto); the IndexedDB storage tests require a browser.
+ * PRF extension output. Both the PRF/crypto and the storage tests run in Node
+ * (WebCrypto plus an in-memory Storage).
  */
 
 import { PersistentSessionStorage } from '../src/core/persistent-session';
 import type { PersistentSessionData } from '../src/core/persistent-session';
-import { derivePrfSessionKey, PRF_INPUT, encryptData, decryptData } from '../src/wallet/crypto';
+import {
+  derivePrfSessionKey,
+  exportSessionKey,
+  importSessionKey,
+  PRF_INPUT,
+  encryptData,
+  decryptData,
+} from '../src/wallet/crypto';
 
 console.log('\n==================================================');
 console.log('🚀 Persistent Session Tests');
@@ -104,23 +111,45 @@ async function runPrfCryptoTests() {
   }
   assert(lengthErrorThrown, 'Non-32-byte PRF output is rejected');
   console.log('');
+
+  // Test G: Silent-restore key survives export and import
+  console.log('Test G: Stored session key roundtrip');
+  const extractableKey = await derivePrfSessionKey(prfOutput, true);
+  const rawKey = await exportSessionKey(extractableKey);
+  assert(typeof rawKey === 'string' && rawKey.length > 0, 'Key exports as a string');
+  const importedKey = await importSessionKey(rawKey);
+  assert(importedKey.extractable === false, 'Imported key is non-extractable');
+  assert(
+    (await decryptData(encrypted, importedKey)) === testMnemonic,
+    'Imported key decrypts a blob written under the non-extractable key'
+  );
+  console.log('');
+}
+
+/** In-memory Storage, isolated from the global mock */
+function memoryStorage(): Storage {
+  const items = new Map<string, string>();
+  return {
+    getItem: (key) => items.get(key) ?? null,
+    setItem: (key, value) => { items.set(key, value); },
+    removeItem: (key) => { items.delete(key); },
+    clear: () => { items.clear(); },
+    get length() { return items.size; },
+    key: (index) => Array.from(items.keys())[index] ?? null,
+  };
 }
 
 /**
- * IndexedDB storage tests (browser only)
+ * localStorage storage tests
  */
 async function runStorageTests() {
-  if (typeof indexedDB === 'undefined') {
-    console.log('  ℹ️  Storage tests skipped: IndexedDB not available (requires browser environment)');
-    console.log('  ℹ️  Run in browser or use test/webauthn-native.html\n');
-    return;
-  }
-
-  const storage = new PersistentSessionStorage();
+  const backing = memoryStorage();
+  const storage = new PersistentSessionStorage(backing);
   const testAddress = '0x1234567890123456789012345678901234567890';
   const testCredentialId = 'test-credential-id';
-  const sessionKey = await derivePrfSessionKey(fakePrfOutput());
-  const encryptedMnemonic = await encryptData(testMnemonic, sessionKey);
+  const prfKey = await derivePrfSessionKey(fakePrfOutput(), true);
+  const sessionKey = await exportSessionKey(prfKey);
+  const encryptedMnemonic = await encryptData(testMnemonic, prfKey);
 
   await storage.init();
   await storage.clear();
@@ -145,11 +174,17 @@ async function runStorageTests() {
     assert(retrieved?.ethereumAddress === testAddress, 'Ethereum address matches');
     assert(retrieved?.credentialId === testCredentialId, 'Credential ID matches');
     assert(retrieved?.securityMode === 'STANDARD', 'Security mode is STANDARD');
-    assert(retrieved?.sessionKey instanceof CryptoKey, 'Stored CryptoKey survives the roundtrip');
-    assert(retrieved?.sessionKey?.extractable === false, 'Stored key is still non-extractable');
+    assert(retrieved?.sessionKey === sessionKey, 'Stored key survives the roundtrip');
+    assert(
+      backing.getItem(`w3pk_session_${testAddress}`) !== null,
+      'Session is stored in localStorage under w3pk_session_<address>'
+    );
 
     if (retrieved?.sessionKey) {
-      const decrypted = await decryptData(retrieved.encryptedMnemonic, retrieved.sessionKey);
+      const decrypted = await decryptData(
+        retrieved.encryptedMnemonic,
+        await importSessionKey(retrieved.sessionKey)
+      );
       assert(decrypted === testMnemonic, 'Blob decrypts with the stored key (silent restore)');
     }
   } catch (error) {
@@ -259,8 +294,35 @@ async function runStorageTests() {
   }
   console.log('');
 
-  // Clean up
-  await storage.clear();
+  // Test 6: clear and cleanupExpired only touch session keys
+  console.log('Test 6: clear and cleanupExpired leave other keys alone');
+  try {
+    backing.setItem('w3pk_credential_index', '[]');
+    const base: PersistentSessionData = {
+      encryptedMnemonic,
+      sessionKey,
+      expiresAt: Date.now() + 1000 * 60 * 60,
+      credentialId: testCredentialId,
+      ethereumAddress: testAddress,
+      securityMode: 'STANDARD',
+      createdAt: Date.now(),
+    };
+    const otherAddress = '0x0000000000000000000000000000000000000001';
+    await storage.store(base);
+    await storage.store({ ...base, ethereumAddress: otherAddress, expiresAt: Date.now() - 1000 });
+
+    await storage.cleanupExpired();
+    assert(backing.getItem(`w3pk_session_${otherAddress}`) === null, 'Expired session was cleaned up');
+    assert((await storage.retrieve(testAddress)) !== null, 'Live session survives cleanup');
+
+    await storage.clear();
+    assert((await storage.retrieve(testAddress)) === null, 'clear removes sessions');
+    assert(backing.getItem('w3pk_credential_index') === '[]', 'clear keeps credential metadata');
+  } catch (error) {
+    console.log('  ❌ Error:', error);
+    failed++;
+  }
+  console.log('');
 }
 
 async function runTests() {
