@@ -161,6 +161,12 @@ interface UserInfo {
 6. Returns user info
 7. Subsequent operations use cached session - no repeated biometric prompts
 
+**Throws:**
+- `SyncRequiredError` if the passkey authenticated but this device has no credential metadata for it (carries `credentialId`); start a sync with `syncWalletWithPasskey()`
+- `WalletMissingError` if the credential metadata is here but the wallet record is gone (carries `credentialId` and `ethereumAddress`); offer a restore from backup
+
+In both cases the user is not logged in and `onAuthStateChanged(true, …)` is not called.
+
 **Example:**
 
 ```typescript
@@ -3906,7 +3912,9 @@ import {
   WalletError,
   CryptoError,
   StorageError,
-  ApiError
+  ApiError,
+  SyncRequiredError,
+  WalletMissingError
 } from 'w3pk'
 ```
 
@@ -3919,16 +3927,28 @@ import {
   - `CryptoError` - Cryptographic operations (encryption, decryption)
   - `StorageError` - Storage operations (localStorage)
   - `ApiError` - API/network errors (RPC, chainlist)
+  - `SyncRequiredError` - `login()`: passkey authenticated, but this device has no credential metadata (`credentialId`)
+  - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
 
 ### Error Handling
 
 ```typescript
-import { AuthenticationError, WalletError } from 'w3pk'
+import {
+  AuthenticationError,
+  WalletError,
+  SyncRequiredError,
+  WalletMissingError
+} from 'w3pk'
 
 try {
   await w3pk.login()
 } catch (error) {
-  if (error instanceof AuthenticationError) {
+  if (error instanceof SyncRequiredError) {
+    // Passkey synced to this device, wallet data isn't: ask for the backup file
+    await w3pk.syncWalletWithPasskey(backupFile)
+  } else if (error instanceof WalletMissingError) {
+    console.error('No wallet for', error.ethereumAddress, '- restore from backup')
+  } else if (error instanceof AuthenticationError) {
     console.error('Authentication failed:', error.message)
   } else if (error instanceof WalletError) {
     console.error('Wallet error:', error.message)
