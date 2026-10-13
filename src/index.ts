@@ -22,6 +22,8 @@ export {
   CryptoError,
   StorageError,
   ApiError,
+  SyncRequiredError,
+  WalletMissingError,
 } from "./core/errors";
 
 export {
