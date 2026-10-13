@@ -1,4 +1,8 @@
-import { AuthenticationError } from "../core/errors";
+import {
+  AuthenticationError,
+  SyncRequiredError,
+  Web3PasskeyError,
+} from "../core/errors";
 import type { AuthResult, AuthenticationCredential } from "./types";
 import type { StoredCredential } from "./storage";
 import { CredentialStorage } from "./storage";
@@ -89,11 +93,8 @@ export async function login(): Promise<AuthResult> {
     const credential = await storage.getCredentialById(assertion.id);
 
     if (!credential) {
-      // Passkey authenticated successfully but metadata not found locally
-      // This happens when using a cloud-synced passkey on a new device
-      throw new AuthenticationError(
-        "Passkey authenticated but wallet data not found on this device. To sync your account: 1) Select your passkey when prompted, then 2) Provide your backup file. This allows you to use the same passkey on multiple devices."
-      );
+      // Cloud-synced passkey used on a device that has no metadata for it
+      throw new SyncRequiredError(assertion.id);
     }
 
     const isValid = await verifyAssertion(assertion, credential, storage);
@@ -118,6 +119,7 @@ export async function login(): Promise<AuthResult> {
       prfOutput,
     };
   } catch (error) {
+    if (error instanceof Web3PasskeyError) throw error;
     throw new AuthenticationError(
       error instanceof Error ? error.message : "Authentication failed",
       error
