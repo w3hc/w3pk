@@ -110,6 +110,17 @@ The encrypted wallet, persistent sessions and backup metadata live in localStora
 
 Chrome grants persistent storage from engagement heuristics (bookmarked, installed, frequently visited) without a prompt; Firefox asks the user; Safari doesn't exempt sites from its 7-day cap. See [SECURITY.md → Storage durability](./SECURITY.md#storage-durability-what-can-still-wipe-the-wallet).
 
+`register()` and `getBackupStatus()` return `evictionRisk`, computed on each call:
+
+| Environment | `evictionRisk` |
+|-------------|----------------|
+| **WebKit tab, storage not persisted** (every iOS browser, Safari and other WebKit browsers on desktop) | `true` |
+| **WebKit home-screen app** (`display-mode: standalone` or `navigator.standalone`) | `false` |
+| **WebKit, `navigator.storage.persisted()` is `true`** | `false` |
+| **Chromium, Firefox** | `false` |
+
+Block on a backup while `!hasBackup && evictionRisk`, and show a dismissible banner on `!hasBackup` otherwise. See [Integration Guidelines → Backup & Recovery](./INTEGRATION_GUIDELINES.md#backup--recovery).
+
 ### Hardware Security Keys
 
 | Key Type | CTAP Version | w3pk Support | Release Date |

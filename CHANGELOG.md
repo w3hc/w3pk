@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Eviction risk** ([#160](https://github.com/w3hc/w3pk/issues/160)): apps can insist on a backup only where the browser is likely to wipe the wallet
+  - `BackupStatus.evictionRisk`, computed on each `getBackupStatus()` call: `true` on WebKit (every iOS browser, Safari and other WebKit browsers on desktop) outside a home-screen app while `navigator.storage.persisted()` is not `true`, `false` elsewhere
+  - `register()` returns `evictionRisk`
+  - docs/INTEGRATION_GUIDELINES.md shows the gate: block on `!hasBackup && evictionRisk`, a banner on `!hasBackup` otherwise, and "Add to Home Screen" on iOS
+
 ## [0.10.3] - 2026-10-13
 
 ### Added
