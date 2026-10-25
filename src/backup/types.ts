@@ -89,8 +89,8 @@ export interface BackupMetadata {
 export interface BackupFile {
   createdAt: string; // ISO 8601 timestamp
   ethereumAddress: string; // m/44'/60'/0'/0/0 address (index #0)
-  encryptedMnemonic: string; // AES-256-GCM encrypted with passkey-derived key OR password
-  encryptionMethod: 'passkey' | 'password' | 'hybrid';
+  encryptedMnemonic: string; // AES-256-GCM encrypted with passkey-derived key, PRF-derived key OR password
+  encryptionMethod: 'passkey' | 'password' | 'hybrid' | 'prf';
   // For passkey encryption (optional, used when encryptionMethod is 'passkey' or 'hybrid')
   credentialId?: string;
   publicKeyFingerprint?: string; // SHA-256 hash of public key for identification
@@ -100,9 +100,13 @@ export interface BackupFile {
     iv: string;
     iterations: number;
   };
-  // Passkey that owned the wallet when a password backup was made: lets a
-  // fresh device where that passkey synced set up its metadata
+  // Passkey that owned the wallet when a password or PRF backup was made:
+  // lets a fresh device where that passkey synced set up its metadata
   credential?: BackupCredential;
+  // For PRF encryption: random per backup, the PRF is evaluated at
+  // SHA-256("w3pk-prf-sync-v1" || prfSalt) with the passkey in `credential`
+  prfSalt?: string;
+  username?: string;
   // Metadata for verification
   addressChecksum: string; // For verification after decryption
 }
