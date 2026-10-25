@@ -40,7 +40,7 @@ import { SessionManager } from "./session";
 import { CredentialStorage } from "../auth/storage";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
-import type { BackupStatus } from "../backup/types";
+import type { BackupCredential, BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
@@ -1632,7 +1632,8 @@ export class Web3Passkey {
       const created = await manager.createPasswordBackup(
         mnemonic,
         this.currentUser.ethereumAddress,
-        password
+        password,
+        await this.backupCredential()
       );
       backupFile = created.backupFile;
       result = manager.createDownloadableBackup(backupFile);
@@ -1702,6 +1703,15 @@ export class Web3Passkey {
     return result;
   }
 
+  private async backupCredential(): Promise<BackupCredential | undefined> {
+    const credential = await new CredentialStorage().getCredentialById(
+      this.currentUser!.credentialId
+    );
+    return credential
+      ? { id: credential.id, publicKey: credential.publicKey }
+      : undefined;
+  }
+
   /**
    * Set up social recovery by splitting backup file among guardians
    * Uses Shamir Secret Sharing to split the backup - requires M-of-N guardians to recover
@@ -1730,7 +1740,12 @@ export class Web3Passkey {
 
     let backupFile;
     if (password) {
-      const created = await backupManager.createPasswordBackup(mnemonic, this.currentUser.ethereumAddress, password);
+      const created = await backupManager.createPasswordBackup(
+        mnemonic,
+        this.currentUser.ethereumAddress,
+        password,
+        await this.backupCredential()
+      );
       backupFile = created.backupFile;
     } else {
       const walletData = await this.walletStorage.retrieve(this.currentUser.ethereumAddress);
