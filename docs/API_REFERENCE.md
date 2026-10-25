@@ -168,8 +168,8 @@ interface UserInfo {
 7. Subsequent operations use cached session - no repeated biometric prompts
 
 **Throws:**
-- `SyncRequiredError` if the passkey authenticated but this device has no credential metadata for it (carries `credentialId`); start a sync with `syncWalletWithPasskey()`
-- `WalletMissingError` if the credential metadata is here but the wallet record is gone (carries `credentialId` and `ethereumAddress`); offer a restore from backup
+- `SyncRequiredError` if the passkey authenticated but this device has no credential metadata for it (carries `credentialId`); start a sync with `syncWalletWithPasskey()` and a password backup
+- `WalletMissingError` if the credential metadata is here but the wallet record is gone (carries `credentialId` and `ethereumAddress`); restore with `syncWalletWithPasskey()` or `importFromSync()`
 
 In both cases the user is not logged in and `onAuthStateChanged(true, …)` is not called.
 
@@ -2725,9 +2725,9 @@ if (qrCode) {
 
 ### `importFromSync(syncData: string | Blob): Promise<{ ethereumAddress: string; success: boolean }>`
 
-Import wallet from another device (sync wallet to this device).
+Import wallet from another device (sync wallet to this device). No prior `login()` required: when logged out, the SDK prompts for the passkey.
 
-**Use case:** User has passkey on both devices, wallet only on one.
+**Use case:** User has passkey on both devices, wallet only on one, and this device already has the passkey's metadata (for example, the wallet record was evicted and `login()` throws `WalletMissingError`). Stores the wallet, starts a session and fires `onAuthStateChanged(true, user)`.
 
 **Parameters:**
 - `syncData: string | Blob` - Sync file data
@@ -2744,15 +2744,16 @@ Import wallet from another device (sync wallet to this device).
 **Example:**
 
 ```typescript
-// User must be logged in first
-await w3pk.login()
-
-// Import from sync file
-const syncData = '...' // From file upload or QR scan
+const syncData = '...' // From exportForSync(), by file upload or QR scan
 
 const result = await w3pk.importFromSync(syncData)
 console.log('Wallet synced:', result.ethereumAddress)
 ```
+
+**Throws:**
+- `WalletError` if the file isn't a passkey-encrypted sync export (use `syncWalletWithPasskey()` for password or hybrid backups)
+- `SyncBootstrapError` with `reason: 'PASSKEY_BACKUP'` if this device has no metadata for the file's passkey (a fresh device): use `syncWalletWithPasskey()` with a password backup
+- `SyncBootstrapError` with `reason: 'CREDENTIAL_MISMATCH'` if the file belongs to another passkey than the one selected or logged in
 
 ---
 
@@ -2760,7 +2761,9 @@ console.log('Wallet synced:', result.ethereumAddress)
 
 Sync wallet to this device using an existing cloud-synced passkey and a backup file. No prior session required.
 
-**Use case:** New device that already has a passkey synced via iCloud/Google Password Manager. The user provides their backup file; the SDK prompts them to select the passkey, decrypts the backup, stores wallet data locally, and starts a session.
+**Use case:** New device that already has a passkey synced via iCloud/Google Password Manager. The user provides their backup file; the SDK prompts them to select the passkey, decrypts the backup, saves the passkey's metadata if this device has none, stores wallet data locally, starts a session and fires `onAuthStateChanged(true, user)`.
+
+On a device with no data for the passkey, only a password backup made by a logged-in user works: it names its passkey (`credential: { id, publicKey }`), and the username comes from the passkey's user handle.
 
 **Parameters:**
 - `backupData: string | Blob` - Backup file content (JSON string or Blob)
@@ -2768,26 +2771,24 @@ Sync wallet to this device using an existing cloud-synced passkey and a backup f
 
 **Returns:** `{ mnemonic: string; ethereumAddress: string }`
 
-**Supported encryption methods:** `password`, `passkey`, `hybrid`
+**Supported encryption methods:** `password` everywhere; `passkey` and `hybrid` only where this device already has the passkey's metadata
 
 **Example:**
 
 ```typescript
-// Passkey-encrypted backup (no password needed)
-const result = await w3pk.syncWalletWithPasskey(backupData)
+const result = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!')
 console.log('Synced wallet address:', result.ethereumAddress)
-
-// Password or hybrid backup
-const result2 = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!')
-console.log('Synced wallet address:', result2.ethereumAddress)
 ```
 
 **Throws:**
 - `WalletError` if password is required but not provided
-- `WalletError` if passkey public key is not available on this device
 - `WalletError` if backup uses an unknown encryption method
+- `SyncBootstrapError` on a device with no data for the passkey (carries `reason` and `credentialId`):
+  - `'PASSKEY_BACKUP'`: passkey or hybrid backup
+  - `'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4)
+  - `'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected
 
-**Note:** Differs from `importFromSync()` in that it does not require a prior `login()` call and accepts any backup encryption method, not just passkey-encrypted sync exports.
+**Note:** Differs from `importFromSync()` in that it accepts password backups and works on a device with no data for the passkey.
 
 ---
 
@@ -3950,7 +3951,8 @@ import {
   StorageError,
   ApiError,
   SyncRequiredError,
-  WalletMissingError
+  WalletMissingError,
+  SyncBootstrapError
 } from 'w3pk'
 ```
 
@@ -3965,6 +3967,7 @@ import {
   - `ApiError` - API/network errors (RPC, chainlist)
   - `SyncRequiredError` - `login()`: passkey authenticated, but this device has no credential metadata (`credentialId`)
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
+  - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
 
 ### Error Handling
 
@@ -3980,10 +3983,11 @@ try {
   await w3pk.login()
 } catch (error) {
   if (error instanceof SyncRequiredError) {
-    // Passkey synced to this device, wallet data isn't: ask for the backup file
-    await w3pk.syncWalletWithPasskey(backupFile)
+    // Passkey synced to this device, wallet data isn't: ask for the password backup
+    await w3pk.syncWalletWithPasskey(backupFile, password)
   } else if (error instanceof WalletMissingError) {
-    console.error('No wallet for', error.ethereumAddress, '- restore from backup')
+    // Metadata here, wallet record gone: any backup of this passkey restores it
+    await w3pk.syncWalletWithPasskey(backupFile, password)
   } else if (error instanceof AuthenticationError) {
     console.error('Authentication failed:', error.message)
   } else if (error instanceof WalletError) {

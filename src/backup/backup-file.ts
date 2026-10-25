@@ -8,7 +8,7 @@
  * 4. Split among guardians for social recovery (via Shamir)
  */
 
-import type { BackupFile } from './types';
+import type { BackupCredential, BackupFile } from './types';
 import {
   encryptWithPassword,
   decryptWithPassword,
@@ -28,11 +28,13 @@ export class BackupFileManager {
    * @param mnemonic - The BIP39 mnemonic to encrypt
    * @param ethereumAddress - The Ethereum address for verification
    * @param password - User's password for encryption (required for security)
+   * @param credential - The passkey that owns the wallet, so a fresh device can sync with it
    */
   async createPasswordBackup(
     mnemonic: string,
     ethereumAddress: string,
-    password: string
+    password: string,
+    credential?: BackupCredential
   ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
     if (!password || password.length < 1) {
       throw new Error('Password is required for password-based backup');
@@ -52,6 +54,7 @@ export class BackupFileManager {
         iv: encrypted.iv,
         iterations: encrypted.iterations,
       },
+      ...(credential && { credential: { id: credential.id, publicKey: credential.publicKey } }),
       addressChecksum,
     };
 

@@ -223,28 +223,31 @@ There are two approaches depending on whether you have an existing wallet sessio
 
 #### Option A: Sync with passkey + backup file (recommended for new devices)
 
-Use this when you're on a new device that already has your passkey synced (e.g., via iCloud/Google Password Manager) but doesn't have the wallet data yet.
+Use this when you're on a new device that already has your passkey synced (e.g., via iCloud/Google Password Manager) but doesn't have the wallet data yet. This is the path to take when `login()` throws `SyncRequiredError` or `WalletMissingError`.
 
 ```typescript
 const sdk = createWeb3Passkey();
 
-// Provide your backup file (any encryption method: password, passkey, or hybrid)
-const backupData = '...'; // JSON string or Blob from your backup file
-const { mnemonic, ethereumAddress } = await sdk.syncWalletWithPasskey(backupData);
-// 1. SDK prompts you to select your synced passkey
-// 2. Decrypts backup using the selected passkey
-// 3. Stores wallet data locally and starts a session ✅
-```
-
-For password or hybrid backups, pass the password as a second argument:
-
-```typescript
+const backupData = '...'; // JSON string or Blob from your password backup file
 const { mnemonic, ethereumAddress } = await sdk.syncWalletWithPasskey(backupData, 'MyPassword123!');
+// 1. SDK prompts you to select your synced passkey
+// 2. Decrypts the backup
+// 3. Saves the passkey's metadata on this device if it's missing
+// 4. Stores wallet data locally, starts a session and fires onAuthStateChanged(true, user) ✅
 ```
+
+A password backup made while logged in names its passkey (`credential: { id, publicKey }`), which is what lets a fresh device set the passkey up: an assertion doesn't carry the public key, and `login()` and the wallet key both need it. The public key is not a secret.
 
 **Requirement**: Passkey must be synced to this device (iCloud/Google Password Manager)
 
-**Supports**: All backup encryption methods (`password`, `passkey`, `hybrid`)
+**Supports**:
+- On a device with no data for the passkey: password backups made by the passkey's user
+- On a device that already has the passkey's metadata (the wallet record was lost): all backup encryption methods (`password`, `passkey`, `hybrid`)
+
+On a fresh device, `syncWalletWithPasskey()` throws `SyncBootstrapError` when it can't set the passkey up:
+- `reason: 'PASSKEY_BACKUP'`: passkey or hybrid backup, which can't be decrypted without the public key
+- `reason: 'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4); make a new one on a logged-in device
+- `reason: 'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected
 
 #### Option B: Export/import sync file (between two active devices)
 
@@ -262,11 +265,13 @@ const { blob, filename, qrCode } = await sdk.exportForSync();
 **Import on Device B:**
 ```typescript
 const sdk = createWeb3Passkey();
-await sdk.login(); // Passkey must be synced to this device
 
 await sdk.importFromSync(syncData);
-// Wallet now available on Device B, credentials stored locally ✅
+// Prompts for the passkey when logged out, stores the wallet,
+// starts a session and fires onAuthStateChanged(true, user) ✅
 ```
+
+No `login()` first: on a device without the wallet, `login()` throws `SyncRequiredError` or `WalletMissingError`. The sync file is passkey-encrypted, so Device B must already have the passkey's metadata (for example, after the browser evicted the wallet record). On a fresh device, `importFromSync()` throws `SyncBootstrapError` with `reason: 'PASSKEY_BACKUP'`; use Option A with a password backup instead.
 
 **Encryption**: WebAuthn-derived key → AES-256-GCM
 
@@ -278,7 +283,7 @@ await sdk.importFromSync(syncData);
 - ✅ No password needed (passkey-encrypted backups)
 - ✅ Leverages existing passkey sync
 - ✅ Fast and convenient
-- ✅ `syncWalletWithPasskey()` works without an existing session
+- ✅ `syncWalletWithPasskey()` and `importFromSync()` work without an existing session
 
 **Cons:**
 - ⚠️ Requires passkey on target device
@@ -527,16 +532,13 @@ await w3pk.importMnemonic(mnemonic);
 ### Cross-Device Sync
 
 ```typescript
-// Sync to new device using existing passkey + backup file (no prior session needed)
-const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupData);
-// or with password for password/hybrid backups:
-const result = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!');
+// Sync to new device using synced passkey + password backup (no prior session needed)
+const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!');
 
 // Export for sync (Device A - requires active session)
 const { blob, qrCode } = await w3pk.exportForSync();
 
-// Import on another device (Device B - stores credentials locally)
-await w3pk.login(); // Must have passkey synced
+// Import on a device that has the passkey's metadata but lost the wallet (no login needed)
 await w3pk.importFromSync(backupData);
 ```
 
@@ -747,8 +749,8 @@ Verification:
 1. Get new device (same ecosystem)
 2. Sign into cloud account (iCloud/Google) - passkey syncs automatically
 3. Go to w3pk website
-4. Provide your backup file (any encryption method)
-5. Call syncWalletWithPasskey(backupData) or use the app's "Sync Wallet" flow
+4. Provide your password backup file
+5. Call syncWalletWithPasskey(backupData, password) or use the app's "Sync Wallet" flow
 6. Authenticate with biometric when prompted
 7. Wallet decrypted and stored locally ✅
 
@@ -763,8 +765,8 @@ Platform-specific:
 ```markdown
 1. On Device A: export sync file via exportForSync()
 2. Transfer file to Device B (AirDrop, QR code, etc.)
-3. On Device B: sign in with synced passkey, then importFromSync(syncData)
-4. Wallet decrypted ✅
+3. On Device B: importFromSync(syncData), and select the synced passkey when prompted
+4. Wallet decrypted ✅ (Device B must already have the passkey's metadata; on a fresh device use Option A)
 ```
 
 #### **Method 3: Using Social Recovery**
@@ -822,7 +824,7 @@ A: **No!** This is a critical distinction. Your passkey (Face ID/Touch ID creden
 A: Only if you also transferred your wallet data or created a backup. The passkey will sync automatically, allowing you to authenticate, but the encrypted wallet data needs to be restored separately from a backup. Use `syncWalletWithPasskey(backupData)` to combine your synced passkey with a backup file in a single step.
 
 **Q: What's the difference between `syncWalletWithPasskey()` and `importFromSync()`?**
-A: `syncWalletWithPasskey()` is for new devices with no active session — it prompts for your synced passkey and accepts any backup file (password, passkey, or hybrid encrypted). `importFromSync()` requires you to already be logged in and uses a passkey-encrypted sync export from another device.
+A: `syncWalletWithPasskey()` is for new devices — it prompts for your synced passkey and takes a backup file; on a device with no data for the passkey, that backup must be a password backup. `importFromSync()` takes a passkey-encrypted sync export from another device and only works where this device already has the passkey's metadata. Neither needs a prior `login()`.
 
 **Q: Can I use multiple backup methods?**
 A: Yes! We recommend using at least 2 methods for redundancy.

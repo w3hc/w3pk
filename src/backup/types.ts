@@ -100,8 +100,16 @@ export interface BackupFile {
     iv: string;
     iterations: number;
   };
+  // Passkey that owned the wallet when a password backup was made: lets a
+  // fresh device where that passkey synced set up its metadata
+  credential?: BackupCredential;
   // Metadata for verification
   addressChecksum: string; // For verification after decryption
+}
+
+export interface BackupCredential {
+  id: string;
+  publicKey: string;
 }
 
 export interface EncryptedBackupData {

@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `register()` returns `evictionRisk`
   - docs/INTEGRATION_GUIDELINES.md shows the gate: block on `!hasBackup && evictionRisk`, a banner on `!hasBackup` otherwise, and "Add to Home Screen" on iOS
 
+### Fixed
+
+- **Fresh-device sync** ([#141](https://github.com/w3hc/w3pk/issues/141)): on a device where the passkey synced through the platform but has no data, `syncWalletWithPasskey()` decrypted the backup without storing anything, and `importFromSync()` required a `login()` that throws `SyncRequiredError` there
+  - Password backups made while logged in carry `credential: { id, publicKey }`, the passkey that owns the wallet; the public key is not a secret, and a fresh device needs it for `login()` and the wallet key
+  - `syncWalletWithPasskey()` saves the passkey's metadata when it's missing (username from the passkey's user handle), stores the wallet, starts a session and fires `onAuthStateChanged(true, user)`; it also restores the wallet where the metadata is present and the wallet record is gone
+  - `importFromSync()` no longer requires a login: logged out, it prompts for the passkey; it restores the wallet, starts a session and fires `onAuthStateChanged(true, user)` where this device has the passkey's metadata
+  - `SyncBootstrapError` (exported, `code: 'SYNC_BOOTSTRAP_FAILED'`, with `reason` and `credentialId`) when a backup can't set up a fresh device: passkey or hybrid backups (`'PASSKEY_BACKUP'`), password backups made before this release (`'NO_CREDENTIAL'`), or a backup of another passkey (`'CREDENTIAL_MISMATCH'`)
+  - `PasskeySelectionResult` has `username`
+
 ## [0.10.3] - 2026-10-13
 
 ### Added
