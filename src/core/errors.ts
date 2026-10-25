@@ -89,3 +89,30 @@ export class WalletMissingError extends Web3PasskeyError {
     this.name = "WalletMissingError";
   }
 }
+
+export type SyncBootstrapReason =
+  | "PASSKEY_BACKUP"
+  | "NO_CREDENTIAL"
+  | "CREDENTIAL_MISMATCH";
+
+const SYNC_BOOTSTRAP_MESSAGES: Record<SyncBootstrapReason, string> = {
+  PASSKEY_BACKUP:
+    "This device has no data for the passkey, and a passkey-encrypted backup can't set it up. Sync with a password backup instead.",
+  NO_CREDENTIAL:
+    "This backup doesn't name its passkey, so it can't set up this device. Create a new password backup on a device where you're logged in.",
+  CREDENTIAL_MISMATCH:
+    "This backup belongs to a different passkey than the one selected.",
+};
+
+/**
+ * A sync can't set up this device's passkey metadata from the backup.
+ */
+export class SyncBootstrapError extends Web3PasskeyError {
+  constructor(
+    public reason: SyncBootstrapReason,
+    public credentialId: string
+  ) {
+    super(SYNC_BOOTSTRAP_MESSAGES[reason], "SYNC_BOOTSTRAP_FAILED");
+    this.name = "SyncBootstrapError";
+  }
+}

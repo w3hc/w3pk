@@ -24,7 +24,10 @@ export {
   ApiError,
   SyncRequiredError,
   WalletMissingError,
+  SyncBootstrapError,
 } from "./core/errors";
+
+export type { SyncBootstrapReason } from "./core/errors";
 
 export {
   promptPasskeySelection,
