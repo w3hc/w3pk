@@ -2737,13 +2737,16 @@ console.log('Estimated devices:', capabilities.estimatedDevices)
 
 ---
 
-### `exportForSync(): Promise<{ blob: Blob; filename: string; qrCode?: string }>`
+### `exportForSync(password?: string): Promise<{ blob: Blob; filename: string; qrCode?: string }>`
 
 Export wallet for syncing to another device.
 
-Uses passkey encryption so it works on devices where the passkey is synced.
+Runs a fresh assertion restricted to the current passkey and encrypts the mnemonic with a key derived from its [WebAuthn PRF](https://w3c.github.io/webauthn/#prf-extension) output (`encryptionMethod: 'prf'`). Any device where the passkey synced restores the file with one prompt and no password, including a fresh device.
 
 **Use case:** User wants to sync wallet to another device that has the same passkey.
+
+**Parameters:**
+- `password?: string` - Fallback when the authenticator has no PRF support: the file is then a password backup that names its passkey, to restore with `syncWalletWithPasskey(syncData, password)`
 
 **Returns:**
 
@@ -2755,7 +2758,11 @@ Uses passkey encryption so it works on devices where the passkey is synced.
 }
 ```
 
-**Security:** Forces fresh authentication
+**File format (`prf`):** `encryptedMnemonic`, `prfSalt` (32 random bytes per file, base64url), `credential: { id, publicKey }`, `username`, `addressChecksum`. Key: HKDF-SHA256 over the PRF output evaluated at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, then AES-256-GCM. The public key doesn't decrypt the file; a fresh device needs it for `login()` and checks it against the assertion's signature.
+
+**Security:** The PRF assertion is the fresh user verification; with an active session, export takes one prompt.
+
+**Browser support:** PRF works in Chrome 108+ and Safari 17+ / iOS 17+, not in Firefox. Passkeys sync within one ecosystem only (Apple or Google); across ecosystems, use a password backup.
 
 **Example:**
 
@@ -2777,13 +2784,18 @@ if (qrCode) {
 }
 ```
 
+**Throws:**
+- `WalletError` if not logged in
+- `PrfUnsupportedError` if the authenticator returns no PRF output and no `password` was given
+- `AuthenticationError` if the assertion fails or is cancelled
+
 ---
 
 ### `importFromSync(syncData: string | Blob): Promise<{ ethereumAddress: string; success: boolean }>`
 
-Import wallet from another device (sync wallet to this device). No prior `login()` required: when logged out, the SDK prompts for the passkey.
+Import a PRF sync file from `exportForSync()`. No prior `login()` and no password required: one assertion restricted to the file's passkey decrypts it.
 
-**Use case:** User has passkey on both devices, wallet only on one, and this device already has the passkey's metadata (for example, the wallet record was evicted and `login()` throws `WalletMissingError`). Stores the wallet, starts a session and fires `onAuthStateChanged(true, user)`.
+**Use case:** User has the passkey on both devices (synced through iCloud Keychain or Google Password Manager) and the wallet on one. Works on a fresh device with no data for the passkey: the SDK checks the file's public key against the assertion's signature, saves the passkey's metadata, stores the wallet, starts a session and fires `onAuthStateChanged(true, user)`.
 
 **Parameters:**
 - `syncData: string | Blob` - Sync file data
@@ -2807,9 +2819,12 @@ console.log('Wallet synced:', result.ethereumAddress)
 ```
 
 **Throws:**
-- `WalletError` if the file isn't a passkey-encrypted sync export (use `syncWalletWithPasskey()` for password or hybrid backups)
-- `SyncBootstrapError` with `reason: 'PASSKEY_BACKUP'` if this device has no metadata for the file's passkey (a fresh device): use `syncWalletWithPasskey()` with a password backup
-- `SyncBootstrapError` with `reason: 'CREDENTIAL_MISMATCH'` if the file belongs to another passkey than the one selected or logged in
+- `WalletError` if the file isn't a PRF sync file (use `syncWalletWithPasskey()` for other backups, including `exportForSync(password)`'s fallback)
+- `SyncBootstrapError` with `reason: 'CREDENTIAL_MISMATCH'` if logged in with another passkey than the file's
+- `SyncBootstrapError` with `reason: 'PUBLIC_KEY_MISMATCH'` if the file's public key doesn't match the passkey's signature
+- `AuthenticationError` if the passkey isn't on this device or the prompt is cancelled
+- `PrfUnsupportedError` if the authenticator returns no PRF output
+- `CryptoError` or `Error` if the file was altered (ciphertext, address or address checksum)
 
 ---
 
@@ -2819,7 +2834,7 @@ Sync wallet to this device using an existing cloud-synced passkey and a backup f
 
 **Use case:** New device that already has a passkey synced via iCloud/Google Password Manager. The user provides their backup file; the SDK prompts them to select the passkey, decrypts the backup, saves the passkey's metadata if this device has none, stores wallet data locally, starts a session and fires `onAuthStateChanged(true, user)`.
 
-On a device with no data for the passkey, only a password backup made by a logged-in user works: it names its passkey (`credential: { id, publicKey }`), and the username comes from the passkey's user handle.
+A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`), and the username comes from the passkey's user handle. In both cases the backup's public key is checked against the assertion's signature.
 
 **Parameters:**
 - `backupData: string | Blob` - Backup file content (JSON string or Blob)
@@ -2827,7 +2842,7 @@ On a device with no data for the passkey, only a password backup made by a logge
 
 **Returns:** `{ mnemonic: string; ethereumAddress: string }`
 
-**Supported encryption methods:** `password` everywhere; `passkey` and `hybrid` only where this device already has the passkey's metadata
+**Supported encryption methods:** `prf` and `password` everywhere; `passkey` and `hybrid` only where this device already has the passkey's metadata
 
 **Example:**
 
@@ -2843,8 +2858,9 @@ console.log('Synced wallet address:', result.ethereumAddress)
   - `'PASSKEY_BACKUP'`: passkey or hybrid backup
   - `'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4)
   - `'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected
+  - `'PUBLIC_KEY_MISMATCH'`: the backup's public key doesn't match the passkey's signature
 
-**Note:** Differs from `importFromSync()` in that it accepts password backups and works on a device with no data for the passkey.
+**Note:** Differs from `importFromSync()` in that it also accepts password, passkey and hybrid backups.
 
 ---
 
@@ -4025,7 +4041,7 @@ import {
   - `SyncRequiredError` - `login()`: passkey authenticated, but this device has no credential metadata (`credentialId`)
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
-  - `PrfUnsupportedError` - `derivePrfSecret()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
+  - `PrfUnsupportedError` - `derivePrfSecret()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
 
 ### Error Handling
 

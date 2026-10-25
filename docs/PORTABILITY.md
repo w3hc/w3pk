@@ -9,10 +9,12 @@ This guide explains how to move, backup, and link your W3PK wallet across differ
 - [For End-Users](#for-end-users)
   - [Linking an External Wallet (MetaMask, etc.)](#linking-an-external-wallet-metamask-etc)
   - [Creating and Restoring Backups](#creating-and-restoring-backups)
+  - [Moving Your Wallet to a New Device](#moving-your-wallet-to-a-new-device)
   - [Extracting Your Mnemonic](#extracting-your-mnemonic)
 - [For Developers](#for-developers)
   - [Implementing External Wallet Linking](#implementing-external-wallet-linking)
   - [Implementing Backup/Restore Features](#implementing-backuprestore-features)
+  - [Implementing Device Sync](#implementing-device-sync)
   - [Building Mnemonic Export Tools](#building-mnemonic-export-tools)
 
 ---
@@ -96,6 +98,21 @@ Your backup contains:
 - **Use multiple backup locations**: Don't rely on a single copy
 - **Test your backup**: After creating it, try restoring it to verify it works
 - **Update backups regularly**: If you make significant changes to your wallet
+
+---
+
+### Moving Your Wallet to a New Device
+
+If your passkey syncs to the new device (iCloud Keychain on Apple devices, Google Password Manager on Android and Chrome), you can move your wallet without a password:
+
+1. **On the device that has your wallet**, choose "Sync to another device" (or similar) and confirm with your passkey
+2. **Transfer the sync file**: scan the QR code, or send the file by AirDrop, email, etc.
+3. **On the new device**, open the app, load the sync file and confirm with the same passkey
+4. **Done**: your wallet is on the new device, with the same address
+
+The sync file can't be opened with the file alone: it also takes your passkey and your fingerprint or face. Still, keep it private and delete it once the sync is done.
+
+**When it doesn't work**: this needs a browser that supports the passkey PRF extension (Chrome 108+, Safari 17+ / iOS 17+; not Firefox), and passkeys only sync within one ecosystem (Apple or Google). In other cases, use a password-encrypted backup: the app asks for a password when it creates the sync file, and the new device asks for the same password.
 
 ---
 
@@ -375,6 +392,55 @@ try {
 ```
 
 See [src/core/sdk.ts](../src/core/sdk.ts) for implementation details of `createBackupFile()` and `restoreFromBackupFile()`.
+
+---
+
+### Implementing Device Sync
+
+`exportForSync()` makes a sync file encrypted with a key derived from the passkey's [WebAuthn PRF](https://w3c.github.io/webauthn/#prf-extension) output (`encryptionMethod: 'prf'`). Any device where the passkey synced restores it with one prompt and no password, even a fresh device with no data for the passkey.
+
+```typescript
+// Device A, logged in: one passkey prompt
+const { blob, filename, qrCode } = await sdk.exportForSync()
+
+// Device B, logged out: one passkey prompt, restricted to the file's passkey
+const { ethereumAddress } = await sdk.importFromSync(syncData)
+```
+
+`syncWalletWithPasskey(syncData)` restores the same files and also takes password backups.
+
+**Password fallback**: PRF works in Chrome 108+ and Safari 17+ / iOS 17+, not in Firefox. Without it, `exportForSync()` throws `PrfUnsupportedError`. Pass a password to fall back to a password backup, which the new device restores with `syncWalletWithPasskey(syncData, password)`:
+
+```typescript
+import { PrfUnsupportedError } from 'w3pk'
+
+let sync
+try {
+  sync = await sdk.exportForSync()
+} catch (error) {
+  if (!(error instanceof PrfUnsupportedError)) throw error
+  sync = await sdk.exportForSync(await askUserForPassword())
+}
+```
+
+Or pass the password up front: `exportForSync(password)` uses it only when PRF is unavailable. Passkeys sync within one ecosystem only (Apple or Google), so moving between ecosystems also takes a password backup.
+
+**PRF sync file structure:**
+
+```json
+{
+  "createdAt": "2026-10-25T10:30:00.000Z",
+  "ethereumAddress": "0x...",
+  "encryptedMnemonic": "base64(iv || AES-256-GCM ciphertext)",
+  "encryptionMethod": "prf",
+  "credential": { "id": "passkey credential id", "publicKey": "base64url SPKI" },
+  "prfSalt": "base64url, 32 random bytes",
+  "username": "alice",
+  "addressChecksum": "..."
+}
+```
+
+The key is HKDF-SHA256 over the PRF output evaluated at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`. The public key doesn't decrypt anything; the new device needs it for later logins and checks it against the assertion's signature. The file fits in a QR code (`generateSyncQR()`).
 
 ---
 

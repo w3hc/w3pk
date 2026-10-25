@@ -219,11 +219,43 @@ await sdk.importMnemonic(mnemonic);
 
 **Purpose**: Sync wallet to devices where passkey is already synced
 
-There are two approaches depending on whether you have an existing wallet session:
+There are two approaches: a PRF sync file needs no password, a password backup works everywhere.
 
-#### Option A: Sync with passkey + backup file (recommended for new devices)
+#### Option A: PRF sync file (no password)
 
-Use this when you're on a new device that already has your passkey synced (e.g., via iCloud/Google Password Manager) but doesn't have the wallet data yet. This is the path to take when `login()` throws `SyncRequiredError` or `WalletMissingError`.
+Use this when the wallet is active on Device A and the passkey synced to Device B (iCloud Keychain, Google Password Manager). Device B can be a fresh device with no data for the passkey.
+
+**Export from Device A:**
+```typescript
+const sdk = createWeb3Passkey();
+await sdk.login(); // On device with wallet
+
+const { blob, filename, qrCode } = await sdk.exportForSync();
+// One passkey prompt. Transfer via QR code, AirDrop, email, etc.
+```
+
+**Import on Device B:**
+```typescript
+const sdk = createWeb3Passkey();
+
+await sdk.importFromSync(syncData); // or sdk.syncWalletWithPasskey(syncData)
+// 1. One passkey prompt, restricted to the file's passkey
+// 2. Decrypts the file and checks its address checksum
+// 3. Saves the passkey's metadata on this device if it's missing
+// 4. Stores wallet data locally, starts a session and fires onAuthStateChanged(true, user) ✅
+```
+
+No `login()` first: on a device without the wallet, `login()` throws `SyncRequiredError` or `WalletMissingError`.
+
+**How it works**: the file (`encryptionMethod: 'prf'`) is encrypted with a key derived from the passkey's [WebAuthn PRF](https://w3c.github.io/webauthn/#prf-extension) output: HKDF-SHA256 over the PRF output at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, with a random `prfSalt` per file, then AES-256-GCM. The PRF secret syncs with the passkey but never leaves the authenticator, and the authenticator releases the output only on a user-verified assertion. So the file or its QR code alone decrypts nothing: it also takes the synced passkey and a biometric. An altered address checksum, address or ciphertext is rejected.
+
+The file also names its passkey (`credential: { id, publicKey }`) and carries the username. The public key is not a secret and doesn't decrypt the file. A fresh device needs it for `login()` and for the wallet key, and checks it against the assertion's signature first (`SyncBootstrapError` with `reason: 'PUBLIC_KEY_MISMATCH'` if it doesn't match).
+
+**Fallback**: PRF works in Chrome 108+ and Safari 17+ / iOS 17+, not in Firefox. Where the authenticator has no PRF support, `exportForSync()` throws `PrfUnsupportedError`; `exportForSync(password)` emits a password backup instead, to restore with Option B. Passkeys sync within one ecosystem only (Apple or Google), so moving between ecosystems also takes Option B.
+
+#### Option B: Sync with passkey + password backup
+
+Use this when PRF is unavailable, or when you only have a password backup. This is also a path to take when `login()` throws `SyncRequiredError` or `WalletMissingError`.
 
 ```typescript
 const sdk = createWeb3Passkey();
@@ -236,51 +268,24 @@ const { mnemonic, ethereumAddress } = await sdk.syncWalletWithPasskey(backupData
 // 4. Stores wallet data locally, starts a session and fires onAuthStateChanged(true, user) ✅
 ```
 
-A password backup made while logged in names its passkey (`credential: { id, publicKey }`), which is what lets a fresh device set the passkey up: an assertion doesn't carry the public key, and `login()` and the wallet key both need it. The public key is not a secret.
+A password backup made while logged in names its passkey (`credential: { id, publicKey }`), which is what lets a fresh device set the passkey up: an assertion doesn't carry the public key, and `login()` and the wallet key both need it. The public key is not a secret, and the fresh device checks it against the assertion's signature.
 
 **Requirement**: Passkey must be synced to this device (iCloud/Google Password Manager)
 
 **Supports**:
-- On a device with no data for the passkey: password backups made by the passkey's user
-- On a device that already has the passkey's metadata (the wallet record was lost): all backup encryption methods (`password`, `passkey`, `hybrid`)
+- On a device with no data for the passkey: PRF files and password backups made by the passkey's user
+- On a device that already has the passkey's metadata (the wallet record was lost): all backup encryption methods (`prf`, `password`, `passkey`, `hybrid`)
 
-On a fresh device, `syncWalletWithPasskey()` throws `SyncBootstrapError` when it can't set the passkey up:
+On a fresh device, `syncWalletWithPasskey()` and `importFromSync()` throw `SyncBootstrapError` when they can't set the passkey up:
 - `reason: 'PASSKEY_BACKUP'`: passkey or hybrid backup, which can't be decrypted without the public key
 - `reason: 'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4); make a new one on a logged-in device
-- `reason: 'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected
-
-#### Option B: Export/import sync file (between two active devices)
-
-Use this when you have the wallet active on Device A and want to transfer to Device B.
-
-**Export from Device A:**
-```typescript
-const sdk = createWeb3Passkey();
-await sdk.login(); // On device with wallet
-
-const { blob, filename, qrCode } = await sdk.exportForSync();
-// Transfer via QR code, AirDrop, email, etc.
-```
-
-**Import on Device B:**
-```typescript
-const sdk = createWeb3Passkey();
-
-await sdk.importFromSync(syncData);
-// Prompts for the passkey when logged out, stores the wallet,
-// starts a session and fires onAuthStateChanged(true, user) ✅
-```
-
-No `login()` first: on a device without the wallet, `login()` throws `SyncRequiredError` or `WalletMissingError`. The sync file is passkey-encrypted, so Device B must already have the passkey's metadata (for example, after the browser evicted the wallet record). On a fresh device, `importFromSync()` throws `SyncBootstrapError` with `reason: 'PASSKEY_BACKUP'`; use Option A with a password backup instead.
-
-**Encryption**: WebAuthn-derived key → AES-256-GCM
+- `reason: 'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected (or than the logged-in one, for `importFromSync()`)
+- `reason: 'PUBLIC_KEY_MISMATCH'`: the backup's public key doesn't match the passkey's signature
 
 **Use Case**: Wallet on desktop, want it on mobile (same passkey ecosystem)
 
-**Requirement**: Passkey must be synced via iCloud/Google Password Manager
-
 **Pros:**
-- ✅ No password needed (passkey-encrypted backups)
+- ✅ No password needed with PRF sync files
 - ✅ Leverages existing passkey sync
 - ✅ Fast and convenient
 - ✅ `syncWalletWithPasskey()` and `importFromSync()` work without an existing session
@@ -288,6 +293,7 @@ No `login()` first: on a device without the wallet, `login()` throws `SyncRequir
 **Cons:**
 - ⚠️ Requires passkey on target device
 - ⚠️ Platform-specific (iCloud or Google)
+- ⚠️ PRF sync files need Chrome 108+ or Safari 17+ / iOS 17+; elsewhere, use a password backup
 
 ---
 
@@ -532,14 +538,16 @@ await w3pk.importMnemonic(mnemonic);
 ### Cross-Device Sync
 
 ```typescript
-// Sync to new device using synced passkey + password backup (no prior session needed)
-const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!');
-
-// Export for sync (Device A - requires active session)
+// Export for sync (Device A - requires active session): PRF-encrypted, no password
 const { blob, qrCode } = await w3pk.exportForSync();
+// Or with a password fallback where PRF is unavailable
+const fallback = await w3pk.exportForSync('MyPassword123!');
 
-// Import on a device that has the passkey's metadata but lost the wallet (no login needed)
-await w3pk.importFromSync(backupData);
+// Import on Device B where the passkey synced (no login needed, no password)
+await w3pk.importFromSync(syncData);
+
+// Sync with a password backup (no prior session needed)
+const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!');
 ```
 
 ### Social Recovery
@@ -763,10 +771,10 @@ Platform-specific:
 **Option B: Export/import sync file (transfer from active device)**
 
 ```markdown
-1. On Device A: export sync file via exportForSync()
+1. On Device A: export sync file via exportForSync() (one passkey prompt)
 2. Transfer file to Device B (AirDrop, QR code, etc.)
-3. On Device B: importFromSync(syncData), and select the synced passkey when prompted
-4. Wallet decrypted ✅ (Device B must already have the passkey's metadata; on a fresh device use Option A)
+3. On Device B: importFromSync(syncData), and confirm the synced passkey when prompted
+4. Wallet decrypted ✅ (no password; needs PRF: Chrome 108+, Safari 17+ / iOS 17+, not Firefox)
 ```
 
 #### **Method 3: Using Social Recovery**
@@ -824,7 +832,7 @@ A: **No!** This is a critical distinction. Your passkey (Face ID/Touch ID creden
 A: Only if you also transferred your wallet data or created a backup. The passkey will sync automatically, allowing you to authenticate, but the encrypted wallet data needs to be restored separately from a backup. Use `syncWalletWithPasskey(backupData)` to combine your synced passkey with a backup file in a single step.
 
 **Q: What's the difference between `syncWalletWithPasskey()` and `importFromSync()`?**
-A: `syncWalletWithPasskey()` is for new devices — it prompts for your synced passkey and takes a backup file; on a device with no data for the passkey, that backup must be a password backup. `importFromSync()` takes a passkey-encrypted sync export from another device and only works where this device already has the passkey's metadata. Neither needs a prior `login()`.
+A: `syncWalletWithPasskey()` takes any backup file and prompts for your synced passkey; on a device with no data for the passkey, that backup must be a PRF sync file or a password backup. `importFromSync()` takes only PRF sync files from `exportForSync()`, with no password. Both restore a PRF sync file the same way, and neither needs a prior `login()`.
 
 **Q: Can I use multiple backup methods?**
 A: Yes! We recommend using at least 2 methods for redundancy.
@@ -891,7 +899,7 @@ Your backup is automatically marked as "verified" when you successfully:
 - Restore from a backup file using `restoreFromBackupFile()`
 - Register a new passkey from backup using `registerWithBackupFile()`
 - Recover from guardian shares using `recoverFromGuardians()`
-- Import from device sync using `importFromSync()`
+- Import from device sync using `importFromSync()` or `syncWalletWithPasskey()`
 
 Verification proves that your backup actually works, increasing your security score.
 
