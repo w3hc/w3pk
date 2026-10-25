@@ -116,3 +116,17 @@ export class SyncBootstrapError extends Web3PasskeyError {
     this.name = "SyncBootstrapError";
   }
 }
+
+/**
+ * The authenticator returned no WebAuthn PRF output, so no
+ * passkey-bound secret can be derived. There is no fallback.
+ */
+export class PrfUnsupportedError extends Web3PasskeyError {
+  constructor(public credentialId: string) {
+    super(
+      "This passkey's authenticator doesn't support the WebAuthn PRF extension.",
+      "PRF_UNSUPPORTED"
+    );
+    this.name = "PrfUnsupportedError";
+  }
+}

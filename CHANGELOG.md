@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `register()` returns `evictionRisk`
   - docs/INTEGRATION_GUIDELINES.md shows the gate: block on `!hasBackup && evictionRisk`, a banner on `!hasBackup` otherwise, and "Add to Home Screen" on iOS
 
+- **Passkey-bound secrets** ([#142](https://github.com/w3hc/w3pk/issues/142)): `derivePrfSecret(tag)` returns a 32-byte secret that stays out of backups and recovery phrases
+  - Evaluates the WebAuthn PRF extension on a fresh user-verified assertion at `SHA-256("w3pk-prf-v1:" + origin + ":" + tag)`, then HKDF-SHA256, so each origin and tag gets its own secret; restricted to the current user's passkey when logged in
+  - Returns `{ secret, credentialId }`, so apps can tell when the passkey, and so the secret, has changed
+  - Never derived from or stored with the mnemonic; nothing is written to storage or sessions
+  - `PrfUnsupportedError` (exported, `code: 'PRF_UNSUPPORTED'`, with `credentialId`) when the authenticator returns no PRF output, with no fallback
+  - Tags must be non-empty and can't contain `:`, so no origin and tag pair collides with another
+  - `PrfSecret` is exported; docs/API_REFERENCE.md documents the threat model
+
 ### Fixed
 
 - **Fresh-device sync** ([#141](https://github.com/w3hc/w3pk/issues/141)): on a device where the passkey synced through the platform but has no data, `syncWalletWithPasskey()` decrypted the backup without storing anything, and `importFromSync()` required a `login()` that throws `SyncRequiredError` there

@@ -10,6 +10,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
   - [Origin-Specific Address Derivation](#origin-specific-address-derivation)
   - [`sendTransaction()`](#sendtransactiontx-options-promisetransactionresult)
   - [`getEIP1193Provider()`](#geteip1193provideroptions-eip1193providerinterface)
+  - [`derivePrfSecret()`](#deriveprfsecrettag-string-promiseprfsecret)
 - [Stealth Addresses (ERC-5564)](#stealth-addresses-erc-5564)
 - [Zero-Knowledge Proofs](#zero-knowledge-proofs)
 - [Backup & Recovery](#backup--recovery)
@@ -1363,6 +1364,61 @@ await accountAbstractionContract.verifyWebAuthnSignature({
 **Related Documentation:**
 - [EIP-7951 Implementation Guide](../docs/EIP-7951.md)
 - [EIP-7951 Specification](https://eips.ethereum.org/EIPS/eip-7951)
+
+---
+
+### `derivePrfSecret(tag: string): Promise<PrfSecret>`
+
+Derive a 32-byte secret bound to the passkey, separate per origin and tag, for an identity in an anonymous protocol or a per-feature encryption key.
+
+It uses the [WebAuthn PRF extension](https://w3c.github.io/webauthn/#prf-extension): the authenticator holds a per-credential secret and releases `PRF(input)` only on a live, user-verified assertion. The secret is never derived from or stored with the mnemonic.
+
+**Parameters:**
+- `tag: string` - Non-empty label without `:`, such as `"zk-identity"`. Case-sensitive.
+
+**Returns:** `PrfSecret`
+
+```typescript
+interface PrfSecret {
+  secret: Uint8Array;    // 32 bytes
+  credentialId: string;  // passkey the secret is bound to
+}
+```
+
+**What happens:**
+1. Prompts for the passkey with `userVerification: "required"`; when logged in, only the current user's passkey is allowed, otherwise the user picks one
+2. Evaluates the PRF at `SHA-256("w3pk-prf-v1:" + origin + ":" + tag)`, with `origin` the normalized current origin (the browser further hashes it with the `"WebAuthn PRF"` context)
+3. Returns `HKDF-SHA256(PRF output, salt "w3pk-prf-secret-v1", info "w3pk-prf-v1:" + origin + ":" + tag)`, 32 bytes
+
+The same passkey, origin and tag always give the same secret. A different tag, origin or passkey gives an unrelated one. Store `credentialId` next to whatever the secret protects: when it changes (a new passkey), so does the secret.
+
+**Example:**
+
+```typescript
+import { PrfUnsupportedError } from 'w3pk'
+
+try {
+  const { secret, credentialId } = await w3pk.derivePrfSecret('zk-identity')
+  // Use the secret, keep it in memory only
+} catch (error) {
+  if (error instanceof PrfUnsupportedError) {
+    // This authenticator can't provide a passkey-bound secret
+  }
+}
+```
+
+**Throws:**
+- `PrfUnsupportedError` (`code: 'PRF_UNSUPPORTED'`, with `credentialId`) if the authenticator returns no PRF output. There is no fallback.
+- `AuthenticationError` if the prompt is cancelled or the passkey isn't available
+- `CryptoError` if `tag` is empty or contains `:`
+
+**Threat model:**
+- **Not in backups.** The secret depends only on the authenticator's PRF, so backup files, recovery phrases, social recovery shares and sync exports don't contain it, and their leak doesn't leak it.
+- **Not stored.** w3pk never writes the secret or the PRF output to localStorage or sessions, and zeroes its copy of the PRF output after the derivation. Each call prompts the user. If the app stores the secret, its storage is the weakest link.
+- **Bound to the passkey, not the wallet.** Restoring the wallet from a backup with a different passkey gives a different secret. The secret survives only as long as the passkey: a synced passkey (iCloud Keychain, Google Password Manager) carries it to other devices, a deleted or device-bound passkey loses it. Anything encrypted under it must be recoverable another way.
+- **Origin separation is w3pk's, not the browser's.** Passkeys are scoped to the RP ID (the hostname), so another origin on the same hostname (another port or scheme) can use the same passkey. The origin in the PRF input keeps `derivePrfSecret()` from giving one origin another's secret, but a script running on such an origin can evaluate the PRF itself with any input. Serve one app per hostname when that matters.
+- **Script on the origin.** Code running on the page (XSS, a compromised dependency) can call `derivePrfSecret()` or the PRF directly and get the secret after the user approves a prompt. User verification bounds it to a user action, not to the app's intent.
+- **Separate from the persistent session key.** That key uses a different PRF input, so no tag gives it.
 
 ---
 
@@ -3952,7 +4008,8 @@ import {
   ApiError,
   SyncRequiredError,
   WalletMissingError,
-  SyncBootstrapError
+  SyncBootstrapError,
+  PrfUnsupportedError
 } from 'w3pk'
 ```
 
@@ -3968,6 +4025,7 @@ import {
   - `SyncRequiredError` - `login()`: passkey authenticated, but this device has no credential metadata (`credentialId`)
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
+  - `PrfUnsupportedError` - `derivePrfSecret()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
 
 ### Error Handling
 
