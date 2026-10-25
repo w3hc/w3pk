@@ -2296,16 +2296,15 @@ export class Web3Passkey {
   /**
    * Import wallet from another device (sync wallet to this device)
    * Use case: User has passkey on both devices, wallet only on one
+   *
+   * Takes a file from exportForSync(). Works without a login: when logged
+   * out, it prompts for the passkey. The passkey's metadata must be on this
+   * device; on a fresh device, use syncWalletWithPasskey() with a password
+   * backup.
    */
   async importFromSync(
     syncData: string | Blob
   ): Promise<{ ethereumAddress: string; success: boolean }> {
-    if (!this.currentUser) {
-      throw new WalletError(
-        "Must be logged in to import from sync. Call login() first."
-      );
-    }
-
     const { DeviceSyncManager } = await import("../sync/backup-sync");
     const { BackupFileManager } = await import("../backup/backup-file");
     const { BackupManager } = await import("../backup");
@@ -2316,21 +2315,30 @@ export class Web3Passkey {
 
     const backupFile = await fileManager.parseBackupFile(syncData);
 
-    // Get current credential
-    const walletData = await this.walletStorage.retrieve(
-      this.currentUser.ethereumAddress
-    );
-    if (!walletData) {
-      throw new WalletError("No wallet data found for current user");
+    if (backupFile.encryptionMethod !== 'passkey') {
+      throw new WalletError(
+        "importFromSync() takes files from exportForSync(). Use syncWalletWithPasskey() for password or hybrid backups."
+      );
+    }
+    if (!backupFile.credentialId) {
+      throw new SyncBootstrapError("NO_CREDENTIAL", "");
     }
 
     const storage = new CredentialStorage();
-    const credential = await storage.getCredentialById(walletData.credentialId);
+    const credential = await storage.getCredentialById(backupFile.credentialId);
     if (!credential) {
-      throw new WalletError("Credential not found");
+      throw new SyncBootstrapError("PASSKEY_BACKUP", backupFile.credentialId);
     }
 
-    // Import and decrypt
+    let selectedId = this.currentUser?.credentialId;
+    if (!selectedId) {
+      const { promptPasskeySelection } = await import("../auth/sync-auth");
+      selectedId = (await promptPasskeySelection()).credentialId;
+    }
+    if (selectedId !== credential.id) {
+      throw new SyncBootstrapError("CREDENTIAL_MISMATCH", selectedId);
+    }
+
     const { mnemonic, ethereumAddress } = await syncManager.importFromSync(
       backupFile,
       credential.id,
@@ -2340,23 +2348,7 @@ export class Web3Passkey {
     // Mark backup as verified (successful sync proves the backup works)
     backupManager.markBackupVerified(ethereumAddress);
 
-    // Store the wallet with current credential
-    const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyFromWebAuthn(
-      credential.id,
-      credential.publicKey
-    );
-
-    const encryptedMnemonic = await (await import("../wallet/crypto")).encryptData(
-      mnemonic,
-      encryptionKey
-    );
-
-    await this.walletStorage.store({
-      ethereumAddress,
-      encryptedMnemonic,
-      credentialId: credential.id,
-      createdAt: new Date().toISOString(),
-    });
+    await this.bootstrapCredential(credential, mnemonic, ethereumAddress);
 
     return {
       ethereumAddress,
