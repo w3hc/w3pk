@@ -2252,14 +2252,25 @@ export class Web3Passkey {
 
   /**
    * Export wallet for syncing to another device
-   * Uses passkey encryption so it works on devices where the passkey is synced
+   *
+   * Prompts for the passkey and encrypts with a key derived from its WebAuthn
+   * PRF output (`encryptionMethod: 'prf'`): a device where the passkey synced
+   * restores it with one prompt and no password. Where the authenticator has
+   * no PRF support, `password` makes it fall back to a password backup.
+   *
+   * @param password - Fallback password when PRF is unavailable
+   * @throws PrfUnsupportedError when PRF is unavailable and no password is given
    */
-  async exportForSync(): Promise<{ blob: Blob; filename: string; qrCode?: string }> {
+  async exportForSync(
+    password?: string
+  ): Promise<{ blob: Blob; filename: string; qrCode?: string }> {
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated to export for sync");
     }
 
-    const mnemonic = await this.getMnemonicFromSession(true);
+    // The PRF assertion below is the fresh user verification, so a cached
+    // session doesn't cost a second prompt
+    const mnemonic = await this.getMnemonicFromSession();
 
     const walletData = await this.walletStorage.retrieve(
       this.currentUser.ethereumAddress
@@ -2280,8 +2291,9 @@ export class Web3Passkey {
     const { backupFile, blob } = await syncManager.exportForSync(
       mnemonic,
       this.currentUser.ethereumAddress,
-      credential.id,
-      credential.publicKey
+      { id: credential.id, publicKey: credential.publicKey },
+      this.currentUser.username,
+      password
     );
 
     const filename = `w3pk-sync-${this.currentUser.ethereumAddress.substring(0, 8)}.json`;
