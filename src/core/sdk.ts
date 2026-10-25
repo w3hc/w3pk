@@ -26,6 +26,7 @@ import {
 import {
   getOriginSpecificAddress,
   getCurrentOrigin,
+  normalizeOrigin,
   DEFAULT_TAG,
   DEFAULT_MODE,
 } from "../wallet/origin-derivation";
@@ -38,6 +39,7 @@ import {
 import { StealthAddressModule } from "../stealth";
 import { SessionManager } from "./session";
 import { CredentialStorage } from "../auth/storage";
+import { derivePrfSecret, type PrfSecret } from "../auth/prf";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupCredential, BackupStatus } from "../backup/types";
@@ -2465,6 +2467,35 @@ export class Web3Passkey {
    */
   setPersistentSessionDuration(hours: number): void {
     this.sessionManager.setPersistentSessionDuration(hours);
+  }
+
+  /**
+   * Derive a 32-byte secret bound to the passkey, separate per origin and tag
+   *
+   * Evaluates the WebAuthn PRF extension on a fresh user-verified assertion
+   * and runs HKDF-SHA256 on the output. The secret is never derived from or
+   * stored with the mnemonic, so it never appears in backups, recovery
+   * phrases, sessions or storage. When logged in, the assertion is
+   * restricted to the current user's passkey.
+   *
+   * @param tag - Non-empty label without ':', e.g. "zk-identity"
+   * @returns The secret and the credential it is bound to
+   * @throws PrfUnsupportedError when the authenticator doesn't support PRF
+   *
+   * @example
+   * const { secret, credentialId } = await w3pk.derivePrfSecret("zk-identity")
+   */
+  async derivePrfSecret(tag: string): Promise<PrfSecret> {
+    try {
+      return await derivePrfSecret(
+        normalizeOrigin(getCurrentOrigin()),
+        tag,
+        this.currentUser?.credentialId
+      );
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw error;
+    }
   }
 
   /**
