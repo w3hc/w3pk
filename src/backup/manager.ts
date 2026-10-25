@@ -17,6 +17,7 @@ import type {
 import { BackupStorage } from './storage';
 import { QRBackupCreator } from './qr-backup';
 import { SocialRecoveryManager } from '../recovery/social';
+import { detectEvictionRisk } from '../utils/eviction';
 
 export class BackupManager {
   private storage: BackupStorage;
@@ -67,6 +68,7 @@ export class BackupManager {
     // Build status
     const status: BackupStatus = {
       hasBackup: methods.length > 0,
+      evictionRisk: await detectEvictionRisk(),
       lastBackupAt,
       methods,
       passkeySync,
