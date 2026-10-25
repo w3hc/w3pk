@@ -1225,13 +1225,20 @@ async function promptBackupOptions() {
 
 **Critical:** Users should set up at least one backup method immediately after registration. Browser storage can be wiped (eviction, Safari's 7-day cap, clearing site data), and a wallet without a backup is then lost for good.
 
+`evictionRisk` tells you whether this browser is likely to wipe the wallet: it is `true` on WebKit (every iOS browser, Safari and other WebKit browsers on desktop) in a tab whose storage is not persisted, and `false` in a home-screen app, once storage is persisted, and on Chromium and Firefox. Use it to choose how hard to push:
+
+- `!hasBackup && evictionRisk`: block the app until the user backs up
+- `!hasBackup` otherwise: show a dismissible banner
+- On iOS, also suggest "Add to Home Screen": home-screen apps are exempt from Safari's 7-day cap
+
 ```typescript
 // ✅ Ask for a backup right after registration
-const { hasBackup } = await w3pk.register({ username })
+const { hasBackup, evictionRisk } = await w3pk.register({ username })
 
 if (!hasBackup) {
+  // Blocking where the browser may wipe the wallet, dismissible otherwise
   // "Back up now": a backup file, or the recovery phrase written down
-  const choice = await showBackupNowPrompt()
+  const choice = await showBackupNowPrompt({ blocking: evictionRisk })
 
   if (choice === 'file') {
     const { blob, filename } = await w3pk.createBackupFile('password', password)
@@ -1246,7 +1253,9 @@ if (!hasBackup) {
 async function checkBackup() {
   const status = await w3pk.getBackupStatus()
 
-  if (!status.hasBackup) {
+  if (!status.hasBackup && status.evictionRisk) {
+    showBackupGate() // blocking; on iOS, suggest "Add to Home Screen"
+  } else if (!status.hasBackup) {
     showBackupWarning() // the score is capped at 20 ('vulnerable')
   }
 

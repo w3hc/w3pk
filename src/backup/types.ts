@@ -6,6 +6,7 @@ export type BackupMethod = 'file' | 'qr' | 'phrase';
 
 export interface BackupStatus {
   hasBackup: boolean;
+  evictionRisk: boolean;
   lastBackupAt?: string;
   methods: BackupMethod[];
   passkeySync: PasskeySyncStatus;

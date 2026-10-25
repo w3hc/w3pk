@@ -41,6 +41,7 @@ import { CredentialStorage } from "../auth/storage";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupStatus } from "../backup/types";
+import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
@@ -198,7 +199,12 @@ export class Web3Passkey {
    */
   async register(options: {
     username: string;
-  }): Promise<{ address: string; username: string; hasBackup: boolean }> {
+  }): Promise<{
+    address: string;
+    username: string;
+    hasBackup: boolean;
+    evictionRisk: boolean;
+  }> {
     try {
       if (!this.currentWallet?.address) {
         await this.generateWallet();
@@ -266,11 +272,17 @@ export class Web3Passkey {
 
       const { BackupManager } = await import("../backup");
       const hasBackup = await new BackupManager().hasBackup(ethereumAddress);
+      const evictionRisk = await detectEvictionRisk();
 
       void this.requestPersistentStorage();
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
-      return { address: ethereumAddress, username: options.username, hasBackup };
+      return {
+        address: ethereumAddress,
+        username: options.username,
+        hasBackup,
+        evictionRisk,
+      };
     } catch (error) {
       this.config.onError?.(error as any);
       throw error;
