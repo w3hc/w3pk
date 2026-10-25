@@ -324,6 +324,28 @@ async function runTests() {
       { id: "another-passkey", publicKey }
     );
 
+    const otherKey = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    );
+    const { json: forgedJson } = await manager.createPasswordBackup(
+      MNEMONIC,
+      ADDRESS,
+      PASSWORD,
+      {
+        id: CREDENTIAL_ID,
+        publicKey: arrayBufferToBase64Url(
+          await crypto.subtle.exportKey("spki", otherKey.publicKey)
+        ),
+      }
+    );
+
+    await assertBootstrapError(
+      "sync, backup with another public key",
+      (sdk) => sdk.syncWalletWithPasskey(forgedJson, PASSWORD),
+      "PUBLIC_KEY_MISMATCH"
+    );
     await assertBootstrapError(
       "sync, passkey backup",
       (sdk) => sdk.syncWalletWithPasskey(passkeyJson),

@@ -17,6 +17,8 @@ export interface PasskeySelectionResult {
   publicKey: string;
   ethereumAddress?: string; // May be undefined if credential is not in local storage yet
   username?: string;
+  /** The selection assertion, to verify against a public key from a backup */
+  assertion: AuthenticationCredential;
 }
 
 /**
@@ -91,6 +93,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
         publicKey: "", // Will need to be derived or provided from backup
         ethereumAddress: undefined,
         username,
+        assertion: credential,
       };
     }
 
@@ -100,6 +103,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
       publicKey: storedCredential.publicKey,
       ethereumAddress: storedCredential.ethereumAddress,
       username: storedCredential.username,
+      assertion: credential,
     };
   } catch (error: any) {
     if (error?.name === "NotAllowedError") {

@@ -18,7 +18,7 @@
  */
 
 import { register } from "../auth/register";
-import { login } from "../auth/authenticate";
+import { login, verifyAssertionSignature } from "../auth/authenticate";
 import { LocalStorageWalletStorage } from "../wallet/storage";
 import {
   generateBIP39Wallet,
@@ -2069,6 +2069,9 @@ export class Web3Passkey {
         throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
       }
       publicKey = backupFile.credential.publicKey;
+      if (!(await verifyAssertionSignature(passkeyResult.assertion, publicKey))) {
+        throw new SyncBootstrapError("PUBLIC_KEY_MISMATCH", credentialId);
+      }
     }
 
     let mnemonic: string;
