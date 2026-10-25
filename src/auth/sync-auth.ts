@@ -16,6 +16,7 @@ export interface PasskeySelectionResult {
   credentialId: string;
   publicKey: string;
   ethereumAddress?: string; // May be undefined if credential is not in local storage yet
+  username?: string;
 }
 
 /**
@@ -74,6 +75,10 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
     }
 
     const credentialId = credential.id;
+    const userHandle = credential.response.userHandle;
+    const username = userHandle?.byteLength
+      ? new TextDecoder().decode(userHandle)
+      : undefined;
 
     // Try to get the stored credential metadata
     const storedCredential = await storage.getCredentialById(credentialId);
@@ -85,6 +90,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
         credentialId,
         publicKey: "", // Will need to be derived or provided from backup
         ethereumAddress: undefined,
+        username,
       };
     }
 
@@ -93,6 +99,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
       credentialId,
       publicKey: storedCredential.publicKey,
       ethereumAddress: storedCredential.ethereumAddress,
+      username: storedCredential.username,
     };
   } catch (error: any) {
     if (error?.name === "NotAllowedError") {
