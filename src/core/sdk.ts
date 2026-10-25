@@ -46,6 +46,7 @@ import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
   AuthenticationError,
+  SyncBootstrapError,
   WalletError,
   WalletMissingError,
 } from "./errors";
@@ -2047,9 +2048,26 @@ export class Web3Passkey {
 
     // Step 1: Prompt user to select their passkey
     const passkeyResult = await promptPasskeySelection();
+    const credentialId = passkeyResult.credentialId;
 
     // Step 2: Parse the backup file
     const backupFile = await manager.parseBackupFile(backupData);
+
+    // A fresh device has no metadata for the passkey: its public key comes
+    // from the password backup that names it
+    let publicKey = passkeyResult.publicKey;
+    if (!publicKey) {
+      if (backupFile.encryptionMethod !== 'password') {
+        throw new SyncBootstrapError("PASSKEY_BACKUP", credentialId);
+      }
+      if (!backupFile.credential) {
+        throw new SyncBootstrapError("NO_CREDENTIAL", credentialId);
+      }
+      if (backupFile.credential.id !== credentialId) {
+        throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
+      }
+      publicKey = backupFile.credential.publicKey;
+    }
 
     let mnemonic: string;
     let ethereumAddress: string;
@@ -2063,17 +2081,10 @@ export class Web3Passkey {
       mnemonic = result.mnemonic;
       ethereumAddress = result.ethereumAddress;
     } else if (backupFile.encryptionMethod === 'passkey') {
-      // Use the selected passkey to decrypt
-      if (!passkeyResult.publicKey) {
-        throw new WalletError(
-          "Passkey public key not found. The passkey may not be registered on this device yet."
-        );
-      }
-
       const result = await manager.restoreWithExistingPasskey(
         backupFile,
-        passkeyResult.credentialId,
-        passkeyResult.publicKey
+        credentialId,
+        publicKey
       );
       mnemonic = result.mnemonic;
       ethereumAddress = result.ethereumAddress;
@@ -2082,17 +2093,11 @@ export class Web3Passkey {
         throw new WalletError("Password required to restore hybrid backup");
       }
 
-      if (!passkeyResult.publicKey) {
-        throw new WalletError(
-          "Passkey public key not found. The passkey may not be registered on this device yet."
-        );
-      }
-
       const result = await manager.restoreWithHybrid(
         backupFile,
         password,
-        passkeyResult.credentialId,
-        passkeyResult.publicKey
+        credentialId,
+        publicKey
       );
       mnemonic = result.mnemonic;
       ethereumAddress = result.ethereumAddress;
@@ -2100,52 +2105,79 @@ export class Web3Passkey {
       throw new WalletError(`Unknown encryption method: ${backupFile.encryptionMethod}`);
     }
 
-    // Mark backup as verified
     backupManager.markBackupVerified(ethereumAddress);
 
-    // Store the wallet data with the selected passkey
-    const storage = new CredentialStorage();
-    const credential = await storage.getCredentialById(passkeyResult.credentialId);
-
-    if (credential) {
-      // Encrypt and store wallet data
-      const { deriveEncryptionKeyFromWebAuthn, encryptData } = await import("../wallet/crypto");
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
-        credential.id,
-        credential.publicKey
-      );
-      const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
-
-      await this.walletStorage.store({
-        ethereumAddress,
-        encryptedMnemonic,
-        credentialId: credential.id,
-        createdAt: new Date().toISOString(),
-      });
-
-      // Update current user
-      this.currentUser = {
-        username: credential.username,
-        ethereumAddress,
-        credentialId: credential.id,
-      };
-
-      // Start session.
-      // No fresh assertion (and thus no PRF output) is in scope here, so
-      // the session is in-memory only; the next login() persists it.
-      await this.sessionManager.startSession(
-        mnemonic,
-        credential.id,
-        ethereumAddress,
-        undefined,
-        'STANDARD'
-      );
-
-      void this.requestPersistentStorage();
-      this.config.onAuthStateChanged?.(true, this.currentUser);
-    }
+    await this.bootstrapCredential(
+      {
+        id: credentialId,
+        publicKey,
+        username: passkeyResult.username ?? ethereumAddress,
+      },
+      mnemonic,
+      ethereumAddress
+    );
 
     return { mnemonic, ethereumAddress };
+  }
+
+  /**
+   * Set this device up for a passkey and a synced wallet: saves the
+   * passkey's metadata (or points it at the wallet), stores the wallet
+   * under the passkey-derived key and starts a session
+   */
+  private async bootstrapCredential(
+    credential: { id: string; publicKey: string; username: string },
+    mnemonic: string,
+    ethereumAddress: string
+  ): Promise<void> {
+    const storage = new CredentialStorage();
+    const stored = await storage.getCredentialById(credential.id);
+
+    if (!stored) {
+      const now = new Date().toISOString();
+      await storage.saveCredential({
+        id: credential.id,
+        publicKey: credential.publicKey,
+        username: credential.username,
+        ethereumAddress,
+        createdAt: now,
+        lastUsed: now,
+      });
+    } else if (stored.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
+      await storage.updateCredentialAddress(credential.id, ethereumAddress);
+    }
+
+    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
+      credential.id,
+      credential.publicKey
+    );
+    const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
+
+    await this.walletStorage.store({
+      ethereumAddress,
+      encryptedMnemonic,
+      credentialId: credential.id,
+      createdAt: new Date().toISOString(),
+    });
+
+    this.currentUser = {
+      username: stored?.username ?? credential.username,
+      ethereumAddress,
+      credentialId: credential.id,
+    };
+
+    // No PRF output is in scope here, so the session is in-memory only;
+    // the next login() persists it
+    await this.sessionManager.startSession(
+      mnemonic,
+      credential.id,
+      ethereumAddress,
+      undefined,
+      'STANDARD'
+    );
+
+    void this.requestPersistentStorage();
+    this.config.onAuthStateChanged?.(true, this.currentUser);
   }
 
   /**
