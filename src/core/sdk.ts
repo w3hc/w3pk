@@ -18,7 +18,7 @@
  */
 
 import { register } from "../auth/register";
-import { login } from "../auth/authenticate";
+import { login, verifyAssertionSignature } from "../auth/authenticate";
 import { LocalStorageWalletStorage } from "../wallet/storage";
 import {
   generateBIP39Wallet,
@@ -42,7 +42,7 @@ import { CredentialStorage } from "../auth/storage";
 import { derivePrfSecret, type PrfSecret } from "../auth/prf";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
-import type { BackupCredential, BackupStatus } from "../backup/types";
+import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, WalletInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
@@ -2033,6 +2033,9 @@ export class Web3Passkey {
    *
    * This allows the user to use the same PRIMARY mode webauthn account on multiple devices.
    *
+   * A PRF backup (from exportForSync()) takes a single assertion restricted
+   * to its passkey and no password.
+   *
    * @param backupData - Backup file (JSON string or Blob) - can be pasted by user
    * @param password - Password to decrypt backup (if password-encrypted)
    * @returns Restored wallet info
@@ -2048,12 +2051,14 @@ export class Web3Passkey {
     const manager = new BackupFileManager();
     const backupManager = new BackupManager();
 
-    // Step 1: Prompt user to select their passkey
+    const backupFile = await manager.parseBackupFile(backupData);
+
+    if (backupFile.encryptionMethod === 'prf') {
+      return this.restorePrfBackup(backupFile);
+    }
+
     const passkeyResult = await promptPasskeySelection();
     const credentialId = passkeyResult.credentialId;
-
-    // Step 2: Parse the backup file
-    const backupFile = await manager.parseBackupFile(backupData);
 
     // A fresh device has no metadata for the passkey: its public key comes
     // from the password backup that names it
@@ -2069,6 +2074,9 @@ export class Web3Passkey {
         throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
       }
       publicKey = backupFile.credential.publicKey;
+      if (!(await verifyAssertionSignature(passkeyResult.assertion, publicKey))) {
+        throw new SyncBootstrapError("PUBLIC_KEY_MISMATCH", credentialId);
+      }
     }
 
     let mnemonic: string;
@@ -2114,6 +2122,41 @@ export class Web3Passkey {
         id: credentialId,
         publicKey,
         username: passkeyResult.username ?? ethereumAddress,
+      },
+      mnemonic,
+      ethereumAddress
+    );
+
+    return { mnemonic, ethereumAddress };
+  }
+
+  /**
+   * Restore a PRF backup with its passkey and set this device up for it.
+   * The public key is this device's when it has the passkey's metadata,
+   * else the backup's, checked against the assertion's signature.
+   */
+  private async restorePrfBackup(
+    backupFile: BackupFile
+  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+    const { DeviceSyncManager } = await import("../sync/backup-sync");
+    const { BackupManager } = await import("../backup");
+
+    const credential = backupFile.credential!;
+    const stored = await new CredentialStorage().getCredentialById(credential.id);
+    const publicKey = stored?.publicKey ?? credential.publicKey;
+
+    const { mnemonic, ethereumAddress } = await new DeviceSyncManager().importFromSync(
+      backupFile,
+      publicKey
+    );
+
+    new BackupManager().markBackupVerified(ethereumAddress);
+
+    await this.bootstrapCredential(
+      {
+        id: credential.id,
+        publicKey,
+        username: backupFile.username ?? ethereumAddress,
       },
       mnemonic,
       ethereumAddress
@@ -2249,14 +2292,25 @@ export class Web3Passkey {
 
   /**
    * Export wallet for syncing to another device
-   * Uses passkey encryption so it works on devices where the passkey is synced
+   *
+   * Prompts for the passkey and encrypts with a key derived from its WebAuthn
+   * PRF output (`encryptionMethod: 'prf'`): a device where the passkey synced
+   * restores it with one prompt and no password. Where the authenticator has
+   * no PRF support, `password` makes it fall back to a password backup.
+   *
+   * @param password - Fallback password when PRF is unavailable
+   * @throws PrfUnsupportedError when PRF is unavailable and no password is given
    */
-  async exportForSync(): Promise<{ blob: Blob; filename: string; qrCode?: string }> {
+  async exportForSync(
+    password?: string
+  ): Promise<{ blob: Blob; filename: string; qrCode?: string }> {
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated to export for sync");
     }
 
-    const mnemonic = await this.getMnemonicFromSession(true);
+    // The PRF assertion below is the fresh user verification, so a cached
+    // session doesn't cost a second prompt
+    const mnemonic = await this.getMnemonicFromSession();
 
     const walletData = await this.walletStorage.retrieve(
       this.currentUser.ethereumAddress
@@ -2277,8 +2331,9 @@ export class Web3Passkey {
     const { backupFile, blob } = await syncManager.exportForSync(
       mnemonic,
       this.currentUser.ethereumAddress,
-      credential.id,
-      credential.publicKey
+      { id: credential.id, publicKey: credential.publicKey },
+      this.currentUser.username,
+      password
     );
 
     const filename = `w3pk-sync-${this.currentUser.ethereumAddress.substring(0, 8)}.json`;
@@ -2297,60 +2352,32 @@ export class Web3Passkey {
 
   /**
    * Import wallet from another device (sync wallet to this device)
-   * Use case: User has passkey on both devices, wallet only on one
    *
-   * Takes a file from exportForSync(). Works without a login: when logged
-   * out, it prompts for the passkey. The passkey's metadata must be on this
-   * device; on a fresh device, use syncWalletWithPasskey() with a password
-   * backup.
+   * Takes a PRF backup from exportForSync(): one assertion restricted to
+   * the backup's passkey decrypts it, with no password, on any device where
+   * the passkey synced, including one with no data for it. Works without a
+   * login. For a password backup (exportForSync()'s fallback), use
+   * syncWalletWithPasskey().
+   *
+   * @throws SyncBootstrapError ('CREDENTIAL_MISMATCH') when logged in with another passkey
    */
   async importFromSync(
     syncData: string | Blob
   ): Promise<{ ethereumAddress: string; success: boolean }> {
-    const { DeviceSyncManager } = await import("../sync/backup-sync");
     const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup");
 
-    const fileManager = new BackupFileManager();
-    const syncManager = new DeviceSyncManager();
-    const backupManager = new BackupManager();
+    const backupFile = await new BackupFileManager().parseBackupFile(syncData);
 
-    const backupFile = await fileManager.parseBackupFile(syncData);
-
-    if (backupFile.encryptionMethod !== 'passkey') {
+    if (backupFile.encryptionMethod !== 'prf') {
       throw new WalletError(
-        "importFromSync() takes files from exportForSync(). Use syncWalletWithPasskey() for password or hybrid backups."
+        "importFromSync() takes PRF backups from exportForSync(). Use syncWalletWithPasskey() for other backups."
       );
     }
-    if (!backupFile.credentialId) {
-      throw new SyncBootstrapError("NO_CREDENTIAL", "");
+    if (this.currentUser && this.currentUser.credentialId !== backupFile.credential!.id) {
+      throw new SyncBootstrapError("CREDENTIAL_MISMATCH", this.currentUser.credentialId);
     }
 
-    const storage = new CredentialStorage();
-    const credential = await storage.getCredentialById(backupFile.credentialId);
-    if (!credential) {
-      throw new SyncBootstrapError("PASSKEY_BACKUP", backupFile.credentialId);
-    }
-
-    let selectedId = this.currentUser?.credentialId;
-    if (!selectedId) {
-      const { promptPasskeySelection } = await import("../auth/sync-auth");
-      selectedId = (await promptPasskeySelection()).credentialId;
-    }
-    if (selectedId !== credential.id) {
-      throw new SyncBootstrapError("CREDENTIAL_MISMATCH", selectedId);
-    }
-
-    const { mnemonic, ethereumAddress } = await syncManager.importFromSync(
-      backupFile,
-      credential.id,
-      credential.publicKey
-    );
-
-    // Mark backup as verified (successful sync proves the backup works)
-    backupManager.markBackupVerified(ethereumAddress);
-
-    await this.bootstrapCredential(credential, mnemonic, ethereumAddress);
+    const { ethereumAddress } = await this.restorePrfBackup(backupFile);
 
     return {
       ethereumAddress,

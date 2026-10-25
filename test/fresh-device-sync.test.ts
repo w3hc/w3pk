@@ -1,6 +1,6 @@
 /**
- * syncWalletWithPasskey() and importFromSync() on a device without the
- * passkey's metadata or wallet
+ * syncWalletWithPasskey() with password backups on a device without the
+ * passkey's metadata or wallet (PRF backups: prf-sync.test.ts)
  *
  * Mocks navigator.credentials.get with a real P-256 signed assertion, so a
  * login() after the sync runs the SDK's signature verification unchanged.
@@ -12,6 +12,7 @@ import { Wallet } from "ethers";
 import {
   Web3Passkey,
   SyncBootstrapError,
+  WalletError,
   Web3PasskeyError,
 } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
@@ -256,23 +257,6 @@ async function runTests() {
   }
   console.log("");
 
-  console.log("Test 4: importFromSync with metadata but no wallet, logged out");
-  {
-    localStorage.clear();
-    const { json } = await manager.createPasskeyBackup(
-      MNEMONIC,
-      ADDRESS,
-      CREDENTIAL_ID,
-      publicKey
-    );
-    await saveCredential(publicKey);
-    const { sdk, authEvents } = freshSdk();
-    const result = await sdk.importFromSync(json);
-    assert(result.success && result.ethereumAddress === ADDRESS, "imports the wallet");
-    await assertSyncedAndLogsIn(sdk, authEvents, publicKey);
-  }
-  console.log("");
-
   async function assertBootstrapError(
     label: string,
     fn: (sdk: Web3Passkey) => Promise<unknown>,
@@ -296,7 +280,7 @@ async function runTests() {
     );
   }
 
-  console.log("Test 5: fresh device refuses what it can't bootstrap");
+  console.log("Test 4: fresh device refuses what it can't bootstrap");
   {
     localStorage.clear();
     const { json: passkeyJson } = await manager.createPasskeyBackup(
@@ -324,6 +308,28 @@ async function runTests() {
       { id: "another-passkey", publicKey }
     );
 
+    const otherKey = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    );
+    const { json: forgedJson } = await manager.createPasswordBackup(
+      MNEMONIC,
+      ADDRESS,
+      PASSWORD,
+      {
+        id: CREDENTIAL_ID,
+        publicKey: arrayBufferToBase64Url(
+          await crypto.subtle.exportKey("spki", otherKey.publicKey)
+        ),
+      }
+    );
+
+    await assertBootstrapError(
+      "sync, backup with another public key",
+      (sdk) => sdk.syncWalletWithPasskey(forgedJson, PASSWORD),
+      "PUBLIC_KEY_MISMATCH"
+    );
     await assertBootstrapError(
       "sync, passkey backup",
       (sdk) => sdk.syncWalletWithPasskey(passkeyJson),
@@ -344,10 +350,12 @@ async function runTests() {
       (sdk) => sdk.syncWalletWithPasskey(otherJson, PASSWORD),
       "CREDENTIAL_MISMATCH"
     );
-    await assertBootstrapError(
-      "importFromSync",
-      (sdk) => sdk.importFromSync(passkeyJson),
-      "PASSKEY_BACKUP"
+
+    const { sdk } = freshSdk();
+    const importError = await capture(() => sdk.importFromSync(passkeyJson));
+    assert(
+      importError instanceof WalletError,
+      "importFromSync refuses a passkey backup with WalletError"
     );
   }
   console.log("");

@@ -93,15 +93,18 @@ export class WalletMissingError extends Web3PasskeyError {
 export type SyncBootstrapReason =
   | "PASSKEY_BACKUP"
   | "NO_CREDENTIAL"
-  | "CREDENTIAL_MISMATCH";
+  | "CREDENTIAL_MISMATCH"
+  | "PUBLIC_KEY_MISMATCH";
 
 const SYNC_BOOTSTRAP_MESSAGES: Record<SyncBootstrapReason, string> = {
   PASSKEY_BACKUP:
-    "This device has no data for the passkey, and a passkey-encrypted backup can't set it up. Sync with a password backup instead.",
+    "This device has no data for the passkey, and a passkey-encrypted backup can't set it up. Sync with a backup from exportForSync() or a password backup instead.",
   NO_CREDENTIAL:
     "This backup doesn't name its passkey, so it can't set up this device. Create a new password backup on a device where you're logged in.",
   CREDENTIAL_MISMATCH:
     "This backup belongs to a different passkey than the one selected.",
+  PUBLIC_KEY_MISMATCH:
+    "The passkey's signature doesn't match the public key in this backup. The backup may have been tampered with.",
 };
 
 /**

@@ -6,7 +6,7 @@
  * They can export wallet data from desktop and import on mobile.
  */
 
-import type { BackupFile } from '../backup/types';
+import type { BackupCredential, BackupFile } from '../backup/types';
 
 export interface DeviceSyncInfo {
   deviceName: string;
@@ -81,44 +81,88 @@ export class DeviceSyncManager {
 
   /**
    * Export wallet for cross-device sync
-   * Uses passkey encryption so it can be decrypted on any device where the passkey is synced
+   * Runs a fresh assertion with the passkey and encrypts with a key derived
+   * from its PRF output, so any device where the passkey synced can decrypt
+   * it without a password. Without PRF support, falls back to a password
+   * backup when `password` is given.
+   *
+   * @throws PrfUnsupportedError when PRF is unavailable and no password is given
+   * @throws AuthenticationError when the assertion fails or is cancelled
    */
   async exportForSync(
     mnemonic: string,
     ethereumAddress: string,
-    credentialId: string,
-    publicKey: string
+    credential: BackupCredential,
+    username: string,
+    password?: string
   ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
-    const { BackupFileManager } = await import('../backup/backup-file');
+    const { BackupFileManager, generatePrfSalt, prfSyncInput } = await import('../backup/backup-file');
+    const { evaluatePrf } = await import('../auth/prf');
+    const { PrfUnsupportedError } = await import('../core/errors');
     const manager = new BackupFileManager();
 
-    return manager.createPasskeyBackup(
-      mnemonic,
-      ethereumAddress,
-      credentialId,
-      publicKey
-    );
+    const prfSalt = generatePrfSalt();
+    let output: ArrayBuffer;
+    try {
+      ({ output } = await evaluatePrf(await prfSyncInput(prfSalt), credential.id));
+    } catch (error) {
+      if (error instanceof PrfUnsupportedError && password) {
+        return manager.createPasswordBackup(mnemonic, ethereumAddress, password, credential);
+      }
+      throw error;
+    }
+
+    try {
+      return await manager.createPrfBackup(
+        mnemonic,
+        ethereumAddress,
+        credential,
+        username,
+        prfSalt,
+        output
+      );
+    } finally {
+      new Uint8Array(output).fill(0);
+    }
   }
 
   /**
-   * Import wallet from another device
-   * Verifies that the passkey is synced and can decrypt the data
+   * Import a PRF backup from another device
+   * Runs one assertion restricted to the backup's passkey, checks its
+   * signature against `publicKey`, then decrypts with the PRF output
+   *
+   * @param publicKey - The passkey's public key: this device's, or the backup's on a fresh device
+   * @throws SyncBootstrapError ('PUBLIC_KEY_MISMATCH') when the signature doesn't match `publicKey`
    */
   async importFromSync(
     backupFile: BackupFile,
-    credentialId: string,
     publicKey: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { BackupFileManager } = await import('../backup/backup-file');
+    const { BackupFileManager, prfSyncInput } = await import('../backup/backup-file');
+    const { evaluatePrf } = await import('../auth/prf');
+    const { verifyAssertionSignature } = await import('../auth/authenticate');
+    const { SyncBootstrapError } = await import('../core/errors');
     const manager = new BackupFileManager();
 
-    const result = await manager.restoreWithExistingPasskey(
-      backupFile,
-      credentialId,
-      publicKey
-    );
+    if (backupFile.encryptionMethod !== 'prf' || !backupFile.prfSalt || !backupFile.credential) {
+      throw new Error('This backup is not a PRF backup.');
+    }
+    const credentialId = backupFile.credential.id;
 
-    // Update sync info
+    const evaluation = await evaluatePrf(await prfSyncInput(backupFile.prfSalt), credentialId);
+    let result: { mnemonic: string; ethereumAddress: string };
+    try {
+      if (evaluation.credentialId !== credentialId) {
+        throw new SyncBootstrapError('CREDENTIAL_MISMATCH', evaluation.credentialId);
+      }
+      if (!(await verifyAssertionSignature(evaluation.assertion, publicKey))) {
+        throw new SyncBootstrapError('PUBLIC_KEY_MISMATCH', credentialId);
+      }
+      result = await manager.restoreWithPrf(backupFile, evaluation.output);
+    } finally {
+      new Uint8Array(evaluation.output).fill(0);
+    }
+
     await this.updateSyncInfo(result.ethereumAddress);
 
     return result;

@@ -19,6 +19,41 @@ import {
   encryptData,
   decryptData,
 } from '../wallet/crypto';
+import { CryptoError } from '../core/errors';
+import { arrayBufferToBase64Url, base64UrlToArrayBuffer } from '../utils/base64';
+
+const PRF_SYNC_LABEL = new TextEncoder().encode('w3pk-prf-sync-v1');
+
+/** Random per-backup salt for a PRF backup, base64url */
+export function generatePrfSalt(): string {
+  return arrayBufferToBase64Url(crypto.getRandomValues(new Uint8Array(32)).buffer);
+}
+
+/** PRF input for a PRF backup: SHA-256("w3pk-prf-sync-v1" || prfSalt) */
+export async function prfSyncInput(prfSalt: string): Promise<ArrayBuffer> {
+  const salt = new Uint8Array(base64UrlToArrayBuffer(prfSalt));
+  return crypto.subtle.digest('SHA-256', new Uint8Array([...PRF_SYNC_LABEL, ...salt]));
+}
+
+async function derivePrfBackupKey(prfOutput: BufferSource, prfSalt: string): Promise<CryptoKey> {
+  try {
+    const keyMaterial = await crypto.subtle.importKey('raw', prfOutput, 'HKDF', false, ['deriveKey']);
+    return await crypto.subtle.deriveKey(
+      {
+        name: 'HKDF',
+        hash: 'SHA-256',
+        salt: base64UrlToArrayBuffer(prfSalt),
+        info: PRF_SYNC_LABEL,
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  } catch (error) {
+    throw new CryptoError('Failed to derive backup key from PRF output', error);
+  }
+}
 
 export class BackupFileManager {
   /**
@@ -168,6 +203,75 @@ export class BackupFileManager {
   }
 
   /**
+   * Create backup file encrypted with a key derived from the passkey's PRF
+   * output: decrypting needs a fresh assertion with that passkey, which
+   * syncs within its platform ecosystem
+   *
+   * @param prfSalt - From generatePrfSalt()
+   * @param prfOutput - PRF output of `credential` at prfSyncInput(prfSalt)
+   */
+  async createPrfBackup(
+    mnemonic: string,
+    ethereumAddress: string,
+    credential: BackupCredential,
+    username: string,
+    prfSalt: string,
+    prfOutput: BufferSource
+  ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
+    const encryptionKey = await derivePrfBackupKey(prfOutput, prfSalt);
+    const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
+    const addressChecksum = await deriveAddressChecksum(ethereumAddress);
+
+    const backupFile: BackupFile = {
+      createdAt: new Date().toISOString(),
+      ethereumAddress,
+      encryptedMnemonic,
+      encryptionMethod: 'prf',
+      credential: { id: credential.id, publicKey: credential.publicKey },
+      prfSalt,
+      username,
+      addressChecksum,
+    };
+
+    const json = JSON.stringify(backupFile, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+
+    return { backupFile, json, blob };
+  }
+
+  /**
+   * Restore from a PRF backup
+   *
+   * @param prfOutput - PRF output of the backup's passkey at prfSyncInput(backupFile.prfSalt)
+   */
+  async restoreWithPrf(
+    backupFile: BackupFile,
+    prfOutput: BufferSource
+  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+    if (backupFile.encryptionMethod !== 'prf' || !backupFile.prfSalt) {
+      throw new Error('This backup is not a PRF backup.');
+    }
+
+    const encryptionKey = await derivePrfBackupKey(prfOutput, backupFile.prfSalt);
+    const mnemonic = await decryptData(backupFile.encryptedMnemonic, encryptionKey);
+
+    const { Wallet } = await import('ethers');
+    const wallet = Wallet.fromPhrase(mnemonic);
+    const addressChecksum = await deriveAddressChecksum(wallet.address);
+
+    if (
+      addressChecksum !== backupFile.addressChecksum ||
+      wallet.address.toLowerCase() !== backupFile.ethereumAddress.toLowerCase()
+    ) {
+      throw new Error(
+        'Address checksum mismatch - corrupted backup or decryption failure'
+      );
+    }
+
+    return { mnemonic, ethereumAddress: wallet.address };
+  }
+
+  /**
    * Restore from backup file using existing passkey
    * Use case: User has passkey synced to this device and wants to restore wallet
    */
@@ -180,6 +284,9 @@ export class BackupFileManager {
       throw new Error(
         'This backup is password-protected. Use restoreWithPassword() instead.'
       );
+    }
+    if (backupFile.encryptionMethod === 'prf') {
+      throw new Error('This backup is PRF-encrypted. Use restoreWithPrf() instead.');
     }
 
     // Verify credential matches
@@ -339,6 +446,12 @@ export class BackupFileManager {
     // Validate required fields
     if (!backupFile.createdAt || !backupFile.ethereumAddress || !backupFile.encryptedMnemonic) {
       throw new Error('Invalid backup file: missing required fields');
+    }
+    if (
+      backupFile.encryptionMethod === 'prf' &&
+      (!backupFile.prfSalt || !backupFile.credential?.id || !backupFile.credential.publicKey)
+    ) {
+      throw new Error('Invalid backup file: PRF backup without its salt or passkey');
     }
 
     return backupFile;

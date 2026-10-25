@@ -133,28 +133,13 @@ async function verifyAssertion(
   storage: CredentialStorage
 ): Promise<boolean> {
   try {
-    const authenticatorData = assertion.response.authenticatorData;
-    const authDataView = new DataView(authenticatorData);
-    const authDataBytes = new Uint8Array(authenticatorData);
-
-    // 1. Verify RP ID hash (first 32 bytes of authenticator data)
-    const rpIdHash = authDataBytes.slice(0, 32);
-    const expectedRpId = window.location.hostname;
-    const expectedHash = new Uint8Array(
-      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(expectedRpId))
-    );
-
-    // Compare RP ID hashes
-    if (!arrayEquals(rpIdHash, expectedHash)) {
-      console.error("RP ID hash mismatch - possible phishing attack");
+    if (!(await verifyAssertionSignature(assertion, credential.publicKey))) {
       return false;
     }
 
-    // 2. Extract and verify signature counter (bytes 33-36, big-endian)
-    const signCount = authDataView.getUint32(33, false);
-
-    // Verify signature counter to detect cloned authenticators
-    // Counter should always increase (or be 0 if authenticator doesn't support counters)
+    // Signature counter (bytes 33-36, big-endian) detects cloned authenticators:
+    // it should always increase, or stay 0 if the authenticator has no counter
+    const signCount = new DataView(assertion.response.authenticatorData).getUint32(33, false);
     if (signCount > 0 || (credential.signCount && credential.signCount > 0)) {
       const storedCount = credential.signCount || 0;
       if (signCount <= storedCount) {
@@ -165,11 +150,39 @@ async function verifyAssertion(
       }
     }
 
-    // 3. Verify the signature
-    const publicKeyBuffer = base64UrlToArrayBuffer(credential.publicKey);
-    const publicKey = await crypto.subtle.importKey(
+    await storage.updateSignatureCounter(credential.id, signCount);
+
+    return true;
+  } catch (error) {
+    console.error("Signature verification error:", error);
+    return false;
+  }
+}
+
+/**
+ * Check an assertion's RP ID hash and its signature against `publicKey`
+ * (base64url SPKI, P-256). The signature counter is not checked.
+ */
+export async function verifyAssertionSignature(
+  assertion: AuthenticationCredential,
+  publicKey: string
+): Promise<boolean> {
+  try {
+    const authenticatorData = assertion.response.authenticatorData;
+    const authDataBytes = new Uint8Array(authenticatorData);
+
+    const rpIdHash = authDataBytes.slice(0, 32);
+    const expectedHash = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(window.location.hostname))
+    );
+    if (!arrayEquals(rpIdHash, expectedHash)) {
+      console.error("RP ID hash mismatch - possible phishing attack");
+      return false;
+    }
+
+    const key = await crypto.subtle.importKey(
       "spki",
-      publicKeyBuffer,
+      base64UrlToArrayBuffer(publicKey),
       {
         name: "ECDSA",
         namedCurve: "P-256",
@@ -178,42 +191,28 @@ async function verifyAssertion(
       ["verify"]
     );
 
-    const clientDataJSON = assertion.response.clientDataJSON;
     const clientDataHash = await crypto.subtle.digest(
       "SHA-256",
-      clientDataJSON
+      assertion.response.clientDataJSON
     );
 
     const signedData = new Uint8Array(
       authenticatorData.byteLength + clientDataHash.byteLength
     );
-    signedData.set(new Uint8Array(authenticatorData), 0);
-    signedData.set(
-      new Uint8Array(clientDataHash),
-      authenticatorData.byteLength
-    );
+    signedData.set(authDataBytes, 0);
+    signedData.set(new Uint8Array(clientDataHash), authenticatorData.byteLength);
 
-    const signature = assertion.response.signature;
-    const rawSignature = derToRaw(new Uint8Array(signature));
+    const rawSignature = derToRaw(new Uint8Array(assertion.response.signature));
 
-    const isValid = await crypto.subtle.verify(
+    return await crypto.subtle.verify(
       {
         name: "ECDSA",
         hash: "SHA-256",
       },
-      publicKey,
+      key,
       rawSignature,
       signedData
     );
-
-    if (!isValid) {
-      return false;
-    }
-
-    // 4. Update signature counter in storage
-    await storage.updateSignatureCounter(credential.id, signCount);
-
-    return true;
   } catch (error) {
     console.error("Signature verification error:", error);
     return false;
