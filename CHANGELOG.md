@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tags must be non-empty and can't contain `:`, so no origin and tag pair collides with another
   - `PrfSecret` is exported; docs/API_REFERENCE.md documents the threat model
 
+- **Passwordless device sync** ([#143](https://github.com/w3hc/w3pk/issues/143)): a device where the passkey synced restores the wallet with one passkey prompt and no password, even with no data for the passkey
+  - New backup `encryptionMethod: 'prf'`: `encryptedMnemonic`, `prfSalt` (32 random bytes per backup), `credential: { id, publicKey }`, `username`, `addressChecksum`; the key is HKDF-SHA256 over the passkey's WebAuthn PRF output at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, then AES-256-GCM
+  - `syncWalletWithPasskey()` and `importFromSync()` restore PRF backups with one assertion restricted to the backup's passkey, then reject an altered ciphertext, address or address checksum
+  - `generateSyncQR()` and `parseSyncQR()` carry PRF backups
+  - PRF works in Chrome 108+ and Safari 17+ / iOS 17+, not in Firefox, and passkeys sync within one ecosystem only: docs/RECOVERY.md and docs/PORTABILITY.md describe the flow and the password fallback
+
+### Changed
+
+- **`exportForSync(password?)`** ([#143](https://github.com/w3hc/w3pk/issues/143)) emits a PRF backup instead of a passkey-encrypted one; without PRF support it throws `PrfUnsupportedError`, or falls back to a password backup when given `password`. With an active session it takes one prompt, the PRF assertion
+- **`importFromSync()`** ([#143](https://github.com/w3hc/w3pk/issues/143)) takes PRF backups only; other backups go through `syncWalletWithPasskey()`
+
 ### Fixed
 
 - **Fresh-device sync** ([#141](https://github.com/w3hc/w3pk/issues/141)): on a device where the passkey synced through the platform but has no data, `syncWalletWithPasskey()` decrypted the backup without storing anything, and `importFromSync()` required a `login()` that throws `SyncRequiredError` there
@@ -30,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `importFromSync()` no longer requires a login: logged out, it prompts for the passkey; it restores the wallet, starts a session and fires `onAuthStateChanged(true, user)` where this device has the passkey's metadata
   - `SyncBootstrapError` (exported, `code: 'SYNC_BOOTSTRAP_FAILED'`, with `reason` and `credentialId`) when a backup can't set up a fresh device: passkey or hybrid backups (`'PASSKEY_BACKUP'`), password backups made before this release (`'NO_CREDENTIAL'`), or a backup of another passkey (`'CREDENTIAL_MISMATCH'`)
   - `PasskeySelectionResult` has `username`
+  - A fresh device checks the backup's public key against the passkey's assertion signature before saving it (`SyncBootstrapError` with `reason: 'PUBLIC_KEY_MISMATCH'`); `PasskeySelectionResult` has the `assertion`
 
 ## [0.10.3] - 2026-10-13
 
