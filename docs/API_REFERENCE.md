@@ -49,6 +49,7 @@ interface Web3PasskeyConfig {
   persistentSession?: Partial<PersistentSessionConfig>;  // Enable "Remember Me" functionality
   stealthAddresses?: StealthAddressConfig;  // Enable stealth addresses
   zkProofs?: ZKProofConfig;          // Enable ZK proofs
+  userVerification?: 'required' | 'preferred';  // WebAuthn user verification (default: 'required')
 }
 
 interface PersistentSessionConfig {
@@ -59,6 +60,8 @@ interface PersistentSessionConfig {
 ```
 
 **PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. On authenticators without PRF support, no persistent session is stored — the device falls back to in-memory sessions only (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored next to the blob in localStorage to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
+
+**User verification:** `userVerification` sets the WebAuthn [user verification](https://www.w3.org/TR/webauthn-3/#user-verification) requirement for `register()`, `login()` and `signMessageWithPasskey()`. With `'required'` (the default), every prompt asks for a biometric or PIN. With `'preferred'`, authenticators that can skip the check, such as security keys and unlocked password managers, sign in with one click; the authenticator decides, not the app. Registration accepts any authenticator either way: a built-in one, a phone through a QR code, a security key or a password manager. PRF calls (`derivePrfSecret()`, PRF device sync) always require user verification, since an unverified assertion would return a different PRF output. A login whose assertion isn't user-verified gets an in-memory session only, never a persistent one.
 
 **Example:**
 
@@ -90,6 +93,11 @@ const w3pkAutoRestore = createWeb3Passkey({
     duration: 30 * 24,       // 30 days
     requireReauth: false     // Silent session restore (no prompt)
   }
+})
+
+// One-click sign-in where the authenticator allows it
+const w3pkOneClick = createWeb3Passkey({
+  userVerification: 'preferred'
 })
 ```
 
