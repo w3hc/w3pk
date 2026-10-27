@@ -59,7 +59,6 @@ const endpoints = await w3pk.getEndpoints(1)
 - EIP-7951 PRIMARY mode (P-256 passkey signing)
 - Build verification (IPFS CID hashing + DAO-maintained onchain registry)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
-- AI-powered host app inspection
 
 ## API
 
@@ -428,53 +427,6 @@ console.log('Onchain CID:', onchainCid)
 console.log('Verified:', isValid ? '✅' : '❌')
 ```
 
-### Security Inspection
-
-> **⚠️ Privacy Notice:** This optional feature sends application source code to an external API (Rukh) for AI analysis. User IP address will be visible to the API server.
-
-Analyze web3 applications to understand their transaction and signing methods:
-
-**Browser (analyze current page):**
-```typescript
-import { inspect, inspectNow } from 'w3pk'
-
-// Full inspection with custom options
-const result = await inspect({
-  appUrl: 'https://example.com',
-  rukhUrl: 'https://rukh.w3hc.org',
-  model: 'anthropic',
-  focusMode: 'transactions'
-})
-console.log(result.report)
-
-// Quick console inspection
-await inspectNow()  // Logs report directly to console
-```
-
-**Note:** Inspection API calls are sponsored by the [W3HC (Web3 Hackers Collective)](https://w3hc.org).
-
-**Node.js (analyze local files):**
-```typescript
-import { inspect, gatherCode } from 'w3pk/inspect/node'
-
-// Generate security report via Rukh API
-const report = await inspect(
-  '../my-dapp',           // App path
-  'https://rukh.w3hc.org', // Rukh API URL
-  'w3pk',                  // Context
-  'anthropic',             // Model
-  'transactions'           // Focus mode
-)
-
-// Or just gather code for analysis
-const result = await gatherCode({
-  appPath: '../my-dapp',
-  focusMode: 'transactions',
-  maxFileSizeKB: 500
-})
-console.log(`Analyzed ${result.includedFiles.length} files`)
-```
-
 ## Security & Verification
 
 ### Onchain Build Registry
@@ -493,7 +445,6 @@ Host applications should verify their installed W3PK build against this registry
 - [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md)
 - [API Reference](./docs/API_REFERENCE.md)
 - [Build Verification](./docs/BUILD_VERIFICATION.md)
-- [Security Inspection](./docs/INSPECTION.md)
 - [EIP-7951](./docs/EIP-7951.md)
 - [Security Architecture](./docs/SECURITY.md)
 - [Post-Quantum Cryptography](./docs/POST_QUANTUM.md) - Quantum-safe migration roadmap

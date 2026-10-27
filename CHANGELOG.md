@@ -5,7 +5,7 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.5] - 2026-10-27
 
 ### Added
 
@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Registration accepts any authenticator** ([#167](https://github.com/w3hc/w3pk/issues/167)): `authenticatorAttachment: "platform"` is removed, so computers without a built-in authenticator can register through a phone (QR code), a security key or a password manager
+
+### Removed
+
+- **AI inspection** ([#149](https://github.com/w3hc/w3pk/issues/149)): `inspect()`, `inspectNow()`, the `w3pk/inspect` and `w3pk/inspect/node` entry points and their docs are gone, since an authentication SDK shouldn't send the host app's source code to a third-party API
 
 ## [0.10.4] - 2026-10-25
 
