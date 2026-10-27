@@ -200,7 +200,6 @@ export async function register(
         { type: "public-key", alg: -257 }, // RS256
       ],
       authenticatorSelection: {
-        authenticatorAttachment: "platform",
         userVerification: "required",
         residentKey: "required",
         requireResidentKey: true,
