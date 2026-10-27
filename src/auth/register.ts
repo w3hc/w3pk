@@ -7,6 +7,7 @@ import {
   base64UrlToArrayBuffer,
 } from "../utils/base64";
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
+import { isUserVerified } from "./flags";
 
 /**
  * Extract the public key from WebAuthn attestation object
@@ -60,6 +61,13 @@ async function extractPublicKeyFromAttestation(
     console.error("Failed to extract public key:", error);
     return null;
   }
+}
+
+function attestationUserVerified(attestationObject: ArrayBuffer): boolean {
+  const attestationBuffer = new Uint8Array(attestationObject);
+  const authDataOffset = findAuthDataOffset(attestationBuffer);
+  if (authDataOffset === -1) return false;
+  return isUserVerified(attestationBuffer.slice(authDataOffset));
 }
 
 function findAuthDataOffset(buffer: Uint8Array): number {
@@ -246,7 +254,9 @@ export async function register(
 
     const attestationObject = credential.response.attestationObject;
 
-    const prfOutput = credential.getClientExtensionResults?.().prf?.results?.first;
+    const prfOutput = attestationUserVerified(attestationObject)
+      ? credential.getClientExtensionResults?.().prf?.results?.first
+      : undefined;
 
     return { signature: attestationObject, prfOutput };
   } catch (error) {

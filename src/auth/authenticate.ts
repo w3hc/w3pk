@@ -11,6 +11,7 @@ import {
   base64UrlToArrayBuffer,
 } from "../utils/base64";
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
+import { isUserVerified } from "./flags";
 
 export async function login(
   userVerification: UserVerificationRequirement = "required"
@@ -104,10 +105,13 @@ export async function login(
       throw new Error("Signature verification failed");
     }
 
-    // Authenticator-held secret released by this user-verified assertion.
-    // Undefined on authenticators without PRF support — persistent sessions
-    // are then disabled for this device (in-memory sessions still work).
-    const prfOutput = assertion.getClientExtensionResults?.().prf?.results?.first;
+    // Authenticator-held secret released by this assertion. Undefined on
+    // authenticators without PRF support, and dropped when the assertion
+    // wasn't user-verified (it would be a different secret) — persistent
+    // sessions are then disabled (in-memory sessions still work).
+    const prfOutput = isUserVerified(new Uint8Array(assertion.response.authenticatorData))
+      ? assertion.getClientExtensionResults?.().prf?.results?.first
+      : undefined;
 
     return {
       verified: true,
