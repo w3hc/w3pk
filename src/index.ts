@@ -153,12 +153,6 @@ export {
   clearCache,
 } from "./chainlist";
 
-export { inspect, inspectNow } from "./inspect/browser";
-export type {
-  BrowserInspectOptions,
-  BrowserInspectResult,
-} from "./inspect/browser";
-
 export {
   mlkemEncrypt,
   mlkemDecrypt,
