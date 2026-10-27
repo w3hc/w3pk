@@ -164,7 +164,7 @@ export async function register(
   options: RegisterOptions
 ): Promise<{ signature: ArrayBuffer; prfOutput?: ArrayBuffer }> {
   try {
-    const { username, ethereumAddress } = options;
+    const { username, ethereumAddress, userVerification = "required" } = options;
 
     assertUsername(username);
     assertEthereumAddress(ethereumAddress);
@@ -200,7 +200,7 @@ export async function register(
         { type: "public-key", alg: -257 }, // RS256
       ],
       authenticatorSelection: {
-        userVerification: "required",
+        userVerification,
         residentKey: "required",
         requireResidentKey: true,
       },

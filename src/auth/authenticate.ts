@@ -12,7 +12,9 @@ import {
 } from "../utils/base64";
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 
-export async function login(): Promise<AuthResult> {
+export async function login(
+  userVerification: UserVerificationRequirement = "required"
+): Promise<AuthResult> {
   try {
     const storage = new CredentialStorage();
     const challenge = generateChallenge();
@@ -37,8 +39,7 @@ export async function login(): Promise<AuthResult> {
     const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
       challenge: challengeBuffer,
       rpId: window.location.hostname,
-      // PRF requires user verification; keep "required" or PRF output vanishes
-      userVerification: "required",
+      userVerification,
       timeout: 60000,
       // Evaluate the PRF with a FIXED input: the output is a deterministic
       // per-credential secret, so the session key derived at this login can

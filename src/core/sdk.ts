@@ -158,7 +158,7 @@ export class Web3Passkey {
       throw new WalletError("No wallet found. Generate a wallet first.");
     }
 
-    const authResult = await login();
+    const authResult = await login(this.config.userVerification);
     if (!authResult.user) {
       throw new WalletError("Authentication failed");
     }
@@ -219,6 +219,7 @@ export class Web3Passkey {
       const registration = await register({
         username: options.username,
         ethereumAddress,
+        userVerification: this.config.userVerification,
       });
 
       const storage = new CredentialStorage();
@@ -337,7 +338,7 @@ export class Web3Passkey {
       }
 
       // STEP 2: No silent restore - proceed with WebAuthn authentication
-      const result = await login();
+      const result = await login(this.config.userVerification);
 
       if (!result.verified || !result.user) {
         throw new AuthenticationError("Login failed");
@@ -701,7 +702,7 @@ export class Web3Passkey {
         throw new WalletError("Invalid mnemonic: must be at least 12 words");
       }
 
-      const authResult = await login();
+      const authResult = await login(this.config.userVerification);
       if (!authResult.user) {
         throw new WalletError("Authentication failed");
       }
@@ -967,7 +968,7 @@ export class Web3Passkey {
             transports: ['internal', 'hybrid', 'usb', 'nfc', 'ble'],
           },
         ],
-        userVerification: 'required',
+        userVerification: this.config.userVerification,
         timeout: 60000,
       };
 
