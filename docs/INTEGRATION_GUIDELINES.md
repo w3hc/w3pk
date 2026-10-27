@@ -10,6 +10,7 @@ This guide covers essential best practices for integrating w3pk into your applic
 - [Sending Transactions](#sending-transactions)
 - [EIP-1193 Provider](#eip-1193-provider)
 - [Registration Flow](#registration-flow)
+- [User Verification](#user-verification)
 - [Backup & Recovery](#backup--recovery)
 - [Security Considerations](#security-considerations)
 
@@ -1216,6 +1217,30 @@ async function promptBackupOptions() {
   }
 }
 ```
+
+---
+
+## User Verification
+
+Registration accepts any authenticator: a built-in one (Touch ID, Windows Hello, Android), a phone through a QR code, a USB or NFC security key, or a password manager. Computers without a built-in authenticator, such as older Windows and Linux machines, can register through a phone or a security key.
+
+By default every prompt asks for a biometric or PIN. To let authenticators that can skip the check sign in with one click, set `userVerification: 'preferred'`:
+
+```typescript
+const w3pk = createWeb3Passkey({
+  userVerification: 'preferred'
+})
+```
+
+The authenticator decides whether to prompt. Built-in authenticators usually still ask; security keys without a PIN and unlocked password managers usually don't.
+
+What changes with `'preferred'`:
+
+- `register()`, `login()` and `signMessageWithPasskey()` ask for `'preferred'`
+- `derivePrfSecret()` and PRF device sync still require verification, so their secrets don't change
+- A login that isn't user-verified gets an in-memory session only: no persistent session is stored or restored from it
+
+Don't promise users a fingerprint check in your copy when you opt in: "biometric or PIN, when your device asks for it" stays accurate.
 
 ---
 

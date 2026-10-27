@@ -93,7 +93,7 @@ This document details WebAuthn support across browsers, operating systems, and d
 |-------------|-------|------------|
 | **Corporate/Managed devices** | Policy restrictions | Contact IT admin |
 | **Chromebooks (old)** | Limited biometric support | Use PIN or external key |
-| **Linux (some distros)** | No built-in authenticator | Use external security key |
+| **Linux (some distros)** | No built-in authenticator | Use a phone (QR code) or a security key |
 | **VirtualBox/VMs** | No biometric passthrough | Use password fallback |
 | **Remote Desktop** | Biometrics not forwarded | Use local device |
 
@@ -120,6 +120,18 @@ Chrome grants persistent storage from engagement heuristics (bookmarked, install
 | **Chromium, Firefox** | `false` |
 
 Block on a backup while `!hasBackup && evictionRisk`, and show a dismissible banner on `!hasBackup` otherwise. See [Integration Guidelines → Backup & Recovery](./INTEGRATION_GUIDELINES.md#backup--recovery).
+
+### Computers Without a Built-in Authenticator
+
+Registration accepts any authenticator, so a computer without Touch ID, Windows Hello or a TPM can still create a wallet with:
+
+| Authenticator | How | Notes |
+|---------------|-----|-------|
+| **Phone** | Scan the QR code shown by the browser ([hybrid transport](https://www.w3.org/TR/webauthn-3/#dom-authenticatortransport-hybrid)) | Needs Bluetooth on both devices; Chrome 108+, Safari 16+, Edge 108+ |
+| **Security key** | USB or NFC | CTAP2 keys; see below |
+| **Password manager** | 1Password, Bitwarden, Google Password Manager | Browser extension or built-in support |
+
+macOS falls back to the login password and Windows Hello to a PIN when there's no fingerprint reader. With `userVerification: 'preferred'`, security keys and unlocked password managers can sign in with one click. See [Integration Guidelines → User Verification](./INTEGRATION_GUIDELINES.md#user-verification).
 
 ### Hardware Security Keys
 
@@ -184,7 +196,7 @@ if (window.PublicKeyCredential) {
   if (available) {
     console.log('✅ Biometric authenticator available')
   } else {
-    console.log('⚠️ No biometric - use external security key')
+    console.log('⚠️ No built-in authenticator - use a phone or a security key')
   }
 } else {
   console.log('❌ WebAuthn not supported')
@@ -223,6 +235,7 @@ if (window.PublicKeyCredential) {
 
 **Solutions:**
 - Set up Face ID/Touch ID/Windows Hello
+- Use a phone through the QR code the browser shows
 - Use external security key (YubiKey, etc.)
 - Update to supported OS version
 

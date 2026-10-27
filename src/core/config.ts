@@ -61,6 +61,14 @@ export interface Web3PasskeyConfig {
    * Requires: snarkjs, circomlibjs
    */
   zkProofs?: ZKProofConfig;
+
+  /**
+   * WebAuthn user verification for login, registration and signing
+   * (default: 'required'). With 'preferred', authenticators that can skip
+   * the biometric/PIN check (security keys, unlocked password managers)
+   * sign in with one click. PRF-derived secrets always require it.
+   */
+  userVerification?: 'required' | 'preferred';
 }
 
 export interface InternalConfig extends Required<Web3PasskeyConfig> {}
@@ -68,6 +76,7 @@ export interface InternalConfig extends Required<Web3PasskeyConfig> {}
 export const DEFAULT_CONFIG: Partial<InternalConfig> = {
   debug: false,
   sessionDuration: 1,
+  userVerification: 'required',
   persistentSession: {
     enabled: false,
     duration: 168, // 7 days in hours

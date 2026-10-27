@@ -5,6 +5,19 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`userVerification` option** ([#167](https://github.com/w3hc/w3pk/issues/167)): `'required'` (default) or `'preferred'`, passed to `register()`, `login()` and `signMessageWithPasskey()`
+  - With `'preferred'`, authenticators that can skip the biometric/PIN check (security keys, unlocked password managers) sign in with one click
+  - `derivePrfSecret()` and PRF device sync always require user verification
+  - `prfOutput` is dropped when the authenticator data's UV flag is clear, so an unverified login gets an in-memory session, never a different persistent session key
+
+### Changed
+
+- **Registration accepts any authenticator** ([#167](https://github.com/w3hc/w3pk/issues/167)): `authenticatorAttachment: "platform"` is removed, so computers without a built-in authenticator can register through a phone (QR code), a security key or a password manager
+
 ## [0.10.4] - 2026-10-25
 
 ### Added

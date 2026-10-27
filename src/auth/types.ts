@@ -5,6 +5,7 @@
 export interface RegisterOptions {
   username: string;
   ethereumAddress: string;
+  userVerification?: UserVerificationRequirement;
 }
 
 export interface AuthResult {
