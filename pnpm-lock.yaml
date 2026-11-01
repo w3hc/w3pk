@@ -57,7 +57,7 @@ importers:
         specifier: ^5.4.6
         version: 5.4.6
       '@semaphore-protocol/identity':
-        specifier: 4.14.5
+        specifier: ^4.14.5
         version: 4.14.5
       blockstore-core:
         specifier: ^7.0.1
