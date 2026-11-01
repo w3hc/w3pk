@@ -1,57 +1,97 @@
 import { createMlKem1024 } from 'mlkem';
-import { hkdf } from '@noble/hashes/hkdf.js';
+import { x25519 } from '@noble/curves/ed25519.js';
+import { extract, expand } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { sha3_256 } from '@noble/hashes/sha3.js';
+import type { CHash } from '@noble/hashes/utils.js';
 
+/**
+ * Hybrid KEM keypair: ML-KEM-1024 and X25519, concatenated
+ */
 export interface MLKemKeypair {
-  publicKey: Uint8Array;   // 1568 bytes for ML-KEM-1024
-  privateKey: Uint8Array;  // 3168 bytes for ML-KEM-1024
+  publicKey: Uint8Array;   // 1600 bytes: ML-KEM-1024 encapsulation key (1568) || X25519 public key (32)
+  privateKey: Uint8Array;  // 3200 bytes: ML-KEM-1024 decapsulation key (3168) || X25519 secret key (32)
 }
 
 export interface EncryptedPayload {
-  version?: 2;              // Absent for legacy v1 payloads (XOR-wrapped AES key)
+  version: 3;
   recipients: Array<{
-    publicKey: string;      // Base64 recipient public key (1568 bytes)
-    ciphertext: string;     // Base64 ML-KEM ciphertext for this recipient
+    publicKey: string;      // Base64 recipient hybrid public key (1600 bytes)
+    enc: string;            // Base64 HPKE encapsulation: ML-KEM-1024 ciphertext (1568) || X25519 ephemeral public key (32)
+    ciphertext: string;     // Base64 HPKE-sealed AES-256 data key (32 + 16-byte tag)
   }>;
-  encryptedData: string;    // Base64 AES-encrypted data (shared across all recipients)
+  encryptedData: string;    // Base64 AES-256-GCM ciphertext (shared across all recipients)
   iv: string;               // Base64 IV
   authTag: string;          // Base64 auth tag
 }
 
-const KEM_CIPHERTEXT_LENGTH = 1568;
-const WRAPPED_KEY_LENGTH = { 1: 32, 2: 40 } as const;
+const ML_KEM_PUBLIC_KEY_LENGTH = 1568;
+const ML_KEM_PRIVATE_KEY_LENGTH = 3168;
+const ML_KEM_CIPHERTEXT_LENGTH = 1568;
+// FIPS 203 decapsulation key: dk_PKE (1536) || ek (1568) || H(ek) (32) || z (32)
+const ML_KEM_EK_OFFSET = 1536;
+const X25519_LENGTH = 32;
+const PUBLIC_KEY_LENGTH = ML_KEM_PUBLIC_KEY_LENGTH + X25519_LENGTH;
+const PRIVATE_KEY_LENGTH = ML_KEM_PRIVATE_KEY_LENGTH + X25519_LENGTH;
+const ENC_LENGTH = ML_KEM_CIPHERTEXT_LENGTH + X25519_LENGTH;
+const DATA_KEY_LENGTH = 32;
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
-const KEK_INFO = 'w3pk-mlkem-kek-v2';
+const SEALED_KEY_LENGTH = DATA_KEY_LENGTH + AUTH_TAG_LENGTH;
 
-/**
- * Securely zero out sensitive data from memory
- */
+const encoder = new TextEncoder();
+
+const KEYPAIR_SALT = encoder.encode('w3pk-kem-keypair-v3');
+const COMBINER_LABEL = encoder.encode('w3pk-MLKEM1024-X25519-v3');
+
+// Not IANA-registered: only domain-separates the HPKE key schedule
+const KEM_ID = 0xfe42;
+const KDF_ID_HKDF_SHA256 = 0x0001;
+const AEAD_ID_AES_256_GCM = 0x0002;
+const HPKE_VERSION_LABEL = encoder.encode('HPKE-v1');
+const HPKE_INFO = encoder.encode('w3pk-payload-v3');
+const MODE_BASE = 0x00;
+
 function zeroize(buffer: Uint8Array): void {
   buffer.fill(0);
 }
 
-/**
- * Convert Uint8Array to base64 (browser and Node.js compatible)
- */
+function concat(...parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+function i2osp(value: number, length: number): Uint8Array {
+  const out = new Uint8Array(length);
+  for (let i = length - 1; i >= 0; i--) {
+    out[i] = value & 0xff;
+    value >>>= 8;
+  }
+  return out;
+}
+
+function hpkeSuiteId(kemId: number, kdfId: number, aeadId: number): Uint8Array {
+  return concat(encoder.encode('HPKE'), i2osp(kemId, 2), i2osp(kdfId, 2), i2osp(aeadId, 2));
+}
+
+const SUITE_ID = hpkeSuiteId(KEM_ID, KDF_ID_HKDF_SHA256, AEAD_ID_AES_256_GCM);
+
 function arrayBufferToBase64(buffer: Uint8Array): string {
-  // Browser-compatible implementation
   if (typeof btoa !== 'undefined') {
     const binary = Array.from(buffer)
       .map(byte => String.fromCharCode(byte))
       .join('');
     return btoa(binary);
   }
-
-  // Node.js fallback
   return Buffer.from(buffer).toString('base64');
 }
 
-/**
- * Convert base64 string to Uint8Array (browser and Node.js compatible)
- */
 function base64ToArrayBuffer(base64: string): Uint8Array {
-  // Browser-compatible implementation
   if (typeof atob !== 'undefined') {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
@@ -60,82 +100,133 @@ function base64ToArrayBuffer(base64: string): Uint8Array {
     }
     return bytes;
   }
-
-  // Node.js fallback
   return new Uint8Array(Buffer.from(base64, 'base64'));
 }
 
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (clean.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(clean)) {
+    throw new Error('Invalid hex private key');
+  }
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.substring(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function toBytes(key: string | Uint8Array): Uint8Array {
+  return typeof key === 'string' ? base64ToArrayBuffer(key) : key;
+}
+
 /**
- * Derive the AES-KW key-encryption key from an ML-KEM shared secret (v2)
+ * Hybrid KEM combiner (UniversalCombiner of draft-irtf-cfrg-hybrid-kems):
+ * SHA3-256(ss_M || ss_X || ct_M || ct_X || pk_M || pk_X || label)
  */
-async function deriveKek(sharedSecret: Uint8Array, usage: KeyUsage): Promise<CryptoKey> {
-  const kek = hkdf(
-    sha256,
-    sharedSecret,
-    new Uint8Array(0),
-    new TextEncoder().encode(KEK_INFO),
-    32
-  );
+function combineSharedSecrets(
+  ssM: Uint8Array,
+  ssX: Uint8Array,
+  ctM: Uint8Array,
+  ctX: Uint8Array,
+  pkM: Uint8Array,
+  pkX: Uint8Array
+): Uint8Array {
+  const input = concat(ssM, ssX, ctM, ctX, pkM, pkX, COMBINER_LABEL);
   try {
-    return await crypto.subtle.importKey('raw', kek as BufferSource, 'AES-KW', false, [usage]);
+    return sha3_256(input);
   } finally {
-    zeroize(kek);
+    zeroize(input);
   }
 }
 
 /**
- * Recover the AES-GCM data key from a recipient's wrapped key
- * Throws if the wrapped key fails its integrity check (v2 only)
+ * HPKE key schedule, mode_base with the default PSK (RFC 9180, Section 5.1)
+ * @internal Exported for the RFC 9180 test vectors
  */
-async function unwrapAesKey(
-  version: 1 | 2,
+export function hpkeKeySchedule(
+  hash: CHash,
+  suiteId: Uint8Array,
   sharedSecret: Uint8Array,
-  wrappedKey: Uint8Array
-): Promise<CryptoKey> {
-  if (version === 2) {
-    const kek = await deriveKek(sharedSecret, 'unwrapKey');
-    return crypto.subtle.unwrapKey(
-      'raw',
-      wrappedKey as BufferSource,
-      kek,
-      'AES-KW',
-      { name: 'AES-GCM' },
-      false,
-      ['decrypt']
+  info: Uint8Array,
+  nk: number,
+  nn: number
+): { key: Uint8Array; baseNonce: Uint8Array } {
+  const empty = new Uint8Array(0);
+  const labeledExtract = (salt: Uint8Array, label: string, ikm: Uint8Array) =>
+    extract(hash, concat(HPKE_VERSION_LABEL, suiteId, encoder.encode(label), ikm), salt);
+  const labeledExpand = (prk: Uint8Array, label: string, ctx: Uint8Array, length: number) =>
+    expand(
+      hash,
+      prk,
+      concat(i2osp(length, 2), HPKE_VERSION_LABEL, suiteId, encoder.encode(label), ctx),
+      length
     );
-  }
 
-  // Legacy v1: AES key XOR-ed with the raw shared secret, no integrity check
-  const aesKey = new Uint8Array(32);
+  const pskIdHash = labeledExtract(empty, 'psk_id_hash', empty);
+  const infoHash = labeledExtract(empty, 'info_hash', info);
+  const context = concat(new Uint8Array([MODE_BASE]), pskIdHash, infoHash);
+  const secret = labeledExtract(sharedSecret, 'secret', empty);
   try {
-    for (let i = 0; i < 32; i++) {
-      aesKey[i] = wrappedKey[i] ^ sharedSecret[i];
-    }
-    return await crypto.subtle.importKey('raw', aesKey as BufferSource, { name: 'AES-GCM' }, false, ['decrypt']);
+    return {
+      key: labeledExpand(secret, 'key', context, nk),
+      baseNonce: labeledExpand(secret, 'base_nonce', context, nn),
+    };
   } finally {
-    zeroize(aesKey);
+    zeroize(secret);
   }
 }
 
+async function importAesGcmKey(raw: Uint8Array, usage: KeyUsage): Promise<CryptoKey> {
+  return crypto.subtle.importKey('raw', raw as BufferSource, { name: 'AES-GCM' }, false, [usage]);
+}
+
 /**
- * Derive deterministic ML-KEM-1024 keypair from any private key material
+ * Single-shot HPKE Seal/Open (sequence number 0, so the nonce is base_nonce) with AES-256-GCM
+ */
+async function hpkeAead(
+  direction: 'seal' | 'open',
+  sharedSecret: Uint8Array,
+  input: Uint8Array
+): Promise<Uint8Array> {
+  const { key, baseNonce } = hpkeKeySchedule(sha256, SUITE_ID, sharedSecret, HPKE_INFO, 32, IV_LENGTH);
+  try {
+    const params = { name: 'AES-GCM', iv: baseNonce as BufferSource, tagLength: 128 };
+    if (direction === 'seal') {
+      const aead = await importAesGcmKey(key, 'encrypt');
+      return new Uint8Array(await crypto.subtle.encrypt(params, aead, input as BufferSource));
+    }
+    const aead = await importAesGcmKey(key, 'decrypt');
+    return new Uint8Array(await crypto.subtle.decrypt(params, aead, input as BufferSource));
+  } finally {
+    zeroize(key);
+  }
+}
+
+function splitPrivateKey(privateKey: Uint8Array) {
+  const skM = privateKey.subarray(0, ML_KEM_PRIVATE_KEY_LENGTH);
+  const skX = privateKey.subarray(ML_KEM_PRIVATE_KEY_LENGTH);
+  return {
+    skM,
+    skX,
+    pkM: skM.slice(ML_KEM_EK_OFFSET, ML_KEM_EK_OFFSET + ML_KEM_PUBLIC_KEY_LENGTH),
+    pkX: x25519.getPublicKey(skX),
+  };
+}
+
+/**
+ * Derive a deterministic hybrid keypair (ML-KEM-1024 + X25519) from any private key material
  *
- * Uses HKDF-SHA256 to derive a 64-byte seed from the input key material,
- * then generates a reproducible ML-KEM-1024 keypair.
+ * HKDF-SHA256 extracts a PRK from the input (salt `w3pk-kem-keypair-v3`), then expands
+ * a 64-byte ML-KEM-1024 seed (info `ml-kem-1024:<context>`) and a 32-byte X25519 secret
+ * key (info `x25519:<context>`).
  *
  * @param privateKey - Private key material (hex string with optional 0x prefix, or Uint8Array)
  * @param context - Context string for domain separation (default: 'mlkem-v1')
- * @returns ML-KEM-1024 keypair (publicKey: 1568 bytes, privateKey: 3168 bytes)
+ * @returns Hybrid keypair (publicKey: 1600 bytes, privateKey: 3200 bytes)
  *
  * @example
  * ```typescript
- * // Derive from Ethereum private key
- * const ethPrivateKey = '0x1234...';
- * const keypair = await deriveMLKemKeypair(ethPrivateKey, 'my-app');
- *
- * // Derive from any 32-byte key
- * const randomKey = crypto.getRandomValues(new Uint8Array(32));
- * const keypair2 = await deriveMLKemKeypair(randomKey);
+ * const keypair = await deriveMLKemKeypair('0x1234...', 'my-app');
  * ```
  */
 export async function deriveMLKemKeypair(
@@ -144,60 +235,40 @@ export async function deriveMLKemKeypair(
 ): Promise<MLKemKeypair> {
   const mlkem = await createMlKem1024();
 
-  // Convert to Uint8Array
-  let privateKeyBytes: Uint8Array;
-
-  if (typeof privateKey === 'string') {
-    // Remove '0x' prefix if present
-    const hex = privateKey.startsWith('0x') ? privateKey.slice(2) : privateKey;
-
-    // Convert hex to bytes
-    if (typeof Buffer !== 'undefined') {
-      privateKeyBytes = new Uint8Array(Buffer.from(hex, 'hex'));
-    } else {
-      // Browser fallback
-      const bytes = new Uint8Array(hex.length / 2);
-      for (let i = 0; i < hex.length; i += 2) {
-        bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-      }
-      privateKeyBytes = bytes;
-    }
-  } else {
-    privateKeyBytes = privateKey;
-  }
-
-  // Derive 64-byte seed using HKDF-SHA256
-  // salt: "mlkem-keypair-v1" (versioned for future upgrades)
-  // info: context (for domain separation)
-  const seed = hkdf(
-    sha256,
-    privateKeyBytes,
-    new Uint8Array(Buffer.from('mlkem-keypair-v1', 'utf-8')),
-    new Uint8Array(Buffer.from(context, 'utf-8')),
-    64  // ML-KEM-1024 requires 64-byte seed
-  );
+  const ikm = typeof privateKey === 'string' ? hexToBytes(privateKey) : privateKey;
+  const prk = extract(sha256, ikm, KEYPAIR_SALT);
+  const seedM = expand(sha256, prk, encoder.encode(`ml-kem-1024:${context}`), 64);
+  const skX = expand(sha256, prk, encoder.encode(`x25519:${context}`), X25519_LENGTH);
 
   try {
-    // Generate deterministic ML-KEM keypair from 64-byte seed
-    const [publicKey, privateKeyOut] = mlkem.deriveKeyPair(seed);
-
-    return {
-      publicKey,
-      privateKey: privateKeyOut,
+    const [pkM, skM] = mlkem.deriveKeyPair(seedM);
+    const pkX = x25519.getPublicKey(skX);
+    const keypair = {
+      publicKey: concat(pkM, pkX),
+      privateKey: concat(skM, skX),
     };
+    zeroize(skM);
+    return keypair;
   } finally {
-    // Zero out sensitive seed material
-    zeroize(seed);
-    zeroize(privateKeyBytes);
+    zeroize(prk);
+    zeroize(seedM);
+    zeroize(skX);
+    if (typeof privateKey === 'string') {
+      zeroize(ikm);
+    }
   }
 }
 
 /**
- * Encrypt data using ML-KEM-1024 + AES-256-GCM for multiple recipients
+ * Encrypt data for one or more recipients (payload v3)
+ *
+ * The plaintext is encrypted once with AES-256-GCM under a random data key, which is
+ * sealed to each recipient with HPKE (RFC 9180, mode_base, HKDF-SHA256, AES-256-GCM)
+ * over a hybrid ML-KEM-1024 + X25519 KEM.
  *
  * @param plaintext - The data to encrypt
- * @param publicKeys - Array of ML-KEM-1024 public keys (base64 strings or Uint8Arrays, 1568 bytes each)
- * @returns Encrypted payload with per-recipient ciphertexts and shared encrypted data
+ * @param publicKeys - Hybrid public keys (base64 strings or Uint8Arrays, 1600 bytes each)
+ * @returns Encrypted payload with one entry per recipient
  */
 export async function mlkemEncrypt(
   plaintext: string,
@@ -205,139 +276,90 @@ export async function mlkemEncrypt(
 ): Promise<EncryptedPayload> {
   const mlkem = await createMlKem1024();
 
-  // Normalize to array
-  const publicKeyArray = Array.isArray(publicKeys) ? publicKeys : [publicKeys];
+  const publicKeyArray = (Array.isArray(publicKeys) ? publicKeys : [publicKeys]).map(toBytes);
 
   if (publicKeyArray.length === 0) {
     throw new Error('At least one public key is required');
   }
+  for (const publicKey of publicKeyArray) {
+    if (publicKey.length !== PUBLIC_KEY_LENGTH) {
+      throw new Error(`Invalid public key size: ${publicKey.length} (expected ${PUBLIC_KEY_LENGTH})`);
+    }
+  }
 
-  // Generate a random AES key for the data
-  const aesKey = new Uint8Array(32); // 256 bits
-  crypto.getRandomValues(aesKey);
+  const dataKey = crypto.getRandomValues(new Uint8Array(DATA_KEY_LENGTH));
 
   try {
-    // Generate random IV (96 bits recommended for AES-GCM)
-    const iv = new Uint8Array(12);
-    crypto.getRandomValues(iv);
-
-    // Encode plaintext
-    const encoder = new TextEncoder();
-    const data = encoder.encode(plaintext);
-
-    // Import AES key (extractable so it can be wrapped for each recipient)
-    const key = await crypto.subtle.importKey(
-      'raw',
-      aesKey,
-      { name: 'AES-GCM' },
-      true,
-      ['encrypt']
+    const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+    const sealed = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv, tagLength: 128 },
+        await importAesGcmKey(dataKey, 'encrypt'),
+        encoder.encode(plaintext)
+      )
     );
 
-    // Encrypt with AES-256-GCM
-    const encrypted = await crypto.subtle.encrypt(
-      {
-        name: 'AES-GCM',
-        iv,
-        tagLength: 128
-      },
-      key,
-      data
-    );
-
-    // Extract encrypted data and auth tag
-    const encryptedArray = new Uint8Array(encrypted);
-    const tagLength = 16;
-
-    if (encryptedArray.length < tagLength) {
-      throw new Error('Encrypted data too short to contain auth tag');
-    }
-
-    const encryptedData = encryptedArray.slice(0, -tagLength);
-    const authTag = encryptedArray.slice(-tagLength);
-
-    // Encapsulate AES key for each recipient
-    const recipients = [];
+    const recipients: EncryptedPayload['recipients'] = [];
 
     for (const publicKey of publicKeyArray) {
-      // Convert to Uint8Array if base64 string
-      const publicKeyBytes = typeof publicKey === 'string'
-        ? base64ToArrayBuffer(publicKey)
-        : publicKey;
+      const pkM = publicKey.subarray(0, ML_KEM_PUBLIC_KEY_LENGTH);
+      const pkX = publicKey.subarray(ML_KEM_PUBLIC_KEY_LENGTH);
 
-      // Validate public key size
-      if (publicKeyBytes.length !== 1568) {
-        throw new Error(`Invalid ML-KEM public key size: ${publicKeyBytes.length} (expected 1568)`);
-      }
-
-      // Encapsulate with this recipient's public key
-      const [ciphertext, sharedSecret] = mlkem.encap(publicKeyBytes);
+      const ephemeral = x25519.utils.randomSecretKey();
+      const ctX = x25519.getPublicKey(ephemeral);
+      const ssX = x25519.getSharedSecret(ephemeral, pkX);
+      const [ctM, ssM] = mlkem.encap(pkM);
+      const sharedSecret = combineSharedSecrets(ssM, ssX, ctM, ctX, pkM, pkX);
 
       try {
-        // Wrap the AES key with AES-KW under a KEK derived from the shared secret
-        const kek = await deriveKek(sharedSecret, 'wrapKey');
-        const encryptedAesKey = new Uint8Array(
-          await crypto.subtle.wrapKey('raw', key, kek, 'AES-KW')
-        );
-
-        // Store ciphertext concatenated with wrapped AES key
-        const combinedCiphertext = new Uint8Array(ciphertext.length + encryptedAesKey.length);
-        combinedCiphertext.set(ciphertext, 0);
-        combinedCiphertext.set(encryptedAesKey, ciphertext.length);
-
         recipients.push({
-          publicKey: arrayBufferToBase64(publicKeyBytes),
-          ciphertext: arrayBufferToBase64(combinedCiphertext),
+          publicKey: arrayBufferToBase64(publicKey),
+          enc: arrayBufferToBase64(concat(ctM, ctX)),
+          ciphertext: arrayBufferToBase64(await hpkeAead('seal', sharedSecret, dataKey)),
         });
       } finally {
+        zeroize(ephemeral);
+        zeroize(ssX);
+        zeroize(ssM);
         zeroize(sharedSecret);
       }
     }
 
     return {
-      version: 2,
+      version: 3,
       recipients,
-      encryptedData: arrayBufferToBase64(encryptedData),
+      encryptedData: arrayBufferToBase64(sealed.slice(0, -AUTH_TAG_LENGTH)),
       iv: arrayBufferToBase64(iv),
-      authTag: arrayBufferToBase64(authTag),
+      authTag: arrayBufferToBase64(sealed.slice(-AUTH_TAG_LENGTH)),
     };
   } finally {
-    // CRITICAL: Zero out all sensitive key material
-    zeroize(aesKey);
+    zeroize(dataKey);
   }
 }
 
 /**
- * Decrypt data encrypted with mlkemEncrypt()
+ * Decrypt a v3 payload from mlkemEncrypt()
+ *
+ * The recipient entry is found by the public key derived from `privateKey`.
+ * Payloads of any other version are rejected.
  *
  * @param payload - The encrypted payload
- * @param privateKey - ML-KEM-1024 private key (base64 string or Uint8Array, 3168 bytes)
- * @param publicKey - Optional: Your public key to find the correct recipient entry (base64 string or Uint8Array, 1568 bytes)
+ * @param privateKey - Hybrid private key (base64 string or Uint8Array, 3200 bytes)
  * @returns Decrypted plaintext
  */
 export async function mlkemDecrypt(
   payload: EncryptedPayload,
-  privateKey: string | Uint8Array,
-  publicKey?: string | Uint8Array
+  privateKey: string | Uint8Array
 ): Promise<string> {
-  const mlkem = await createMlKem1024();
-
-  // Convert to Uint8Array if base64 string
-  const privateKeyBytes = typeof privateKey === 'string'
-    ? base64ToArrayBuffer(privateKey)
-    : privateKey;
-
-  // Validate private key size (ML-KEM-1024 private key is 3168 bytes)
-  if (privateKeyBytes.length !== 3168) {
-    throw new Error(`Invalid ML-KEM private key size: ${privateKeyBytes.length} (expected 3168)`);
+  if (payload.version !== 3) {
+    throw new Error(`Unsupported payload version: ${String(payload.version)}`);
   }
 
-  const version = payload.version ?? 1;
-  if (version !== 1 && version !== 2) {
-    throw new Error(`Unsupported payload version: ${String(version)}`);
+  const privateKeyBytes = toBytes(privateKey);
+  if (privateKeyBytes.length !== PRIVATE_KEY_LENGTH) {
+    throw new Error(`Invalid private key size: ${privateKeyBytes.length} (expected ${PRIVATE_KEY_LENGTH})`);
   }
 
-  // Parse common payload parts
   const encryptedData = base64ToArrayBuffer(payload.encryptedData);
   const iv = base64ToArrayBuffer(payload.iv);
   const authTag = base64ToArrayBuffer(payload.authTag);
@@ -349,99 +371,62 @@ export async function mlkemDecrypt(
     throw new Error(`Invalid auth tag size: ${authTag.length} (expected ${AUTH_TAG_LENGTH})`);
   }
 
-  const expectedLength = KEM_CIPHERTEXT_LENGTH + WRAPPED_KEY_LENGTH[version];
+  const { skM, skX, pkM, pkX } = splitPrivateKey(privateKeyBytes);
+  const ownPublicKey = arrayBufferToBase64(concat(pkM, pkX));
 
-  // Decapsulate a recipient entry and recover its AES key
-  const openRecipient = async (ciphertext: string): Promise<CryptoKey> => {
-    const combinedCiphertext = base64ToArrayBuffer(ciphertext);
-    if (combinedCiphertext.length !== expectedLength) {
-      throw new Error(
-        `Invalid combined ciphertext size: ${combinedCiphertext.length} (expected ${expectedLength})`
-      );
-    }
+  const recipient = payload.recipients.find(r => r.publicKey === ownPublicKey);
+  if (!recipient) {
+    throw new Error('Public key not found in recipients list');
+  }
 
-    const kemCiphertext = combinedCiphertext.slice(0, KEM_CIPHERTEXT_LENGTH);
-    const wrappedKey = combinedCiphertext.slice(KEM_CIPHERTEXT_LENGTH);
+  const enc = base64ToArrayBuffer(recipient.enc);
+  const sealedKey = base64ToArrayBuffer(recipient.ciphertext);
+  if (enc.length !== ENC_LENGTH) {
+    throw new Error(`Invalid enc size: ${enc.length} (expected ${ENC_LENGTH})`);
+  }
+  if (sealedKey.length !== SEALED_KEY_LENGTH) {
+    throw new Error(`Invalid sealed key size: ${sealedKey.length} (expected ${SEALED_KEY_LENGTH})`);
+  }
 
-    const sharedSecret = mlkem.decap(kemCiphertext, privateKeyBytes);
-    try {
-      return await unwrapAesKey(version, sharedSecret, wrappedKey);
-    } finally {
-      zeroize(sharedSecret);
-    }
-  };
+  const ctM = enc.subarray(0, ML_KEM_CIPHERTEXT_LENGTH);
+  const ctX = enc.subarray(ML_KEM_CIPHERTEXT_LENGTH);
 
-  // Reconstruct ciphertext || tag for WebCrypto API
-  const encryptedWithTag = new Uint8Array(encryptedData.length + authTag.length);
-  encryptedWithTag.set(encryptedData, 0);
-  encryptedWithTag.set(authTag, encryptedData.length);
+  const mlkem = await createMlKem1024();
+  const ssM = mlkem.decap(ctM, skM);
+  let ssX: Uint8Array | undefined;
+  let sharedSecret: Uint8Array | undefined;
+  let dataKey: Uint8Array | undefined;
 
-  const decryptWith = async (ciphertext: string): Promise<string> => {
-    const key = await openRecipient(ciphertext);
+  try {
+    ssX = x25519.getSharedSecret(skX, ctX);
+    sharedSecret = combineSharedSecrets(ssM, ssX, ctM, ctX, pkM, pkX);
+    dataKey = await hpkeAead('open', sharedSecret, sealedKey);
+
     const decrypted = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv as BufferSource,
-        tagLength: 128
-      },
-      key,
-      encryptedWithTag as BufferSource
+      { name: 'AES-GCM', iv: iv as BufferSource, tagLength: 128 },
+      await importAesGcmKey(dataKey, 'decrypt'),
+      concat(encryptedData, authTag) as BufferSource
     );
     return new TextDecoder().decode(decrypted);
-  };
-
-  if (publicKey) {
-    // Use public key to find the correct recipient
-    const publicKeyBytes = typeof publicKey === 'string'
-      ? base64ToArrayBuffer(publicKey)
-      : publicKey;
-    const publicKeyBase64 = arrayBufferToBase64(publicKeyBytes);
-
-    const recipientEntry = payload.recipients.find(r => r.publicKey === publicKeyBase64);
-
-    if (!recipientEntry) {
-      throw new Error('Public key not found in recipients list');
-    }
-
-    return decryptWith(recipientEntry.ciphertext);
+  } finally {
+    zeroize(ssM);
+    if (ssX) zeroize(ssX);
+    if (sharedSecret) zeroize(sharedSecret);
+    if (dataKey) zeroize(dataKey);
   }
-
-  // ML-KEM decapsulation never fails on a wrong key (implicit rejection),
-  // so try each recipient until one passes the authenticated checks
-  for (const recipient of payload.recipients) {
-    try {
-      return await decryptWith(recipient.ciphertext);
-    } catch {
-      continue;
-    }
-  }
-
-  throw new Error('No matching recipient found for this private key');
 }
 
 /**
- * Encrypt data with ML-KEM using derived keypairs from private keys
+ * Encrypt with a hybrid keypair derived from private key material
  *
- * This is a convenience function that derives ML-KEM keypairs from private key material,
- * then encrypts the data for all recipients. The sender's keypair is derived and used
- * as one of the recipients.
+ * Derives the sender's keypair and adds its public key as the first recipient,
+ * so the sender can decrypt later.
  *
  * @param plaintext - The data to encrypt
  * @param senderPrivateKey - Sender's private key (hex string or Uint8Array)
- * @param recipientPublicKeys - Array of recipient ML-KEM public keys (from deriveMLKemKeypair)
- * @param senderContext - Context for sender's key derivation (default: 'mlkem-v1')
+ * @param recipientPublicKeys - Recipient hybrid public keys (from deriveMLKemKeypair)
+ * @param senderContext - Context for the sender's key derivation (default: 'mlkem-v1')
  * @returns Encrypted payload with sender + recipients
- *
- * @example
- * ```typescript
- * // Encrypt for yourself + server
- * const serverKeypair = await deriveMLKemKeypair(serverPrivateKey, 'server');
- * const encrypted = await mlkemEncryptWithKey(
- *   'secret data',
- *   myEthPrivateKey,
- *   [serverKeypair.publicKey]
- * );
- * ```
  */
 export async function mlkemEncryptWithKey(
   plaintext: string,
@@ -449,54 +434,33 @@ export async function mlkemEncryptWithKey(
   recipientPublicKeys: Array<string | Uint8Array>,
   senderContext: string = 'mlkem-v1'
 ): Promise<EncryptedPayload> {
-  // Derive sender's keypair
   const senderKeypair = await deriveMLKemKeypair(senderPrivateKey, senderContext);
 
   try {
-    // Include sender's public key as first recipient
-    const allPublicKeys = [senderKeypair.publicKey, ...recipientPublicKeys];
-
-    // Encrypt for all recipients
-    return await mlkemEncrypt(plaintext, allPublicKeys);
+    return await mlkemEncrypt(plaintext, [senderKeypair.publicKey, ...recipientPublicKeys]);
   } finally {
-    // Zero out sender's private key
     zeroize(senderKeypair.privateKey);
   }
 }
 
 /**
- * Decrypt data with ML-KEM using a derived keypair from private key
- *
- * This is a convenience function that derives an ML-KEM keypair from private key material,
- * then decrypts the payload.
+ * Decrypt with a hybrid keypair derived from private key material
  *
  * @param payload - The encrypted payload
  * @param privateKey - Private key material (hex string or Uint8Array)
  * @param context - Context for key derivation (default: 'mlkem-v1')
  * @returns Decrypted plaintext
- *
- * @example
- * ```typescript
- * // Decrypt with your Ethereum private key
- * const plaintext = await mlkemDecryptWithKey(
- *   encryptedPayload,
- *   myEthPrivateKey
- * );
- * ```
  */
 export async function mlkemDecryptWithKey(
   payload: EncryptedPayload,
   privateKey: string | Uint8Array,
   context: string = 'mlkem-v1'
 ): Promise<string> {
-  // Derive keypair
   const keypair = await deriveMLKemKeypair(privateKey, context);
 
   try {
-    // Decrypt using derived private key
-    return await mlkemDecrypt(payload, keypair.privateKey, keypair.publicKey);
+    return await mlkemDecrypt(payload, keypair.privateKey);
   } finally {
-    // Zero out private key
     zeroize(keypair.privateKey);
   }
 }
