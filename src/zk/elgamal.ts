@@ -84,7 +84,11 @@ export function elgamalRerandomize(
   r: bigint = randomBabyJubScalar()
 ): ElGamalCiphertext {
   assertCiphertext(ciphertext);
-  return elgamalAdd(ciphertext, elgamalEncrypt(publicKey, 0n, r));
+  const zero = elgamalEncrypt(publicKey, 0n, r);
+  return {
+    c1: babyJubAdd(ciphertext.c1, zero.c1),
+    c2: babyJubAdd(ciphertext.c2, zero.c2),
+  };
 }
 
 /**
