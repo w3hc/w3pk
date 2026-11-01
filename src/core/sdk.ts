@@ -1763,14 +1763,14 @@ export class Web3Passkey {
    * Combines M-of-N guardian shares to reconstruct the backup file
    *
    * @param shares - Array of guardian share objects (JSON strings or parsed objects)
-   * @param password - Password to decrypt the backup (if password-protected)
+   * @param password - Password of the backup the shares rebuild
    */
   async recoverFromGuardians(
     shares: Array<string | any>,
-    password?: string
+    password: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { SocialRecovery } = await import("../recovery/backup-based-recovery");
-    const { BackupFileManager, assertSupportedBackupMethod } = await import("../backup/backup-file");
+    const { BackupFileManager } = await import("../backup/backup-file");
     const { BackupManager } = await import("../backup");
 
     const recovery = new SocialRecovery();
@@ -1784,7 +1784,6 @@ export class Web3Passkey {
 
     // Combine shares to recover backup file
     const backupFile = await recovery.recoverFromShares(parsedShares);
-    assertSupportedBackupMethod(backupFile);
 
     // Decrypt backup file
     let result;
@@ -1965,20 +1964,10 @@ export class Web3Passkey {
       }
     }
 
-    let mnemonic: string;
-    let ethereumAddress: string;
-
-    // Step 3: Restore based on backup encryption method
-    if (backupFile.encryptionMethod === 'password') {
-      if (!password) {
-        throw new WalletError("Password required to restore password-encrypted backup");
-      }
-      const result = await manager.restoreWithPassword(backupFile, password);
-      mnemonic = result.mnemonic;
-      ethereumAddress = result.ethereumAddress;
-    } else {
-      throw new WalletError(`Unknown encryption method: ${backupFile.encryptionMethod}`);
+    if (!password) {
+      throw new WalletError("Password required to restore password-encrypted backup");
     }
+    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
 
     backupManager.markBackupVerified(ethereumAddress);
 
@@ -2115,7 +2104,7 @@ export class Web3Passkey {
 
     if (backupFile.encryptionMethod !== 'password') {
       throw new WalletError(
-        "Can only register with password-encrypted backups. Use restoreFromBackupFile() for passkey-encrypted backups."
+        "Can only register with password-encrypted backups. Use syncWalletWithPasskey() or importFromSync() for PRF backups."
       );
     }
 
