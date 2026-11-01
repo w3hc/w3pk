@@ -2447,10 +2447,11 @@ Get comprehensive backup status showing what protects the wallet.
 **Returns:**
 
 ```typescript
-type BackupMethod = 'file' | 'qr' | 'phrase';
+type BackupMethod = 'file' | 'qr' | 'phrase' | 'prf';
 
 interface BackupStatus {
-  hasBackup: boolean;        // a backup file, QR code or confirmed phrase exists
+  hasBackup: boolean;        // a backup that restores without a passkey exists: file, QR code, confirmed phrase or social recovery
+  recommendedMode?: 'password' | 'prf'; // next backup to make; undefined once both exist
   evictionRisk: boolean;     // the browser may wipe the wallet: WebKit outside a home-screen app, storage not persisted
   lastBackupAt?: string;     // ISO 8601 time of the latest backup
   methods: BackupMethod[];
@@ -2461,7 +2462,9 @@ interface BackupStatus {
 }
 ```
 
-Browser storage can be wiped (eviction, Safari's 7-day cap, clearing site data), so a wallet without a backup can be lost for good. While `hasBackup` is `false`, the security score is capped at 20 and its level is `vulnerable`.
+Browser storage can be wiped (eviction, Safari's 7-day cap, clearing site data), so a wallet without a backup can be lost for good. A lost device without a synced passkey can only be recovered from a backup that doesn't need the passkey, so `hasBackup` counts only those. A `prf` file from `exportForSync()` is recorded with method `prf` but doesn't count. While `hasBackup` is `false`, the security score is capped at 20 and its level is `vulnerable`. A password-only backup isn't penalized.
+
+`recommendedMode` is `password` while no backup restores without a passkey: that's the backup that must exist. It's then `prf` until a PRF backup exists, for convenient sync to devices where the passkey synced.
 
 `evictionRisk` is computed on each call from `navigator.storage.persisted()` and the display mode: `true` on WebKit (every iOS browser, Safari and other WebKit browsers on desktop) in a tab whose storage is not persisted, `false` in a home-screen app, once storage is persisted, and on Chromium and Firefox.
 
@@ -2497,9 +2500,9 @@ if (await userConfirmsPhraseWrittenDown()) {
 
 ---
 
-### `createBackupFile(encryptionType: 'password', password: string): Promise<{ blob: Blob; filename: string }>`
+### `createBackupFile(password: string): Promise<{ blob: Blob; filename: string }>`
 
-Create simplified backup file for wallet recovery.
+Create a password backup (BackupFile v3): the backup that restores without a passkey. For a backup the passkey decrypts, use `exportForSync()` (PRF).
 
 This backup can be used to:
 - Restore wallet with existing passkey
@@ -2508,8 +2511,26 @@ This backup can be used to:
 - Split among guardians for social recovery
 
 **Parameters:**
-- `encryptionType: 'password'` - The only method for a backup file: it can be restored on any device with the password. For a backup the passkey decrypts, use `exportForSync()` (PRF)
-- `password: string` - Encrypts the backup
+- `password: string` - Encrypts the backup through Argon2id (m=19 MiB, t=2, p=1, random 16-byte salt; NFC-normalized) and AES-256-GCM
+
+The file holds no address. The default filename is `w3pk-backup-<date>.json`. Passing a second argument (the removed `encryptionType`) throws `WalletError`.
+
+**File format (v3):**
+
+```typescript
+interface BackupFile {
+  version: 3;
+  createdAt: string;
+  encryptedMnemonic: string;      // base64(iv || AES-256-GCM ciphertext)
+  encryptionMethod: 'password' | 'prf';
+  passwordEncryption?: { kdf: 'argon2id'; salt: string; memoryKiB: number; passes: number; parallelism: number };
+  credential?: { id: string; publicKey: string };
+  prfSalt?: string;               // prf
+  username?: string;              // prf
+}
+```
+
+Restoring a file that isn't v3 throws `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`, with `version`). For a v2 password file, its message names the [v0.10.6 offline tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html). `passkey` and `hybrid` files throw `RemovedBackupMethodError`.
 
 **Returns:**
 
@@ -2525,8 +2546,7 @@ This backup can be used to:
 **Example:**
 
 ```typescript
-// Password-encrypted backup (default)
-const { blob, filename } = await w3pk.createBackupFile('password', 'MySecurePassword123!')
+const { blob, filename } = await w3pk.createBackupFile('MySecurePassword123!')
 
 // Download the backup
 const url = URL.createObjectURL(blob)
@@ -2578,7 +2598,7 @@ Set up social recovery by splitting an encrypted backup file among guardians.
 import { SocialRecoveryManager } from 'w3pk';
 
 // Step 1: Create password-encrypted backup file
-const { blob } = await w3pk.createBackupFile('password', 'MySecurePassword123!');
+const { blob } = await w3pk.createBackupFile('MySecurePassword123!');
 const backupFileJson = await blob.text();
 
 // Step 2: Setup social recovery with 3-of-5 threshold
@@ -2650,9 +2670,11 @@ Reconstruct encrypted backup file from guardian shares.
 ```typescript
 {
   backupFileJson: string;      // Reconstructed encrypted backup file
-  ethereumAddress: string;     // Ethereum address from backup
+  ethereumAddress: string;     // Ethereum address from the shares (the v3 file holds no address)
 }
 ```
+
+**Throws:** `UnsupportedBackupVersionError` when the shares rebuild a v2 file (shares made before 0.11.0); its `backupFileJson` holds the rebuilt file, for the v0.10.6 offline tool
 
 **Example:**
 
@@ -2707,7 +2729,9 @@ Restore wallet from backup file with existing passkey.
 
 **Use case:** User has passkey synced to this device and wants to restore wallet from backup.
 
-After restoration, the wallet is automatically associated with the current logged-in user. If not logged in, you can either:
+A `prf` backup takes one assertion with its passkey and no password, then sets this device up for that passkey, as `importFromSync()` does (`SyncBootstrapError` with `reason: 'CREDENTIAL_MISMATCH'` when logged in with another passkey).
+
+After restoring a password backup, the wallet is automatically associated with the current logged-in user. If not logged in, you can either:
 - Call `importMnemonic()` to associate with current user
 - Call `registerWithBackupFile()` to create new passkey for this wallet
 
@@ -2739,7 +2763,10 @@ console.log('Wallet restored:', result.ethereumAddress)
 // Wallet is automatically associated with current user
 ```
 
-**Throws:** `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`) for a `passkey` or `hybrid` backup
+**Throws:**
+- `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`, with `version`) for a file that isn't BackupFile v3
+- `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`) for a `passkey` or `hybrid` backup
+- `CryptoError` for a wrong password or an altered file
 
 ---
 
@@ -2865,7 +2892,7 @@ Runs a fresh assertion restricted to the current passkey and encrypts the mnemon
 }
 ```
 
-**File format (`prf`):** `encryptedMnemonic`, `prfSalt` (32 random bytes per file, base64url), `credential: { id, publicKey }`, `username`, `addressChecksum`. Key: HKDF-SHA256 over the PRF output evaluated at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, then AES-256-GCM. The public key doesn't decrypt the file; a fresh device needs it for `login()` and checks it against the assertion's signature.
+**File format (`prf`, BackupFile v3):** `version: 3`, `encryptedMnemonic`, `prfSalt` (32 random bytes per file, base64url), `credential: { id, publicKey }`, `username`; no address. The default filename is `w3pk-sync-<date>.json`. The export is recorded in `getBackupStatus().methods` as `prf`. Key: HKDF-SHA256 over the PRF output evaluated at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, then AES-256-GCM. The public key doesn't decrypt the file; a fresh device needs it for `login()` and checks it against the assertion's signature.
 
 **Security:** The PRF assertion is the fresh user verification; with an active session, export takes one prompt.
 
@@ -2961,6 +2988,7 @@ console.log('Synced wallet address:', result.ethereumAddress)
 **Throws:**
 - `WalletError` if password is required but not provided
 - `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`) for a `passkey` or `hybrid` backup, before any prompt
+- `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`) for a file that isn't BackupFile v3, before any prompt
 - `Error` if backup uses an unknown encryption method
 - `SyncBootstrapError` on a device with no data for the passkey (carries `reason` and `credentialId`):
   - `'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4)
@@ -3929,7 +3957,8 @@ import {
   WalletMissingError,
   SyncBootstrapError,
   PrfUnsupportedError,
-  RemovedBackupMethodError
+  RemovedBackupMethodError,
+  UnsupportedBackupVersionError
 } from 'w3pk'
 ```
 
@@ -3947,6 +3976,7 @@ import {
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
   - `PrfUnsupportedError` - `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
   - `RemovedBackupMethodError` - `syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, `recoverFromGuardians()`: the backup uses the removed `passkey` or `hybrid` method (`method`); create a new `password` or `prf` backup
+  - `UnsupportedBackupVersionError` - the same methods and `registerWithBackupFile()`: the file isn't BackupFile v3 (`version`; `backupFileJson` when rebuilt from guardian shares); decrypt a v2 password file with the v0.10.6 offline tool
 
 ### Error Handling
 
