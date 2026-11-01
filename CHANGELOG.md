@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Public keys and ciphertexts outside the prime-order subgroup, low-order points, the identity as a key and non-canonical encodings throw `CryptoError`
   - Native `bigint`, synchronous, with no runtime dependency on `circomlibjs`
 
+- **ZK artifact verification** ([#151](https://github.com/w3hc/w3pk/issues/151)) in `w3pk/zk`, so a host or CDN can't swap the circuit an app proves against
+  - `verifyZkArtifacts({ wasm, zkey }, pins)` computes the IPFS CIDv1 of each artifact (bytes or URL) as `ipfs add --cid-version 1` does and returns the verified bytes to prove with
+  - `readZkArtifactPins(registry, keys)` reads the pins from the build-verification registry, or any contract with its `getCidByVersion(string)`
+  - `ZkArtifactMismatchError` (`code: 'ZK_ARTIFACT_MISMATCH'`, with `artifact`, `expectedCid`, `actualCid`) on a mismatch; `ZK_ARTIFACT_FETCH_ERROR` and `ZK_ARTIFACT_NOT_PINNED` otherwise
+  - Build verification and ZK artifacts share one CID helper, which no longer keeps a copy of the blocks in memory
+
 ## [0.10.5] - 2026-10-27
 
 ### Added
