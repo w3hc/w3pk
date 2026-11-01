@@ -6,6 +6,7 @@
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { CryptoError } from "../core/errors";
+import { bufferToBigInt } from "./utils";
 
 /** Affine point `[x, y]`, the layout circom signals use */
 export type BabyJubPoint = readonly [bigint, bigint];
@@ -41,6 +42,9 @@ export const BABYJUB_IDENTITY: BabyJubPoint = [0n, 1n];
 const P = BABYJUB_FIELD;
 const HALF_P = (P - 1n) >> 1n;
 const KEY_INFO = new TextEncoder().encode("w3pk-babyjub-v1");
+
+const SCALAR_BITS = 256;
+const MAX_DISCRETE_LOG = 2 ** 32;
 
 type Projective = [bigint, bigint, bigint];
 
@@ -122,6 +126,24 @@ function toAffine([x, y, z]: Projective): BabyJubPoint {
   return [(x * zi) % P, (y * zi) % P];
 }
 
+function addUnchecked(p: BabyJubPoint, q: BabyJubPoint): BabyJubPoint {
+  return toAffine(addProjective([p[0], p[1], 1n], [q[0], q[1], 1n]));
+}
+
+function mulUnchecked(p: BabyJubPoint, e: bigint): BabyJubPoint {
+  let r0: Projective = [0n, 1n, 1n];
+  let r1: Projective = [p[0], p[1], 1n];
+  const bits = Math.max(SCALAR_BITS, e.toString(2).length);
+  for (let i = bits - 1; i >= 0; i--) {
+    const bit = (e >> BigInt(i)) & 1n;
+    const sum = addProjective(r0, r1);
+    const doubled = bit ? addProjective(r1, r1) : addProjective(r0, r0);
+    r0 = bit ? sum : doubled;
+    r1 = bit ? doubled : sum;
+  }
+  return toAffine(r0);
+}
+
 function assertScalar(e: bigint, name: string): void {
   if (typeof e !== "bigint" || e < 0n) {
     throw new CryptoError(`${name} must be a non-negative bigint`);
@@ -153,14 +175,14 @@ export function isOnBabyJub(p: BabyJubPoint): boolean {
  */
 export function isInBabyJubSubgroup(p: BabyJubPoint): boolean {
   if (!isOnBabyJub(p)) return false;
-  const [x, y] = babyJubMul(p, BABYJUB_SUBORDER);
+  const [x, y] = mulUnchecked(p, BABYJUB_SUBORDER);
   return x === 0n && y === 1n;
 }
 
 export function babyJubAdd(p: BabyJubPoint, q: BabyJubPoint): BabyJubPoint {
   assertPoint(p, "First point");
   assertPoint(q, "Second point");
-  return toAffine(addProjective([p[0], p[1], 1n], [q[0], q[1], 1n]));
+  return addUnchecked(p, q);
 }
 
 export function babyJubNeg(p: BabyJubPoint): BabyJubPoint {
@@ -169,21 +191,14 @@ export function babyJubNeg(p: BabyJubPoint): BabyJubPoint {
 }
 
 /**
- * Scalar multiplication `e · p`. The scalar is not reduced, so
- * `babyJubMul(p, BABYJUB_SUBORDER)` exposes torsion components
+ * Scalar multiplication `e · p` by a Montgomery ladder over at least 256
+ * bits, so the work doesn't depend on the scalar's bits. The scalar is
+ * not reduced, so `babyJubMul(p, BABYJUB_SUBORDER)` exposes torsion components
  */
 export function babyJubMul(p: BabyJubPoint, e: bigint): BabyJubPoint {
   assertPoint(p, "Point");
   assertScalar(e, "Scalar");
-  let result: Projective = [0n, 1n, 1n];
-  let base: Projective = [p[0], p[1], 1n];
-  let rem = e;
-  while (rem > 0n) {
-    if (rem & 1n) result = addProjective(result, base);
-    base = addProjective(base, base);
-    rem >>= 1n;
-  }
-  return toAffine(result);
+  return mulUnchecked(p, e);
 }
 
 export function babyJubEquals(p: BabyJubPoint, q: BabyJubPoint): boolean {
@@ -267,9 +282,7 @@ export function unpackBabyJubPublicKey(bytes: Uint8Array): BabyJubPoint {
 }
 
 function bytesToScalar(bytes: Uint8Array): bigint {
-  let n = 0n;
-  for (const b of bytes) n = (n << 8n) | BigInt(b);
-  return (n % (BABYJUB_SUBORDER - 1n)) + 1n;
+  return (bufferToBigInt(bytes) % (BABYJUB_SUBORDER - 1n)) + 1n;
 }
 
 /**
@@ -286,7 +299,7 @@ export function randomBabyJubScalar(): bigint {
  */
 export function babyJubPublicKey(privateKey: bigint): BabyJubPoint {
   assertBabyJubPrivateKey(privateKey);
-  return babyJubMul(BABYJUB_BASE8, privateKey);
+  return mulUnchecked(BABYJUB_BASE8, privateKey);
 }
 
 export function generateBabyJubKeyPair(): BabyJubKeyPair {
@@ -309,15 +322,16 @@ export function deriveBabyJubKeyPair(secret: Uint8Array): BabyJubKeyPair {
 
 /**
  * Smallest `m` in `[0, maxValue]` with `m · BABYJUB_BASE8 = point`, by
- * baby-step giant-step, or `null` when there is none
+ * baby-step giant-step, or `null` when there is none. `maxValue` is at
+ * most 2^32, which takes about 2^17 point additions
  */
 export function babyJubDiscreteLog(
   point: BabyJubPoint,
   maxValue: number
 ): bigint | null {
   assertPoint(point, "Point");
-  if (!Number.isSafeInteger(maxValue) || maxValue < 0) {
-    throw new CryptoError("maxValue must be a non-negative safe integer");
+  if (!Number.isInteger(maxValue) || maxValue < 0 || maxValue > MAX_DISCRETE_LOG) {
+    throw new CryptoError("maxValue must be an integer in [0, 2^32]");
   }
   const steps = Math.ceil(Math.sqrt(maxValue + 1));
   const table = new Map<string, number>();
@@ -325,9 +339,9 @@ export function babyJubDiscreteLog(
   for (let j = 0; j < steps; j++) {
     const key = `${baby[0]},${baby[1]}`;
     if (!table.has(key)) table.set(key, j);
-    baby = babyJubAdd(baby, BABYJUB_BASE8);
+    baby = addUnchecked(baby, BABYJUB_BASE8);
   }
-  const giant = babyJubNeg(babyJubMul(BABYJUB_BASE8, BigInt(steps)));
+  const giant = babyJubNeg(mulUnchecked(BABYJUB_BASE8, BigInt(steps)));
   let gamma = point;
   for (let i = 0; i < steps; i++) {
     const j = table.get(`${gamma[0]},${gamma[1]}`);
@@ -335,7 +349,7 @@ export function babyJubDiscreteLog(
       const m = i * steps + j;
       return m <= maxValue ? BigInt(m) : null;
     }
-    gamma = babyJubAdd(gamma, giant);
+    gamma = addUnchecked(gamma, giant);
   }
   return null;
 }
