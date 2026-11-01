@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ZkArtifactMismatchError` (`code: 'ZK_ARTIFACT_MISMATCH'`, with `artifact`, `expectedCid`, `actualCid`) on a mismatch; `ZK_ARTIFACT_FETCH_ERROR` and `ZK_ARTIFACT_NOT_PINNED` otherwise
   - Build verification and ZK artifacts share one CID helper, which no longer keeps a copy of the blocks in memory
 
+- **`getSemaphoreIdentity(tag)`** ([#152](https://github.com/w3hc/w3pk/issues/152)) returns the commitment of a Semaphore v4 identity bound to the passkey, and the `credentialId` it's bound to so apps can handle rotation
+  - The private key is a PRF secret under its own label (`w3pk-semaphore-v1`), out of reach of `derivePrfSecret(tag)`; it is never returned or stored
+  - The commitment matches `@semaphore-protocol/identity`, a new optional dependency imported only when the method is called
+  - `SemaphoreIdentity` type
+
 ## [0.10.5] - 2026-10-27
 
 ### Added

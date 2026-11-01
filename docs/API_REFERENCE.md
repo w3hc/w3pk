@@ -11,6 +11,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
   - [`sendTransaction()`](#sendtransactiontx-options-promisetransactionresult)
   - [`getEIP1193Provider()`](#geteip1193provideroptions-eip1193providerinterface)
   - [`derivePrfSecret()`](#deriveprfsecrettag-string-promiseprfsecret)
+  - [`getSemaphoreIdentity()`](#getsemaphoreidentitytag-string-promisesemaphoreidentity)
 - [Stealth Addresses (ERC-5564)](#stealth-addresses-erc-5564)
 - [Zero-Knowledge Proofs](#zero-knowledge-proofs)
 - [Backup & Recovery](#backup--recovery)
@@ -1424,6 +1425,55 @@ try {
 - **Origin separation is w3pk's, not the browser's.** Passkeys are scoped to the RP ID (the hostname), so another origin on the same hostname (another port or scheme) can use the same passkey. The origin in the PRF input keeps `derivePrfSecret()` from giving one origin another's secret, but a script running on such an origin can evaluate the PRF itself with any input. Serve one app per hostname when that matters.
 - **Script on the origin.** Code running on the page (XSS, a compromised dependency) can call `derivePrfSecret()` or the PRF directly and get the secret after the user approves a prompt. User verification bounds it to a user action, not to the app's intent.
 - **Separate from the persistent session key.** That key uses a different PRF input, so no tag gives it.
+- **Separate from Semaphore identities.** [`getSemaphoreIdentity()`](#getsemaphoreidentitytag-string-promisesemaphoreidentity) uses a different PRF input, so no tag gives its private key.
+
+---
+
+### `getSemaphoreIdentity(tag: string): Promise<SemaphoreIdentity>`
+
+Get the commitment of a [Semaphore v4](https://docs.semaphore.pse.dev/guides/identities) identity bound to the passkey, for anonymous voting, signalling or rate-limited posting. The identity's private key is a PRF secret that never leaves w3pk: it isn't returned, stored, or in backups.
+
+Requires the optional dependency [`@semaphore-protocol/identity`](https://www.npmjs.com/package/@semaphore-protocol/identity), imported only when the method is called.
+
+**Parameters:**
+- `tag: string` - Non-empty label without `:`, such as `"voting"`. Case-sensitive.
+
+**Returns:** `SemaphoreIdentity`
+
+```typescript
+interface SemaphoreIdentity {
+  commitment: bigint;    // Poseidon(publicKey), the group member value
+  credentialId: string;  // passkey the identity is bound to
+}
+```
+
+**What happens:**
+1. Loads `@semaphore-protocol/identity`
+2. Derives a 32-byte private key as [`derivePrfSecret()`](#deriveprfsecrettag-string-promiseprfsecret) does, with the label `w3pk-semaphore-v1` instead of `w3pk-prf-v1`: PRF input `SHA-256("w3pk-semaphore-v1:" + origin + ":" + tag)`, then HKDF-SHA256 with salt `w3pk-prf-secret-v1` and the same string as info
+3. Returns `new Identity(privateKey).commitment` and zeroes the private key
+
+The same passkey, origin and tag always give the same commitment, equal to `@semaphore-protocol/identity`'s for that private key. A different tag, origin or passkey gives an unrelated identity.
+
+**Rotation:** a new passkey gives a new commitment. Store `credentialId` with the commitment you add to a group; when a later call returns another `credentialId`, update the member (`group.updateMember`) or add the new commitment.
+
+**Example:**
+
+```typescript
+import { Group } from '@semaphore-protocol/group'
+
+const group = new Group()
+const { commitment, credentialId } = await w3pk.getSemaphoreIdentity('voting')
+group.addMember(commitment)
+```
+
+**Throws:**
+- `PrfUnsupportedError` if the authenticator returns no PRF output
+- `AuthenticationError` if the prompt is cancelled or the passkey isn't available
+- `CryptoError` if `@semaphore-protocol/identity` isn't installed (before any prompt), or if `tag` is empty or contains `:`
+
+**Threat model:** the same as `derivePrfSecret()`'s, plus:
+- **Out of reach of `derivePrfSecret()`.** The label differs, so `derivePrfSecret(tag)` returns a different secret for every tag, and an app can't rebuild the identity through the public API. Code running on the origin can still evaluate the PRF directly with the identity's input.
+- **Proofs need the private key.** This method returns the commitment only; generating Semaphore proofs inside w3pk is not part of it.
 
 ---
 
@@ -3842,7 +3892,7 @@ import {
   - `SyncRequiredError` - `login()`: passkey authenticated, but this device has no credential metadata (`credentialId`)
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
-  - `PrfUnsupportedError` - `derivePrfSecret()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
+  - `PrfUnsupportedError` - `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
 
 ### Error Handling
 

@@ -15,6 +15,7 @@ Comprehensive cryptographic utilities for zero-knowledge proofs, key derivation,
   - [Merkle Trees](#merkle-trees)
   - [Commitments](#commitments)
   - [Baby Jubjub and ElGamal](#baby-jubjub-and-elgamal)
+  - [Semaphore Identities](#semaphore-identities)
   - [Circuit Artifact Verification](#circuit-artifact-verification)
 - [Use Cases](#use-cases)
 - [Security Considerations](#security-considerations)
@@ -354,6 +355,24 @@ Every function that takes a public key or ciphertext checks it first and throws 
 - packed encodings with `y ≥ p`, no point on the curve, or a sign bit on `x = 0`
 
 Scalar multiplication runs a Montgomery ladder over at least 256 bits, so the number of point operations doesn't depend on the scalar. JavaScript `bigint` arithmetic is not constant time, so this is not a guarantee against a local timing attacker.
+
+---
+
+### Semaphore Identities
+
+`w3pk.getSemaphoreIdentity(tag)` returns the commitment of a [Semaphore v4](https://docs.semaphore.pse.dev/guides/identities) identity whose private key is a passkey PRF secret. The private key never leaves w3pk, isn't stored and isn't in backups.
+
+```typescript
+const { commitment, credentialId } = await w3pk.getSemaphoreIdentity('voting')
+group.addMember(commitment)
+```
+
+- Needs the optional dependency `@semaphore-protocol/identity`, imported only when the method is called
+- The commitment equals `new Identity(privateKey).commitment` from `@semaphore-protocol/identity`: Poseidon of the EdDSA-Poseidon public key on Baby Jubjub
+- The private key is derived under its own PRF label (`w3pk-semaphore-v1`), so `derivePrfSecret(tag)` can't return it for any tag, and building an `Identity` from `derivePrfSecret()` gives a different commitment
+- A new passkey gives a new commitment: keep `credentialId` with the commitment and update the group member when it changes
+
+See the [API reference](./API_REFERENCE.md#getsemaphoreidentitytag-string-promisesemaphoreidentity).
 
 ---
 
