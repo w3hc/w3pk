@@ -979,9 +979,12 @@ Resources:
             { name: 'Eve', email: 'eve@example.com' }
           ];
 
+          const password = prompt('Enter a password for the backup the guardians will hold:');
+          if (!password) return;
+
           window.showResult('Setting up social recovery (this will require authentication)...', null);
 
-          const result = await window.w3pk.setupSocialRecovery(guardians, 3);
+          const result = await window.w3pk.setupSocialRecovery(guardians, 3, password);
           console.log('Social recovery setup:', result);
 
           window.showResult('Social Recovery Setup Complete', {
