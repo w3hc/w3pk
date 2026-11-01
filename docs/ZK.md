@@ -14,6 +14,7 @@ Comprehensive cryptographic utilities for zero-knowledge proofs, key derivation,
   - [Iterative Hashing](#iterative-hashing)
   - [Merkle Trees](#merkle-trees)
   - [Commitments](#commitments)
+  - [Baby Jubjub and ElGamal](#baby-jubjub-and-elgamal)
 - [Use Cases](#use-cases)
 - [Security Considerations](#security-considerations)
 - [API Reference](#api-reference)
@@ -23,6 +24,8 @@ Comprehensive cryptographic utilities for zero-knowledge proofs, key derivation,
   - [Merkle Trees](#merkle-trees-1)
   - [Other Utilities](#other-utilities)
   - [NFT Ownership Utilities](#nft-ownership-utilities)
+  - [Baby Jubjub](#baby-jubjub)
+  - [ElGamal](#elgamal)
 - [Examples](#examples)
 - [Testing](#testing)
 - [Performance Benchmarks](#performance-benchmarks)
@@ -39,6 +42,7 @@ The w3pk SDK provides a comprehensive suite of zero-knowledge cryptographic util
 - **Privacy-Preserving Identifiers**: Salted hashing for user IDs
 - **Commitment Schemes**: Cryptographic commitments for ZK proofs
 - **Merkle Proofs**: Membership verification without revealing identity
+- **Baby Jubjub and ElGamal**: Curve keys and additively homomorphic encryption that circom circuits can check
 
 All utilities are built on Web Crypto API standards and are compatible with both browser and Node.js environments.
 
@@ -285,6 +289,69 @@ const blinding = generateBlinding()
 const blinding2 = generateBlinding()
 console.log(blinding !== blinding2)  // true
 ```
+
+---
+
+### Baby Jubjub and ElGamal
+
+`w3pk/zk` implements [Baby Jubjub (EIP-2494)](https://eips.ethereum.org/EIPS/eip-2494) and exponential ElGamal on it, matching circomlib's `babyjub` gadgets and circomlibjs's encodings, so values built here can be checked in circom circuits. The code is synchronous native `bigint` and needs neither `circomlibjs` nor `snarkjs`.
+
+- Points are affine `[x, y]` tuples (`BabyJubPoint`), the layout circom signals use
+- The base point `B` is `BABYJUB_BASE8` (`8 · Generator`), which generates the prime-order subgroup of order `l = BABYJUB_SUBORDER`
+- A public key is `sk · B` with `sk` in `[1, l)`, as circomlib's `BabyPbk` computes it
+- A ciphertext is `Enc(m; r) = (r · B, m · B + r · PK)`
+
+#### Keys
+
+```typescript
+import {
+  generateBabyJubKeyPair,
+  deriveBabyJubKeyPair,
+  packBabyJubPublicKey,
+  unpackBabyJubPublicKey,
+} from 'w3pk/zk'
+
+const { privateKey, publicKey } = generateBabyJubKeyPair()
+
+// Deterministic, e.g. from a passkey-bound secret
+const { secret } = await w3pk.derivePrfSecret('zk-identity')
+const keys = deriveBabyJubKeyPair(secret)
+
+// 32 bytes, as circomlibjs's packPoint
+const packed = packBabyJubPublicKey(keys.publicKey)
+const pk = unpackBabyJubPublicKey(packed) // throws on invalid or low-order points
+```
+
+`deriveBabyJubKeyPair(secret)` takes a secret of at least 16 bytes and computes `sk = HKDF-SHA256(secret, info = "w3pk-babyjub-v1", 64 bytes) mod (l - 1) + 1`. It is not circomlib EdDSA's `prv2pub`, whose scalars can exceed `l`; an EdDSA scalar `S` gives the same public key as `babyJubPublicKey(S % l)`.
+
+#### Exponential ElGamal
+
+```typescript
+import {
+  elgamalEncrypt,
+  elgamalAdd,
+  elgamalRerandomize,
+  elgamalDecrypt,
+} from 'w3pk/zk'
+
+const ballots = [1n, 0n, 1n].map((v) => elgamalEncrypt(publicKey, v))
+const tally = ballots.reduce(elgamalAdd)          // Enc(2)
+const mixed = elgamalRerandomize(publicKey, tally) // same plaintext, fresh randomness
+elgamalDecrypt(privateKey, mixed, ballots.length)  // 2n
+```
+
+The message is encoded as `m · B`, so decryption recovers a point and then solves a bounded discrete log: `elgamalDecrypt` takes `maxValue` (at most 2^32) and throws when the plaintext is outside `[0, maxValue]`. `elgamalDecryptToPoint` returns `m · B` for any `m`. Pass `r` to `elgamalEncrypt` or `elgamalRerandomize` when a proof needs it as a witness; it defaults to a fresh random scalar.
+
+#### Validation
+
+Every function that takes a public key or ciphertext checks it first and throws `CryptoError` on:
+
+- coordinates outside `[0, p)` or points off the curve
+- points outside the prime-order subgroup, including the 8 low-order points and any point with a torsion component (`isInBabyJubSubgroup` checks `l · P = (0, 1)`)
+- the identity as a public key
+- packed encodings with `y ≥ p`, no point on the curve, or a sign bit on `x = 0`
+
+Scalar multiplication runs a Montgomery ladder over at least 256 bits, so the number of point operations doesn't depend on the scalar. JavaScript `bigint` arithmetic is not constant time, so this is not a guarantee against a local timing attacker.
 
 ---
 
@@ -853,6 +920,46 @@ Validates NFT ownership proof inputs.
 
 ---
 
+### Baby Jubjub
+
+All exported from `w3pk/zk`. Functions throw `CryptoError` on invalid input.
+
+**Constants:** `BABYJUB_FIELD` (`p`, the BN254 scalar field), `BABYJUB_A`, `BABYJUB_D`, `BABYJUB_ORDER`, `BABYJUB_SUBORDER` (`l`), `BABYJUB_GENERATOR`, `BABYJUB_BASE8`, `BABYJUB_IDENTITY`
+
+**Types:** `BabyJubPoint = readonly [bigint, bigint]`, `BabyJubKeyPair = { privateKey: bigint, publicKey: BabyJubPoint }`
+
+| Function | Returns |
+|----------|---------|
+| `babyJubAdd(p, q)` | `p + q` |
+| `babyJubNeg(p)` | `-p` |
+| `babyJubMul(p, e)` | `e · p`, `e ≥ 0`, not reduced mod `l` |
+| `babyJubEquals(p, q)` | `boolean` |
+| `isOnBabyJub(p)` | `true` when `p` has canonical coordinates and is on the curve |
+| `isInBabyJubSubgroup(p)` | `true` when `p` is on the curve and `l · p = (0, 1)` |
+| `isValidBabyJubPublicKey(p)` | `true` when `p` is in the subgroup and not the identity |
+| `assertBabyJubPublicKey(p)` / `assertBabyJubPrivateKey(sk)` | throws unless valid |
+| `packBabyJubPoint(p)` / `unpackBabyJubPoint(bytes)` | 32 bytes, as circomlibjs's `packPoint` / on-curve point, no subgroup check |
+| `packBabyJubPublicKey(pk)` / `unpackBabyJubPublicKey(bytes)` | same, with the public key checks |
+| `randomBabyJubScalar()` | uniform scalar in `[1, l)` |
+| `babyJubPublicKey(sk)` | `sk · BABYJUB_BASE8`, `sk` in `[1, l)` |
+| `generateBabyJubKeyPair()` | random `BabyJubKeyPair` |
+| `deriveBabyJubKeyPair(secret)` | `BabyJubKeyPair` from a secret of at least 16 bytes |
+| `babyJubDiscreteLog(point, maxValue)` | smallest `m` in `[0, maxValue]` with `m · BABYJUB_BASE8 = point`, or `null`; `maxValue ≤ 2^32` |
+
+### ElGamal
+
+**Type:** `ElGamalCiphertext = { c1: BabyJubPoint, c2: BabyJubPoint }`
+
+| Function | Returns |
+|----------|---------|
+| `elgamalEncrypt(publicKey, message, r?)` | `(r · B, m · B + r · PK)`, `m` in `[0, l)`, `r` in `[1, l)` |
+| `elgamalAdd(a, b)` | ciphertext of `m1 + m2` |
+| `elgamalRerandomize(publicKey, ciphertext, r?)` | same plaintext, randomness increased by `r` |
+| `elgamalDecryptToPoint(privateKey, ciphertext)` | `m · B` |
+| `elgamalDecrypt(privateKey, ciphertext, maxValue)` | `m`, or throws when `m > maxValue` |
+
+---
+
 ## Examples
 
 ### Complete Password Authentication System
@@ -985,6 +1092,8 @@ Typical performance on modern hardware:
 - [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
 - [PBKDF2 Specification](https://tools.ietf.org/html/rfc2898)
 - [Merkle Trees Explained](https://en.wikipedia.org/wiki/Merkle_tree)
+- [EIP-2494: Baby Jubjub Elliptic Curve](https://eips.ethereum.org/EIPS/eip-2494)
+- [circomlib `babyjub.circom`](https://github.com/iden3/circomlib/blob/master/circuits/babyjub.circom)
 
 ### Security
 - [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
