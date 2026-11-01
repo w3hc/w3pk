@@ -3539,7 +3539,7 @@ This ensures compatibility with Ethereum's signature malleability protection.
 
 ### Post-Quantum Cryptography
 
-w3pk provides ML-KEM-1024 encryption both as instance methods (recommended) and standalone functions.
+w3pk provides hybrid post-quantum encryption (HPKE over ML-KEM-1024 + X25519, payload v3) both as instance methods (recommended) and standalone functions. See [POST_QUANTUM.md](./POST_QUANTUM.md#ml-kem-encryption) for the construction.
 
 #### Instance Methods (Recommended)
 
@@ -3547,7 +3547,7 @@ Use these methods with your w3pk wallet instance - no private key exposure:
 
 ##### `w3pk.deriveMLKemPublicKey(options?): Promise<string>`
 
-Derive your ML-KEM-1024 public key for sharing with others.
+Derive your hybrid ML-KEM-1024 + X25519 public key for sharing with others.
 
 **Parameters:**
 ```typescript
@@ -3560,7 +3560,7 @@ Derive your ML-KEM-1024 public key for sharing with others.
 }
 ```
 
-**Returns:** Base64-encoded public key (1568 bytes)
+**Returns:** Base64-encoded hybrid public key (1600 bytes: ML-KEM-1024 encapsulation key || X25519 public key)
 
 **Example:**
 ```typescript
@@ -3604,7 +3604,7 @@ const encrypted = await w3pk.mlkemEncrypt(
 
 ##### `w3pk.mlkemDecrypt(payload: EncryptedPayload, options?): Promise<string>`
 
-Decrypt data encrypted for your wallet.
+Decrypt v3 data encrypted for your wallet.
 
 **Parameters:** Same options as `mlkemEncrypt`
 
@@ -3625,7 +3625,7 @@ import { mlkemEncrypt, mlkemDecrypt, deriveMLKemKeypair, type EncryptedPayload }
 
 ##### `deriveMLKemKeypair(privateKey: string | Uint8Array, context?: string): Promise<MLKemKeypair>`
 
-Derive deterministic ML-KEM keypair from any private key using HKDF-SHA256.
+Derive a deterministic hybrid keypair (ML-KEM-1024 + X25519) from any private key: HKDF-SHA256 extracts with salt `w3pk-kem-keypair-v3`, then expands a 64-byte ML-KEM seed (info `ml-kem-1024:<context>`) and a 32-byte X25519 secret key (info `x25519:<context>`).
 
 **Parameters:**
 - `privateKey` - Ethereum private key (hex with optional `0x` prefix or Uint8Array)
@@ -3634,8 +3634,8 @@ Derive deterministic ML-KEM keypair from any private key using HKDF-SHA256.
 **Returns:**
 ```typescript
 {
-  publicKey: Uint8Array;   // 1568 bytes
-  privateKey: Uint8Array;  // 3168 bytes
+  publicKey: Uint8Array;   // 1600 bytes: ML-KEM-1024 (1568) || X25519 (32)
+  privateKey: Uint8Array;  // 3200 bytes: ML-KEM-1024 (3168) || X25519 (32)
 }
 ```
 
@@ -3648,19 +3648,20 @@ const keypair = await deriveMLKemKeypair('0x1234...', 'my-app');
 
 ##### `mlkemEncrypt(plaintext: string, publicKeys: (string | Uint8Array) | Array<string | Uint8Array>): Promise<EncryptedPayload>`
 
-Encrypt data using ML-KEM-1024 (post-quantum KEM) + AES-256-GCM for one or more recipients.
+Encrypt data once with AES-256-GCM under a random data key, and seal that key to each recipient with HPKE over the hybrid ML-KEM-1024 + X25519 KEM.
 
 **Parameters:**
 - `plaintext: string` - The data to encrypt
-- `publicKeys: (string | Uint8Array) | Array<string | Uint8Array>` - Single public key or array of ML-KEM-1024 public keys (1568 bytes each)
+- `publicKeys: (string | Uint8Array) | Array<string | Uint8Array>` - Single public key or array of hybrid public keys (1600 bytes each)
 
 **Returns:**
 ```typescript
 {
-  version: 2;             // Payload format (absent on legacy v1 payloads)
+  version: 3;             // Payload format
   recipients: Array<{
-    publicKey: string;    // Base64 recipient public key (1568 bytes)
-    ciphertext: string;   // Base64 ML-KEM ciphertext + AES-KW wrapped key (1608 bytes)
+    publicKey: string;    // Base64 recipient hybrid public key (1600 bytes)
+    enc: string;          // Base64 ML-KEM-1024 ciphertext (1568) || X25519 ephemeral public key (32)
+    ciphertext: string;   // Base64 HPKE-sealed data key (48 bytes)
   }>;
   encryptedData: string;  // Base64 AES-encrypted data (shared across all recipients)
   iv: string;             // Base64 initialization vector (12 bytes)
@@ -3683,21 +3684,21 @@ console.log('Recipients:', encrypted.recipients.length)
 ```
 
 **Security:**
-- ✅ **Quantum-resistant** - ML-KEM-1024 (NIST FIPS 203)
+- ✅ **Hybrid** - confidential unless both ML-KEM-1024 (NIST FIPS 203) and X25519 are broken
+- ✅ **HPKE** - RFC 9180 key schedule, with each recipient entry bound to its recipient's public keys
 - ✅ **Multi-recipient support** - Encrypt once for multiple recipients
 - ✅ **Key zeroization** - All secrets securely wiped from memory
 - ✅ **Authenticated encryption** - AES-256-GCM with 128-bit auth tag
 
 ---
 
-#### `mlkemDecrypt(payload: EncryptedPayload, privateKey: string | Uint8Array, publicKey?: string | Uint8Array): Promise<string>`
+#### `mlkemDecrypt(payload: EncryptedPayload, privateKey: string | Uint8Array): Promise<string>`
 
-Decrypt data encrypted with `mlkemEncrypt()`.
+Decrypt a v3 payload from `mlkemEncrypt()`. The recipient entry is found by the public key derived from `privateKey`; payloads of any other version throw `Unsupported payload version`.
 
 **Parameters:**
 - `payload: EncryptedPayload` - The encrypted payload from `mlkemEncrypt()`
-- `privateKey: string | Uint8Array` - ML-KEM-1024 private key (3168 bytes)
-- `publicKey?: string | Uint8Array` - (Optional) Your public key for faster recipient lookup (1568 bytes)
+- `privateKey: string | Uint8Array` - Hybrid private key (base64 or bytes, 3200 bytes)
 
 **Returns:** `string` - Decrypted plaintext
 
@@ -3706,14 +3707,10 @@ Decrypt data encrypted with `mlkemEncrypt()`.
 ```typescript
 import { mlkemDecrypt } from 'w3pk'
 
-// Auto-detect which recipient you are
 const plaintext = await mlkemDecrypt(encrypted, privateKey)
-
-// Or specify your public key for faster lookup
-const plaintext = await mlkemDecrypt(encrypted, privateKey, myPublicKey)
 ```
 
-**Throws:** Error if decryption fails (invalid key, no matching recipient, corrupted data, or tampered auth tag)
+**Throws:** Error if decryption fails (unsupported version, invalid key, no matching recipient, or a tampered `enc`, sealed key or payload)
 
 **Related:**
 - See [POST_QUANTUM.md](../docs/POST_QUANTUM.md) for full quantum readiness roadmap

@@ -125,7 +125,8 @@
     "snarkjs": "^0.7.6"
   },
   "dependencies": {
-    "@noble/hashes": "^2.2.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "mlkem": "^2.7.0"
   },
   "pnpm": {

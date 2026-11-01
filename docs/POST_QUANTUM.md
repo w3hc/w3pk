@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-w3pk's data-encryption layer is already post-quantum: **ML-KEM-1024** (NIST FIPS 203) ships today for encrypting data at rest and in transit. What remains quantum-vulnerable is **transaction signing** — secp256k1 (Ethereum) and P-256 (WebAuthn passkeys) both fall to Shor's algorithm on a cryptographically relevant quantum computer (CRQC). Expert consensus, including the Ethereum Foundation's own estimate, puts CRQC arrival in the **early-to-mid 2030s**, and no immediate action is required.
+w3pk's data-encryption layer is already post-quantum: a hybrid **ML-KEM-1024** (NIST FIPS 203) + **X25519** KEM, framed as HPKE (RFC 9180), ships today for encrypting data at rest and in transit. What remains quantum-vulnerable is **transaction signing** — secp256k1 (Ethereum) and P-256 (WebAuthn passkeys) both fall to Shor's algorithm on a cryptographically relevant quantum computer (CRQC). Expert consensus, including the Ethereum Foundation's own estimate, puts CRQC arrival in the **early-to-mid 2030s**, and no immediate action is required.
 
 Crucially, **the signature problem is not ours to solve unilaterally.** A w3pk transaction is only as quantum-safe as the L1 rules that accept it. Ethereum's own migration — the [lean Ethereum](https://blog.ethereum.org/2025/07/31/lean-ethereum) programme — targets **roughly 2029** for core L1 post-quantum infrastructure (consensus signatures, execution-layer verification), with full ecosystem migration extending past that. w3pk's signature strategy is therefore to track that protocol timeline rather than build a bespoke, pre-standard PQ signature stack that would need to be thrown away once the protocol-native path lands.
 
@@ -22,7 +22,7 @@ Until the first trigger fires, w3pk deliberately does **not** deploy interim sma
 
 ### Current status
 
-- ✅ **Quantum-resistant encryption, shipped** — ML-KEM-1024 (FIPS 203) + AES-256-GCM, see [ML-KEM Encryption](#ml-kem-encryption) below
+- ✅ **Quantum-resistant encryption, shipped** — HPKE over ML-KEM-1024 (FIPS 203) + X25519, with AES-256-GCM, see [ML-KEM Encryption](#ml-kem-encryption) below
 - ✅ **Migration-ready** — [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) account delegation gives a path to whatever account-abstraction scheme Ethereum ships
 - ⚠️ **Signature vulnerability, by design (for now)** — secp256k1 and P-256 signing is classical-only; this tracks Ethereum's own L1 timeline rather than a w3pk-specific one
 - 🔮 **No user action needed today** — nothing here changes what a w3pk integrator or end user does; this is an architecture-tracking document
@@ -31,7 +31,7 @@ Until the first trigger fires, w3pk deliberately does **not** deploy interim sma
 
 **Low/moderate risk (already mitigated):**
 - ✅ Encrypted backups, session storage (AES-256-GCM) — 128-bit quantum security, negligible harvest-now-decrypt-later (HNDL) exposure
-- ✅ Data encrypted with `mlkemEncrypt`/`mlkemDecrypt` — post-quantum secure today
+- ✅ Data encrypted with `mlkemEncrypt`/`mlkemDecrypt` — post-quantum secure today, and still safe if ML-KEM alone falls to classical cryptanalysis
 - ✅ PBKDF2 key derivation — Grover's algorithm halves effective security; current iteration counts (210k/310k/100k) leave ample margin for the 2030s
 
 **High risk (tracks Ethereum's own timeline, not w3pk's):**
@@ -81,7 +81,7 @@ The nearest real fork is **Hegotá** (targeted 2027), which is not itself a PQ f
 3. Governance multisigs
 4. Validator keys — affect consensus participation, not direct asset custody
 
-"Harvest now, decrypt later" is a **confidentiality** problem, not an ownership one for signatures: recording transactions today doesn't enable retroactive theft, since blockchains are integrity systems built on signatures, not encryption. The forward-looking risk is that exposed public keys become derivable once a CRQC exists — which is exactly the harvest risk `mlkemEncrypt`/`mlkemDecrypt` already close for **data**, since that scheme provides genuine forward confidentiality today.
+"Harvest now, decrypt later" is a **confidentiality** problem, not an ownership one for signatures: recording transactions today doesn't enable retroactive theft, since blockchains are integrity systems built on signatures, not encryption. The forward-looking risk is that exposed public keys become derivable once a CRQC exists — which is exactly the harvest risk `mlkemEncrypt`/`mlkemDecrypt` already close for **data**: a recorded payload stays confidential against a future quantum adversary (though not against a later leak of the recipient's key, see [What a leaked key exposes](#what-a-leaked-key-exposes)).
 
 On timing: the EF is more conservative than headline quantum-computing news. Most engineering roadmaps place cryptographic relevance in the **early-to-mid 2030s**. [Google Quantum AI's March 2026 analysis](https://research.google/blog/safeguarding-cryptocurrency-by-disclosing-quantum-vulnerabilities-responsibly/) lowered the estimate for breaking 256-bit elliptic curve cryptography to roughly 1,200 logical qubits, and NIST anticipates deprecating ECDSA by 2030 and disallowing it by 2035.
 
@@ -102,7 +102,7 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 
 | Component | Algorithm | Use case | Quantum security |
 | --- | --- | --- | --- |
-| Data encryption | ML-KEM-1024 (FIPS 203) + AES-256-GCM | `mlkemEncrypt`/`mlkemDecrypt` — backups, messaging, any data at rest/in transit | Post-quantum secure |
+| Data encryption | HPKE over ML-KEM-1024 (FIPS 203) + X25519, AES-256-GCM | `mlkemEncrypt`/`mlkemDecrypt` — backups, messaging, any data at rest/in transit | Post-quantum secure (hybrid) |
 
 ### Symmetric cryptography (already quantum-resistant)
 
@@ -123,37 +123,55 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 | Component | Algorithm | Use case | Quantum security |
 | --- | --- | --- | --- |
 | General hashing | SHA-256 | Checksums, derivation | 128-bit collision (sufficient) |
+| Hybrid KEM combiner | SHA3-256 | `mlkemEncrypt` shared secret | 128-bit collision (sufficient) |
 | Ethereum hashing | Keccak-256 | ERC-5564, addresses | 128-bit collision (sufficient) |
 
 ---
 
 ## ML-KEM Encryption
 
-w3pk supports **ML-KEM-1024** (NIST FIPS 203) encryption for quantum-resistant data protection, with multi-recipient support and deterministic key derivation from private keys. See [`src/crypto/mlkem.ts`](../src/crypto/mlkem.ts).
+w3pk encrypts data for one or more recipients with a **hybrid ML-KEM-1024 + X25519 KEM**, framed as [HPKE](https://www.rfc-editor.org/rfc/rfc9180) (payload `version: 3`), with deterministic key derivation from private keys. See [`src/crypto/mlkem.ts`](../src/crypto/mlkem.ts).
 
-### How it works
+### Why hybrid
 
-1. A random AES-256 key is generated per message.
-2. The plaintext is encrypted with AES-256-GCM using that key.
-3. For each recipient, a shared secret is encapsulated with their ML-KEM-1024 public key, and used to wrap the AES key.
-4. Each recipient decrypts with their private key to recover the AES key, then decrypts the payload.
+A payload sealed to the user can be kept and decrypted locally for years, so it shouldn't rest on one assumption. Lattices may take serious hits from AI-accelerated cryptanalysis before a quantum computer exists, and elliptic curves may too. A v3 payload stays confidential unless **both** ML-KEM-1024 and X25519 are broken.
 
-This is a KEM+DEM hybrid (asymmetric PQ key encapsulation wrapping a symmetric cipher) — not a classical+PQ dual key-exchange combiner. ML-KEM-1024 alone generates the shared secret; there is no secp256k1/X25519 component mixed into the encapsulation step.
+### How it works (payload v3)
+
+1. A random AES-256 data key encrypts the plaintext once with AES-256-GCM (12-byte IV, 16-byte tag).
+2. For each recipient, the data key is sealed with single-shot HPKE `Seal` (RFC 9180 mode_base, KDF HKDF-SHA256, AEAD AES-256-GCM, `info` = `w3pk-payload-v3`, empty `aad`) over the hybrid KEM:
+   - `Encap(pk)`: split `pk = pk_M || pk_X`; `(ct_M, ss_M) = ML-KEM-1024.Encaps(pk_M)`; draw an ephemeral X25519 key `e`, `ct_X = X25519(e, G)`, `ss_X = X25519(e, pk_X)`; `enc = ct_M || ct_X`.
+   - `Decap(enc, sk)`: `ss_M = ML-KEM-1024.Decaps(ct_M, sk_M)`, `ss_X = X25519(sk_X, ct_X)`.
+   - Combiner: `ss = SHA3-256(ss_M || ss_X || ct_M || ct_X || pk_M || pk_X || "w3pk-MLKEM1024-X25519-v3")`.
+3. HPKE's key schedule turns `ss` into the AES-256-GCM key and nonce that seal the 32-byte data key (48 bytes with the tag).
+
+The combiner is the *UniversalCombiner* of [draft-irtf-cfrg-hybrid-kems](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/), and [X-Wing](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/)'s combiner plus the ML-KEM ciphertext and public key. X-Wing omits those two because ML-KEM's Fujisaki-Okamoto transform makes that safe (C2PRI). Including them doesn't rely on that property, binds each entry to both of its recipient's public keys, and costs a few kilobytes of hashing per recipient. All inputs are fixed-length, so plain concatenation is unambiguous. ML-KEM-1024 is used instead of X-Wing's ML-KEM-768 for more margin on long-lived secrets.
+
+The HPKE suite id is `HPKE || 0xFE42 || 0x0001 || 0x0002`. No KEM id is registered for ML-KEM-1024 + X25519 and the registry has no private-use range, so `0xFE42` is unassigned and only domain-separates the key schedule. The key schedule is tested against RFC 9180's test vectors.
+
+Payloads of any other version (v1: AES key XOR-ed with the raw ML-KEM shared secret; v2: ML-KEM-only AES-KW) are rejected, with no compatibility path.
+
+### What a leaked key exposes
+
+The user's KEM keys are **long-lived** and deterministic: there is no forward secrecy. Anyone who obtains a private key, or the wallet key it is derived from, can decrypt **every payload ever sealed to it**, past and future. Rotating means deriving a keypair under a new `context` and re-encrypting what must stay secret.
+
+The keys are derived from the wallet's Ethereum private key, so they are only as secret as the mnemonic, including how it is stored on the device.
+
+### FrodoKEM
+
+FrodoKEM-1344 rests on plain LWE, without the algebraic structure ML-KEM relies on, so it would hedge against structured-lattice attacks. It is not used, for two reasons: no audited JavaScript implementation exists, so it would need WebAssembly, and each recipient entry would grow by about 21 KB. Revisit if an audited implementation appears.
 
 ### Deterministic key derivation
 
 ```typescript
-import { deriveMLKemKeypair, mlkemEncryptWithKey, mlkemDecryptWithKey } from 'w3pk';
+import { deriveMLKemKeypair } from 'w3pk';
 
 const ethPrivateKey = '0x1234...';
 const keypair = await deriveMLKemKeypair(ethPrivateKey, 'my-app');
-// { publicKey: Uint8Array(1568), privateKey: Uint8Array(3168) }
-
-// Same input always produces the same keypair
-const sameKeypair = await deriveMLKemKeypair(ethPrivateKey, 'my-app');
+// { publicKey: Uint8Array(1600), privateKey: Uint8Array(3200) }
 ```
 
-Uses HKDF-SHA256 with salt `"mlkem-keypair-v1"` and the provided context string to derive a 64-byte seed, from which the ML-KEM-1024 keypair is generated. All sensitive material is zeroized after use.
+HKDF-SHA256 extracts a PRK from the input with salt `w3pk-kem-keypair-v3`, then expands a 64-byte ML-KEM-1024 seed (info `ml-kem-1024:<context>`) and a 32-byte X25519 secret key (info `x25519:<context>`). The public key is `pk_M (1568) || pk_X (32)` and the private key `sk_M (3168) || sk_X (32)`. The same input always gives the same keypair, and all intermediate secrets are zeroized.
 
 ### Encrypt/decrypt with a w3pk instance (recommended)
 
@@ -198,7 +216,7 @@ const plaintextDirect = await mlkemDecrypt(encryptedDirect, privateKey);
 ### API reference
 
 #### `w3pk.deriveMLKemPublicKey(options?): Promise<string>`
-Derives your ML-KEM-1024 public key (base64, 1568 bytes) for sharing.
+Derives your hybrid public key (base64, 1600 bytes) for sharing.
 **Options:** `context` (default `'mlkem-v1'`), `mode` (`STANDARD`/`STRICT`/`YOLO`), `tag`, `origin`, `requireAuth`.
 
 #### `w3pk.mlkemEncrypt(plaintext, recipientPublicKeys, options?): Promise<EncryptedPayload>`
@@ -208,7 +226,7 @@ Encrypts for yourself plus additional recipients. Same options as above.
 Decrypts data encrypted for your wallet. `context`/`mode`/`tag`/`origin`/`requireAuth` must match encryption.
 
 #### `deriveMLKemKeypair(privateKey, context?): Promise<MLKemKeypair>`
-Low-level deterministic keypair derivation. Returns `{ publicKey: Uint8Array(1568), privateKey: Uint8Array(3168) }`.
+Low-level deterministic keypair derivation. Returns `{ publicKey: Uint8Array(1600), privateKey: Uint8Array(3200) }`.
 
 #### `mlkemEncryptWithKey(plaintext, senderPrivateKey, recipientPublicKeys, senderContext?): Promise<EncryptedPayload>`
 Derives the sender's keypair, then encrypts for sender + recipients (sender's public key is auto-included as first recipient).
@@ -217,22 +235,21 @@ Derives the sender's keypair, then encrypts for sender + recipients (sender's pu
 Derives a keypair, then decrypts.
 
 #### `mlkemEncrypt(plaintext, publicKeys): Promise<EncryptedPayload>`
-Raw encryption for one or more recipients. Each `publicKeys` entry is base64 or `Uint8Array`, 1568 bytes.
-**Returns:** `{ version: 2, recipients: [{ publicKey, ciphertext }], encryptedData, iv, authTag }` — `ciphertext` is 1608 bytes (1568 KEM + 40 wrapped AES key), `iv` is 12 bytes, `authTag` is 16 bytes.
+Raw encryption for one or more recipients. Each `publicKeys` entry is base64 or `Uint8Array`, 1600 bytes.
+**Returns:** `{ version: 3, recipients: [{ publicKey, enc, ciphertext }], encryptedData, iv, authTag }`: `enc` is 1600 bytes (1568 ML-KEM ciphertext + 32 X25519 ephemeral key), `ciphertext` is the 48-byte sealed data key, `iv` is 12 bytes and `authTag` 16 bytes.
 
-Each recipient's AES key is wrapped with AES-KW ([RFC 3394](https://datatracker.ietf.org/doc/html/rfc3394)) under a key-encryption key derived from the ML-KEM shared secret with HKDF-SHA256 (empty salt, info `w3pk-mlkem-kek-v2`). Payloads without a `version` field are legacy v1 (AES key XOR-ed with the raw shared secret, 1600-byte `ciphertext`) and still decrypt.
-
-#### `mlkemDecrypt(payload, privateKey, publicKey?): Promise<string>`
-Decrypts a payload from `mlkemEncrypt()`, v2 or legacy v1. Passing your `publicKey` (1568 bytes) speeds up recipient lookup; otherwise every recipient entry is tried. The IV must be 12 bytes and the auth tag 16 bytes.
+#### `mlkemDecrypt(payload, privateKey): Promise<string>`
+Decrypts a v3 payload. The recipient entry is found by the public key derived from `privateKey` (3200 bytes); any other version throws `Unsupported payload version`. The IV must be 12 bytes and the auth tag 16 bytes.
 
 ### Security properties
 
-- ✅ ML-KEM-1024 (NIST FIPS 203) — post-quantum secure key encapsulation
-- ✅ AES-256-GCM — 128-bit quantum security for the payload
-- ✅ HKDF-derived KEK + AES-KW — a tampered wrapped key is rejected before the payload is touched
+- ✅ Hybrid ML-KEM-1024 (NIST FIPS 203) + X25519 — confidential unless both are broken
+- ✅ HPKE (RFC 9180) key schedule, with a combiner over both shared secrets, both ciphertexts and both recipient public keys — altering either half of `enc`, or moving an entry to another recipient, fails decryption
+- ✅ AES-256-GCM — 128-bit quantum security for the payload and the sealed data key
 - ✅ Key zeroization — shared secrets wiped from memory after use
 - ✅ Cross-platform — browser and Node.js
-- ⚠️ Deterministic derivation from the Ethereum private key means ML-KEM key secrecy is capped by secp256k1 key secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
+- ⚠️ No forward secrecy — a leaked KEM private key exposes every payload sealed to it
+- ⚠️ Deterministic derivation from the Ethereum private key means KEM key secrecy is capped by secp256k1 key secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
 
 ---
 
@@ -251,13 +268,14 @@ The trigger table above tracks Ethereum's protocol schedule, which covers *when 
 ### Internally-owned checkpoints (every review cycle)
 
 - [ ] Re-verify the `mlkem` npm package (currently `mlkem@2.7.0`, [dajiaji/crystals-kyber-js](https://github.com/dajiaji/crystals-kyber-js)) is still maintained, still passes the NIST ML-KEM KAT vectors and the pq-crystals/kyber reference tests, and has no open security advisories.
+- [ ] Re-check whether an audited JavaScript FrodoKEM implementation exists, and whether an HPKE KEM id is registered for ML-KEM-1024 + X25519.
 - [ ] Re-check the FIDO Alliance's WebAuthn PQ status — no PQ COSE algorithm identifier is registered as of this writing, so P-256 passkeys stay as-is; flag the moment one lands.
 - [ ] Re-check whether `ethers` (currently `^6.0.0`, used for transaction construction and secp256k1 signing) has announced any PQ or hybrid-signing support, since a signing-path change there would predate w3pk's own EIP-8141 integration.
 - [ ] Re-confirm EIP-8141 and the Hegotá fork's status directly against [pq.ethereum.org](https://pq.ethereum.org/) and [strawmap.org](https://strawmap.org/) — don't rely on this document staying current between reviews.
 
 ### Crypto-agility target design (not yet implemented)
 
-The SDK has no algorithm-selection config today — signing is hardcoded to secp256k1/P-256, and encryption is hardcoded to ML-KEM-1024 + AES-256-GCM. That's fine while there is only one option to choose from, but it means "add hybrid signing" is currently a code change, not a config flip. Per NIST's crypto-agility guidance (CSWP 39), the target shape before the first EIP-8141 trigger fires should be something like:
+The SDK has no algorithm-selection config today — signing is hardcoded to secp256k1/P-256, and encryption is hardcoded to HPKE over ML-KEM-1024 + X25519 with AES-256-GCM. That's fine while there is only one option to choose from, but it means "add hybrid signing" is currently a code change, not a config flip. Per NIST's crypto-agility guidance (CSWP 39), the target shape before the first EIP-8141 trigger fires should be something like:
 
 ```typescript
 // Target shape — does not exist in src/ yet.
@@ -277,7 +295,7 @@ This is a placeholder for design intent, not a commitment to this exact shape �
 ### Operational runbook (draft — to be finalized before the first trigger fires)
 
 1. **Dry run on testnet first.** Hybrid signing gets exercised against a testnet deployment of the relevant EIP-8141 validation frame before any mainnet opt-in ships.
-2. **ML-KEM context rotation.** `deriveMLKemKeypair`'s `context` parameter already provides domain separation; if the ML-KEM implementation itself ever needs replacing (library vulnerability, algorithm deprecation), bump the default context (e.g. `mlkem-v2`) rather than reusing `mlkem-v1`, and keep the old context decryptable for existing backups rather than breaking them.
+2. **ML-KEM context rotation.** `deriveMLKemKeypair`'s `context` parameter already provides domain separation; if the ML-KEM implementation itself ever needs replacing (library vulnerability, algorithm deprecation), bump the payload version and the derivation salt, as v3 did for the hybrid KEM (`w3pk-kem-keypair-v3`), rather than reusing the old ones.
 3. **Fail closed on hybrid mismatch.** If a hybrid account's classical and PQ signatures disagree (one verifies, one doesn't), the transaction is rejected outright. There is no partial-trust mode where either signature alone is accepted once hybrid mode is active for an account.
 4. **No global cutover switch.** Hybrid mode is opt-in per account via the trigger table above. w3pk does not flip existing wallets to hybrid or PQ-only signing without explicit user action, even after Ethereum completes its own migration (fork milestones L*/M* and beyond).
 
@@ -286,6 +304,7 @@ This is a placeholder for design intent, not a commitment to this exact shape �
 | Dependency | Role | PQ status | What we watch |
 | --- | --- | --- | --- |
 | `mlkem` (`^2.7.0`) | ML-KEM-1024 encryption | Post-quantum today | Maintenance activity, KAT test results, disclosed vulnerabilities |
+| `@noble/curves` (`^2.4.0`), `@noble/hashes` | X25519, HKDF, SHA3-256 for the hybrid KEM and HPKE | Classical (X25519), hedged by ML-KEM | Audits, disclosed vulnerabilities |
 | `ethers` (`^6.0.0`) | Transaction construction, secp256k1 signing | Classical only | Any announced hybrid/PQ signing support |
 | WebAuthn / FIDO2 | Passkey authentication (P-256) | Classical only | FIDO Alliance PQ working-group output; no registered PQ COSE algorithm yet |
 | Ethereum L1 (via EIP-8141) | Transaction validation | Classical only, PQ path specified but not shipped | Hegotá fork outcome, EIP-8141 mainnet status |
@@ -314,11 +333,11 @@ Dormant-funds exposure — the governance question nobody has answered — is mu
 ### For users
 1. Your funds are safe today; no immediate quantum threat exists.
 2. Backups and sessions are already quantum-resistant (AES-256-GCM).
-3. Data you encrypt with `mlkemEncrypt` is already post-quantum secure.
+3. Data you encrypt with `mlkemEncrypt` is already post-quantum secure, as long as your keys stay private.
 4. Any future signature migration will be opt-in — nothing changes without you choosing it.
 
 ### For auditors
-1. Current cryptography follows standard best practice; ML-KEM-1024 usage matches FIPS 203.
+1. Current cryptography follows standard best practice; ML-KEM-1024 usage matches FIPS 203, and the hybrid KEM follows RFC 9180 and draft-irtf-cfrg-hybrid-kems.
 2. The signature-side gap is acknowledged and explicitly deferred to Ethereum's protocol timeline, not silently ignored.
 3. No speculative or unverified interim PQ infrastructure has been deployed.
 
@@ -328,6 +347,8 @@ Dormant-funds exposure — the governance question nobody has answered — is mu
 
 ### Standards
 - [NIST FIPS 203: ML-KEM](https://csrc.nist.gov/pubs/fips/203/final) — key encapsulation, used by w3pk today
+- [RFC 9180: HPKE](https://www.rfc-editor.org/rfc/rfc9180) — framing of encrypted payloads
+- [draft-irtf-cfrg-hybrid-kems](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/) and [X-Wing](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/) — hybrid KEM combiners
 - [NIST FIPS 204: ML-DSA](https://csrc.nist.gov/pubs/fips/204/final) — signatures, candidate for Ethereum's execution layer
 - [NIST FIPS 205: SLH-DSA](https://csrc.nist.gov/pubs/fips/205/final) — hash-based signatures
 - [EIP-8141: Frame transactions](https://eips.ethereum.org/EIPS/eip-8141) — the trigger this document tracks
@@ -351,12 +372,13 @@ Dormant-funds exposure — the governance question nobody has answered — is mu
 
 ## Document Maintenance
 
-**Version:** 2.1
-**Last Updated:** 2026-09-13
+**Version:** 2.2
+**Last Updated:** 2026-11-01
 **Next Review:** 2027-03-13 (6 months, or sooner if the Hegotá fork's EIP-8141 status changes)
 **Maintained By:** Julien Béranger ([@julienbrg](https://github.com/julienbrg))
 
 **Changelog:**
+- 2026-11-01: Encrypted payloads move to v3, HPKE over a hybrid ML-KEM-1024 + X25519 KEM ([#137](https://github.com/w3hc/w3pk/issues/137)); documented the combiner, the FrodoKEM decision and what a leaked key exposes; v1 and v2 are no longer readable
 - 2026-09-13: Added "Roadmap maturity: closing the gaps" — internally-owned review checkpoints, a labeled not-yet-implemented crypto-agility target design, a draft operational runbook (testnet dry run, ML-KEM context rotation, fail-closed hybrid verification, no global cutover), and a dependency PQ-posture table (`mlkem`, `ethers`, WebAuthn/FIDO2), per NIST SP 1800-38 and CISA quantum-readiness guidance
 - 2026-09-13: Complete rewrite aligned with the Ethereum Foundation's public post-quantum roadmap (pq.ethereum.org, the lean Ethereum announcement, and the EIPs cited above)
   - Replaced speculative/unverifiable content (interim ERC-4337 PQ verifier contracts, unconfirmed testnet addresses) with Ethereum's actual documented roadmap (lean Ethereum, leanXMSS, leanVM, EIP-8141, fork milestones)
