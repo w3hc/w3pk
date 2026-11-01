@@ -39,8 +39,19 @@ import {
 import { StealthAddressModule } from "../stealth";
 import { SessionManager } from "./session";
 import { CredentialStorage } from "../auth/storage";
-import { derivePrfSecret, PRF_SECRET_LABEL, type PrfSecret } from "../auth/prf";
+import {
+  assertPrfSecretTag,
+  derivePrfSecret,
+  PRF_SECRET_LABEL,
+  type PrfSecret,
+} from "../auth/prf";
 import type { SemaphoreIdentity } from "../zk/semaphore";
+import type {
+  ZkInputs,
+  ZkProveArtifacts,
+  ZkProveOptions,
+  ZkProveResult,
+} from "../zk/prove";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
@@ -2560,6 +2571,69 @@ export class Web3Passkey {
         this.currentUser?.credentialId
       );
       return { commitment: commit(secret), credentialId };
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw error;
+    }
+  }
+
+  /**
+   * Prove with a secret bound to the passkey that the app never sees
+   *
+   * w3pk derives the secret for the current origin and `tag` (by default
+   * under its own `w3pk-zk-v1` label, or the Semaphore identity's
+   * `secretScalar`), places it in the witness with any inputs `options`
+   * declares as derived (Poseidon over the secret and other inputs) or
+   * random (fresh, discarded after the call), checks the artifacts against
+   * their pins, and runs snarkjs in a Web Worker (in-thread where `Worker`
+   * doesn't exist, as in Node). Only the proof and public signals come back;
+   * a proof whose public signals contain the secret or a random input is
+   * refused. Everything checkable without the passkey is checked before
+   * the prompt.
+   *
+   * w3pk runs in the app's JavaScript context: this keeps the secret out
+   * of the API, not out of reach of malicious code on the same page.
+   *
+   * Requires the optional dependencies `snarkjs`, `poseidon-lite` (for
+   * derivations) and `@semaphore-protocol/identity` (for `"semaphore"`).
+   *
+   * @param tag - Non-empty label without ':', e.g. "voting"
+   * @param artifacts - The circuit's `.wasm` and `.zkey` (bytes or URLs) and their pinned CIDs
+   * @param publicInputs - The circuit's public inputs
+   * @param extraWitness - Other private inputs the app provides
+   * @param options - Secret source, its input name, derived and random inputs
+   * @throws ZkArtifactMismatchError when an artifact doesn't match its pin
+   * @throws PrfUnsupportedError when the authenticator doesn't support PRF
+   * @throws CryptoError on invalid inputs, missing dependencies or a failed proof
+   *
+   * @example
+   * const { proof, publicSignals } = await w3pk.zkProve(
+   *   "voting",
+   *   { wasm: wasmUrl, zkey: zkeyUrl, pins },
+   *   { proposalId, root },
+   *   { vote: 1 },
+   *   { secret: "semaphore", derive: { voteSecret: ["secret", "proposalId", 1n] }, random: ["r"] }
+   * )
+   */
+  async zkProve(
+    tag: string,
+    artifacts: ZkProveArtifacts,
+    publicInputs: ZkInputs,
+    extraWitness: ZkInputs = {},
+    options: ZkProveOptions = {}
+  ): Promise<ZkProveResult> {
+    try {
+      assertPrfSecretTag(tag);
+      const { zkProve } = await import("../zk/prove");
+      const origin = normalizeOrigin(getCurrentOrigin());
+      const credentialId = this.currentUser?.credentialId;
+      return await zkProve(
+        async (label) => (await derivePrfSecret(label, origin, tag, credentialId)).secret,
+        artifacts,
+        publicInputs,
+        extraWitness,
+        options
+      );
     } catch (error) {
       this.config.onError?.(error as any);
       throw error;
