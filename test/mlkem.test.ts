@@ -372,7 +372,7 @@ async function runTests() {
     passTest('Outsider rejected');
   });
 
-  await runTest('Key sizes are enforced', async () => {
+  await runTest('Key sizes and private key integrity are enforced', async () => {
     const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
 
     const pkError = await rejectionOf(() => mlkemEncrypt('size', keypair.publicKey.subarray(0, 1568)));
@@ -381,6 +381,11 @@ async function runTests() {
     const encrypted = await mlkemEncrypt('size', keypair.publicKey);
     const skError = await rejectionOf(() => mlkemDecrypt(encrypted, keypair.privateKey.subarray(0, 3168)));
     assertEqual(skError.message, 'Invalid private key size: 3168 (expected 3200)', 'ML-KEM-only private key rejected');
+
+    const corrupted = new Uint8Array(keypair.privateKey);
+    corrupted[1536] ^= 0x01;
+    const corruptedError = await rejectionOf(() => mlkemDecrypt(encrypted, corrupted));
+    assertEqual(corruptedError.message, 'Invalid ML-KEM private key: embedded public key hash mismatch', 'Corrupted private key rejected');
 
     passTest('Hybrid key sizes enforced');
   });
