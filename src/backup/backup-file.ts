@@ -205,16 +205,16 @@ export class BackupFileManager {
     const wallet = Wallet.fromPhrase(mnemonic);
     const addressChecksum = await deriveAddressChecksum(wallet.address);
 
-    if (addressChecksum !== backupFile.addressChecksum) {
+    if (
+      addressChecksum !== backupFile.addressChecksum ||
+      wallet.address.toLowerCase() !== backupFile.ethereumAddress.toLowerCase()
+    ) {
       throw new Error(
         'Address checksum mismatch - corrupted backup or wrong password'
       );
     }
 
-    return {
-      mnemonic,
-      ethereumAddress: backupFile.ethereumAddress,
-    };
+    return { mnemonic, ethereumAddress: wallet.address };
   }
 
   /**
