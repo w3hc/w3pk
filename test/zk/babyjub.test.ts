@@ -226,6 +226,7 @@ async function runTests() {
     assert(ok, "recovers values up to the bound");
     assert(babyJubDiscreteLog(babyJubMul(BABYJUB_BASE8, 101n), 100) === null, "returns null above the bound");
     assert(throwsCrypto(() => babyJubDiscreteLog(BABYJUB_BASE8, -1)), "rejects negative bound");
+    assert(throwsCrypto(() => babyJubDiscreteLog(BABYJUB_BASE8, 2 ** 32 + 1)), "rejects bound above 2^32");
   }
   console.log("");
 
