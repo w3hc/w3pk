@@ -18,9 +18,9 @@ import { poseidon1, poseidon2, poseidon3 } from "poseidon-lite";
 import {
   Web3Passkey,
   CryptoError,
+  ZkArtifactMismatchError,
   type ZkProveOptions,
 } from "../../src/index";
-import { ZkArtifactMismatchError } from "../../src/core/errors";
 import { deriveBabyJubKeyPair, BABYJUB_SUBORDER } from "../../src/zk/babyjub";
 import { CredentialStorage } from "../../src/auth/storage";
 import { arrayBufferToBase64Url } from "../../src/utils/base64";
@@ -443,6 +443,8 @@ async function runTests() {
       ["17 terms", () => sdk.zkProve("voting", ARTIFACTS, { scope: SCOPE }, { message: MESSAGE }, { ...OPTIONS, derive: { contextSecret: Array(17).fill("secret") } })],
       ["constant out of the field", () => sdk.zkProve("voting", ARTIFACTS, { scope: SCOPE }, { message: MESSAGE }, { ...OPTIONS, derive: { contextSecret: ["secret", -1n] } })],
       ["non-field input in a derivation", () => sdk.zkProve("voting", ARTIFACTS, { scope: "x" }, { message: MESSAGE }, OPTIONS)],
+      ["random not an array", () => sdk.zkProve("voting", ARTIFACTS, { scope: SCOPE }, { message: MESSAGE }, { ...OPTIONS, random: "r" as any })],
+      ["derivation of an Object.prototype name", () => sdk.zkProve("voting", ARTIFACTS, { scope: SCOPE }, { message: MESSAGE }, { ...OPTIONS, derive: { contextSecret: ["secret", "toString"] } })],
       ["unknown secret source", () => sdk.zkProve("voting", ARTIFACTS, { scope: SCOPE }, { message: MESSAGE }, { ...OPTIONS, secret: "wallet" as any })],
     ];
     for (const [name, call] of cases) {
@@ -498,6 +500,23 @@ async function runTests() {
       assert(worker.messages.length === 1, "the witness is posted to the worker");
       assert(worker.terminated, "the worker is terminated after the proof");
       assert(await verify(result), "the worker's proof verifies");
+    } finally {
+      delete (globalThis as any).Worker;
+    }
+  }
+  console.log("");
+
+  console.log("Test 8: a worker that can't start falls back to proving in-thread");
+  {
+    reset();
+    (globalThis as any).Worker = class {
+      constructor() {
+        throw new TypeError("Invalid URL");
+      }
+    };
+    try {
+      const result = await new Web3Passkey().zkProve("voting", ARTIFACTS, { scope: SCOPE }, { message: MESSAGE }, OPTIONS);
+      assert(await verify(result), "the in-thread proof verifies");
     } finally {
       delete (globalThis as any).Worker;
     }

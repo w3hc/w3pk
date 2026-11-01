@@ -2586,7 +2586,8 @@ export class Web3Passkey {
    * declares as derived (Poseidon over the secret and other inputs) or
    * random (fresh, discarded after the call), checks the artifacts against
    * their pins, and runs snarkjs in a Web Worker (in-thread where `Worker`
-   * doesn't exist, as in Node). Only the proof and public signals come back;
+   * doesn't exist, as in Node, or the worker can't start). Only the proof
+   * and public signals come back;
    * a proof whose public signals contain the secret or a random input is
    * refused. Everything checkable without the passkey is checked before
    * the prompt.

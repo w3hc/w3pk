@@ -88,6 +88,10 @@ function toField(value: ZkSignal, name: string): bigint {
   return field;
 }
 
+function hasOwn(object: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
 function planWitness(
   publicInputs: ZkInputs,
   extraWitness: ZkInputs,
@@ -95,7 +99,7 @@ function planWitness(
 ): WitnessPlan {
   const inputs: ZkInputs = { ...publicInputs };
   for (const [name, value] of Object.entries(extraWitness)) {
-    if (name in inputs) {
+    if (hasOwn(inputs, name)) {
       throw new CryptoError(`Input '${name}' is in both publicInputs and extraWitness`);
     }
     inputs[name] = value;
@@ -103,6 +107,9 @@ function planWitness(
 
   const secretInput = options.secretInput ?? "secret";
   const random = options.random ?? [];
+  if (!Array.isArray(random)) {
+    throw new CryptoError("options.random must be an array of input names");
+  }
   const derive = Object.entries(options.derive ?? {});
 
   const known = new Set(Object.keys(inputs));
@@ -124,7 +131,7 @@ function planWitness(
     for (const term of terms) {
       if (typeof term === "bigint") {
         toField(term, `${name} constant`);
-      } else if (typeof term === "string" && term in inputs) {
+      } else if (typeof term === "string" && hasOwn(inputs, term)) {
         toField(inputs[term], term);
       } else if (!(typeof term === "string" && available.has(term))) {
         throw new CryptoError(`Derivation '${name}' uses '${String(term)}', which isn't an input set before it`);
@@ -194,7 +201,7 @@ async function startWorkerProver({ wasm, zkey }: ZkArtifactBytes): Promise<Groth
   try {
     worker = new Worker(new URL("./zk/prove-worker.mjs", import.meta.url), { type: "module" });
   } catch (error) {
-    throw new CryptoError("Failed to start the proving worker (it needs w3pk's ESM build)", error);
+    throw new CryptoError("Failed to start the proving worker", error);
   }
 
   const reply = () =>
@@ -222,6 +229,19 @@ async function startWorkerProver({ wasm, zkey }: ZkArtifactBytes): Promise<Groth
     },
     close: () => worker.terminate(),
   };
+}
+
+/**
+ * A worker where `Worker` exists, in-thread otherwise (Node) or when the
+ * worker can't start (CommonJS build, a bundler that didn't emit it, CSP)
+ */
+async function startProver(bytes: ZkArtifactBytes): Promise<Groth16Prover> {
+  if (typeof Worker !== "undefined") {
+    try {
+      return await startWorkerProver(bytes);
+    } catch {}
+  }
+  return startInThreadProver(bytes);
 }
 
 /**
@@ -254,10 +274,7 @@ export async function zkProve(
     { wasm: artifacts.wasm, zkey: artifacts.zkey },
     artifacts.pins
   );
-  const prover =
-    typeof Worker === "undefined"
-      ? await startInThreadProver(bytes)
-      : await startWorkerProver(bytes);
+  const prover = await startProver(bytes);
 
   try {
     const secret = toScalar(
