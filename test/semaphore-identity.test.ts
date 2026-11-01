@@ -351,7 +351,7 @@ async function runTests() {
       identity.secretScalar.toString(),
       identity.secretScalar.toString(16),
     ];
-    const { blob } = await sdk.createBackupFile("password", PASSWORD);
+    const { blob } = await sdk.createBackupFile(PASSWORD);
     const backup = await blob.text();
     const stored = snapshot();
     const leaks = secrets.filter(

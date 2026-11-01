@@ -6,7 +6,8 @@
  */
 
 import type { BackupFile } from '../backup/types';
-import { assertSupportedBackupMethod } from '../backup/backup-file';
+import { validateBackupFile } from '../backup/backup-file';
+import { UnsupportedBackupVersionError } from '../core/errors';
 import {
   splitSecret,
   combineShares,
@@ -41,11 +42,13 @@ export class SocialRecovery {
    * @param backupFile - The encrypted wallet data to split
    * @param guardians - List of guardian names
    * @param threshold - Number of guardians required to recover (M-of-N)
+   * @param walletAddress - Labels the shares; the backup file holds no address
    */
   async splitAmongGuardians(
     backupFile: BackupFile,
     guardians: Array<{ name: string; email?: string }>,
-    threshold: number
+    threshold: number,
+    walletAddress: string
   ): Promise<SocialRecoverySetup> {
     if (threshold > guardians.length) {
       throw new Error('Threshold cannot exceed number of guardians');
@@ -74,7 +77,7 @@ export class SocialRecovery {
       shareIndex: index + 1,
       threshold, // Store the original threshold in each share
       createdAt: new Date().toISOString(),
-      walletAddress: backupFile.ethereumAddress,
+      walletAddress,
     }));
 
     return {
@@ -129,15 +132,21 @@ export class SocialRecovery {
 
     // Convert back to string and parse JSON
     const backupJson = bytesToString(recoveredBytes);
-    const backupFile = JSON.parse(backupJson) as BackupFile;
-
-    // Verify the recovered backup
-    if (backupFile.ethereumAddress !== firstAddress) {
-      throw new Error('Recovered backup address mismatch - corrupted shares');
+    let recovered: unknown;
+    try {
+      recovered = JSON.parse(backupJson);
+    } catch {
+      throw new Error('Recovered data is not a backup file - corrupted shares');
     }
-    assertSupportedBackupMethod(backupFile);
 
-    return backupFile;
+    try {
+      return validateBackupFile(recovered);
+    } catch (error) {
+      if (error instanceof UnsupportedBackupVersionError) {
+        error.backupFileJson = backupJson;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -266,11 +275,11 @@ ${share.shareData}
     error?: string;
   }> {
     try {
-      const backupFile = await this.recoverFromShares(shares);
+      await this.recoverFromShares(shares);
 
       return {
         canRecover: true,
-        recoveredAddress: backupFile.ethereumAddress,
+        recoveredAddress: shares[0].walletAddress,
       };
     } catch (error) {
       return {

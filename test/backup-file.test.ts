@@ -1,220 +1,233 @@
 /**
- * Test suite for new simplified backup file system
+ * BackupFile v3: password (Argon2id) and PRF round trips, no address in
+ * the file, Argon2id parameters, version checks and social recovery
  */
 
 import { Wallet } from 'ethers';
-import { BackupFileManager } from '../src/backup/backup-file';
+import { BackupFileManager, validateBackupFile } from '../src/backup/backup-file';
+import {
+  ARGON2ID_MAX_PARAMS,
+  ARGON2ID_PARAMS,
+  deriveKeyFromPasswordArgon2id,
+} from '../src/backup/encryption';
+import { encryptData } from '../src/wallet/crypto';
 import { SocialRecovery } from '../src/recovery/backup-based-recovery';
+import { CryptoError, UnsupportedBackupVersionError } from '../src/core/errors';
+import type { BackupFile } from '../src/backup/types';
+import { startTestSuite, endTestSuite, runTest, passTest, assert, assertEqual } from './test-utils';
 
-console.log('\n🧪 Testing Simplified Backup File System\n');
+const manager = new BackupFileManager();
+const PASSWORD = 'TestPassword123!NotReal';
 
-async function testPasswordBackup() {
-  console.log('📝 Test 1: Create and restore password-protected backup');
-
-  const manager = new BackupFileManager();
-
-  // Create a test wallet
+function newWallet() {
   const wallet = Wallet.createRandom();
-  const mnemonic = wallet.mnemonic!.phrase;
-  const address = wallet.address;
-
-  console.log(`  ✓ Created test wallet: ${address.substring(0, 10)}...`);
-
-  // Create password backup
-  const password = 'TestPassword123!SecureBackup';
-  const { backupFile, json } = await manager.createPasswordBackup(
-    mnemonic,
-    address,
-    password
-  );
-
-  console.log(`  ✓ Created password backup`);
-  console.log(`    - Version: ${backupFile.version}`);
-  console.log(`    - Created: ${backupFile.createdAt}`);
-  console.log(`    - Address: ${backupFile.ethereumAddress.substring(0, 10)}...`);
-  console.log(`    - Encryption: ${backupFile.encryptionMethod}`);
-
-  // Restore from backup (using same password)
-  const restored = await manager.restoreWithPassword(backupFile, password);
-
-  console.log(`  ✓ Restored from backup`);
-  console.log(`    - Address: ${restored.ethereumAddress.substring(0, 10)}...`);
-
-  // Verify
-  if (restored.mnemonic !== mnemonic) {
-    throw new Error('Mnemonic mismatch!');
-  }
-
-  if (restored.ethereumAddress.toLowerCase() !== address.toLowerCase()) {
-    throw new Error('Address mismatch!');
-  }
-
-  console.log('  ✅ Password backup test PASSED\n');
+  return { mnemonic: wallet.mnemonic!.phrase, address: wallet.address };
 }
 
-async function testSocialRecovery() {
-  console.log('📝 Test 2: Social recovery with guardian shares');
-
-  const manager = new BackupFileManager();
-  const recovery = new SocialRecovery();
-
-  // Create a test wallet
-  const wallet = Wallet.createRandom();
-  const mnemonic = wallet.mnemonic!.phrase;
-  const address = wallet.address;
-
-  console.log(`  ✓ Created test wallet: ${address.substring(0, 10)}...`);
-
-  // Create password backup
-  const password = 'TestPassword123!SecureBackup';
-  const { backupFile } = await manager.createPasswordBackup(mnemonic, address, password);
-
-  // Set up 3-of-5 social recovery
-  const guardians = [
-    { name: 'Alice', email: 'alice@example.com' },
-    { name: 'Bob', email: 'bob@example.com' },
-    { name: 'Charlie', email: 'charlie@example.com' },
-    { name: 'David', email: 'david@example.com' },
-    { name: 'Eve', email: 'eve@example.com' },
-  ];
-
-  const setup = await recovery.splitAmongGuardians(
-    backupFile,
-    guardians,
-    3 // threshold
-  );
-
-  console.log(`  ✓ Split backup among ${guardians.length} guardians (3-of-5)`);
-  console.log(`    - Threshold: ${setup.threshold}`);
-  console.log(`    - Total shares: ${setup.totalShares}`);
-
-  // Simulate recovery with 3 shares (Alice, Bob, Charlie)
-  const sharesForRecovery = [
-    setup.guardianShares[0], // Alice
-    setup.guardianShares[1], // Bob
-    setup.guardianShares[2], // Charlie
-  ];
-
-  console.log(`  ✓ Collecting shares from: ${sharesForRecovery.map(s => s.guardianName).join(', ')}`);
-
-  // Recover backup file
-  const recoveredBackup = await recovery.recoverFromShares(sharesForRecovery);
-
-  console.log(`  ✓ Recovered backup file`);
-  console.log(`    - Address: ${recoveredBackup.ethereumAddress.substring(0, 10)}...`);
-
-  // Verify the backup is correct
-  if (recoveredBackup.ethereumAddress !== backupFile.ethereumAddress) {
-    throw new Error('Recovered backup address mismatch!');
+async function capture(fn: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await fn();
+  } catch (error) {
+    return error;
   }
-
-  // Test recovery with MORE shares than threshold (this was the bug scenario)
-  const moreSharesForRecovery = [
-    setup.guardianShares[0], // Alice
-    setup.guardianShares[1], // Bob
-    setup.guardianShares[2], // Charlie
-    setup.guardianShares[3], // David
-  ];
-
-  console.log(`  ✓ Testing recovery with ${moreSharesForRecovery.length} shares (more than threshold of 3)`);
-
-  const recoveredBackup2 = await recovery.recoverFromShares(moreSharesForRecovery);
-
-  if (recoveredBackup2.ethereumAddress !== backupFile.ethereumAddress) {
-    throw new Error('Recovery with 4 shares failed - this was the bug!');
-  }
-
-  console.log(`  ✓ Recovery with 4 shares successful (bug fix verified)`);
-  console.log('  ✅ Social recovery test PASSED\n');
+  return undefined;
 }
 
-async function testGuardianInvitation() {
-  console.log('📝 Test 3: Guardian invitation generation');
-
-  const recovery = new SocialRecovery();
-
-  // Create a test share
-  const testShare = {
-    guardianId: 'test-123',
-    guardianName: 'Alice',
-    shareData: 'abcdef1234567890',
-    shareIndex: 1,
-    threshold: 3,
-    createdAt: new Date().toISOString(),
-    walletAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7',
-  };
-
-  // Generate invitation
-  const invitation = await recovery.createGuardianInvitation(
-    testShare,
-    'You are a trusted guardian for my crypto wallet.'
-  );
-
-  console.log(`  ✓ Generated guardian invitation`);
-  console.log(`    - Has document: ${invitation.shareDocument.length > 0}`);
-  console.log(`    - Has JSON: ${invitation.shareJson.length > 0}`);
-  console.log(`    - Has QR code: ${invitation.qrCodeDataURL ? 'Yes' : 'No (optional dependency missing)'}`);
-
-  // Test parsing the invitation
-  const parsed = recovery.parseGuardianShare(invitation.shareJson);
-
-  if (parsed.guardianName !== testShare.guardianName) {
-    throw new Error('Guardian name mismatch!');
-  }
-
-  if (parsed.shareData !== testShare.shareData) {
-    throw new Error('Share data mismatch!');
-  }
-
-  console.log(`  ✓ Successfully parsed guardian share`);
-  console.log('  ✅ Guardian invitation test PASSED\n');
-}
-
-async function testDownloadableBackup() {
-  console.log('📝 Test 4: Downloadable backup creation');
-
-  const manager = new BackupFileManager();
-
-  // Create a test wallet
-  const wallet = Wallet.createRandom();
-  const mnemonic = wallet.mnemonic!.phrase;
-  const address = wallet.address;
-
-  // Create backup
-  const password = 'TestPassword123!SecureBackup';
-  const { backupFile } = await manager.createPasswordBackup(mnemonic, address, password);
-
-  // Create downloadable version
-  const download = manager.createDownloadableBackup(backupFile);
-
-  console.log(`  ✓ Created downloadable backup`);
-  console.log(`    - Filename: ${download.filename}`);
-  console.log(`    - Blob type: ${download.blob.type}`);
-  console.log(`    - Blob size: ${download.blob.size} bytes`);
-
-  // Verify we can parse it back
-  const text = await download.blob.text();
-  const parsed = await manager.parseBackupFile(text);
-
-  if (parsed.ethereumAddress !== address) {
-    throw new Error('Downloaded backup address mismatch!');
-  }
-
-  console.log('  ✅ Downloadable backup test PASSED\n');
+function assertNoAddress(json: string, address: string, label: string) {
+  const hex = address.slice(2).toLowerCase();
+  assert(!json.toLowerCase().includes(hex), `${label}: no address in the file`);
+  const parsed = JSON.parse(json);
+  assert(!('ethereumAddress' in parsed), `${label}: no ethereumAddress field`);
+  assert(!('addressChecksum' in parsed), `${label}: no addressChecksum field`);
 }
 
 async function runTests() {
-  try {
-    await testPasswordBackup();
-    await testSocialRecovery();
-    await testGuardianInvitation();
-    await testDownloadableBackup();
+  startTestSuite('BackupFile v3 Tests');
 
-    console.log('🎉 All tests passed!\n');
-  } catch (error) {
-    console.error('\n❌ Test failed:', error);
-    process.exit(1);
-  }
+  await runTest('Password backup round trip', async () => {
+    const { mnemonic, address } = newWallet();
+    const { backupFile, json } = await manager.createPasswordBackup(mnemonic, PASSWORD);
+
+    assertEqual(backupFile.version, 3, 'version is 3');
+    assertEqual(backupFile.encryptionMethod, 'password', 'method is password');
+    assertNoAddress(json, address, 'password');
+    assert(!json.includes(mnemonic.split(' ')[0] + ' '), 'mnemonic is not in clear');
+
+    const restored = await manager.restoreWithPassword(await manager.parseBackupFile(json), PASSWORD);
+    assertEqual(restored.mnemonic, mnemonic, 'mnemonic restored');
+    assertEqual(restored.ethereumAddress, address, 'address derived from the mnemonic');
+    passTest('password file round-trips');
+  });
+
+  await runTest('Password backup uses the documented Argon2id parameters', async () => {
+    const { mnemonic } = newWallet();
+    const { backupFile } = await manager.createPasswordBackup(mnemonic, PASSWORD);
+    const kdf = backupFile.passwordEncryption!;
+
+    assertEqual(kdf.kdf, 'argon2id', 'kdf is argon2id');
+    assertEqual(kdf.memoryKiB, 19456, 'memory is 19 MiB');
+    assertEqual(kdf.passes, 2, '2 passes');
+    assertEqual(kdf.parallelism, 1, '1 lane');
+    assertEqual(ARGON2ID_PARAMS.memoryKiB, 19456, 'ARGON2ID_PARAMS.memoryKiB');
+    assertEqual(atob(kdf.salt).length, 16, '16-byte salt');
+
+    const other = await manager.createPasswordBackup(mnemonic, PASSWORD);
+    assert(other.backupFile.passwordEncryption!.salt !== kdf.salt, 'salt is random per file');
+
+    const start = performance.now();
+    await deriveKeyFromPasswordArgon2id(PASSWORD, new Uint8Array(16));
+    const ms = performance.now() - start;
+    assert(ms < 5000, 'derivation finishes in under 5 s');
+    passTest(`Argon2id m=19456 KiB t=2 p=1: ${ms.toFixed(0)} ms`);
+  });
+
+  await runTest('Restore reads the Argon2id parameters from the file', async () => {
+    const { mnemonic, address } = newWallet();
+    const params = { memoryKiB: 1024, passes: 3, parallelism: 2 };
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKeyFromPasswordArgon2id(PASSWORD, salt, params);
+    const file: BackupFile = {
+      version: 3,
+      createdAt: new Date().toISOString(),
+      encryptedMnemonic: await encryptData(mnemonic, key),
+      encryptionMethod: 'password',
+      passwordEncryption: { kdf: 'argon2id', salt: btoa(String.fromCharCode(...salt)), ...params },
+    };
+
+    const restored = await manager.restoreWithPassword(validateBackupFile(file), PASSWORD);
+    assertEqual(restored.ethereumAddress, address, 'restores with the file parameters');
+
+    const tooBig = {
+      ...file,
+      passwordEncryption: { ...file.passwordEncryption!, memoryKiB: ARGON2ID_MAX_PARAMS.memoryKiB + 1 },
+    };
+    assert((await capture(() => manager.parseBackupFile(JSON.stringify(tooBig)))) instanceof Error, 'memory over the bound is rejected');
+    const shortSalt = { ...file, passwordEncryption: { ...file.passwordEncryption!, salt: 'AAAAAAAAAAA=' } };
+    assert((await capture(() => manager.parseBackupFile(JSON.stringify(shortSalt)))) instanceof Error, 'salt under 16 bytes is rejected');
+    const lowMemory = { ...file, passwordEncryption: { ...file.passwordEncryption!, memoryKiB: 8, parallelism: 4 } };
+    assert((await capture(() => manager.restoreWithPassword(lowMemory, PASSWORD))) instanceof Error, 'memory under 8*p is rejected, also without parseBackupFile');
+    const noKdf = { ...file, passwordEncryption: { ...file.passwordEncryption!, kdf: 'pbkdf2' } };
+    assert((await capture(() => manager.parseBackupFile(JSON.stringify(noKdf)))) instanceof Error, 'another kdf is rejected');
+    passTest('parameters come from the file, within bounds');
+  });
+
+  await runTest('Password is NFC-normalized', async () => {
+    const { mnemonic } = newWallet();
+    const nfc = 'café-Passw0rd!';
+    const nfd = 'café-Passw0rd!';
+    const { backupFile } = await manager.createPasswordBackup(mnemonic, nfc);
+    const restored = await manager.restoreWithPassword(backupFile, nfd);
+    assertEqual(restored.mnemonic, mnemonic, 'NFD input restores an NFC password');
+    passTest('NFC and NFD spellings match');
+  });
+
+  await runTest('Wrong password or altered file throws CryptoError', async () => {
+    const { mnemonic } = newWallet();
+    const { backupFile } = await manager.createPasswordBackup(mnemonic, PASSWORD);
+
+    const wrong = await capture(() => manager.restoreWithPassword(backupFile, 'wrong-password'));
+    assert(wrong instanceof CryptoError, 'wrong password: CryptoError');
+
+    const bytes = atob(backupFile.encryptedMnemonic);
+    const flipped = bytes.slice(0, 20) + String.fromCharCode(bytes.charCodeAt(20) ^ 1) + bytes.slice(21);
+    const altered = await capture(() =>
+      manager.restoreWithPassword({ ...backupFile, encryptedMnemonic: btoa(flipped) }, PASSWORD)
+    );
+    assert(altered instanceof CryptoError, 'altered ciphertext: CryptoError');
+    passTest('rejected');
+  });
+
+  await runTest('PRF backup round trip', async () => {
+    const { mnemonic, address } = newWallet();
+    const prfOutput = crypto.getRandomValues(new Uint8Array(32));
+    const prfSalt = 'c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdHNhbHQ';
+    const { json } = await manager.createPrfBackup(
+      mnemonic,
+      { id: 'credential-id', publicKey: 'public-key' },
+      'alice',
+      prfSalt,
+      prfOutput
+    );
+    assertNoAddress(json, address, 'prf');
+
+    const backupFile = await manager.parseBackupFile(json);
+    assertEqual(backupFile.version, 3, 'version is 3');
+    const restored = await manager.restoreWithPrf(backupFile, prfOutput);
+    assertEqual(restored.mnemonic, mnemonic, 'mnemonic restored');
+    assertEqual(restored.ethereumAddress, address, 'address derived from the mnemonic');
+    passTest('prf file round-trips');
+  });
+
+  await runTest('Files that are not v3 throw UnsupportedBackupVersionError', async () => {
+    const v2 = {
+      createdAt: new Date().toISOString(),
+      ethereumAddress: '0x0000000000000000000000000000000000000001',
+      encryptedMnemonic: 'AAAA',
+      encryptionMethod: 'password',
+      passwordEncryption: { salt: 'AAAA', iv: 'AAAA', iterations: 310000 },
+      addressChecksum: 'AAAAAAAAAAAAAAAA',
+    };
+    const error = await capture(() => manager.parseBackupFile(JSON.stringify(v2)));
+    assert(error instanceof UnsupportedBackupVersionError, 'v2: UnsupportedBackupVersionError');
+    assertEqual((error as UnsupportedBackupVersionError).code, 'BACKUP_VERSION_UNSUPPORTED', 'code');
+
+    assert((error as Error).message.includes('v0.10.6'), 'password v2: names the v0.10.6 tool');
+
+    const prfError = await capture(() =>
+      manager.parseBackupFile(JSON.stringify({ ...v2, encryptionMethod: 'prf' }))
+    );
+    assert((prfError as Error).message.includes('exportForSync()'), 'prf v2: asks for a new export');
+
+    const v2error = await capture(() => manager.parseBackupFile(JSON.stringify({ ...v2, version: 2 })));
+    assert(
+      v2error instanceof UnsupportedBackupVersionError && v2error.version === 2,
+      'version 2: carries the version'
+    );
+    passTest('rejected with a typed error');
+  });
+
+  await runTest('Social recovery splits and rebuilds a v3 file', async () => {
+    const { mnemonic, address } = newWallet();
+    const recovery = new SocialRecovery();
+    const { backupFile } = await manager.createPasswordBackup(mnemonic, PASSWORD);
+    const guardians = ['Alice', 'Bob', 'Charlie', 'David', 'Eve'].map((name) => ({ name }));
+
+    const setup = await recovery.splitAmongGuardians(backupFile, guardians, 3, address);
+    assert(setup.guardianShares.every((s) => s.walletAddress === address), 'shares carry the address');
+
+    for (const count of [3, 4, 5]) {
+      const rebuilt = await recovery.recoverFromShares(setup.guardianShares.slice(0, count));
+      assertEqual(rebuilt.version, 3, `${count} shares: v3 file`);
+      const restored = await manager.restoreWithPassword(rebuilt, PASSWORD);
+      assertEqual(restored.ethereumAddress, address, `${count} shares: restores the wallet`);
+    }
+
+    const verified = await recovery.verifyRecovery(setup.guardianShares.slice(1, 4));
+    assert(verified.canRecover && verified.recoveredAddress === address, 'verifyRecovery');
+
+    const { version: _, ...v2 } = backupFile;
+    const v2setup = await recovery.splitAmongGuardians(v2 as BackupFile, guardians, 3, address);
+    const v2error = await capture(() => recovery.recoverFromShares(v2setup.guardianShares.slice(0, 3)));
+    assert(v2error instanceof UnsupportedBackupVersionError, 'v2 shares: UnsupportedBackupVersionError');
+    assertEqual(
+      JSON.parse((v2error as UnsupportedBackupVersionError).backupFileJson!).encryptedMnemonic,
+      backupFile.encryptedMnemonic,
+      'v2 shares: the error carries the rebuilt file'
+    );
+    passTest('3, 4 and 5 shares restore');
+  });
+
+  await runTest('Downloadable backup filename has no address', async () => {
+    const { mnemonic, address } = newWallet();
+    const { backupFile } = await manager.createPasswordBackup(mnemonic, PASSWORD);
+    const download = manager.createDownloadableBackup(backupFile);
+
+    assert(!download.filename.toLowerCase().includes(address.slice(2, 8).toLowerCase()), 'no address in the filename');
+    assertEqual((await manager.parseBackupFile(await download.blob.text())).version, 3, 'parses back');
+    passTest(download.filename);
+  });
+
+  endTestSuite();
 }
 
 runTests();

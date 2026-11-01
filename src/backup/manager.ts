@@ -5,7 +5,6 @@
 
 import type {
   BackupStatus,
-  BackupMethod,
   SecurityScore,
   QRBackupOptions,
   RecoveryScenario,
@@ -14,6 +13,7 @@ import type {
   EncryptedBackupInfo,
   SocialRecoveryStatus,
 } from './types';
+import { PASSKEY_INDEPENDENT_METHODS } from './types';
 import { BackupStorage } from './storage';
 import { QRBackupCreator } from './qr-backup';
 import { SocialRecoveryManager } from '../recovery/social';
@@ -65,9 +65,18 @@ export class BackupManager {
     // Get verification status
     const verificationStatus = this.getVerificationStatus(ethereumAddress);
 
+    const hasBackup =
+      methods.some((m) => PASSKEY_INDEPENDENT_METHODS.includes(m)) || !!socialRecoveryStatus?.enabled;
+    const recommendedMode = !hasBackup
+      ? 'password'
+      : methods.includes('prf')
+        ? undefined
+        : 'prf';
+
     // Build status
     const status: BackupStatus = {
-      hasBackup: methods.length > 0,
+      hasBackup,
+      ...(recommendedMode && { recommendedMode }),
       evictionRisk: await detectEvictionRisk(),
       lastBackupAt,
       methods,
@@ -83,7 +92,7 @@ export class BackupManager {
         encryptedBackups,
         socialRecoveryStatus,
         verificationStatus,
-        methods
+        hasBackup
       ),
     };
 
@@ -199,7 +208,10 @@ export class BackupManager {
 
   async hasBackup(ethereumAddress: string): Promise<boolean> {
     const backups = await this.storage.getBackupsByAddress(ethereumAddress);
-    return backups.length > 0;
+    return (
+      backups.some((b) => PASSKEY_INDEPENDENT_METHODS.includes(b.method)) ||
+      !!this.getSocialRecoveryStatus()?.enabled
+    );
   }
 
   /**
@@ -255,7 +267,7 @@ export class BackupManager {
     encryptedBackups: EncryptedBackupInfo[],
     socialRecoveryStatus?: SocialRecoveryStatus,
     verificationStatus?: { verified: boolean; count: number },
-    methods: BackupMethod[] = []
+    restoresWithoutPasskey = false
   ): SecurityScore {
     // Calculate social recovery score
     let socialRecoveryScore = 0;
@@ -286,16 +298,17 @@ export class BackupManager {
     };
 
     const sum = Object.values(breakdown).reduce((acc, val) => acc + val, 0);
-    // Without a backup, wiped browser storage loses the wallet for good
-    const total = methods.length > 0 ? sum : Math.min(sum, 20);
+    // Without a backup that restores without a passkey, losing this device
+    // (or its storage) with no synced passkey loses the wallet for good
+    const total = restoresWithoutPasskey ? sum : Math.min(sum, 20);
 
     let level: SecurityScore['level'];
     let nextMilestone: string;
 
-    if (methods.length === 0) {
+    if (!restoresWithoutPasskey) {
       level = 'vulnerable';
       nextMilestone =
-        'Create a backup file or confirm your recovery phrase: browser storage can be wiped';
+        'Create a password backup file or confirm your recovery phrase: without a backup that restores without a passkey, losing this device can lose the wallet';
     } else if (total <= 20) {
       level = 'vulnerable';
       nextMilestone = 'Create encrypted backup to reach "protected" (40+ pts)';

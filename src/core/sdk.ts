@@ -1620,54 +1620,51 @@ export class Web3Passkey {
    * - Sync wallet across devices
    * - Split among guardians for social recovery
    *
-   * @param encryptionType - 'password', the only method for a backup file;
-   * a PRF backup comes from exportForSync()
-   * @param password - Required
+   * Creates a password backup (BackupFile v3, Argon2id): the backup that
+   * restores without a passkey. A PRF backup comes from exportForSync().
+   *
+   * @param password - Encrypts the backup
    */
-  async createBackupFile(
-    encryptionType: 'password' = 'password',
-    password?: string
-  ): Promise<{ blob: Blob; filename: string }> {
+  async createBackupFile(password: string): Promise<{ blob: Blob; filename: string }> {
+    if (arguments.length > 1) {
+      throw new WalletError(
+        "createBackupFile() takes only the password: createBackupFile(password)"
+      );
+    }
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated to create backup");
+    }
+    if (!password) {
+      throw new WalletError("Password required for password-based backup");
     }
 
     const mnemonic = await this.getMnemonicFromSession(true);
 
     const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupStorage } = await import("../backup/storage");
     const manager = new BackupFileManager();
-    const storage = new BackupStorage();
+    const { backupFile } = await manager.createPasswordBackup(
+      mnemonic,
+      password,
+      await this.backupCredential()
+    );
 
-    let result;
-    let backupFile;
+    await this.recordBackup('file');
 
-    if (encryptionType === 'password') {
-      if (!password) {
-        throw new WalletError("Password required for password-based backup");
-      }
-      const created = await manager.createPasswordBackup(
-        mnemonic,
-        this.currentUser.ethereumAddress,
-        password,
-        await this.backupCredential()
-      );
-      backupFile = created.backupFile;
-      result = manager.createDownloadableBackup(backupFile);
-    } else {
-      throw new WalletError(`Unknown encryption type: ${encryptionType}`);
-    }
+    return manager.createDownloadableBackup(backupFile);
+  }
 
-    // Store backup metadata for security score tracking
-    await storage.storeBackupMetadata({
+  /** Store backup metadata for the backup status and security score */
+  private async recordBackup(method: 'file' | 'prf'): Promise<void> {
+    const { BackupStorage } = await import("../backup/storage");
+    const { deriveAddressChecksum } = await import("../backup/encryption");
+    const { ethereumAddress } = this.currentUser!;
+    await new BackupStorage().storeBackupMetadata({
       id: crypto.randomUUID(),
-      ethereumAddress: this.currentUser.ethereumAddress,
-      method: 'file',
+      ethereumAddress,
+      method,
       createdAt: new Date().toISOString(),
-      addressChecksum: backupFile.addressChecksum,
+      addressChecksum: await deriveAddressChecksum(ethereumAddress),
     });
-
-    return result;
   }
 
   private async backupCredential(): Promise<BackupCredential | undefined> {
@@ -1708,7 +1705,6 @@ export class Web3Passkey {
     const { BackupFileManager } = await import("../backup/backup-file");
     const { backupFile } = await new BackupFileManager().createPasswordBackup(
       mnemonic,
-      this.currentUser.ethereumAddress,
       password,
       await this.backupCredential()
     );
@@ -1720,7 +1716,8 @@ export class Web3Passkey {
     const setup = await recovery.splitAmongGuardians(
       backupFile,
       guardians,
-      threshold
+      threshold,
+      this.currentUser.ethereumAddress
     );
 
     return {
@@ -1797,6 +1794,9 @@ export class Web3Passkey {
         'PRF backups are not supported for guardian recovery. Use password-protected backups.'
       );
     }
+    if (result.ethereumAddress.toLowerCase() !== parsedShares[0].walletAddress.toLowerCase()) {
+      throw new WalletError("Recovered wallet doesn't match the guardian shares' address");
+    }
 
     // Mark backup as verified (successful guardian recovery proves the backup works)
     backupManager.markBackupVerified(result.ethereumAddress);
@@ -1808,9 +1808,15 @@ export class Web3Passkey {
    * Restore wallet from backup file with existing passkey
    * Use case: User has passkey synced to this device
    *
-   * After restoration, you can either:
+   * After restoring a password backup, you can either:
    * - Use importMnemonic() to associate with current logged-in user
    * - Use registerWithBackupFile() to create new passkey for this wallet
+   *
+   * A PRF backup takes one assertion with its passkey, no password, and sets
+   * this device up for that passkey (as importFromSync() does).
+   *
+   * @throws UnsupportedBackupVersionError for a file that isn't BackupFile v3
+   * @throws SyncBootstrapError ('CREDENTIAL_MISMATCH') for a PRF backup of another passkey than the logged-in one
    */
   async restoreFromBackupFile(
     backupData: string | Blob,
@@ -1823,20 +1829,17 @@ export class Web3Passkey {
 
     const backupFile = await manager.parseBackupFile(backupData);
 
-    let mnemonic: string;
-    let ethereumAddress: string;
-
-    // Determine which restore method to use based on encryption type
-    if (backupFile.encryptionMethod === 'password') {
-      if (!password) {
-        throw new WalletError("Password required to restore password-encrypted backup");
+    if (backupFile.encryptionMethod === 'prf') {
+      if (this.currentUser && this.currentUser.credentialId !== backupFile.credential!.id) {
+        throw new SyncBootstrapError("CREDENTIAL_MISMATCH", this.currentUser.credentialId);
       }
-      const result = await manager.restoreWithPassword(backupFile, password);
-      mnemonic = result.mnemonic;
-      ethereumAddress = result.ethereumAddress;
-    } else {
-      throw new WalletError(`Unknown encryption method: ${backupFile.encryptionMethod}`);
+      return this.restorePrfBackup(backupFile);
     }
+
+    if (!password) {
+      throw new WalletError("Password required to restore password-encrypted backup");
+    }
+    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
 
     // Mark backup as verified (successful restore proves the backup works)
     backupManager.markBackupVerified(ethereumAddress);
@@ -2184,13 +2187,14 @@ export class Web3Passkey {
 
     const { backupFile, blob } = await syncManager.exportForSync(
       mnemonic,
-      this.currentUser.ethereumAddress,
       { id: credential.id, publicKey: credential.publicKey },
       this.currentUser.username,
       password
     );
 
-    const filename = `w3pk-sync-${this.currentUser.ethereumAddress.substring(0, 8)}.json`;
+    await this.recordBackup(backupFile.encryptionMethod === 'prf' ? 'prf' : 'file');
+
+    const filename = `w3pk-sync-${new Date().toISOString().split('T')[0]}.json`;
 
     // Optionally generate QR code
     let qrCode: string | undefined;

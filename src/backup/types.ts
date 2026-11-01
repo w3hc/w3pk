@@ -2,10 +2,28 @@
  * Backup and Recovery Type Definitions
  */
 
-export type BackupMethod = 'file' | 'qr' | 'phrase';
+import type { Argon2idParams } from './encryption';
+
+/**
+ * - `file`: password backup file, restores without a passkey
+ * - `qr`: QR backup, restores without a passkey
+ * - `phrase`: recovery phrase written down
+ * - `prf`: PRF backup from exportForSync(), restores only with the passkey
+ */
+export type BackupMethod = 'file' | 'qr' | 'phrase' | 'prf';
+
+/** Backup methods that restore the wallet without a passkey */
+export const PASSKEY_INDEPENDENT_METHODS: readonly BackupMethod[] = ['file', 'qr', 'phrase'];
 
 export interface BackupStatus {
+  /** A backup that restores without a passkey exists (file, QR, phrase or social recovery) */
   hasBackup: boolean;
+  /**
+   * Next backup to make: `password` while no backup restores without a
+   * passkey (it's the one that must exist), then `prf` for convenient sync
+   * across devices where the passkey synced. Undefined once both exist.
+   */
+  recommendedMode?: 'password' | 'prf';
   evictionRisk: boolean;
   lastBackupAt?: string;
   methods: BackupMethod[];
@@ -31,7 +49,7 @@ export interface RecoveryPhraseStatus {
 
 export interface EncryptedBackupInfo {
   id: string;
-  method: 'qr' | 'file';
+  method: 'qr' | 'file' | 'prf';
   location: string;
   createdAt: string;
   deviceFingerprint?: string;
@@ -78,34 +96,37 @@ export interface BackupMetadata {
   addressChecksum: string; // For verification
 }
 
+export const BACKUP_FILE_VERSION = 3;
+
 /**
- * Simplified backup file format - acts like a "floppy disk"
+ * BackupFile v3 - acts like a "floppy disk"
  * Can be used to:
  * 1. Restore wallet with existing passkey (same or synced device)
  * 2. Register new passkey with this wallet (fresh device)
  * 3. Sync wallet across devices
  * 4. Split among guardians for social recovery
+ *
+ * It holds no address: the wallet's address comes from the decrypted mnemonic.
  */
 export interface BackupFile {
+  version: typeof BACKUP_FILE_VERSION;
   createdAt: string; // ISO 8601 timestamp
-  ethereumAddress: string; // m/44'/60'/0'/0/0 address (index #0)
-  encryptedMnemonic: string; // AES-256-GCM encrypted with a PRF-derived key OR password
+  // base64(iv || AES-256-GCM ciphertext), the key from Argon2id(password) or the passkey's PRF
+  encryptedMnemonic: string;
   encryptionMethod: 'password' | 'prf';
-  // For password encryption
-  passwordEncryption?: {
-    salt: string;
-    iv: string;
-    iterations: number;
-  };
-  // Passkey that owned the wallet when a password or PRF backup was made:
-  // lets a fresh device where that passkey synced set up its metadata
+  passwordEncryption?: PasswordEncryption;
+  // Passkey that owned the wallet when the backup was made: lets a fresh
+  // device where that passkey synced set up its metadata
   credential?: BackupCredential;
   // For PRF encryption: random per backup, the PRF is evaluated at
   // SHA-256("w3pk-prf-sync-v1" || prfSalt) with the passkey in `credential`
   prfSalt?: string;
   username?: string;
-  // Metadata for verification
-  addressChecksum: string; // For verification after decryption
+}
+
+export interface PasswordEncryption extends Argon2idParams {
+  kdf: 'argon2id';
+  salt: string; // base64, 16 random bytes
 }
 
 export interface BackupCredential {

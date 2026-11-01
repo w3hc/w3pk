@@ -92,7 +92,7 @@ async function runTests() {
     const sdk = loggedInSdk();
     const before = await sdk.getBackupStatus();
 
-    await sdk.createBackupFile("password", "TestStrongPass123!NotReal");
+    await sdk.createBackupFile("TestStrongPass123!NotReal");
     const after = await sdk.getBackupStatus();
 
     assertEqual(after.hasBackup, true, "hasBackup is true");
@@ -128,7 +128,7 @@ async function runTests() {
 
     await sdk.confirmRecoveryPhraseBackup();
     await new Promise((r) => setTimeout(r, 5));
-    await sdk.createBackupFile("password", "TestStrongPass123!NotReal");
+    await sdk.createBackupFile("TestStrongPass123!NotReal");
     const status = await sdk.getBackupStatus();
 
     const createdAts = JSON.parse(localStorage.getItem("w3pk_backups")!).map(
@@ -147,6 +147,66 @@ async function runTests() {
     const status = await loggedInSdk().getBackupStatus();
     assertEqual(status.hasBackup, false, "hasBackup is false");
     passTest("scoped to the current wallet");
+  });
+
+  await runTest("createBackupFile rejects the removed encryptionType argument", async () => {
+    localStorage.clear();
+    let error: unknown;
+    try {
+      await (loggedInSdk() as any).createBackupFile("password", "TestStrongPass123!NotReal");
+    } catch (e) {
+      error = e;
+    }
+    assert(error instanceof Error && /only the password/.test(error.message), "throws");
+    assertEqual(localStorage.getItem("w3pk_backups"), null, "no backup recorded");
+    passTest("rejected");
+  });
+
+  await runTest("recommendedMode is password first, then prf", async () => {
+    localStorage.clear();
+    const sdk = loggedInSdk();
+    assertEqual((await sdk.getBackupStatus()).recommendedMode, "password", "no backup: password");
+
+    await sdk.createBackupFile("TestStrongPass123!NotReal");
+    assertEqual((await sdk.getBackupStatus()).recommendedMode, "prf", "password backup: prf");
+
+    await (sdk as any).recordBackup("prf");
+    assertEqual((await sdk.getBackupStatus()).recommendedMode, undefined, "both: none");
+    passTest("password, prf, then none");
+  });
+
+  await runTest("A PRF backup alone doesn't count as a backup", async () => {
+    localStorage.clear();
+    const sdk = loggedInSdk();
+    await (sdk as any).recordBackup("prf");
+    const status = await sdk.getBackupStatus();
+
+    assertEqual(status.methods.join(","), "prf", "method is prf");
+    assertEqual(status.hasBackup, false, "hasBackup is false");
+    assertEqual(await new BackupManager().hasBackup(ADDRESS), false, "manager agrees");
+    assertEqual(status.recommendedMode, "password", "recommends a password backup");
+    assert(status.securityScore.total <= 20, "score capped at 20");
+    assertEqual(status.securityScore.level, "vulnerable", "level is vulnerable");
+    passTest(`score ${status.securityScore.total}/100`);
+  });
+
+  await runTest("A password backup alone isn't penalized", async () => {
+    const score = (methods: string[], restoresWithoutPasskey: boolean) =>
+      (new BackupManager() as any).calculateSecurityScore(
+        { enabled: true, deviceCount: 1 },
+        methods.map((method) => ({ id: method, method, location: "local", createdAt: "" })),
+        undefined,
+        undefined,
+        restoresWithoutPasskey
+      );
+    const passwordOnly = score(["file"], true);
+    const prfOnly = score(["prf"], false);
+    const both = score(["file", "prf"], true);
+
+    assertEqual(passwordOnly.level, "protected", "password-only: protected");
+    assertEqual(both.total, passwordOnly.total, "adding a PRF backup doesn't change the score");
+    assert(prfOnly.total <= 20 && prfOnly.level === "vulnerable", "prf-only: capped, vulnerable");
+    passTest(`password-only ${passwordOnly.total}, prf-only ${prfOnly.total}`);
   });
 
   endTestSuite();

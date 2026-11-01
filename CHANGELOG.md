@@ -37,19 +37,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ZkArtifactMismatchError` is now exported from the main entry too
   - The secret is kept out of the API, not out of reach of malicious code on the same page; the cross-origin wallet ([#156](https://github.com/w3hc/w3pk/issues/156)) isolates it fully
 
+### Changed
+
+- **BREAKING: BackupFile v3** ([#154](https://github.com/w3hc/w3pk/issues/154)) replaces v2, with no compatibility layer
+  - `version: 3`; `encryptedMnemonic` is `base64(iv || AES-256-GCM ciphertext)` for both methods, `password` and `prf`
+  - `password`: Argon2id instead of PBKDF2, with m=19 MiB, t=2, p=1 (OWASP), a random 16-byte salt and an NFC-normalized password; `passwordEncryption` is `{ kdf: 'argon2id', salt, memoryKiB, passes, parallelism }`, read back with bounds (64 MiB, 3 passes, 4 lanes)
+  - No `ethereumAddress` or `addressChecksum` in the file: restores derive the address from the decrypted mnemonic; default filenames no longer contain the address either (`w3pk-backup-<date>.json`, `w3pk-sync-<date>.json`)
+  - Restoring a file that isn't v3 throws the new `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`, with `version`, and `backupFileJson` when rebuilt from guardian shares); decrypt a v2 password file with the [v0.10.6 offline tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html)
+  - `createBackupFile(password)` drops its `encryptionType` parameter (a second argument throws); `BackupFileManager.createPasswordBackup(mnemonic, password, credential?)`, `createPrfBackup(mnemonic, credential, username, prfSalt, prfOutput)`, `DeviceSyncManager.exportForSync(mnemonic, credential, username, password?)` and `SocialRecovery.splitAmongGuardians(backupFile, guardians, threshold, walletAddress)` change signature
+  - `restoreFromBackupFile()` restores `prf` files (one assertion, no password, as `importFromSync()`)
+  - `getBackupStatus()`: new `recommendedMode` (`'password'` until a backup restores without a passkey, then `'prf'`); `hasBackup` and the score cap count only backups that restore without a passkey (file, QR, phrase, social recovery), so password-only backups aren't penalized; `exportForSync()` records PRF exports as method `'prf'`
+  - `standalone/extract-mnemonic.html` decrypts v3 password files offline, with Argon2id inlined (`pnpm build:standalone` regenerates it); `docs/RECOVERY.md` links the v0.10.6 tool for v2 files
+
 ### Security
 
-- **`passkey` and `hybrid` backups didn't use the passkey** ([#170](https://github.com/w3hc/w3pk/issues/170)): their key was `SHA-256("w3pk-v4:" + credentialId + ":" + publicKey)` with no WebAuthn ceremony. The credential ID is in the file and a public key isn't secret, so a `passkey` file decrypted from public data alone, and a `hybrid` file was only as strong as its password. **If you have a `passkey` or `hybrid` backup, log in where your wallet is and create a new `password` backup (`createBackupFile('password', password)`) or `prf` backup (`exportForSync()`), then delete the old file.**
+- **Password backups resist GPU guessing, and backup files no longer say whose wallet they are** ([#154](https://github.com/w3hc/w3pk/issues/154)): PBKDF2 isn't memory-hard, so a stolen v2 password file was cheap to attack on GPUs; v3 uses Argon2id. v2 files also stored the address in clear and as `addressChecksum`, an unsalted truncated SHA-256 that hashing onchain addresses reverses; v3 stores neither.
+
+- **`passkey` and `hybrid` backups didn't use the passkey** ([#170](https://github.com/w3hc/w3pk/issues/170)): their key was `SHA-256("w3pk-v4:" + credentialId + ":" + publicKey)` with no WebAuthn ceremony. The credential ID is in the file and a public key isn't secret, so a `passkey` file decrypted from public data alone, and a `hybrid` file was only as strong as its password. **If you have a `passkey` or `hybrid` backup, log in where your wallet is and create a new `password` backup (`createBackupFile(password)`) or `prf` backup (`exportForSync()`), then delete the old file.**
 
 ### Removed
 
 - **`passkey` and `hybrid` backup methods** ([#170](https://github.com/w3hc/w3pk/issues/170)), with no compatibility layer; `password` and `prf` remain
   - `BackupFileManager.createPasskeyBackup()`, `createHybridBackup()`, `restoreWithExistingPasskey()`, `restoreWithHybrid()` and `DeviceSyncManager.canSyncBackup()`
-  - `createBackupFile()` only takes `'password'`; `setupSocialRecovery()` and `recoverFromGuardians()` require a password (without one, social recovery split a `passkey` backup)
+  - `createBackupFile()`'s `encryptionType` parameter (see BackupFile v3); `setupSocialRecovery()` and `recoverFromGuardians()` require a password (without one, social recovery split a `passkey` backup)
   - `BackupFile.encryptionMethod` is `'password' | 'prf'`; `credentialId` and `publicKeyFingerprint` are gone
   - `SyncBootstrapError` reason `'PASSKEY_BACKUP'`
   - Restoring a `passkey` or `hybrid` file (`syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, guardian recovery) throws the new `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`); the offline `standalone/extract-mnemonic.html` refuses them too
-  - `restoreWithPassword()` also checks the decrypted wallet's address against the file's `ethereumAddress`
 
 ## [0.10.5] - 2026-10-27
 

@@ -43,11 +43,10 @@ async function testDeviceLossRecovery() {
   console.log('  Device A: Creating backup...');
   const { backupFile, blob } = await manager.createPasswordBackup(
     mnemonic,
-    address,
     password
   );
 
-  console.log(`  ✓ Backup created: ${backupFile.ethereumAddress.substring(0, 10)}...`);
+  console.log(`  ✓ Backup created: v${backupFile.version}`);
 
   // Simulate transferring backup to Device B (via download/upload)
   const backupData = await blob.text();
@@ -95,7 +94,6 @@ async function testStorageDeletionRecovery() {
   console.log('  Creating account and backup...');
   const { backupFile, blob } = await manager.createPasswordBackup(
     mnemonic,
-    address,
     password
   );
 
@@ -143,7 +141,6 @@ async function testLoginLessRecovery() {
   console.log('  Device A: Creating backup...');
   const { backupFile, blob } = await manager.createPasswordBackup(
     mnemonic,
-    address,
     password
   );
 
@@ -191,7 +188,6 @@ async function testWrongPassword() {
   // Create backup
   const { backupFile } = await manager.createPasswordBackup(
     mnemonic,
-    address,
     correctPassword
   );
 
@@ -202,14 +198,7 @@ async function testWrongPassword() {
     await manager.restoreWithPassword(backupFile, wrongPassword);
     throw new Error('Should have failed with wrong password');
   } catch (error: any) {
-    // AES-GCM throws "OperationError" when decryption fails (wrong password)
-    // The backup file manager should catch this and verify checksum
-    if (
-      error.message.includes('checksum mismatch') ||
-      error.message.includes('wrong password') ||
-      error.message.includes('operation failed') ||
-      error.name === 'OperationError'
-    ) {
+    if (error.code === 'CRYPTO_ERROR' && error.message.includes('Wrong password')) {
       console.log('  ✓ Correctly rejected wrong password');
       console.log(`    Error: ${error.message || error.name}`);
     } else {
@@ -263,13 +252,11 @@ async function testMultipleBackups() {
 
   const backup1 = await manager.createPasswordBackup(
     wallet1.mnemonic,
-    wallet1.address,
     'Password1!'
   );
 
   const backup2 = await manager.createPasswordBackup(
     wallet2.mnemonic,
-    wallet2.address,
     'Password2!'
   );
 
@@ -315,7 +302,6 @@ async function testIdempotentRestore() {
   // Create backup
   const { backupFile } = await manager.createPasswordBackup(
     mnemonic,
-    address,
     password
   );
 
@@ -352,7 +338,6 @@ async function testBackupFileFormat() {
   // Create backup
   const { backupFile, json } = await manager.createPasswordBackup(
     mnemonic,
-    address,
     password
   );
 
@@ -364,10 +349,15 @@ async function testBackupFileFormat() {
   }
   console.log('  ✓ Has createdAt field');
 
-  if (!backupFile.ethereumAddress) {
-    throw new Error('Missing ethereumAddress field');
+  if (backupFile.version !== 3) {
+    throw new Error('Not BackupFile v3');
   }
-  console.log('  ✓ Has ethereumAddress field');
+  console.log('  ✓ Is BackupFile v3');
+
+  if ('ethereumAddress' in backupFile || json.toLowerCase().includes(address.slice(2).toLowerCase())) {
+    throw new Error('Plain address in the backup file');
+  }
+  console.log('  ✓ Has no address');
 
   if (!backupFile.encryptedMnemonic) {
     throw new Error('Missing encryptedMnemonic field');
@@ -389,25 +379,12 @@ async function testBackupFileFormat() {
   }
   console.log('  ✓ Has salt');
 
-  if (!backupFile.passwordEncryption.iv) {
-    throw new Error('Missing IV');
+  if (backupFile.passwordEncryption.kdf !== 'argon2id') {
+    throw new Error('KDF is not Argon2id');
   }
-  console.log('  ✓ Has IV');
-
-  if (!backupFile.passwordEncryption.iterations) {
-    throw new Error('Missing iterations');
-  }
-  console.log(`  ✓ Has iterations: ${backupFile.passwordEncryption.iterations}`);
-
-  if (backupFile.passwordEncryption.iterations < 310000) {
-    throw new Error('Iterations too low (should be >= 310,000)');
-  }
-  console.log('  ✓ Iterations meet OWASP 2025 standard');
-
-  if (!backupFile.addressChecksum) {
-    throw new Error('Missing address checksum');
-  }
-  console.log('  ✓ Has address checksum');
+  console.log(
+    `  ✓ Argon2id: m=${backupFile.passwordEncryption.memoryKiB} KiB, t=${backupFile.passwordEncryption.passes}, p=${backupFile.passwordEncryption.parallelism}`
+  );
 
   // Verify JSON is valid
   const parsed = JSON.parse(json);
@@ -440,7 +417,6 @@ async function testCompleteDeviceLoss() {
   console.log('  Device A: Creating backup...');
   const { backupFile, blob } = await manager.createPasswordBackup(
     mnemonic,
-    address,
     password
   );
 
@@ -516,7 +492,6 @@ async function testPerformance() {
   const createStart = Date.now();
   const { backupFile } = await manager.createPasswordBackup(
     mnemonic,
-    address,
     password
   );
   const createTime = Date.now() - createStart;

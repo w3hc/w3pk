@@ -91,7 +91,6 @@ export class DeviceSyncManager {
    */
   async exportForSync(
     mnemonic: string,
-    ethereumAddress: string,
     credential: BackupCredential,
     username: string,
     password?: string
@@ -107,7 +106,7 @@ export class DeviceSyncManager {
       ({ output } = await evaluatePrf(await prfSyncInput(prfSalt), credential.id));
     } catch (error) {
       if (error instanceof PrfUnsupportedError && password) {
-        return manager.createPasswordBackup(mnemonic, ethereumAddress, password, credential);
+        return manager.createPasswordBackup(mnemonic, password, credential);
       }
       throw error;
     }
@@ -115,7 +114,6 @@ export class DeviceSyncManager {
     try {
       return await manager.createPrfBackup(
         mnemonic,
-        ethereumAddress,
         credential,
         username,
         prfSalt,

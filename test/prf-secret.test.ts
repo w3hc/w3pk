@@ -317,7 +317,7 @@ async function runTests() {
     assert(snapshot() === before, "localStorage is unchanged");
     assert(!sdk.hasActiveSession(), "no session is started");
 
-    const { blob } = await sdk.createBackupFile("password", PASSWORD);
+    const { blob } = await sdk.createBackupFile(PASSWORD);
     const backup = await blob.text();
     const stored = snapshot();
     const leaks = encodings(secret).filter(

@@ -92,10 +92,12 @@ A backup file is portable and independent of any device. What an attacker who ob
 
 | Backup type | Decrypts with | Is the file alone enough? |
 |---|---|---|
-| `password` | User password (PBKDF2-SHA256, 310k iters, random per-file salt) | ❌ Needs the password |
+| `password` | User password (Argon2id, 19 MiB, 2 passes, random per-file salt) | ❌ Needs the password |
 | `prf` | Key derived (HKDF) from the passkey's WebAuthn PRF output, random per-file salt | ❌ Needs a fresh assertion with the passkey |
 
 A backup file on its own is not decryptable in either variant. **For a backup that leaves the device (cloud, USB, guardians), `password` is the one that restores without the passkey.**
+
+Backup files are BackupFile v3 (`version: 3`). They hold no address, in clear or hashed. v2 stored the address in clear and as `addressChecksum`, an unsalted truncated SHA-256 that hashing every onchain address reverses. A salted hash wouldn't help: the salt sits in the file, and onchain addresses can be enumerated. So a stolen v3 file doesn't say whose wallet it is. Restores derive the address from the decrypted mnemonic, and AES-GCM rejects a wrong key or an altered ciphertext. Files that aren't v3 throw `UnsupportedBackupVersionError`.
 
 The `passkey` and `hybrid` types were removed in 0.11.0: their key came from `credentialId` and the credential's public key, with no WebAuthn ceremony, so a `passkey` file decrypted from public data alone and a `hybrid` file was only as strong as its password. Restoring one throws `RemovedBackupMethodError`; users who have one should create a new `password` or `prf` backup.
 
@@ -1238,22 +1240,20 @@ const w3pk = createWeb3Passkey({
 
 ### Backup Encryption Standards
 
-#### Current: PBKDF2 Iterations
+#### Current: PBKDF2 for the wallet, Argon2id for backup files
 
-**Wallet encryption:** 210,000 iterations (OWASP 2023)
+**Wallet encryption:** PBKDF2, 210,000 iterations (OWASP 2023)
 - Primary threat: Online attacks (SDK authentication required)
 - PBKDF2 slows down brute force but not primary security boundary
 - 210k iterations balance security and performance
 
-**Backup encryption:** 310,000 iterations (OWASP 2025)
+**Backup file encryption (BackupFile v3):** Argon2id, m=19 MiB, t=2, p=1
 - Primary threat: Offline attacks (backups may be on USB/cloud)
-- Higher iterations protect against GPU-based brute force
-- Performance less critical (one-time backup creation)
+- PBKDF2 isn't memory-hard, so GPUs run it massively in parallel. Argon2id makes each guess fill 19 MiB, which caps a GPU's parallelism by its memory rather than its cores
+- OWASP's first Argon2id recommendation. It takes about 0.4 s in pure JavaScript (`@noble/hashes`, Node 24, Apple Silicon), so the offline extractor can run it in a browser
 
 **Why different?**
 Different threat models require different protections. Backups may be stored offline and face brute force attacks, while wallets are protected by device security and SDK authentication.
-
-**Recommendation:** OWASP updates iteration counts yearly. We plan to update these values as standards evolve, with careful consideration for backward compatibility.
 
 ### Password Validation Enhancement
 
@@ -1974,18 +1974,24 @@ The salt is a fixed constant (`"w3pk-salt-v4"`) rather than random per user, and
 
 ### Backup Encryption (User-Controlled)
 
-**Key Derivation:**
-- **Algorithm:** PBKDF2-SHA256
-- **Iterations:** 310,000 (OWASP 2025 recommendation) - **stronger than wallet encryption**
-- **Hash:** SHA-256
-- **Salt:** Random 32 bytes per backup (unique per backup)
-- **Key Material:** User-chosen password
+**Key Derivation (BackupFile v3, `password`):**
+- **Algorithm:** Argon2id (RFC 9106), `@noble/hashes` `argon2idAsync`
+- **Parameters:** m=19456 KiB (19 MiB), t=2 passes, p=1 lane (OWASP's first recommendation), stored in the file
+- **Bounds on restore:** at most 64 MiB, 3 passes and 4 lanes, so a crafted file can't freeze the page
+- **Salt:** Random 16 bytes per backup
+- **Key Material:** User-chosen password, NFC-normalized, UTF-8 encoded
 - **Output:** 256-bit AES key
+
+| Parameters | Time (pure JS, Node 24, Apple Silicon) |
+|---|---|
+| 19 MiB, t=2, p=1 (chosen) | ~415 ms |
+| 46 MiB, t=1, p=1 (OWASP alternative) | ~505 ms |
+| 64 MiB, t=3, p=1 (RFC 9106, the restore bound) | ~2.1 s |
 
 **Encryption:**
 - **Algorithm:** AES-256-GCM
 - **Key Size:** 256 bits
-- **IV:** Random 12 bytes per encryption
+- **IV:** Random 12 bytes per encryption, prepended to the ciphertext (`encryptedMnemonic` is `base64(iv || ciphertext)`)
 - **Authentication Tag:** 16 bytes (automatic with GCM)
 - **Additional Authenticated Data:** none — integrity comes from the GCM authentication tag above; no AAD is bound to the ciphertext
 
@@ -1996,18 +2002,14 @@ Enforced by `isStrongPassword()` utility:
 - Not in common password list (password, 123456, qwerty, etc.)
 - Strength score ≥ 50/100
 
-**Why Higher Iterations for Backups:**
+**Why a Memory-Hard KDF for Backups:**
 Backups are designed for offline storage and face different threat models:
 - Wallet encryption: Protected by device security + SDK authentication
 - Backup encryption: May be stored on USB drives, cloud, paper - offline brute force is the primary threat
-- 310,000 iterations (OWASP 2025) provides additional protection against GPU-based attacks
+- Argon2id's memory cost limits how many guesses a GPU or ASIC runs at once, which PBKDF2's iteration count doesn't
 
 **Brute Force Resistance:**
-Assuming attacker has access to encrypted backup and modern GPU (RTX 4090):
-- ~100,000 attempts/second at 310k iterations
-- Weak password (40 bits entropy): Hours to days
-- Strong password (60 bits entropy): Years to centuries
-- Random 16 char password (100 bits entropy): Universe lifetime
+Argon2id slows each guess but doesn't save a weak password. A random 4+ word passphrase, or a password-manager password, is what makes a stolen file safe.
 
 ## Session Management
 
@@ -3188,7 +3190,7 @@ w3pk implements a **three-layer backup and recovery system** that balances secur
 **How it works:**
 - Mnemonic encrypted with user-chosen password
 - Multiple backup formats: QR codes and backup files
-- Encryption: **AES-256-GCM** with **PBKDF2** (310,000 iterations, OWASP 2025 standard)
+- Encryption: **AES-256-GCM** with **Argon2id** (19 MiB, 2 passes) for backup files; QR backups still use PBKDF2 (310,000 iterations)
 
 **Security properties:**
 - ✅ **Military-grade encryption** - AES-256-GCM
@@ -3199,18 +3201,18 @@ w3pk implements a **three-layer backup and recovery system** that balances secur
 
 **Cryptographic details:**
 ```typescript
-// Key derivation
-PBKDF2-SHA256
-├─ Iterations: 310,000 (OWASP 2025)
-├─ Salt: 32 bytes (random per backup)
+// Key derivation (BackupFile v3)
+Argon2id
+├─ Memory: 19 MiB, passes: 2, lanes: 1
+├─ Salt: 16 bytes (random per backup)
 └─ Output: 256-bit key
 
 // Encryption
 AES-256-GCM
-├─ Key: From PBKDF2
+├─ Key: From Argon2id
 ├─ IV: 12 bytes (random per encryption)
 ├─ Auth tag: 16 bytes (automatic)
-└─ Additional data: Ethereum address (for integrity)
+└─ Additional data: none (the file holds no address)
 ```
 
 **Password validation:**
@@ -3250,22 +3252,17 @@ isStrongPassword('Password123!Foo')     // ❌ false - contains "password"
 | Backup file stolen | ✅ Yes | Requires password to decrypt |
 | Weak password | ⚠️ Vulnerable | User responsibility |
 | Password forgotten | ❌ Unrecoverable | Need Layer 3 (social recovery) |
-| Brute force (strong password) | ✅ Yes | 310k iterations slow down attacks |
+| Brute force (strong password) | ✅ Yes | Argon2id makes each guess slow and memory-hungry |
 | Brute force (weak password) | ❌ Vulnerable | Minutes to hours with GPU |
 
 **Brute force analysis:**
 
-Assuming attacker has:
-- Modern GPU (RTX 4090)
-- ~100,000 PBKDF2-SHA256 hashes/second at 310k iterations
-
-| Password Type | Entropy | Time to Crack |
+| Password Type | Entropy | Verdict |
 |--------------|---------|---------------|
-| `password123` (common) | ~20 bits | Seconds |
-| `MyPassword123!` (weak) | ~35 bits | Hours |
-| `MyS3cur3!Pass@2024` (medium) | ~50 bits | Months |
-| `correct horse battery staple` (strong) | ~80 bits | Centuries |
-| Truly random 16 chars | ~100 bits | Universe lifetime |
+| `password123` (common) | ~20 bits | In every wordlist: falls quickly |
+| `MyPassword123!` (weak) | ~35 bits | Within reach of a GPU rig |
+| `correct horse battery staple` (strong) | ~44 bits from a 7,776-word list, more with 5+ words | Costly with Argon2id |
+| Truly random 16 chars | ~100 bits | Out of reach |
 
 **Recommendation:** Use password manager to generate strong passwords or use multi-word passphrases (4+ random words).
 
@@ -3377,19 +3374,26 @@ w3pk calculates a security score (0-100) based on active backup methods:
 
 | Configuration | Score | Level |
 |--------------|-------|-------|
-| No backups | 0-25 | 🔴 Vulnerable |
-| Passkey sync only | 30-50 | 🟡 Protected |
-| Passkey + encrypted backup | 60-80 | 🟢 Secured |
-| All three layers | 85-100 | 🟦 Fort Knox |
+| No backup that restores without a passkey (none, or `prf` only) | ≤ 20 | 🔴 Vulnerable |
+| Passkey + password backup | 40-50 | 🟡 Protected |
+| Passkey + password backup + social recovery | 60-80 | 🟢 Secured |
+| All layers, verified | 85-100 | 🟦 Fort Knox |
 
 **Score calculation:**
 ```typescript
 score = 0
-+ (passkeySync.enabled ? 30 : 0)
-+ (backups.file > 0 ? 25 : 0)
-+ (backups.qr > 0 ? 15 : 0)
-+ (socialRecovery.configured ? 30 : 0)
++ (passkeySync.enabled ? 20 : 0)
++ (passkeySync.deviceCount > 1 ? 10 : 0)
++ (backupVerified ? 10 + min(verifications - 1, 10) : 0)
++ (encryptedBackups > 0 ? 20 : 0)          // file, QR or prf
++ (socialRecovery.enabled ? 20 (+10 when enough guardians are verified) : 0)
+
+// Capped at 20 while no backup restores without a passkey: a lost device
+// with no synced passkey can only be recovered from a password file, a QR
+// code, the phrase or social recovery. A password-only backup isn't penalized.
 ```
+
+`getBackupStatus().recommendedMode` is `password` until such a backup exists, then `prf` for convenient sync.
 
 ### Backup Best Practices
 

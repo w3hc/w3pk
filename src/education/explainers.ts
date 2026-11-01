@@ -278,7 +278,7 @@ Your encrypted backup uses military-grade encryption.
 ENCRYPTION DETAILS:
 ------------------
 
-Password → PBKDF2 (310,000 iterations)
+Password → Argon2id (19 MiB memory, 2 passes)
          ↓
    256-bit AES Key
          ↓
@@ -289,10 +289,11 @@ Password → PBKDF2 (310,000 iterations)
 WHAT THIS MEANS:
 ---------------
 
-310,000 iterations:
-- Makes brute-force extremely slow
-- Would take centuries to crack
-- OWASP 2025 standard
+Argon2id:
+- Memory-hard: each guess needs 19 MiB of memory,
+  which limits how many guesses a GPU can run at once
+- Recommended by RFC 9106 and OWASP
+- The file holds no address, so it doesn't say whose wallet it is
 
 AES-256-GCM:
 - Used by governments/military
@@ -309,7 +310,7 @@ Q: What if someone gets your password?
 A: Need BOTH password AND backup file
 
 Q: What if someone tries to brute-force?
-A: 310,000 iterations makes this impractical
+A: Argon2id makes each guess slow and memory-hungry; a strong password makes it impractical
 
 Q: Can the backup be tampered with?
 A: No - GCM mode detects any changes

@@ -362,9 +362,10 @@ if (!isStrongPassword(password)) {
 // Get backup status
 const status = await w3pk.getBackupStatus()
 console.log('Security Score:', status.securityScore.total) // 0-100
+console.log('Next backup:', status.recommendedMode) // 'password', then 'prf'
 
-// Create encrypted backup file
-const { blob, filename } = await w3pk.createBackupFile('password', password)
+// Create encrypted backup file (BackupFile v3: Argon2id, no address in the file)
+const { blob, filename } = await w3pk.createBackupFile(password)
 
 // Setup social recovery (M-of-N guardians) - guardians store backup file fragments
 import { SocialRecoveryManager } from 'w3pk'
