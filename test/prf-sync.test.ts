@@ -341,6 +341,18 @@ async function runTests() {
   }
   console.log("");
 
+  console.log("Test 3b: restoreFromBackupFile() restores a PRF backup");
+  {
+    localStorage.clear();
+    authenticator.calls = [];
+    const { sdk, authEvents } = freshSdk();
+    const result = await sdk.restoreFromBackupFile(json);
+    assert(authenticator.calls.length === 1, "one passkey prompt");
+    assert(result.mnemonic === MNEMONIC && result.ethereumAddress === ADDRESS, "restores the wallet");
+    await assertSyncedAndLogsIn(sdk, authEvents, publicKey);
+  }
+  console.log("");
+
   console.log("Test 4: a PRF backup can't be decrypted without the passkey");
   {
     const wrongOutput = crypto.getRandomValues(new Uint8Array(32));

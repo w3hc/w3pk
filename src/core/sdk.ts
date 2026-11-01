@@ -1804,9 +1804,15 @@ export class Web3Passkey {
    * Restore wallet from backup file with existing passkey
    * Use case: User has passkey synced to this device
    *
-   * After restoration, you can either:
+   * After restoring a password backup, you can either:
    * - Use importMnemonic() to associate with current logged-in user
    * - Use registerWithBackupFile() to create new passkey for this wallet
+   *
+   * A PRF backup takes one assertion with its passkey, no password, and sets
+   * this device up for that passkey (as importFromSync() does).
+   *
+   * @throws UnsupportedBackupVersionError for a file that isn't BackupFile v3
+   * @throws SyncBootstrapError ('CREDENTIAL_MISMATCH') for a PRF backup of another passkey than the logged-in one
    */
   async restoreFromBackupFile(
     backupData: string | Blob,
@@ -1819,20 +1825,17 @@ export class Web3Passkey {
 
     const backupFile = await manager.parseBackupFile(backupData);
 
-    let mnemonic: string;
-    let ethereumAddress: string;
-
-    // Determine which restore method to use based on encryption type
-    if (backupFile.encryptionMethod === 'password') {
-      if (!password) {
-        throw new WalletError("Password required to restore password-encrypted backup");
+    if (backupFile.encryptionMethod === 'prf') {
+      if (this.currentUser && this.currentUser.credentialId !== backupFile.credential!.id) {
+        throw new SyncBootstrapError("CREDENTIAL_MISMATCH", this.currentUser.credentialId);
       }
-      const result = await manager.restoreWithPassword(backupFile, password);
-      mnemonic = result.mnemonic;
-      ethereumAddress = result.ethereumAddress;
-    } else {
-      throw new WalletError(`Unknown encryption method: ${backupFile.encryptionMethod}`);
+      return this.restorePrfBackup(backupFile);
     }
+
+    if (!password) {
+      throw new WalletError("Password required to restore password-encrypted backup");
+    }
+    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
 
     // Mark backup as verified (successful restore proves the backup works)
     backupManager.markBackupVerified(ethereumAddress);
