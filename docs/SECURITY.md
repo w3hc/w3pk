@@ -93,10 +93,11 @@ A backup file is portable and independent of any device. What an attacker who ob
 | Backup type | Decrypts with | Is the file alone enough? |
 |---|---|---|
 | `password` | User password (PBKDF2-SHA256, 310k iters, random per-file salt) | ❌ Needs the password |
-| `passkey` | Key derived from `credentialId` + the credential's **full public key** | ❌ The full public key is **not** in the file (only a truncated fingerprint) |
-| `hybrid` | Password **and** the passkey-derived key | ❌ Needs both |
+| `prf` | Key derived (HKDF) from the passkey's WebAuthn PRF output, random per-file salt | ❌ Needs a fresh assertion with the passkey |
 
-A backup file on its own is not decryptable in any variant. Note the `passkey` type's caveat differs from the wallet-at-rest case: the full public key it needs lives in device storage or a synced authenticator, not in the file — but it *is* public metadata, so a `passkey` backup **combined with** a storage dump (or a synced device) is decryptable without a password. Password and hybrid backups stay gated by the password regardless. **For a backup that leaves the device (cloud, USB, guardians), prefer `password` or `hybrid`.**
+A backup file on its own is not decryptable in either variant. **For a backup that leaves the device (cloud, USB, guardians), `password` is the one that restores without the passkey.**
+
+The `passkey` and `hybrid` types were removed in 0.11.0: their key came from `credentialId` and the credential's public key, with no WebAuthn ceremony, so a `passkey` file decrypted from public data alone and a `hybrid` file was only as strong as its password. Restoring one throws `RemovedBackupMethodError`; users who have one should create a new `password` or `prf` backup.
 
 ## Enhanced Security Model (v0.8.0+)
 
@@ -3395,7 +3396,7 @@ score = 0
 **1. Use multiple layers:**
 ```typescript
 // ✅ GOOD: Enable all three layers
-await w3pk.setupSocialRecovery([...guardians], 3)
+await w3pk.setupSocialRecovery([...guardians], 3, 'MyS3cur3!Password@2024')
 await w3pk.createZipBackup('MyS3cur3!Password@2024')
 // Passkey sync enabled by default on platform
 
@@ -3493,7 +3494,7 @@ await w3pk.getSyncStatus()                  // ✅ No auth needed
 ```typescript
 // Recovery from existing backups is public
 await w3pk.restoreFromBackup(encryptedData, password)
-await w3pk.recoverFromGuardians([shares...])
+await w3pk.recoverFromGuardians([shares...], password)
 
 // Rationale: If user has backup data + password/shares,
 // they own the wallet regardless of authentication

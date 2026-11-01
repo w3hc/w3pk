@@ -14,12 +14,8 @@ import {
   decryptWithPassword,
   deriveAddressChecksum,
 } from './encryption';
-import {
-  deriveEncryptionKeyFromWebAuthn,
-  encryptData,
-  decryptData,
-} from '../wallet/crypto';
-import { CryptoError } from '../core/errors';
+import { encryptData, decryptData } from '../wallet/crypto';
+import { CryptoError, RemovedBackupMethodError } from '../core/errors';
 import { arrayBufferToBase64Url, base64UrlToArrayBuffer } from '../utils/base64';
 
 const PRF_SYNC_LABEL = new TextEncoder().encode('w3pk-prf-sync-v1');
@@ -52,6 +48,22 @@ async function derivePrfBackupKey(prfOutput: BufferSource, prfSalt: string): Pro
     );
   } catch (error) {
     throw new CryptoError('Failed to derive backup key from PRF output', error);
+  }
+}
+
+const REMOVED_BACKUP_METHODS = ['passkey', 'hybrid'];
+
+/**
+ * Throws RemovedBackupMethodError for a `passkey` or `hybrid` backup, and
+ * rejects any other method but `password` and `prf`
+ */
+export function assertSupportedBackupMethod(backupFile: BackupFile): void {
+  const method: string = backupFile.encryptionMethod;
+  if (REMOVED_BACKUP_METHODS.includes(method)) {
+    throw new RemovedBackupMethodError(method);
+  }
+  if (method !== 'password' && method !== 'prf') {
+    throw new Error(`Invalid backup file: unknown encryption method ${method}`);
   }
 }
 
@@ -90,109 +102,6 @@ export class BackupFileManager {
         iterations: encrypted.iterations,
       },
       ...(credential && { credential: { id: credential.id, publicKey: credential.publicKey } }),
-      addressChecksum,
-    };
-
-    const json = JSON.stringify(backupFile, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-
-    return { backupFile, json, blob };
-  }
-
-  /**
-   * Create backup file encrypted with existing passkey
-   * Useful for syncing to devices where the passkey is already synced
-   */
-  async createPasskeyBackup(
-    mnemonic: string,
-    ethereumAddress: string,
-    credentialId: string,
-    publicKey: string
-  ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
-    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
-      credentialId,
-      publicKey
-    );
-
-    const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
-    const addressChecksum = await deriveAddressChecksum(ethereumAddress);
-
-    // Generate public key fingerprint
-    const encoder = new TextEncoder();
-    const pkBuffer = encoder.encode(publicKey);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', pkBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const publicKeyFingerprint = hashArray
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('')
-      .substring(0, 16);
-
-    const backupFile: BackupFile = {
-      createdAt: new Date().toISOString(),
-      ethereumAddress,
-      encryptedMnemonic,
-      encryptionMethod: 'passkey',
-      credentialId,
-      publicKeyFingerprint,
-      addressChecksum,
-    };
-
-    const json = JSON.stringify(backupFile, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-
-    return { backupFile, json, blob };
-  }
-
-  /**
-   * Create hybrid backup encrypted with both password AND passkey
-   * Most secure option - requires both factors to decrypt
-   */
-  async createHybridBackup(
-    mnemonic: string,
-    ethereumAddress: string,
-    password: string,
-    credentialId: string,
-    publicKey: string
-  ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
-    // First encrypt with passkey
-    const passkeyKey = await deriveEncryptionKeyFromWebAuthn(
-      credentialId,
-      publicKey
-    );
-    const passkeyEncrypted = await encryptData(mnemonic, passkeyKey);
-
-    // Then encrypt the result with password
-    const salt = crypto.getRandomValues(new Uint8Array(32));
-    const passwordEncrypted = await encryptWithPassword(
-      passkeyEncrypted,
-      password,
-      salt
-    );
-
-    const addressChecksum = await deriveAddressChecksum(ethereumAddress);
-
-    // Generate public key fingerprint
-    const encoder = new TextEncoder();
-    const pkBuffer = encoder.encode(publicKey);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', pkBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const publicKeyFingerprint = hashArray
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('')
-      .substring(0, 16);
-
-    const backupFile: BackupFile = {
-      createdAt: new Date().toISOString(),
-      ethereumAddress,
-      encryptedMnemonic: passwordEncrypted.encrypted,
-      encryptionMethod: 'hybrid',
-      credentialId,
-      publicKeyFingerprint,
-      passwordEncryption: {
-        salt: passwordEncrypted.salt,
-        iv: passwordEncrypted.iv,
-        iterations: passwordEncrypted.iterations,
-      },
       addressChecksum,
     };
 
@@ -272,64 +181,6 @@ export class BackupFileManager {
   }
 
   /**
-   * Restore from backup file using existing passkey
-   * Use case: User has passkey synced to this device and wants to restore wallet
-   */
-  async restoreWithExistingPasskey(
-    backupFile: BackupFile,
-    credentialId: string,
-    publicKey: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    if (backupFile.encryptionMethod === 'password') {
-      throw new Error(
-        'This backup is password-protected. Use restoreWithPassword() instead.'
-      );
-    }
-    if (backupFile.encryptionMethod === 'prf') {
-      throw new Error('This backup is PRF-encrypted. Use restoreWithPrf() instead.');
-    }
-
-    // Verify credential matches
-    if (backupFile.credentialId && backupFile.credentialId !== credentialId) {
-      throw new Error(
-        'Credential ID mismatch. This backup was created with a different passkey.'
-      );
-    }
-
-    let mnemonic: string;
-
-    if (backupFile.encryptionMethod === 'passkey') {
-      // Decrypt with passkey only
-      const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
-        credentialId,
-        publicKey
-      );
-      mnemonic = await decryptData(backupFile.encryptedMnemonic, encryptionKey);
-    } else {
-      // hybrid mode requires password too
-      throw new Error(
-        'This backup requires both passkey and password. Use restoreWithHybrid() instead.'
-      );
-    }
-
-    // Verify address checksum
-    const { Wallet } = await import('ethers');
-    const wallet = Wallet.fromPhrase(mnemonic);
-    const addressChecksum = await deriveAddressChecksum(wallet.address);
-
-    if (addressChecksum !== backupFile.addressChecksum) {
-      throw new Error(
-        'Address checksum mismatch - corrupted backup or decryption failure'
-      );
-    }
-
-    return {
-      mnemonic,
-      ethereumAddress: backupFile.ethereumAddress,
-    };
-  }
-
-  /**
    * Restore from backup file using password
    * Use case: User doesn't have passkey on this device yet
    */
@@ -337,67 +188,11 @@ export class BackupFileManager {
     backupFile: BackupFile,
     password: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    if (!backupFile.passwordEncryption) {
+    if (backupFile.encryptionMethod !== 'password' || !backupFile.passwordEncryption) {
       throw new Error('This backup is not password-protected.');
     }
 
-    let mnemonic: string;
-
-    if (backupFile.encryptionMethod === 'password') {
-      // Decrypt with password only
-      mnemonic = await decryptWithPassword(
-        backupFile.encryptedMnemonic,
-        password,
-        backupFile.passwordEncryption.salt,
-        backupFile.passwordEncryption.iv,
-        backupFile.passwordEncryption.iterations
-      );
-    } else if (backupFile.encryptionMethod === 'hybrid') {
-      throw new Error(
-        'This backup requires both passkey and password. Use restoreWithHybrid() instead.'
-      );
-    } else {
-      throw new Error(
-        'This backup is passkey-only. Use restoreWithExistingPasskey() instead.'
-      );
-    }
-
-    // Verify address checksum
-    const { Wallet } = await import('ethers');
-    const wallet = Wallet.fromPhrase(mnemonic);
-    const addressChecksum = await deriveAddressChecksum(wallet.address);
-
-    if (addressChecksum !== backupFile.addressChecksum) {
-      throw new Error(
-        'Address checksum mismatch - corrupted backup or wrong password'
-      );
-    }
-
-    return {
-      mnemonic,
-      ethereumAddress: backupFile.ethereumAddress,
-    };
-  }
-
-  /**
-   * Restore from hybrid backup (requires both passkey and password)
-   */
-  async restoreWithHybrid(
-    backupFile: BackupFile,
-    password: string,
-    credentialId: string,
-    publicKey: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    if (backupFile.encryptionMethod !== 'hybrid') {
-      throw new Error('This backup is not a hybrid backup.');
-    }
-
-    if (!backupFile.passwordEncryption) {
-      throw new Error('Missing password encryption data in hybrid backup.');
-    }
-
-    // First decrypt with password
-    const passwordDecrypted = await decryptWithPassword(
+    const mnemonic = await decryptWithPassword(
       backupFile.encryptedMnemonic,
       password,
       backupFile.passwordEncryption.salt,
@@ -405,28 +200,21 @@ export class BackupFileManager {
       backupFile.passwordEncryption.iterations
     );
 
-    // Then decrypt with passkey
-    const passkeyKey = await deriveEncryptionKeyFromWebAuthn(
-      credentialId,
-      publicKey
-    );
-    const mnemonic = await decryptData(passwordDecrypted, passkeyKey);
-
     // Verify address checksum
     const { Wallet } = await import('ethers');
     const wallet = Wallet.fromPhrase(mnemonic);
     const addressChecksum = await deriveAddressChecksum(wallet.address);
 
-    if (addressChecksum !== backupFile.addressChecksum) {
+    if (
+      addressChecksum !== backupFile.addressChecksum ||
+      wallet.address.toLowerCase() !== backupFile.ethereumAddress.toLowerCase()
+    ) {
       throw new Error(
-        'Address checksum mismatch - corrupted backup or decryption failure'
+        'Address checksum mismatch - corrupted backup or wrong password'
       );
     }
 
-    return {
-      mnemonic,
-      ethereumAddress: backupFile.ethereumAddress,
-    };
+    return { mnemonic, ethereumAddress: wallet.address };
   }
 
   /**
@@ -447,6 +235,7 @@ export class BackupFileManager {
     if (!backupFile.createdAt || !backupFile.ethereumAddress || !backupFile.encryptedMnemonic) {
       throw new Error('Invalid backup file: missing required fields');
     }
+    assertSupportedBackupMethod(backupFile);
     if (
       backupFile.encryptionMethod === 'prf' &&
       (!backupFile.prfSalt || !backupFile.credential?.id || !backupFile.credential.publicKey)

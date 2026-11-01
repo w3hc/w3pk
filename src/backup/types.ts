@@ -89,12 +89,9 @@ export interface BackupMetadata {
 export interface BackupFile {
   createdAt: string; // ISO 8601 timestamp
   ethereumAddress: string; // m/44'/60'/0'/0/0 address (index #0)
-  encryptedMnemonic: string; // AES-256-GCM encrypted with passkey-derived key, PRF-derived key OR password
-  encryptionMethod: 'passkey' | 'password' | 'hybrid' | 'prf';
-  // For passkey encryption (optional, used when encryptionMethod is 'passkey' or 'hybrid')
-  credentialId?: string;
-  publicKeyFingerprint?: string; // SHA-256 hash of public key for identification
-  // For password encryption (optional, used when encryptionMethod is 'password' or 'hybrid')
+  encryptedMnemonic: string; // AES-256-GCM encrypted with a PRF-derived key OR password
+  encryptionMethod: 'password' | 'prf';
+  // For password encryption
   passwordEncryption?: {
     salt: string;
     iv: string;

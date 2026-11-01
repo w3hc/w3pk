@@ -26,6 +26,7 @@ export {
   WalletMissingError,
   SyncBootstrapError,
   PrfUnsupportedError,
+  RemovedBackupMethodError,
   ZkArtifactMismatchError,
 } from "./core/errors";
 

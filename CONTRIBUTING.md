@@ -346,7 +346,7 @@ const { qrCodeDataURL, rawData } = await w3pk.createQRBackup('password', {
 // Returns: { qrCodeDataURL, rawData, instructions }
 ```
 
-#### `setupSocialRecovery(guardians, threshold)`
+#### `setupSocialRecovery(guardians, threshold, password)`
 Setup social recovery with guardians.
 ```typescript
 const guardianObjects = await w3pk.setupSocialRecovery(
@@ -354,7 +354,8 @@ const guardianObjects = await w3pk.setupSocialRecovery(
     { name: 'Alice', email: 'alice@example.com' },
     { name: 'Bob', phone: '+1234567890' }
   ],
-  2 // Need 2 guardians to recover
+  2, // Need 2 guardians to recover
+  password // Encrypts the backup the shares rebuild
 )
 // Returns: Guardian[] (with IDs for invite generation)
 ```
@@ -366,12 +367,13 @@ const invite = await w3pk.generateGuardianInvite(guardianId)
 // Returns: { guardianId, qrCode, shareCode, explainer }
 ```
 
-#### `recoverFromGuardians(shares)`
+#### `recoverFromGuardians(shares, password)`
 Recover wallet from guardian shares.
 ```typescript
-const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians([
-  share1, share2, share3
-])
+const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(
+  [share1, share2, share3],
+  password
+)
 ```
 
 #### `restoreFromBackup(backupData, password)`

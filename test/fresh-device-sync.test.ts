@@ -12,6 +12,7 @@ import { Wallet } from "ethers";
 import {
   Web3Passkey,
   SyncBootstrapError,
+  RemovedBackupMethodError,
   WalletError,
   Web3PasskeyError,
 } from "../src/index";
@@ -283,19 +284,6 @@ async function runTests() {
   console.log("Test 4: fresh device refuses what it can't bootstrap");
   {
     localStorage.clear();
-    const { json: passkeyJson } = await manager.createPasskeyBackup(
-      MNEMONIC,
-      ADDRESS,
-      CREDENTIAL_ID,
-      publicKey
-    );
-    const { json: hybridJson } = await manager.createHybridBackup(
-      MNEMONIC,
-      ADDRESS,
-      PASSWORD,
-      CREDENTIAL_ID,
-      publicKey
-    );
     const { json: legacyJson } = await manager.createPasswordBackup(
       MNEMONIC,
       ADDRESS,
@@ -331,16 +319,6 @@ async function runTests() {
       "PUBLIC_KEY_MISMATCH"
     );
     await assertBootstrapError(
-      "sync, passkey backup",
-      (sdk) => sdk.syncWalletWithPasskey(passkeyJson),
-      "PASSKEY_BACKUP"
-    );
-    await assertBootstrapError(
-      "sync, hybrid backup",
-      (sdk) => sdk.syncWalletWithPasskey(hybridJson, PASSWORD),
-      "PASSKEY_BACKUP"
-    );
-    await assertBootstrapError(
       "sync, backup without credential",
       (sdk) => sdk.syncWalletWithPasskey(legacyJson, PASSWORD),
       "NO_CREDENTIAL"
@@ -352,11 +330,46 @@ async function runTests() {
     );
 
     const { sdk } = freshSdk();
-    const importError = await capture(() => sdk.importFromSync(passkeyJson));
+    const importError = await capture(() => sdk.importFromSync(legacyJson));
     assert(
       importError instanceof WalletError,
-      "importFromSync refuses a passkey backup with WalletError"
+      "importFromSync refuses a password backup with WalletError"
     );
+  }
+  console.log("");
+
+  console.log("Test 5: removed passkey and hybrid backups fail with a typed error");
+  {
+    localStorage.clear();
+    const { backupFile } = await manager.createPasswordBackup(
+      MNEMONIC,
+      ADDRESS,
+      PASSWORD,
+      { id: CREDENTIAL_ID, publicKey }
+    );
+
+    for (const method of ["passkey", "hybrid"]) {
+      const json = JSON.stringify({ ...backupFile, encryptionMethod: method });
+      const restores: [string, (sdk: Web3Passkey) => Promise<unknown>][] = [
+        ["syncWalletWithPasskey", (sdk) => sdk.syncWalletWithPasskey(json, PASSWORD)],
+        ["restoreFromBackupFile", (sdk) => sdk.restoreFromBackupFile(json, PASSWORD)],
+        ["importFromSync", (sdk) => sdk.importFromSync(json)],
+      ];
+      for (const [name, fn] of restores) {
+        const { sdk, authEvents } = freshSdk();
+        const error = await capture(() => fn(sdk));
+        assert(
+          error instanceof RemovedBackupMethodError,
+          `${name}, ${method} backup: throws RemovedBackupMethodError`
+        );
+        assert(
+          (error as RemovedBackupMethodError).code === "BACKUP_METHOD_REMOVED" &&
+            (error as RemovedBackupMethodError).method === method,
+          `${name}, ${method} backup: has code BACKUP_METHOD_REMOVED and the method`
+        );
+        assert(!authEvents.includes(true), `${name}, ${method} backup: no login`);
+      }
+    }
   }
   console.log("");
 

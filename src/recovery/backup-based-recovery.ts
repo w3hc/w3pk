@@ -6,6 +6,7 @@
  */
 
 import type { BackupFile } from '../backup/types';
+import { assertSupportedBackupMethod } from '../backup/backup-file';
 import {
   splitSecret,
   combineShares,
@@ -134,6 +135,7 @@ export class SocialRecovery {
     if (backupFile.ethereumAddress !== firstAddress) {
       throw new Error('Recovered backup address mismatch - corrupted shares');
     }
+    assertSupportedBackupMethod(backupFile);
 
     return backupFile;
   }

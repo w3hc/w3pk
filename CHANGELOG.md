@@ -37,6 +37,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ZkArtifactMismatchError` is now exported from the main entry too
   - The secret is kept out of the API, not out of reach of malicious code on the same page; the cross-origin wallet ([#156](https://github.com/w3hc/w3pk/issues/156)) isolates it fully
 
+### Security
+
+- **`passkey` and `hybrid` backups didn't use the passkey** ([#170](https://github.com/w3hc/w3pk/issues/170)): their key was `SHA-256("w3pk-v4:" + credentialId + ":" + publicKey)` with no WebAuthn ceremony. The credential ID is in the file and a public key isn't secret, so a `passkey` file decrypted from public data alone, and a `hybrid` file was only as strong as its password. **If you have a `passkey` or `hybrid` backup, log in where your wallet is and create a new `password` backup (`createBackupFile('password', password)`) or `prf` backup (`exportForSync()`), then delete the old file.**
+
+### Removed
+
+- **`passkey` and `hybrid` backup methods** ([#170](https://github.com/w3hc/w3pk/issues/170)), with no compatibility layer; `password` and `prf` remain
+  - `BackupFileManager.createPasskeyBackup()`, `createHybridBackup()`, `restoreWithExistingPasskey()`, `restoreWithHybrid()` and `DeviceSyncManager.canSyncBackup()`
+  - `createBackupFile()` only takes `'password'`; `setupSocialRecovery()` and `recoverFromGuardians()` require a password (without one, social recovery split a `passkey` backup)
+  - `BackupFile.encryptionMethod` is `'password' | 'prf'`; `credentialId` and `publicKeyFingerprint` are gone
+  - `SyncBootstrapError` reason `'PASSKEY_BACKUP'`
+  - Restoring a `passkey` or `hybrid` file (`syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, guardian recovery) throws the new `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`); the offline `standalone/extract-mnemonic.html` refuses them too
+  - `restoreWithPassword()` also checks the decrypted wallet's address against the file's `ethereumAddress`
+
 ## [0.10.5] - 2026-10-27
 
 ### Added

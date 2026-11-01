@@ -91,14 +91,11 @@ export class WalletMissingError extends Web3PasskeyError {
 }
 
 export type SyncBootstrapReason =
-  | "PASSKEY_BACKUP"
   | "NO_CREDENTIAL"
   | "CREDENTIAL_MISMATCH"
   | "PUBLIC_KEY_MISMATCH";
 
 const SYNC_BOOTSTRAP_MESSAGES: Record<SyncBootstrapReason, string> = {
-  PASSKEY_BACKUP:
-    "This device has no data for the passkey, and a passkey-encrypted backup can't set it up. Sync with a backup from exportForSync() or a password backup instead.",
   NO_CREDENTIAL:
     "This backup doesn't name its passkey, so it can't set up this device. Create a new password backup on a device where you're logged in.",
   CREDENTIAL_MISMATCH:
@@ -131,6 +128,20 @@ export class PrfUnsupportedError extends Web3PasskeyError {
       "PRF_UNSUPPORTED"
     );
     this.name = "PrfUnsupportedError";
+  }
+}
+
+/**
+ * The backup uses the removed `passkey` or `hybrid` method, whose key came
+ * from public data rather than from the passkey. It can't be restored.
+ */
+export class RemovedBackupMethodError extends Web3PasskeyError {
+  constructor(public method: string) {
+    super(
+      `This ${method} backup is no longer supported: its key came from the passkey's public data, not from the passkey. Create a new password or PRF backup on a device where you're logged in.`,
+      "BACKUP_METHOD_REMOVED"
+    );
+    this.name = "RemovedBackupMethodError";
   }
 }
 

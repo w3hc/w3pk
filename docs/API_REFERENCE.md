@@ -2497,7 +2497,7 @@ if (await userConfirmsPhraseWrittenDown()) {
 
 ---
 
-### `createBackupFile(encryptionType?: 'password' | 'passkey' | 'hybrid', password?: string): Promise<{ blob: Blob; filename: string }>`
+### `createBackupFile(encryptionType: 'password', password: string): Promise<{ blob: Blob; filename: string }>`
 
 Create simplified backup file for wallet recovery.
 
@@ -2508,11 +2508,8 @@ This backup can be used to:
 - Split among guardians for social recovery
 
 **Parameters:**
-- `encryptionType?: 'password' | 'passkey' | 'hybrid'` - Encryption method (default: 'password')
-  - **'password'**: Encrypted with password only - can be restored on any device with password
-  - **'passkey'**: Encrypted with passkey - can be restored on devices where passkey is synced
-  - **'hybrid'**: Encrypted with both password AND passkey - maximum security
-- `password?: string` - Required for 'password' and 'hybrid' encryption
+- `encryptionType: 'password'` - The only method for a backup file: it can be restored on any device with the password. For a backup the passkey decrypts, use `exportForSync()` (PRF)
+- `password: string` - Encrypts the backup
 
 **Returns:**
 
@@ -2537,12 +2534,6 @@ const a = document.createElement('a')
 a.href = url
 a.download = filename
 a.click()
-
-// Passkey-encrypted backup (only works on devices where passkey is synced)
-const passkeyBackup = await w3pk.createBackupFile('passkey')
-
-// Hybrid backup (both password and passkey required)
-const hybridBackup = await w3pk.createBackupFile('hybrid', 'MySecurePassword123!')
 ```
 
 ---
@@ -2722,7 +2713,7 @@ After restoration, the wallet is automatically associated with the current logge
 
 **Parameters:**
 - `backupData: string | Blob` - Backup file (JSON string or Blob)
-- `password?: string` - Password (required for password/hybrid encrypted backups)
+- `password?: string` - Password (required for password backups)
 
 **Returns:**
 
@@ -2746,11 +2737,9 @@ const backupData = '...' // From file upload or QR scanner
 const result = await w3pk.restoreFromBackupFile(backupData, 'MyPassword123!')
 console.log('Wallet restored:', result.ethereumAddress)
 // Wallet is automatically associated with current user
-
-// Passkey-encrypted backup (no password needed)
-const result2 = await w3pk.restoreFromBackupFile(backupData)
-console.log('Wallet restored:', result2.ethereumAddress)
 ```
+
+**Throws:** `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`) for a `passkey` or `hybrid` backup
 
 ---
 
@@ -2792,7 +2781,7 @@ console.log('Address:', address)
 // User is now logged in and can use the wallet
 ```
 
-**Note:** Only works with password-encrypted backups. For passkey-encrypted backups, use `restoreFromBackupFile()` instead.
+**Note:** Only works with password-encrypted backups. For PRF backups, use `syncWalletWithPasskey()` or `importFromSync()` instead.
 
 ---
 
@@ -2956,11 +2945,11 @@ A PRF sync file from `exportForSync()` takes no password: it's restored as `impo
 
 **Parameters:**
 - `backupData: string | Blob` - Backup file content (JSON string or Blob)
-- `password?: string` - Password to decrypt the backup (required for `password` and `hybrid` encryption methods)
+- `password?: string` - Password to decrypt the backup (required for `password` backups)
 
 **Returns:** `{ mnemonic: string; ethereumAddress: string }`
 
-**Supported encryption methods:** `prf` and `password` everywhere; `passkey` and `hybrid` only where this device already has the passkey's metadata
+**Supported encryption methods:** `prf` and `password`
 
 **Example:**
 
@@ -2971,14 +2960,14 @@ console.log('Synced wallet address:', result.ethereumAddress)
 
 **Throws:**
 - `WalletError` if password is required but not provided
-- `WalletError` if backup uses an unknown encryption method
+- `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`) for a `passkey` or `hybrid` backup, before any prompt
+- `Error` if backup uses an unknown encryption method
 - `SyncBootstrapError` on a device with no data for the passkey (carries `reason` and `credentialId`):
-  - `'PASSKEY_BACKUP'`: passkey or hybrid backup
   - `'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4)
   - `'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected
   - `'PUBLIC_KEY_MISMATCH'`: the backup's public key doesn't match the passkey's signature
 
-**Note:** Differs from `importFromSync()` in that it also accepts password, passkey and hybrid backups.
+**Note:** Differs from `importFromSync()` in that it also accepts password backups.
 
 ---
 
@@ -3939,7 +3928,8 @@ import {
   SyncRequiredError,
   WalletMissingError,
   SyncBootstrapError,
-  PrfUnsupportedError
+  PrfUnsupportedError,
+  RemovedBackupMethodError
 } from 'w3pk'
 ```
 
@@ -3956,6 +3946,7 @@ import {
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
   - `PrfUnsupportedError` - `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
+  - `RemovedBackupMethodError` - `syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, `recoverFromGuardians()`: the backup uses the removed `passkey` or `hybrid` method (`method`); create a new `password` or `prf` backup
 
 ### Error Handling
 
