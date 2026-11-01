@@ -1210,7 +1210,7 @@ async function promptBackupOptions() {
   const userChoice = await showBackupModal()
 
   if (userChoice === 'download') {
-    const { blob, filename } = await w3pk.createBackupFile('password', 'user-password')
+    const { blob, filename } = await w3pk.createBackupFile('user-password')
     downloadFile(blob, filename)
   } else if (userChoice === 'social-recovery') {
     await setupSocialRecoveryFlow()
@@ -1266,7 +1266,7 @@ if (!hasBackup) {
   const choice = await showBackupNowPrompt({ blocking: evictionRisk })
 
   if (choice === 'file') {
-    const { blob, filename } = await w3pk.createBackupFile('password', password)
+    const { blob, filename } = await w3pk.createBackupFile(password)
     downloadFile(blob, filename)
   } else if (choice === 'phrase') {
     await showRecoveryPhrase()
@@ -1323,7 +1323,7 @@ async function createEncryptedBackup() {
   }
 
   // Create backup file and optionally generate QR code
-  const { blob, filename } = await w3pk.createBackupFile('password', password)
+  const { blob, filename } = await w3pk.createBackupFile(password)
 
   // You can display the JSON as QR code for scanning
   const backupJson = await blob.text()
@@ -1565,7 +1565,7 @@ class WalletManager {
 
       if (choice === 'encrypted') {
         const password = await this.getStrongPassword()
-        const { blob, filename } = await this.w3pk.createBackupFile('password', password)
+        const { blob, filename } = await this.w3pk.createBackupFile(password)
         this.downloadBackup(blob, filename)
       } else if (choice === 'social') {
         await this.setupSocialRecovery()

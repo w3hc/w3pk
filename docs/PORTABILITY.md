@@ -429,14 +429,13 @@ Or pass the password up front: `exportForSync(password)` uses it only when PRF i
 
 ```json
 {
+  "version": 3,
   "createdAt": "2026-10-25T10:30:00.000Z",
-  "ethereumAddress": "0x...",
   "encryptedMnemonic": "base64(iv || AES-256-GCM ciphertext)",
   "encryptionMethod": "prf",
   "credential": { "id": "passkey credential id", "publicKey": "base64url SPKI" },
   "prfSalt": "base64url, 32 random bytes",
-  "username": "alice",
-  "addressChecksum": "..."
+  "username": "alice"
 }
 ```
 
@@ -469,18 +468,28 @@ See [standalone/extract-mnemonic.html](../standalone/extract-mnemonic.html) for 
    <input type="password" id="backup-password" autocomplete="off">
    ```
 
-4. **Decryption Logic**
+4. **Decryption Logic (BackupFile v3, `password`)**
    ```typescript
+   import { argon2idAsync } from '@noble/hashes/argon2.js';
+
    async function extractMnemonic(backupFile: File, password: string): Promise<string> {
-     const backupData = JSON.parse(await backupFile.text());
+     const backup = JSON.parse(await backupFile.text());
+     if (backup.version !== 3) throw new Error('Not a BackupFile v3');
+     const { salt, memoryKiB, passes, parallelism } = backup.passwordEncryption;
+     const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
-     // Decrypt the backup
-     const decrypted = await decryptBackup(backupData, password);
-
-     // Extract mnemonic
-     return decrypted.mnemonic;
+     const keyBytes = await argon2idAsync(
+       new TextEncoder().encode(password.normalize('NFC')),
+       b64(salt),
+       { m: memoryKiB, t: passes, p: parallelism, dkLen: 32 }
+     );
+     const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
+     const data = b64(backup.encryptedMnemonic); // iv (12 bytes) || ciphertext
+     const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: data.slice(0, 12) }, key, data.slice(12));
+     return new TextDecoder().decode(plain);
    }
    ```
+   The reference page inlines a bundle of `argon2idAsync` so it needs no CDN (`pnpm build:standalone` regenerates it). For v2 files, use the [v0.10.6 tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html).
 
 5. **Display Mnemonic Securely**
    ```html
