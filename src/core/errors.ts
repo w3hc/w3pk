@@ -145,6 +145,21 @@ export class RemovedBackupMethodError extends Web3PasskeyError {
   }
 }
 
+/**
+ * The backup file isn't BackupFile v3. w3pk restores v3 files only: decrypt
+ * an older password backup offline with the v0.10.6 extract-mnemonic tool,
+ * then create a new backup.
+ */
+export class UnsupportedBackupVersionError extends Web3PasskeyError {
+  constructor(public version: unknown) {
+    super(
+      `This backup file uses an unsupported format (${version === undefined ? "v2 or earlier" : `version ${String(version)}`}). w3pk restores BackupFile v3 only. Decrypt a v2 password backup with the v0.10.6 offline tool (https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html), then create a new backup.`,
+      "BACKUP_VERSION_UNSUPPORTED"
+    );
+    this.name = "UnsupportedBackupVersionError";
+  }
+}
+
 export type ZkArtifactName = "wasm" | "zkey";
 
 /**

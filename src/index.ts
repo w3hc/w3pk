@@ -27,6 +27,7 @@ export {
   SyncBootstrapError,
   PrfUnsupportedError,
   RemovedBackupMethodError,
+  UnsupportedBackupVersionError,
   ZkArtifactMismatchError,
 } from "./core/errors";
 
