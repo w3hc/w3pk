@@ -2487,7 +2487,7 @@ export class Web3Passkey {
   }
 
   /**
-   * Derive ML-KEM-1024 public key from the current wallet
+   * Derive the hybrid ML-KEM-1024 + X25519 public key from the current wallet
    *
    * Returns the public key that can be shared with others for encryption.
    * The keypair is derived deterministically from the wallet's private key.
@@ -2498,7 +2498,7 @@ export class Web3Passkey {
    * @param options.tag - Tag for address derivation (default: 'MAIN')
    * @param options.origin - Origin for derivation (default: current origin)
    * @param options.requireAuth - Force WebAuthn re-authentication
-   * @returns Base64-encoded ML-KEM public key (1568 bytes)
+   * @returns Base64-encoded hybrid public key (1600 bytes: ML-KEM-1024 || X25519)
    *
    * @example
    * ```typescript
@@ -2565,13 +2565,13 @@ export class Web3Passkey {
   }
 
   /**
-   * Encrypt data using ML-KEM-1024 for self + additional recipients
+   * Encrypt data with the hybrid ML-KEM-1024 + X25519 KEM (payload v3) for self + additional recipients
    *
    * Encrypts data such that you (the sender) and specified recipients can decrypt.
    * Your ML-KEM keypair is derived from your wallet, so you can always decrypt later.
    *
    * @param plaintext - The data to encrypt
-   * @param recipientPublicKeys - Array of recipient ML-KEM public keys (base64 strings or Uint8Arrays)
+   * @param recipientPublicKeys - Array of recipient hybrid public keys (base64 strings or Uint8Arrays, 1600 bytes)
    * @param options - Optional configuration
    * @param options.context - Context string for key derivation (default: 'mlkem-v1')
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
