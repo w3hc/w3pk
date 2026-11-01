@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The commitment matches `@semaphore-protocol/identity`, a new optional dependency imported only when the method is called
   - `SemaphoreIdentity` type
 
+- **`zkProve(tag, artifacts, publicInputs, extraWitness, options)`** ([#153](https://github.com/w3hc/w3pk/issues/153)) makes a Groth16 proof with a passkey-bound secret the app never sees, and returns only `{ proof, publicSignals }`
+  - `options.secret`: `'zk'` (a Baby Jubjub private key under its own PRF label, `w3pk-zk-v1`) or `'semaphore'` (the `secretScalar` of `getSemaphoreIdentity(tag)`'s identity); neither is reachable from `derivePrfSecret(tag)`
+  - `options.derive` declares inputs w3pk computes as Poseidon over the secret, other inputs and constants (e.g. a per-proposal secret); `options.random` names inputs filled with fresh randomness (e.g. ElGamal's `r`) and discarded
+  - Checks the artifacts with `verifyZkArtifacts` and proves with the verified bytes; options, tag, dependencies and pins are checked before the passkey prompt
+  - Runs snarkjs in a module Web Worker (`dist/zk/prove-worker.mjs`), in-thread where `Worker` doesn't exist or the worker can't start
+  - Refuses proofs whose public signals contain the secret or a random input
+  - `poseidon-lite` is a new optional dependency, imported only for derivations
+  - `ZkArtifactMismatchError` is now exported from the main entry too
+  - The secret is kept out of the API, not out of reach of malicious code on the same page; the cross-origin wallet ([#156](https://github.com/w3hc/w3pk/issues/156)) isolates it fully
+
 ## [0.10.5] - 2026-10-27
 
 ### Added
