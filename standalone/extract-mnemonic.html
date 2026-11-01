@@ -577,15 +577,23 @@
                 backupInfo.style.display = 'block';
 
                 // Check encryption method
-                if (backupData.encryptionMethod === 'password') {
+                if (backupData.encryptionMethod === 'password' && !backupData.passwordEncryption) {
+                    errorBox.textContent = 'Invalid backup file: password backup without its encryption parameters';
+                    errorBox.classList.add('show');
+                    extractBtn.disabled = true;
+                } else if (backupData.encryptionMethod === 'password') {
                     passwordSection.style.display = 'block';
                     extractBtn.disabled = false;
                 } else if (backupData.encryptionMethod === 'passkey' || backupData.encryptionMethod === 'hybrid') {
                     errorBox.textContent = `This ${backupData.encryptionMethod} backup uses a removed method: its key came from the passkey's public data, not from the passkey. w3pk no longer restores it. Log in where your wallet is and create a new password backup.`;
                     errorBox.classList.add('show');
                     extractBtn.disabled = true;
-                } else {
+                } else if (backupData.encryptionMethod === 'prf') {
                     errorBox.textContent = 'This backup is encrypted with your passkey (PRF). It cannot be decrypted with a password. Use the W3PK SDK to restore it with your passkey.';
+                    errorBox.classList.add('show');
+                    extractBtn.disabled = true;
+                } else {
+                    errorBox.textContent = `Unknown encryption method: ${backupData.encryptionMethod}`;
                     errorBox.classList.add('show');
                     extractBtn.disabled = true;
                 }
