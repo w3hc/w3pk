@@ -25,10 +25,13 @@ export const ARGON2ID_PARAMS: Readonly<Argon2idParams> = Object.freeze({
   parallelism: 1,
 });
 
-/** Upper bounds accepted from a backup file, so a file can't stall the page */
+/**
+ * Upper bounds accepted from a backup file, so a file can't stall the page:
+ * RFC 9106's second recommendation (64 MiB, 3 passes), about 2 s in pure JS
+ */
 export const ARGON2ID_MAX_PARAMS: Readonly<Argon2idParams> = Object.freeze({
-  memoryKiB: 262144,
-  passes: 10,
+  memoryKiB: 65536,
+  passes: 3,
   parallelism: 4,
 });
 

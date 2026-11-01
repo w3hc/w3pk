@@ -93,7 +93,7 @@ async function runTests() {
     );
     const huge = {
       ...backupFile,
-      passwordEncryption: { ...backupFile.passwordEncryption!, memoryKiB: 4194304 },
+      passwordEncryption: { ...backupFile.passwordEncryption!, memoryKiB: 65537 },
     };
     const hugeError = await capture(() => pageDecrypt(context, huge, PASSWORD));
     assert(/Argon2id/.test(messageOf(hugeError)), 'memory over the bound is rejected');

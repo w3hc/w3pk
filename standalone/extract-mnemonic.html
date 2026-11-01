@@ -544,7 +544,7 @@
 
     <script id="w3pk-decrypt">
         // Same derivation as w3pk/src/backup/encryption.ts and backup-file.ts
-        const ARGON2ID_MAX_PARAMS = { memoryKiB: 262144, passes: 10, parallelism: 4 };
+        const ARGON2ID_MAX_PARAMS = { memoryKiB: 65536, passes: 3, parallelism: 4 };
         const V2_TOOL_URL = 'https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html';
 
         function base64ToBytes(base64) {
@@ -567,7 +567,8 @@
                 typeof kdf.salt !== 'string' ||
                 !isBoundedInt(kdf.memoryKiB, ARGON2ID_MAX_PARAMS.memoryKiB) ||
                 !isBoundedInt(kdf.passes, ARGON2ID_MAX_PARAMS.passes) ||
-                !isBoundedInt(kdf.parallelism, ARGON2ID_MAX_PARAMS.parallelism)
+                !isBoundedInt(kdf.parallelism, ARGON2ID_MAX_PARAMS.parallelism) ||
+                kdf.memoryKiB < 8 * kdf.parallelism
             ) {
                 throw new Error('Invalid password backup: missing or invalid Argon2id parameters');
             }
@@ -581,8 +582,12 @@
                 base64ToBytes(kdf.salt),
                 { m: kdf.memoryKiB, t: kdf.passes, p: kdf.parallelism, dkLen: 32 }
             );
-            const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
-            keyBytes.fill(0);
+            let key;
+            try {
+                key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
+            } finally {
+                keyBytes.fill(0);
+            }
 
             const combined = base64ToBytes(backup.encryptedMnemonic);
             let plaintext;

@@ -21,7 +21,11 @@ import {
   RemovedBackupMethodError,
   UnsupportedBackupVersionError,
 } from '../core/errors';
-import { arrayBufferToBase64Url, base64UrlToArrayBuffer } from '../utils/base64';
+import {
+  arrayBufferToBase64Url,
+  base64ToArrayBuffer,
+  base64UrlToArrayBuffer,
+} from '../utils/base64';
 
 const PRF_SYNC_LABEL = new TextEncoder().encode('w3pk-prf-sync-v1');
 
@@ -66,6 +70,14 @@ function isBoundedInt(value: unknown, max: number): boolean {
   return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= max;
 }
 
+function saltLength(salt: unknown): number {
+  try {
+    return typeof salt === 'string' ? base64ToArrayBuffer(salt).byteLength : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Checks that `data` is a BackupFile v3 and returns it.
  * Throws RemovedBackupMethodError for a `passkey` or `hybrid` backup and
@@ -79,7 +91,7 @@ export function validateBackupFile(data: unknown): BackupFile {
     throw new RemovedBackupMethodError(file.encryptionMethod);
   }
   if (file.version !== BACKUP_FILE_VERSION) {
-    throw new UnsupportedBackupVersionError(file.version);
+    throw new UnsupportedBackupVersionError(file.version, file.encryptionMethod);
   }
   if (typeof file.createdAt !== 'string' || typeof file.encryptedMnemonic !== 'string') {
     invalid('missing required fields');
@@ -90,10 +102,12 @@ export function validateBackupFile(data: unknown): BackupFile {
     if (
       !kdf ||
       kdf.kdf !== 'argon2id' ||
-      typeof kdf.salt !== 'string' ||
+      saltLength(kdf.salt) < 16 ||
+      saltLength(kdf.salt) > 64 ||
       !isBoundedInt(kdf.memoryKiB, ARGON2ID_MAX_PARAMS.memoryKiB) ||
       !isBoundedInt(kdf.passes, ARGON2ID_MAX_PARAMS.passes) ||
-      !isBoundedInt(kdf.parallelism, ARGON2ID_MAX_PARAMS.parallelism)
+      !isBoundedInt(kdf.parallelism, ARGON2ID_MAX_PARAMS.parallelism) ||
+      kdf.memoryKiB < 8 * kdf.parallelism
     ) {
       invalid('password backup without valid Argon2id parameters');
     }
@@ -194,6 +208,7 @@ export class BackupFileManager {
     backupFile: BackupFile,
     prfOutput: BufferSource
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+    validateBackupFile(backupFile);
     if (backupFile.encryptionMethod !== 'prf' || !backupFile.prfSalt) {
       throw new Error('This backup is not a PRF backup.');
     }
@@ -214,12 +229,13 @@ export class BackupFileManager {
     backupFile: BackupFile,
     password: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+    validateBackupFile(backupFile);
     const kdf = backupFile.passwordEncryption;
     if (backupFile.encryptionMethod !== 'password' || !kdf) {
       throw new Error('This backup is not password-protected.');
     }
 
-    const salt = Uint8Array.from(atob(kdf.salt), (c) => c.charCodeAt(0));
+    const salt = new Uint8Array(base64ToArrayBuffer(kdf.salt));
     const key = await deriveKeyFromPasswordArgon2id(password, salt, kdf);
     let mnemonic: string;
     try {

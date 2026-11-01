@@ -102,6 +102,10 @@ async function runTests() {
       passwordEncryption: { ...file.passwordEncryption!, memoryKiB: ARGON2ID_MAX_PARAMS.memoryKiB + 1 },
     };
     assert((await capture(() => manager.parseBackupFile(JSON.stringify(tooBig)))) instanceof Error, 'memory over the bound is rejected');
+    const shortSalt = { ...file, passwordEncryption: { ...file.passwordEncryption!, salt: 'AAAAAAAAAAA=' } };
+    assert((await capture(() => manager.parseBackupFile(JSON.stringify(shortSalt)))) instanceof Error, 'salt under 16 bytes is rejected');
+    const lowMemory = { ...file, passwordEncryption: { ...file.passwordEncryption!, memoryKiB: 8, parallelism: 4 } };
+    assert((await capture(() => manager.restoreWithPassword(lowMemory, PASSWORD))) instanceof Error, 'memory under 8*p is rejected, also without parseBackupFile');
     const noKdf = { ...file, passwordEncryption: { ...file.passwordEncryption!, kdf: 'pbkdf2' } };
     assert((await capture(() => manager.parseBackupFile(JSON.stringify(noKdf)))) instanceof Error, 'another kdf is rejected');
     passTest('parameters come from the file, within bounds');
@@ -167,6 +171,13 @@ async function runTests() {
     assert(error instanceof UnsupportedBackupVersionError, 'v2: UnsupportedBackupVersionError');
     assertEqual((error as UnsupportedBackupVersionError).code, 'BACKUP_VERSION_UNSUPPORTED', 'code');
 
+    assert((error as Error).message.includes('v0.10.6'), 'password v2: names the v0.10.6 tool');
+
+    const prfError = await capture(() =>
+      manager.parseBackupFile(JSON.stringify({ ...v2, encryptionMethod: 'prf' }))
+    );
+    assert((prfError as Error).message.includes('exportForSync()'), 'prf v2: asks for a new export');
+
     const v2error = await capture(() => manager.parseBackupFile(JSON.stringify({ ...v2, version: 2 })));
     assert(
       v2error instanceof UnsupportedBackupVersionError && v2error.version === 2,
@@ -193,6 +204,16 @@ async function runTests() {
 
     const verified = await recovery.verifyRecovery(setup.guardianShares.slice(1, 4));
     assert(verified.canRecover && verified.recoveredAddress === address, 'verifyRecovery');
+
+    const { version: _, ...v2 } = backupFile;
+    const v2setup = await recovery.splitAmongGuardians(v2 as BackupFile, guardians, 3, address);
+    const v2error = await capture(() => recovery.recoverFromShares(v2setup.guardianShares.slice(0, 3)));
+    assert(v2error instanceof UnsupportedBackupVersionError, 'v2 shares: UnsupportedBackupVersionError');
+    assertEqual(
+      JSON.parse((v2error as UnsupportedBackupVersionError).backupFileJson!).encryptedMnemonic,
+      backupFile.encryptedMnemonic,
+      'v2 shares: the error carries the rebuilt file'
+    );
     passTest('3, 4 and 5 shares restore');
   });
 
