@@ -133,3 +133,23 @@ export class PrfUnsupportedError extends Web3PasskeyError {
     this.name = "PrfUnsupportedError";
   }
 }
+
+export type ZkArtifactName = "wasm" | "zkey";
+
+/**
+ * A circuit artifact's IPFS CID doesn't match the CID pinned onchain,
+ * so it isn't the circuit the app chose.
+ */
+export class ZkArtifactMismatchError extends Web3PasskeyError {
+  constructor(
+    public artifact: ZkArtifactName,
+    public expectedCid: string,
+    public actualCid: string
+  ) {
+    super(
+      `The ${artifact} artifact's CID ${actualCid} doesn't match the pinned CID ${expectedCid}.`,
+      "ZK_ARTIFACT_MISMATCH"
+    );
+    this.name = "ZkArtifactMismatchError";
+  }
+}
