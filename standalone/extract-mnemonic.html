@@ -577,11 +577,15 @@
                 backupInfo.style.display = 'block';
 
                 // Check encryption method
-                if (backupData.encryptionMethod === 'password' || backupData.encryptionMethod === 'hybrid') {
+                if (backupData.encryptionMethod === 'password') {
                     passwordSection.style.display = 'block';
                     extractBtn.disabled = false;
-                } else if (backupData.encryptionMethod === 'passkey') {
-                    errorBox.textContent = 'This backup is encrypted with a passkey only. It cannot be decrypted with a password. Please use the W3PK SDK to restore this backup with your passkey.';
+                } else if (backupData.encryptionMethod === 'passkey' || backupData.encryptionMethod === 'hybrid') {
+                    errorBox.textContent = `This ${backupData.encryptionMethod} backup uses a removed method: its key came from the passkey's public data, not from the passkey. w3pk no longer restores it. Log in where your wallet is and create a new password backup.`;
+                    errorBox.classList.add('show');
+                    extractBtn.disabled = true;
+                } else {
+                    errorBox.textContent = 'This backup is encrypted with your passkey (PRF). It cannot be decrypted with a password. Use the W3PK SDK to restore it with your passkey.';
                     errorBox.classList.add('show');
                     extractBtn.disabled = true;
                 }
@@ -603,7 +607,7 @@
 
             const password = passwordInput.value;
 
-            if (!password && (backupData.encryptionMethod === 'password' || backupData.encryptionMethod === 'hybrid')) {
+            if (!password) {
                 errorBox.textContent = 'Please enter your password';
                 errorBox.classList.add('show');
                 return;
@@ -613,23 +617,13 @@
                 extractBtn.disabled = true;
                 extractBtn.textContent = 'Extracting...';
 
-                let mnemonic;
-
-                if (backupData.encryptionMethod === 'password') {
-                    mnemonic = await decryptWithPassword(
-                        backupData.encryptedMnemonic,
-                        password,
-                        backupData.passwordEncryption.salt,
-                        backupData.passwordEncryption.iv,
-                        backupData.passwordEncryption.iterations
-                    );
-                } else if (backupData.encryptionMethod === 'hybrid') {
-                    errorBox.textContent = 'Hybrid backups require both password and passkey. This tool only supports password-only backups. Please use the W3PK SDK to restore hybrid backups.';
-                    errorBox.classList.add('show');
-                    extractBtn.disabled = false;
-                    extractBtn.textContent = 'Extract Mnemonic';
-                    return;
-                }
+                const mnemonic = await decryptWithPassword(
+                    backupData.encryptedMnemonic,
+                    password,
+                    backupData.passwordEncryption.salt,
+                    backupData.passwordEncryption.iv,
+                    backupData.passwordEncryption.iterations
+                );
 
                 // Verify the mnemonic by checking if it generates the correct address
                 // This requires ethers.js which we'll inline verify using basic BIP39 validation
