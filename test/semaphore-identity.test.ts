@@ -16,7 +16,7 @@ import {
   CryptoError,
 } from "../src/index";
 import { babyJubPublicKey } from "../src/zk/babyjub";
-import { semaphoreCommitment } from "../src/zk/semaphore";
+import { loadSemaphoreCommitment } from "../src/zk/semaphore";
 import { CredentialStorage } from "../src/auth/storage";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
@@ -245,7 +245,7 @@ async function runTests() {
 
     const fixed = new Uint8Array(32).map((_, i) => i);
     assert(
-      (await semaphoreCommitment(fixed)) ===
+      (await loadSemaphoreCommitment())(fixed) ===
         4012409914446104931572884973054117983812319938681427071249351666971656642037n,
       "fixed vector: private key 0x00..1f"
     );

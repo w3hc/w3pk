@@ -2542,6 +2542,8 @@ export class Web3Passkey {
    * @param tag - Non-empty label without ':', e.g. "voting"
    * @returns The identity commitment and the credential it is bound to
    * @throws PrfUnsupportedError when the authenticator doesn't support PRF
+   * @throws CryptoError when `@semaphore-protocol/identity` isn't installed
+   *   (before any prompt) or the tag is invalid
    *
    * @example
    * const { commitment, credentialId } = await w3pk.getSemaphoreIdentity("voting")
@@ -2549,14 +2551,15 @@ export class Web3Passkey {
    */
   async getSemaphoreIdentity(tag: string): Promise<SemaphoreIdentity> {
     try {
-      const { SEMAPHORE_PRF_LABEL, semaphoreCommitment } = await import("../zk/semaphore");
+      const { SEMAPHORE_PRF_LABEL, loadSemaphoreCommitment } = await import("../zk/semaphore");
+      const commit = await loadSemaphoreCommitment();
       const { secret, credentialId } = await derivePrfSecret(
         SEMAPHORE_PRF_LABEL,
         normalizeOrigin(getCurrentOrigin()),
         tag,
         this.currentUser?.credentialId
       );
-      return { commitment: await semaphoreCommitment(secret), credentialId };
+      return { commitment: commit(secret), credentialId };
     } catch (error) {
       this.config.onError?.(error as any);
       throw error;
