@@ -441,13 +441,36 @@ The build verification system:
 
 1. Fetches the three main build files: `index.js`, `index.mjs`, and `index.d.ts`
 2. Concatenates them in order
-3. Computes a SHA-256 hash of the concatenated data
-4. Formats the hash as an IPFS CIDv1 using:
-   - Multihash format (0x12 for SHA-256, 0x20 for 32 bytes)
-   - CIDv1 format (0x01 for version, 0x70 for dag-pb codec)
-   - Base32 encoding (RFC 4648)
+3. Computes the IPFS CIDv1 of the result as `ipfs add --cid-version 1` does, with [ipfs-unixfs-importer](https://www.npmjs.com/package/ipfs-unixfs-importer):
+   - UnixFS file, 256 KiB fixed-size chunks, balanced DAG with up to 174 links per node
+   - Raw leaves (`raw` codec), `dag-pb` for the root of multi-chunk files
+   - SHA-256 multihash, base32 encoding (`bafy…`)
 
 The resulting hash is deterministic and can be independently verified.
+
+## ZK Circuit Artifacts
+
+The same CID computation and the same registry interface verify circuit artifacts. `verifyZkArtifacts` in `w3pk/zk` computes the CIDs of a circuit's `.wasm` and `.zkey` and throws `ZkArtifactMismatchError` if either differs from its pin, so a host or CDN can't swap the circuit the app proves against. `readZkArtifactPins` reads the pins with `getCidByVersion(key)`:
+
+```typescript
+import { ethers } from 'ethers';
+import { readZkArtifactPins, verifyZkArtifacts } from 'w3pk/zk';
+
+const provider = new ethers.JsonRpcProvider('https://mainnet.optimism.io');
+const registry = new ethers.Contract(REGISTRY_ADDRESS, REGISTRY_ABI, provider);
+
+const pins = await readZkArtifactPins(registry, { wasm: 'vote-v1.wasm', zkey: 'vote-v1.zkey' });
+const { wasm, zkey } = await verifyZkArtifacts(
+  { wasm: '/circuits/vote.wasm', zkey: '/circuits/vote_final.zkey' },
+  pins
+);
+```
+
+- The w3pk registry is DAO-controlled and holds w3pk releases. Pin a circuit there through the DAO under keys like `vote-v1.wasm`, or deploy the same contract for your app's circuits
+- Compute the CID to pin with `ipfs add --cid-version 1 -n <file>`
+- Prove with the returned bytes, not by fetching the URLs again
+
+See [ZK.md](./ZK.md#circuit-artifact-verification) for the full API.
 
 ## Troubleshooting
 

@@ -362,3 +362,6 @@ export type {
 
 export * from "./babyjub";
 export * from "./elgamal";
+export * from "./artifacts";
+export { ZkArtifactMismatchError } from "../core/errors";
+export type { ZkArtifactName } from "../core/errors";

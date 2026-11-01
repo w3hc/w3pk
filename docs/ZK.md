@@ -15,6 +15,7 @@ Comprehensive cryptographic utilities for zero-knowledge proofs, key derivation,
   - [Merkle Trees](#merkle-trees)
   - [Commitments](#commitments)
   - [Baby Jubjub and ElGamal](#baby-jubjub-and-elgamal)
+  - [Circuit Artifact Verification](#circuit-artifact-verification)
 - [Use Cases](#use-cases)
 - [Security Considerations](#security-considerations)
 - [API Reference](#api-reference)
@@ -26,6 +27,7 @@ Comprehensive cryptographic utilities for zero-knowledge proofs, key derivation,
   - [NFT Ownership Utilities](#nft-ownership-utilities)
   - [Baby Jubjub](#baby-jubjub)
   - [ElGamal](#elgamal)
+  - [Artifact Verification](#artifact-verification)
 - [Examples](#examples)
 - [Testing](#testing)
 - [Performance Benchmarks](#performance-benchmarks)
@@ -352,6 +354,54 @@ Every function that takes a public key or ciphertext checks it first and throws 
 - packed encodings with `y ≥ p`, no point on the curve, or a sign bit on `x = 0`
 
 Scalar multiplication runs a Montgomery ladder over at least 256 bits, so the number of point operations doesn't depend on the scalar. JavaScript `bigint` arithmetic is not constant time, so this is not a guarantee against a local timing attacker.
+
+---
+
+### Circuit Artifact Verification
+
+A proof is only as trustworthy as the circuit it was made with: whoever serves the `.wasm` and `.zkey` (host, CDN) can swap them for a circuit the app didn't choose. `verifyZkArtifacts` computes the IPFS CIDs of both files and checks them against CIDs pinned onchain before you prove. A list of hashes shipped with the app doesn't help, since whoever can swap the artifacts can swap the list.
+
+```typescript
+import { ethers } from 'ethers'
+import { readZkArtifactPins, verifyZkArtifacts, ZkArtifactMismatchError } from 'w3pk/zk'
+
+const registry = new ethers.Contract(
+  REGISTRY_ADDRESS,
+  ['function getCidByVersion(string version) view returns (string)'],
+  new ethers.JsonRpcProvider('https://mainnet.optimism.io')
+)
+
+const pins = await readZkArtifactPins(registry, {
+  wasm: 'vote-v1.wasm',
+  zkey: 'vote-v1.zkey',
+})
+
+try {
+  const { wasm, zkey } = await verifyZkArtifacts(
+    { wasm: '/circuits/vote.wasm', zkey: '/circuits/vote_final.zkey' },
+    pins
+  )
+  // Prove with these bytes, not by fetching the URLs again
+  const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, wasm, zkey)
+} catch (error) {
+  if (error instanceof ZkArtifactMismatchError) {
+    console.error(error.artifact, error.expectedCid, error.actualCid)
+  }
+  throw error
+}
+```
+
+- Artifacts are bytes (any `ArrayBuffer` or view) or URLs; URLs are fetched once and the verified bytes are returned, so the checked files are the ones you prove with
+- CIDs are computed as `ipfs add --cid-version 1` does (UnixFS, raw leaves, 256 KiB chunks, balanced layout), with the same helper as [build verification](./BUILD_VERIFICATION.md#zk-circuit-artifacts). Get the CID to pin with `ipfs add --cid-version 1 -n circuit_final.zkey`
+- Pins are compared as exact strings, so pin the base32 CIDv1 (`bafy…`, or `bafk…` for files up to 256 KiB) that command prints
+- `pins` can also be plain CIDs, e.g. from your own contract: `verifyZkArtifacts(artifacts, { wasm: 'bafy…', zkey: 'bafy…' })`
+- `readZkArtifactPins` works with any object that has the build registry's `getCidByVersion(string)`, such as an ethers `Contract` for the [build registry](./BUILD_VERIFICATION.md#onchain-registry) or your own deployment of it
+
+| Error | When |
+|-------|------|
+| `ZkArtifactMismatchError` (`ZK_ARTIFACT_MISMATCH`) | an artifact's CID differs from its pin |
+| `Web3PasskeyError` `ZK_ARTIFACT_FETCH_ERROR` | an artifact URL can't be fetched |
+| `Web3PasskeyError` `ZK_ARTIFACT_NOT_PINNED` | the registry has no CID under a key |
 
 ---
 
@@ -957,6 +1007,17 @@ All exported from `w3pk/zk`. Functions throw `CryptoError` on invalid input.
 | `elgamalRerandomize(publicKey, ciphertext, r?)` | same plaintext, randomness increased by `r` |
 | `elgamalDecryptToPoint(privateKey, ciphertext)` | `m · B` |
 | `elgamalDecrypt(privateKey, ciphertext, maxValue)` | `m`, or throws when `m > maxValue` |
+
+### Artifact Verification
+
+**Types:** `ZkArtifactName = 'wasm' | 'zkey'`, `ZkArtifactSource = ArrayBufferView | ArrayBuffer | string` (URL), `ZkArtifactSources`, `ZkArtifactPins` and `ZkArtifactBytes` (records keyed by `ZkArtifactName`), `ZkArtifactRegistry = { getCidByVersion(key: string): Promise<string> }`
+
+| Function | Returns |
+|----------|---------|
+| `verifyZkArtifacts({ wasm, zkey }, pins)` | `Promise<{ wasm: Uint8Array, zkey: Uint8Array }>`, the verified bytes; throws `ZkArtifactMismatchError` on a CID mismatch |
+| `readZkArtifactPins(registry, { wasm, zkey })` | `Promise<ZkArtifactPins>` read with `registry.getCidByVersion(key)`; throws `ZK_ARTIFACT_NOT_PINNED` on an empty CID |
+
+`ZkArtifactMismatchError` has `code: 'ZK_ARTIFACT_MISMATCH'`, `artifact`, `expectedCid` and `actualCid`.
 
 ---
 

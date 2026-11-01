@@ -3,40 +3,7 @@
  * Computes IPFS CIDv1 hash of the w3pk build output using official IPFS libraries
  */
 
-/**
- * Computes the IPFS CIDv1 hash of data using UnixFS format
- * This matches the standard IPFS implementation
- */
-async function computeIPFSHash(data: Uint8Array, name: string = 'build'): Promise<string> {
-  // Lazy load IPFS libraries (they are ESM-only and optional dependencies)
-  const { importer } = await import('ipfs-unixfs-importer');
-  const { MemoryBlockstore } = await import('blockstore-core');
-
-  // Create a memory blockstore (no actual storage)
-  const blockstore = new MemoryBlockstore();
-
-  // Convert data to async iterable
-  const fileIterable = async function* () {
-    yield {
-      path: name,
-      content: data,
-    };
-  };
-
-  // Import and get CID
-  const entries = importer(fileIterable(), blockstore, {
-    cidVersion: 1,
-    rawLeaves: true,
-    wrapWithDirectory: false,
-  });
-
-  // Get the first (and only) entry
-  for await (const entry of entries) {
-    return entry.cid.toString();
-  }
-
-  throw new Error('Failed to generate CID');
-}
+import { computeIpfsCid } from './ipfs-cid';
 
 /**
  * Fetches and concatenates the main build files for hashing
@@ -92,7 +59,7 @@ async function fetchBuildFiles(baseUrl: string): Promise<Uint8Array> {
  */
 export async function getW3pkBuildHash(distUrl: string): Promise<string> {
   const buildData = await fetchBuildFiles(distUrl);
-  return computeIPFSHash(buildData);
+  return computeIpfsCid(buildData);
 }
 
 /**
