@@ -1,6 +1,6 @@
 /**
  * ML-KEM Post-Quantum Encryption Tests
- * Tests for ML-KEM-1024 encryption, decryption, and deterministic key derivation
+ * Tests for hybrid ML-KEM-1024 + X25519 HPKE encryption, decryption, and deterministic key derivation
  *
  * NOTE: This file contains TEST FIXTURES only - not real secrets!
  * Test private key: Standard Ethereum test vector
@@ -12,7 +12,9 @@ import {
   deriveMLKemKeypair,
   mlkemEncryptWithKey,
   mlkemDecryptWithKey,
+  hpkeKeySchedule,
 } from '../src/crypto/mlkem';
+import { sha512 } from '@noble/hashes/sha2.js';
 import {
   startTestSuite,
   endTestSuite,
@@ -50,8 +52,8 @@ async function runTests() {
     );
 
     // Check key sizes
-    assertEqual(keypair1.publicKey.length, 1568, 'ML-KEM-1024 public key should be 1568 bytes');
-    assertEqual(keypair1.privateKey.length, 3168, 'ML-KEM-1024 private key should be 3168 bytes');
+    assertEqual(keypair1.publicKey.length, 1600, 'Hybrid public key should be 1568 + 32 bytes');
+    assertEqual(keypair1.privateKey.length, 3200, 'Hybrid private key should be 3168 + 32 bytes');
 
     passTest('Deterministic key derivation working correctly');
   });
@@ -88,7 +90,7 @@ async function runTests() {
     assertTruthy(encrypted.authTag, 'Should have auth tag');
 
     // Decrypt
-    const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey, keypair.publicKey);
+    const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey);
 
     assertEqual(decrypted, plaintext, 'Decrypted text should match original');
 
@@ -108,8 +110,8 @@ async function runTests() {
     assertEqual(encrypted.recipients.length, 2, 'Should have 2 recipients');
 
     // Both recipients can decrypt
-    const decrypted1 = await mlkemDecrypt(encrypted, keypair1.privateKey, keypair1.publicKey);
-    const decrypted2 = await mlkemDecrypt(encrypted, keypair2.privateKey, keypair2.publicKey);
+    const decrypted1 = await mlkemDecrypt(encrypted, keypair1.privateKey);
+    const decrypted2 = await mlkemDecrypt(encrypted, keypair2.privateKey);
 
     assertEqual(decrypted1, plaintext, 'Recipient 1 should decrypt correctly');
     assertEqual(decrypted2, plaintext, 'Recipient 2 should decrypt correctly');
@@ -139,31 +141,10 @@ async function runTests() {
     assertEqual(clientDecrypted, plaintext, 'Client should decrypt successfully');
 
     // Server can decrypt
-    const serverDecrypted = await mlkemDecrypt(
-      encrypted,
-      serverKeypair.privateKey,
-      serverKeypair.publicKey
-    );
+    const serverDecrypted = await mlkemDecrypt(encrypted, serverKeypair.privateKey);
     assertEqual(serverDecrypted, plaintext, 'Server should decrypt successfully');
 
     passTest('Convenience functions working correctly');
-  });
-
-  // Test 6: Decryption with Public Key Hint (Faster Lookup)
-  await runTest('Decrypt with public key hint for faster lookup', async () => {
-    const plaintext = 'Testing with public key hint';
-
-    const keypair1 = await deriveMLKemKeypair(testPrivateKey1, 'user1');
-    const keypair2 = await deriveMLKemKeypair(testPrivateKey2, 'user2');
-
-    const encrypted = await mlkemEncrypt(plaintext, [keypair1.publicKey, keypair2.publicKey]);
-
-    // Decrypt with public key hint (faster than trying all recipients)
-    const decrypted = await mlkemDecrypt(encrypted, keypair2.privateKey, keypair2.publicKey);
-
-    assertEqual(decrypted, plaintext, 'Should decrypt with public key hint');
-
-    passTest('Public key hint optimization working');
   });
 
   // Test 7: Wrong Private Key Should Fail
@@ -178,7 +159,7 @@ async function runTests() {
     let errorThrown = false;
     try {
       // Try to decrypt with wrong private key
-      await mlkemDecrypt(encrypted, keypair2.privateKey, keypair2.publicKey);
+      await mlkemDecrypt(encrypted, keypair2.privateKey);
     } catch (error) {
       errorThrown = true;
       logDetail('Expected error caught: ' + (error as Error).message);
@@ -196,7 +177,7 @@ async function runTests() {
     const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
 
     const encrypted = await mlkemEncrypt(plaintext, keypair.publicKey);
-    const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey, keypair.publicKey);
+    const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey);
 
     assertEqual(decrypted, plaintext, 'Empty string should encrypt/decrypt correctly');
 
@@ -211,7 +192,7 @@ async function runTests() {
     const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
 
     const encrypted = await mlkemEncrypt(plaintext, keypair.publicKey);
-    const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey, keypair.publicKey);
+    const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey);
 
     assertEqual(decrypted, plaintext, 'Large plaintext should encrypt/decrypt correctly');
     assertEqual(decrypted.length, 10000, 'Decrypted length should match original');
@@ -226,7 +207,7 @@ async function runTests() {
     const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
 
     const encrypted = await mlkemEncrypt(plaintext, keypair.publicKey);
-    const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey, keypair.publicKey);
+    const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey);
 
     assertEqual(decrypted, plaintext, 'Unicode characters should be preserved');
 
@@ -259,99 +240,165 @@ async function runTests() {
     throw new Error('Expected promise to reject');
   };
 
-  // Test 12: Versioned v2 payload format
-  await runTest('Encrypt writes v2 payloads with AES-KW wrapped keys', async () => {
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
-    const encrypted = await mlkemEncrypt('v2 format', keypair.publicKey);
+  const flipByte = (base64: string, index: number): string => {
+    const bytes = Buffer.from(base64, 'base64');
+    bytes[index] ^= 0x01;
+    return bytes.toString('base64');
+  };
 
-    assertEqual(encrypted.version, 2, 'Payload should be version 2');
+  await runTest('HPKE key schedule matches RFC 9180 test vector A.6.1', async () => {
+    const hex = (s: string) => new Uint8Array(Buffer.from(s, 'hex'));
+    const suiteId = new Uint8Array([...Buffer.from('HPKE'), 0x00, 0x12, 0x00, 0x03, 0x00, 0x02]);
+    const { key, baseNonce } = hpkeKeySchedule(
+      sha512,
+      suiteId,
+      hex('776ab421302f6eff7d7cb5cb1adaea0cd50872c71c2d63c30c4f1d5e43653336fef33b103c67e7a98add2d3b66e2fda95b5b2a667aa9dac7e59cc1d46d30e818'),
+      hex('4f6465206f6e2061204772656369616e2055726e'),
+      32,
+      12
+    );
+    assertEqual(Buffer.from(key).toString('hex'), '751e346ce8f0ddb2305c8a2a85c70d5cf559c53093656be636b9406d4d7d1b70', 'key');
+    assertEqual(Buffer.from(baseNonce).toString('hex'), '55ff7a7d739c69f44b25447b', 'base_nonce');
+
+    const aead = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['encrypt']);
+    const ct = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: baseNonce, additionalData: hex('436f756e742d30') },
+      aead,
+      hex('4265617574792069732074727574682c20747275746820626561757479')
+    );
     assertEqual(
-      Buffer.from(encrypted.recipients[0].ciphertext, 'base64').length,
-      1608,
-      'Recipient ciphertext should be 1568 KEM + 40 wrapped key bytes'
+      Buffer.from(ct).toString('hex'),
+      '170f8beddfe949b75ef9c387e201baf4132fa7374593dfafa90768788b7b2b200aafcc6d80ea4c795a7c5b841a',
+      'sequence 0 ciphertext'
     );
 
-    passTest('v2 payload format correct');
+    passTest('RFC 9180 key schedule reproduced');
   });
 
-  // Test 13: Tampered wrapped key
-  await runTest('Tampered wrapped key is rejected', async () => {
+  await runTest('Encrypt writes v3 HPKE payloads', async () => {
     const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
-    const encrypted = await mlkemEncrypt('tamper test', keypair.publicKey);
+    const encrypted = await mlkemEncrypt('v3 format', keypair.publicKey);
+    const [recipient] = encrypted.recipients;
 
-    const combined = Buffer.from(encrypted.recipients[0].ciphertext, 'base64');
-    combined[combined.length - 1] ^= 0x01;
-    encrypted.recipients[0].ciphertext = combined.toString('base64');
+    assertEqual(encrypted.version, 3, 'Payload should be version 3');
+    assertEqual(recipient.publicKey, Buffer.from(keypair.publicKey).toString('base64'), 'Recipient public key');
+    assertEqual(Buffer.from(recipient.enc, 'base64').length, 1600, 'enc is 1568 ML-KEM + 32 X25519 bytes');
+    assertEqual(Buffer.from(recipient.ciphertext, 'base64').length, 48, 'Sealed data key is 32 + 16 tag bytes');
 
-    await rejectionOf(() => mlkemDecrypt(encrypted, keypair.privateKey, keypair.publicKey));
-
-    passTest('AES-KW integrity check rejects tampering');
+    passTest('v3 payload format correct');
   });
 
-  // Test 14: Legacy v1 payloads still decrypt
-  await runTest('Legacy v1 payload (no version) still decrypts', async () => {
-    const plaintext = 'legacy payload';
+  await runTest('v3 round-trip for three recipients', async () => {
+    const plaintext = 'three recipients';
+    const keypairs = await Promise.all([
+      deriveMLKemKeypair(testPrivateKey1, 'a'),
+      deriveMLKemKeypair(testPrivateKey1, 'b'),
+      deriveMLKemKeypair(testPrivateKey2, 'c'),
+    ]);
+    const encrypted = await mlkemEncrypt(plaintext, keypairs.map(k => Buffer.from(k.publicKey).toString('base64')));
+
+    assertEqual(encrypted.recipients.length, 3, 'Three recipient entries');
+    for (const keypair of keypairs) {
+      assertEqual(await mlkemDecrypt(encrypted, keypair.privateKey), plaintext, 'Each recipient decrypts');
+    }
+    const base64Key = Buffer.from(keypairs[1].privateKey).toString('base64');
+    assertEqual(await mlkemDecrypt(encrypted, base64Key), plaintext, 'Base64 private key accepted');
+
+    passTest('Multi-recipient v3 round-trip working');
+  });
+
+  await runTest('v1 and v2 payloads are rejected', async () => {
     const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
-    const { createMlKem1024 } = await import('mlkem');
-    const mlkem = await createMlKem1024();
+    const encrypted = await mlkemEncrypt('old formats', keypair.publicKey);
 
-    const aesKey = crypto.getRandomValues(new Uint8Array(32));
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const key = await crypto.subtle.importKey('raw', aesKey, 'AES-GCM', false, ['encrypt']);
-    const sealed = new Uint8Array(
-      await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext))
-    );
+    const v1: any = { ...encrypted };
+    delete v1.version;
+    const v1Error = await rejectionOf(() => mlkemDecrypt(v1, keypair.privateKey));
+    assertEqual(v1Error.message, 'Unsupported payload version: undefined', 'v1 rejected');
 
-    const [kemCiphertext, sharedSecret] = mlkem.encap(keypair.publicKey);
-    const wrapped = aesKey.map((b, i) => b ^ sharedSecret[i]);
+    const v2: any = { ...encrypted, version: 2 };
+    const v2Error = await rejectionOf(() => mlkemDecrypt(v2, keypair.privateKey));
+    assertEqual(v2Error.message, 'Unsupported payload version: 2', 'v2 rejected');
 
-    const legacy = {
-      recipients: [{
-        publicKey: Buffer.from(keypair.publicKey).toString('base64'),
-        ciphertext: Buffer.concat([kemCiphertext, wrapped]).toString('base64'),
-      }],
-      encryptedData: Buffer.from(sealed.slice(0, -16)).toString('base64'),
-      iv: Buffer.from(iv).toString('base64'),
-      authTag: Buffer.from(sealed.slice(-16)).toString('base64'),
-    };
-
-    assertEqual(await mlkemDecrypt(legacy, keypair.privateKey, keypair.publicKey), plaintext, 'With public key');
-    assertEqual(await mlkemDecrypt(legacy, keypair.privateKey), plaintext, 'Without public key');
-
-    passTest('Legacy v1 payloads remain readable');
+    passTest('Only v3 is read');
   });
 
-  // Test 15: IV and auth tag lengths
+  await runTest('Altering the X25519 or ML-KEM part fails to decrypt', async () => {
+    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+
+    for (const [part, index] of [['ML-KEM ciphertext', 0], ['ML-KEM ciphertext end', 1567], ['X25519 ephemeral key', 1568], ['X25519 ephemeral key end', 1599]] as const) {
+      const encrypted = await mlkemEncrypt('tamper test', keypair.publicKey);
+      encrypted.recipients[0].enc = flipByte(encrypted.recipients[0].enc, index);
+      await rejectionOf(() => mlkemDecrypt(encrypted, keypair.privateKey));
+      logDetail(`Tampered ${part} rejected`);
+    }
+
+    const sealedKey = await mlkemEncrypt('tamper test', keypair.publicKey);
+    sealedKey.recipients[0].ciphertext = flipByte(sealedKey.recipients[0].ciphertext, 0);
+    await rejectionOf(() => mlkemDecrypt(sealedKey, keypair.privateKey));
+
+    const data = await mlkemEncrypt('tamper test', keypair.publicKey);
+    data.encryptedData = flipByte(data.encryptedData, 0);
+    await rejectionOf(() => mlkemDecrypt(data, keypair.privateKey));
+
+    passTest('Both KEM halves, the sealed key and the data are authenticated');
+  });
+
+  await runTest('A recipient entry only opens for the recipient it was sealed to', async () => {
+    const alice = await deriveMLKemKeypair(testPrivateKey1, 'alice');
+    const bob = await deriveMLKemKeypair(testPrivateKey2, 'bob');
+    const encrypted = await mlkemEncrypt('binding', [alice.publicKey, bob.publicKey]);
+
+    const [toAlice, toBob] = encrypted.recipients;
+    encrypted.recipients = [
+      { ...toAlice, publicKey: toBob.publicKey },
+      { ...toBob, publicKey: toAlice.publicKey },
+    ];
+
+    await rejectionOf(() => mlkemDecrypt(encrypted, alice.privateKey));
+    await rejectionOf(() => mlkemDecrypt(encrypted, bob.privateKey));
+
+    passTest('Swapped recipient entries fail to decrypt');
+  });
+
+  await runTest('Recipients outside the payload are rejected', async () => {
+    const keypair1 = await deriveMLKemKeypair(testPrivateKey1, 'user1');
+    const encrypted = await mlkemEncrypt('outsider', keypair1.publicKey);
+
+    const outsider = await deriveMLKemKeypair(testPrivateKey1, 'outsider');
+    const error = await rejectionOf(() => mlkemDecrypt(encrypted, outsider.privateKey));
+    assertEqual(error.message, 'Public key not found in recipients list', 'Outsider rejected');
+
+    passTest('Outsider rejected');
+  });
+
+  await runTest('Key sizes are enforced', async () => {
+    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+
+    const pkError = await rejectionOf(() => mlkemEncrypt('size', keypair.publicKey.subarray(0, 1568)));
+    assertEqual(pkError.message, 'Invalid public key size: 1568 (expected 1600)', 'ML-KEM-only public key rejected');
+
+    const encrypted = await mlkemEncrypt('size', keypair.publicKey);
+    const skError = await rejectionOf(() => mlkemDecrypt(encrypted, keypair.privateKey.subarray(0, 3168)));
+    assertEqual(skError.message, 'Invalid private key size: 3168 (expected 3200)', 'ML-KEM-only private key rejected');
+
+    passTest('Hybrid key sizes enforced');
+  });
+
   await runTest('IV must be 12 bytes and auth tag 16 bytes', async () => {
     const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
 
     const badIv = await mlkemEncrypt('iv test', keypair.publicKey);
     badIv.iv = Buffer.alloc(16).toString('base64');
-    const ivError = await rejectionOf(() => mlkemDecrypt(badIv, keypair.privateKey, keypair.publicKey));
+    const ivError = await rejectionOf(() => mlkemDecrypt(badIv, keypair.privateKey));
     assertEqual(ivError.message, 'Invalid IV size: 16 (expected 12)', 'IV size error');
 
     const shortTag = await mlkemEncrypt('tag test', keypair.publicKey);
     shortTag.authTag = Buffer.from(shortTag.authTag, 'base64').subarray(0, 4).toString('base64');
-    const tagError = await rejectionOf(() => mlkemDecrypt(shortTag, keypair.privateKey, keypair.publicKey));
+    const tagError = await rejectionOf(() => mlkemDecrypt(shortTag, keypair.privateKey));
     assertEqual(tagError.message, 'Invalid auth tag size: 4 (expected 16)', 'Auth tag size error');
 
     passTest('IV and auth tag lengths enforced');
-  });
-
-  // Test 16: Recipient lookup without a public key hint
-  await runTest('Decrypt without public key hint finds the right recipient', async () => {
-    const plaintext = 'no hint';
-    const keypair1 = await deriveMLKemKeypair(testPrivateKey1, 'user1');
-    const keypair2 = await deriveMLKemKeypair(testPrivateKey2, 'user2');
-    const encrypted = await mlkemEncrypt(plaintext, [keypair1.publicKey, keypair2.publicKey]);
-
-    assertEqual(await mlkemDecrypt(encrypted, keypair2.privateKey), plaintext, 'Second recipient should decrypt');
-
-    const outsider = await deriveMLKemKeypair(testPrivateKey1, 'outsider');
-    const error = await rejectionOf(() => mlkemDecrypt(encrypted, outsider.privateKey));
-    assertEqual(error.message, 'No matching recipient found for this private key', 'Outsider rejected');
-
-    passTest('Recipient lookup working without hint');
   });
 
   endTestSuite();
