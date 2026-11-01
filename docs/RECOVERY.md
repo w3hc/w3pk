@@ -91,17 +91,18 @@ interface BackupFile {
   createdAt: string;              // ISO 8601 timestamp
   ethereumAddress: string;        // m/44'/60'/0'/0/0 (index #0)
   encryptedMnemonic: string;      // AES-256-GCM encrypted
-  encryptionMethod: 'passkey' | 'password' | 'hybrid';
+  encryptionMethod: 'password' | 'prf';
   addressChecksum: string;        // For verification
 
   // Optional fields based on encryption method
-  credentialId?: string;
-  publicKeyFingerprint?: string;
-  passwordEncryption?: {
+  passwordEncryption?: {          // password
     salt: string;
     iv: string;
     iterations: number;
   };
+  credential?: { id: string; publicKey: string }; // passkey that owns the wallet
+  prfSalt?: string;               // prf
+  username?: string;              // prf
 }
 ```
 
@@ -132,17 +133,14 @@ interface BackupFile {
 - **Pros**: Platform-agnostic, works everywhere
 - **Cons**: Must remember password
 
-### Passkey-based
-- **Use case**: Cross-device sync (when passkey is synced)
-- **Security**: WebAuthn credential → PBKDF2 (210,000 iterations) → AES-256-GCM
+### PRF-based
+- **Use case**: Cross-device sync (when passkey is synced), from `exportForSync()`
+- **Security**: WebAuthn PRF output → HKDF-SHA256 → AES-256-GCM; decrypting takes a fresh assertion with the passkey
 - **Pros**: No password needed, uses synced passkey
-- **Cons**: Requires passkey on target device
+- **Cons**: Requires the passkey and an authenticator with PRF support
 
-### Hybrid
-- **Use case**: Maximum security scenarios
-- **Security**: Double encryption (passkey → password)
-- **Pros**: Two-factor protection
-- **Cons**: Requires both passkey AND password
+### Removed: passkey and hybrid
+`passkey` and `hybrid` backups (before 0.11.0) derived their key from the credential ID and public key, with no WebAuthn ceremony: a `passkey` file decrypted from public data, and a `hybrid` file was only as strong as its password. Restoring one throws `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`). Log in where the wallet is and create a new `password` or `prf` backup.
 
 ---
 
@@ -274,10 +272,9 @@ A password backup made while logged in names its passkey (`credential: { id, pub
 
 **Supports**:
 - On a device with no data for the passkey: PRF files and password backups made by the passkey's user
-- On a device that already has the passkey's metadata (the wallet record was lost): all backup encryption methods (`prf`, `password`, `passkey`, `hybrid`)
+- On a device that already has the passkey's metadata (the wallet record was lost): `prf` and `password` backups
 
 On a fresh device, `syncWalletWithPasskey()` and `importFromSync()` throw `SyncBootstrapError` when they can't set the passkey up:
-- `reason: 'PASSKEY_BACKUP'`: passkey or hybrid backup, which can't be decrypted without the public key
 - `reason: 'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4); make a new one on a logged-in device
 - `reason: 'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected (or than the logged-in one, for `importFromSync()`)
 - `reason: 'PUBLIC_KEY_MISMATCH'`: the backup's public key doesn't match the passkey's signature
@@ -506,11 +503,8 @@ Attacker:
 // Password-protected backup
 const { blob, filename } = await w3pk.createBackupFile('password', password);
 
-// Passkey-encrypted backup
-const { blob, filename } = await w3pk.createBackupFile('passkey');
-
-// Hybrid backup (both password and passkey)
-const { blob, filename } = await w3pk.createBackupFile('hybrid', password);
+// PRF backup, decrypted by the passkey on any device where it synced
+const { blob, filename } = await w3pk.exportForSync();
 ```
 
 ### Backup Status
