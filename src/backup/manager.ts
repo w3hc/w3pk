@@ -65,9 +65,9 @@ export class BackupManager {
     // Get verification status
     const verificationStatus = this.getVerificationStatus(ethereumAddress);
 
-    const hasBackup = methods.some((m) => PASSKEY_INDEPENDENT_METHODS.includes(m));
-    const restoresWithoutPasskey = hasBackup || !!socialRecoveryStatus?.enabled;
-    const recommendedMode = !restoresWithoutPasskey
+    const hasBackup =
+      methods.some((m) => PASSKEY_INDEPENDENT_METHODS.includes(m)) || !!socialRecoveryStatus?.enabled;
+    const recommendedMode = !hasBackup
       ? 'password'
       : methods.includes('prf')
         ? undefined
@@ -92,7 +92,7 @@ export class BackupManager {
         encryptedBackups,
         socialRecoveryStatus,
         verificationStatus,
-        restoresWithoutPasskey
+        hasBackup
       ),
     };
 
@@ -208,7 +208,10 @@ export class BackupManager {
 
   async hasBackup(ethereumAddress: string): Promise<boolean> {
     const backups = await this.storage.getBackupsByAddress(ethereumAddress);
-    return backups.some((b) => PASSKEY_INDEPENDENT_METHODS.includes(b.method));
+    return (
+      backups.some((b) => PASSKEY_INDEPENDENT_METHODS.includes(b.method)) ||
+      !!this.getSocialRecoveryStatus()?.enabled
+    );
   }
 
   /**

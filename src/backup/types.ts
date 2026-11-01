@@ -16,7 +16,7 @@ export type BackupMethod = 'file' | 'qr' | 'phrase' | 'prf';
 export const PASSKEY_INDEPENDENT_METHODS: readonly BackupMethod[] = ['file', 'qr', 'phrase'];
 
 export interface BackupStatus {
-  /** A backup that restores without a passkey exists */
+  /** A backup that restores without a passkey exists (file, QR, phrase or social recovery) */
   hasBackup: boolean;
   /**
    * Next backup to make: `password` while no backup restores without a
