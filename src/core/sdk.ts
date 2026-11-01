@@ -1620,11 +1620,12 @@ export class Web3Passkey {
    * - Sync wallet across devices
    * - Split among guardians for social recovery
    *
-   * @param encryptionType - 'password' (default), 'passkey', or 'hybrid'
-   * @param password - Required for 'password' and 'hybrid' encryption
+   * @param encryptionType - 'password', the only method for a backup file;
+   * a PRF backup comes from exportForSync()
+   * @param password - Required
    */
   async createBackupFile(
-    encryptionType: 'password' | 'passkey' | 'hybrid' = 'password',
+    encryptionType: 'password' = 'password',
     password?: string
   ): Promise<{ blob: Blob; filename: string }> {
     if (!this.currentUser) {
@@ -1650,56 +1651,6 @@ export class Web3Passkey {
         this.currentUser.ethereumAddress,
         password,
         await this.backupCredential()
-      );
-      backupFile = created.backupFile;
-      result = manager.createDownloadableBackup(backupFile);
-    } else if (encryptionType === 'passkey') {
-      // Get current credential info
-      const walletData = await this.walletStorage.retrieve(
-        this.currentUser.ethereumAddress
-      );
-      if (!walletData) {
-        throw new WalletError("No wallet data found");
-      }
-
-      const credStorage = new CredentialStorage();
-      const credential = await credStorage.getCredentialById(walletData.credentialId);
-      if (!credential) {
-        throw new WalletError("Credential not found");
-      }
-
-      const created = await manager.createPasskeyBackup(
-        mnemonic,
-        this.currentUser.ethereumAddress,
-        credential.id,
-        credential.publicKey
-      );
-      backupFile = created.backupFile;
-      result = manager.createDownloadableBackup(backupFile);
-    } else if (encryptionType === 'hybrid') {
-      if (!password) {
-        throw new WalletError("Password required for hybrid backup");
-      }
-
-      const walletData = await this.walletStorage.retrieve(
-        this.currentUser.ethereumAddress
-      );
-      if (!walletData) {
-        throw new WalletError("No wallet data found");
-      }
-
-      const credStorage = new CredentialStorage();
-      const credential = await credStorage.getCredentialById(walletData.credentialId);
-      if (!credential) {
-        throw new WalletError("Credential not found");
-      }
-
-      const created = await manager.createHybridBackup(
-        mnemonic,
-        this.currentUser.ethereumAddress,
-        password,
-        credential.id,
-        credential.publicKey
       );
       backupFile = created.backupFile;
       result = manager.createDownloadableBackup(backupFile);
@@ -1734,12 +1685,12 @@ export class Web3Passkey {
    *
    * @param guardians - List of guardian names/emails
    * @param threshold - Number of guardians required to recover (M-of-N)
-   * @param password - Optional password for additional encryption layer
+   * @param password - Encrypts the backup that the guardians' shares rebuild
    */
   async setupSocialRecovery(
     guardians: { name: string; email?: string }[],
     threshold: number,
-    password?: string
+    password: string
   ): Promise<{
     guardianShares: any[];
     setupComplete: boolean;
@@ -1748,39 +1699,19 @@ export class Web3Passkey {
       throw new WalletError("Must be authenticated to set up social recovery");
     }
 
+    if (!password) {
+      throw new WalletError("Password required for social recovery");
+    }
+
     const mnemonic = await this.getMnemonicFromSession(true);
 
-    // Create backup file (password-protected if password provided)
     const { BackupFileManager } = await import("../backup/backup-file");
-    const backupManager = new BackupFileManager();
-
-    let backupFile;
-    if (password) {
-      const created = await backupManager.createPasswordBackup(
-        mnemonic,
-        this.currentUser.ethereumAddress,
-        password,
-        await this.backupCredential()
-      );
-      backupFile = created.backupFile;
-    } else {
-      const walletData = await this.walletStorage.retrieve(this.currentUser.ethereumAddress);
-      if (!walletData) {
-        throw new WalletError("No wallet data found");
-      }
-      const storage = new CredentialStorage();
-      const credential = await storage.getCredentialById(walletData.credentialId);
-      if (!credential) {
-        throw new WalletError("Credential not found");
-      }
-      const created = await backupManager.createPasskeyBackup(
-        mnemonic,
-        this.currentUser.ethereumAddress,
-        credential.id,
-        credential.publicKey
-      );
-      backupFile = created.backupFile;
-    }
+    const { backupFile } = await new BackupFileManager().createPasswordBackup(
+      mnemonic,
+      this.currentUser.ethereumAddress,
+      password,
+      await this.backupCredential()
+    );
 
     // Split backup among guardians
     const { SocialRecovery } = await import("../recovery/backup-based-recovery");
@@ -1839,7 +1770,7 @@ export class Web3Passkey {
     password?: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { SocialRecovery } = await import("../recovery/backup-based-recovery");
-    const { BackupFileManager } = await import("../backup/backup-file");
+    const { BackupFileManager, assertSupportedBackupMethod } = await import("../backup/backup-file");
     const { BackupManager } = await import("../backup");
 
     const recovery = new SocialRecovery();
@@ -1853,6 +1784,7 @@ export class Web3Passkey {
 
     // Combine shares to recover backup file
     const backupFile = await recovery.recoverFromShares(parsedShares);
+    assertSupportedBackupMethod(backupFile);
 
     // Decrypt backup file
     let result;
@@ -1863,7 +1795,7 @@ export class Web3Passkey {
       result = await backupFileManager.restoreWithPassword(backupFile, password);
     } else {
       throw new WalletError(
-        'Passkey-encrypted backups not supported for guardian recovery. Use password-protected backups.'
+        'PRF backups are not supported for guardian recovery. Use password-protected backups.'
       );
     }
 
@@ -1901,62 +1833,6 @@ export class Web3Passkey {
         throw new WalletError("Password required to restore password-encrypted backup");
       }
       const result = await manager.restoreWithPassword(backupFile, password);
-      mnemonic = result.mnemonic;
-      ethereumAddress = result.ethereumAddress;
-    } else if (backupFile.encryptionMethod === 'passkey') {
-      // Need to authenticate with passkey first
-      if (!this.currentUser) {
-        throw new WalletError(
-          "Must be logged in with passkey to restore passkey-encrypted backup. Call login() first."
-        );
-      }
-
-      // Get credential from storage (not from walletData which may not exist)
-      const storage = new CredentialStorage();
-      const credentials = await storage.getAllCredentials();
-      const credential = credentials.find(c =>
-        c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
-      );
-
-      if (!credential) {
-        throw new WalletError("Credential not found for current user");
-      }
-
-      const result = await manager.restoreWithExistingPasskey(
-        backupFile,
-        credential.id,
-        credential.publicKey
-      );
-      mnemonic = result.mnemonic;
-      ethereumAddress = result.ethereumAddress;
-    } else if (backupFile.encryptionMethod === 'hybrid') {
-      if (!password) {
-        throw new WalletError("Password required to restore hybrid backup");
-      }
-
-      if (!this.currentUser) {
-        throw new WalletError(
-          "Must be logged in with passkey to restore hybrid backup. Call login() first."
-        );
-      }
-
-      // Get credential from storage (not from walletData which may not exist)
-      const storage = new CredentialStorage();
-      const credentials = await storage.getAllCredentials();
-      const credential = credentials.find(c =>
-        c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
-      );
-
-      if (!credential) {
-        throw new WalletError("Credential not found for current user");
-      }
-
-      const result = await manager.restoreWithHybrid(
-        backupFile,
-        password,
-        credential.id,
-        credential.publicKey
-      );
       mnemonic = result.mnemonic;
       ethereumAddress = result.ethereumAddress;
     } else {
@@ -2077,9 +1953,6 @@ export class Web3Passkey {
     // from the password backup that names it
     let publicKey = passkeyResult.publicKey;
     if (!publicKey) {
-      if (backupFile.encryptionMethod !== 'password') {
-        throw new SyncBootstrapError("PASSKEY_BACKUP", credentialId);
-      }
       if (!backupFile.credential) {
         throw new SyncBootstrapError("NO_CREDENTIAL", credentialId);
       }
@@ -2101,27 +1974,6 @@ export class Web3Passkey {
         throw new WalletError("Password required to restore password-encrypted backup");
       }
       const result = await manager.restoreWithPassword(backupFile, password);
-      mnemonic = result.mnemonic;
-      ethereumAddress = result.ethereumAddress;
-    } else if (backupFile.encryptionMethod === 'passkey') {
-      const result = await manager.restoreWithExistingPasskey(
-        backupFile,
-        credentialId,
-        publicKey
-      );
-      mnemonic = result.mnemonic;
-      ethereumAddress = result.ethereumAddress;
-    } else if (backupFile.encryptionMethod === 'hybrid') {
-      if (!password) {
-        throw new WalletError("Password required to restore hybrid backup");
-      }
-
-      const result = await manager.restoreWithHybrid(
-        backupFile,
-        password,
-        credentialId,
-        publicKey
-      );
       mnemonic = result.mnemonic;
       ethereumAddress = result.ethereumAddress;
     } else {

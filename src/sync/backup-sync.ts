@@ -169,30 +169,6 @@ export class DeviceSyncManager {
   }
 
   /**
-   * Check if a backup file can be synced to this device
-   * (i.e., check if we have the passkey that can decrypt it)
-   */
-  async canSyncBackup(
-    backupFile: BackupFile,
-    availableCredentials: Array<{ id: string; publicKeyFingerprint: string }>
-  ): Promise<boolean> {
-    if (backupFile.encryptionMethod !== 'passkey') {
-      // Password-based backups can be synced with password
-      return true;
-    }
-
-    if (!backupFile.publicKeyFingerprint) {
-      // Can't verify without fingerprint
-      return false;
-    }
-
-    // Check if we have a matching credential
-    return availableCredentials.some(
-      cred => cred.publicKeyFingerprint === backupFile.publicKeyFingerprint
-    );
-  }
-
-  /**
    * Generate QR code for easy transfer between devices
    * Useful for syncing from desktop to mobile
    */
