@@ -68,6 +68,14 @@ async function runTests() {
       PINS
     );
     assert(fromBuffers.wasm.length === wasm.length, "ArrayBuffer artifacts pass");
+
+    const padded = new Uint8Array(zkey.length + 8);
+    padded.set(zkey, 4);
+    const fromViews = await verifyZkArtifacts(
+      { wasm: new DataView(wasm.slice().buffer), zkey: new Int8Array(padded.buffer, 4, zkey.length) },
+      PINS
+    );
+    assert(fromViews.zkey.length === zkey.length, "other ArrayBuffer views pass, honoring their offset");
   }
 
   console.log("\nModified byte");

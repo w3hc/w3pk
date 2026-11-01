@@ -10,23 +10,17 @@ import {
 import { computeIpfsCid } from "../utils/ipfs-cid";
 
 /** Artifact bytes, or a URL to fetch them from */
-export type ZkArtifactSource = Uint8Array | ArrayBuffer | string;
+export type ZkArtifactSource = ArrayBufferView | ArrayBuffer | string;
 
-export interface ZkArtifactSources {
-  wasm: ZkArtifactSource;
-  zkey: ZkArtifactSource;
-}
+export type ZkArtifactSources = Record<ZkArtifactName, ZkArtifactSource>;
 
-/** IPFS CIDv1 strings, as `ipfs add --cid-version 1` prints them */
-export interface ZkArtifactPins {
-  wasm: string;
-  zkey: string;
-}
+/**
+ * IPFS CIDv1 strings in base32, as `ipfs add --cid-version 1` prints them,
+ * compared as exact strings
+ */
+export type ZkArtifactPins = Record<ZkArtifactName, string>;
 
-export interface ZkArtifactBytes {
-  wasm: Uint8Array;
-  zkey: Uint8Array;
-}
+export type ZkArtifactBytes = Record<ZkArtifactName, Uint8Array>;
 
 /**
  * Any contract with the build registry's `getCidByVersion(string)`,
@@ -43,7 +37,11 @@ async function loadArtifact(
   source: ZkArtifactSource
 ): Promise<Uint8Array> {
   if (source instanceof Uint8Array) return source;
-  if (source instanceof ArrayBuffer) return new Uint8Array(source);
+  if (typeof source !== "string") {
+    return ArrayBuffer.isView(source)
+      ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength)
+      : new Uint8Array(source);
+  }
 
   let response: Response;
   try {
@@ -72,7 +70,7 @@ async function loadArtifact(
  */
 export async function readZkArtifactPins(
   registry: ZkArtifactRegistry,
-  keys: { wasm: string; zkey: string }
+  keys: Record<ZkArtifactName, string>
 ): Promise<ZkArtifactPins> {
   const [wasm, zkey] = await Promise.all(
     ARTIFACTS.map(async (name) => {
