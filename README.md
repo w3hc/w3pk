@@ -52,7 +52,7 @@ const endpoints = await w3pk.getEndpoints(1)
 - EIP-1193 provider for ethers, viem, wagmi, RainbowKit (`getEIP1193Provider`)
 - ERC-5564 stealth addresses (opt-in)
 - ZK primitives (zero-knowledge proof generation and verification, Baby Jubjub keys, exponential ElGamal and circuit artifact verification against onchain pins in `w3pk/zk`, passkey-bound Semaphore identities with `getSemaphoreIdentity()`, and proofs over a passkey-bound secret the app never sees with `zkProve()`)
-- Post-quantum encryption (ML-KEM-1024/Kyber NIST FIPS 203)
+- Hybrid post-quantum encryption (HPKE over ML-KEM-1024 + X25519)
 - Chainlist support (2390+ networks)
 - EIP-7702 network detection (329+ networks)
 - External wallet integration (delegate MetaMask/Ledger to w3pk via EIP-7702)
@@ -339,10 +339,10 @@ if (result.isForUser) {
 const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ```
 
-### ML-KEM encryption
+### Post-quantum encryption
 
 ```typescript
-// Encrypt with post-quantum security (NIST FIPS 203)
+// Hybrid ML-KEM-1024 + X25519 (HPKE, payload v3)
 const pubKey = await w3pk.deriveMLKemPublicKey()
 const encrypted = await w3pk.mlkemEncrypt('secret', [pubKey])
 const plaintext = await w3pk.mlkemDecrypt(encrypted)
