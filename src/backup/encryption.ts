@@ -1,9 +1,63 @@
 /**
  * Encryption utilities for backup system
- * Uses PBKDF2 + AES-256-GCM for password-based encryption
+ * BackupFile v3 password mode: Argon2id + AES-256-GCM
+ * QR backups: PBKDF2 + AES-256-GCM
  */
 
+import { argon2idAsync } from "@noble/hashes/argon2.js";
 import { safeAtob } from "../utils/base64";
+
+export interface Argon2idParams {
+  /** Memory cost in KiB */
+  memoryKiB: number;
+  /** Number of passes over memory */
+  passes: number;
+  parallelism: number;
+}
+
+/**
+ * Argon2id parameters for new password backups: OWASP's first
+ * recommendation (19 MiB, 2 passes, 1 lane), about 0.4 s in pure JS
+ */
+export const ARGON2ID_PARAMS: Readonly<Argon2idParams> = Object.freeze({
+  memoryKiB: 19456,
+  passes: 2,
+  parallelism: 1,
+});
+
+/** Upper bounds accepted from a backup file, so a file can't stall the page */
+export const ARGON2ID_MAX_PARAMS: Readonly<Argon2idParams> = Object.freeze({
+  memoryKiB: 262144,
+  passes: 10,
+  parallelism: 4,
+});
+
+/**
+ * Derive an AES-256-GCM key from a password with Argon2id (RFC 9106).
+ * The password is NFC-normalized, then UTF-8 encoded.
+ */
+export async function deriveKeyFromPasswordArgon2id(
+  password: string,
+  salt: Uint8Array,
+  params: Argon2idParams = ARGON2ID_PARAMS
+): Promise<CryptoKey> {
+  const keyBytes = await argon2idAsync(
+    new TextEncoder().encode(password.normalize("NFC")),
+    salt,
+    { m: params.memoryKiB, t: params.passes, p: params.parallelism, dkLen: 32 }
+  );
+  try {
+    return await crypto.subtle.importKey(
+      "raw",
+      keyBytes as BufferSource,
+      { name: "AES-GCM" },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  } finally {
+    keyBytes.fill(0);
+  }
+}
 
 /**
  * Derive encryption key from password using PBKDF2
