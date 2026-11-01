@@ -3,7 +3,8 @@ import { x25519 } from '@noble/curves/ed25519.js';
 import { extract, expand } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { sha3_256 } from '@noble/hashes/sha3.js';
-import type { CHash } from '@noble/hashes/utils.js';
+import { concatBytes as concat, hexToBytes as nobleHexToBytes, type CHash } from '@noble/hashes/utils.js';
+import { equalBytes } from '@noble/curves/utils.js';
 
 /**
  * Hybrid KEM keypair: ML-KEM-1024 and X25519, concatenated
@@ -30,6 +31,7 @@ const ML_KEM_PRIVATE_KEY_LENGTH = 3168;
 const ML_KEM_CIPHERTEXT_LENGTH = 1568;
 // FIPS 203 decapsulation key: dk_PKE (1536) || ek (1568) || H(ek) (32) || z (32)
 const ML_KEM_EK_OFFSET = 1536;
+const ML_KEM_EK_HASH_OFFSET = ML_KEM_EK_OFFSET + ML_KEM_PUBLIC_KEY_LENGTH;
 const X25519_LENGTH = 32;
 const PUBLIC_KEY_LENGTH = ML_KEM_PUBLIC_KEY_LENGTH + X25519_LENGTH;
 const PRIVATE_KEY_LENGTH = ML_KEM_PRIVATE_KEY_LENGTH + X25519_LENGTH;
@@ -54,16 +56,6 @@ const MODE_BASE = 0x00;
 
 function zeroize(buffer: Uint8Array): void {
   buffer.fill(0);
-}
-
-function concat(...parts: Uint8Array[]): Uint8Array {
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
 }
 
 function i2osp(value: number, length: number): Uint8Array {
@@ -104,15 +96,7 @@ function base64ToArrayBuffer(base64: string): Uint8Array {
 }
 
 function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-  if (clean.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(clean)) {
-    throw new Error('Invalid hex private key');
-  }
-  const bytes = new Uint8Array(clean.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(clean.substring(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
+  return nobleHexToBytes(hex.startsWith('0x') ? hex.slice(2) : hex);
 }
 
 function toBytes(key: string | Uint8Array): Uint8Array {
@@ -205,12 +189,11 @@ async function hpkeAead(
 function splitPrivateKey(privateKey: Uint8Array) {
   const skM = privateKey.subarray(0, ML_KEM_PRIVATE_KEY_LENGTH);
   const skX = privateKey.subarray(ML_KEM_PRIVATE_KEY_LENGTH);
-  return {
-    skM,
-    skX,
-    pkM: skM.slice(ML_KEM_EK_OFFSET, ML_KEM_EK_OFFSET + ML_KEM_PUBLIC_KEY_LENGTH),
-    pkX: x25519.getPublicKey(skX),
-  };
+  const pkM = skM.slice(ML_KEM_EK_OFFSET, ML_KEM_EK_HASH_OFFSET);
+  if (!equalBytes(sha3_256(pkM), skM.subarray(ML_KEM_EK_HASH_OFFSET, ML_KEM_EK_HASH_OFFSET + 32))) {
+    throw new Error('Invalid ML-KEM private key: embedded public key hash mismatch');
+  }
+  return { skM, skX, pkM, pkX: x25519.getPublicKey(skX) };
 }
 
 /**
@@ -306,12 +289,16 @@ export async function mlkemEncrypt(
       const pkX = publicKey.subarray(ML_KEM_PUBLIC_KEY_LENGTH);
 
       const ephemeral = x25519.utils.randomSecretKey();
-      const ctX = x25519.getPublicKey(ephemeral);
-      const ssX = x25519.getSharedSecret(ephemeral, pkX);
-      const [ctM, ssM] = mlkem.encap(pkM);
-      const sharedSecret = combineSharedSecrets(ssM, ssX, ctM, ctX, pkM, pkX);
+      let ssX: Uint8Array | undefined;
+      let ssM: Uint8Array | undefined;
+      let sharedSecret: Uint8Array | undefined;
 
       try {
+        const ctX = x25519.getPublicKey(ephemeral);
+        ssX = x25519.getSharedSecret(ephemeral, pkX);
+        let ctM: Uint8Array;
+        [ctM, ssM] = mlkem.encap(pkM);
+        sharedSecret = combineSharedSecrets(ssM, ssX, ctM, ctX, pkM, pkX);
         recipients.push({
           publicKey: arrayBufferToBase64(publicKey),
           enc: arrayBufferToBase64(concat(ctM, ctX)),
@@ -319,9 +306,9 @@ export async function mlkemEncrypt(
         });
       } finally {
         zeroize(ephemeral);
-        zeroize(ssX);
-        zeroize(ssM);
-        zeroize(sharedSecret);
+        if (ssX) zeroize(ssX);
+        if (ssM) zeroize(ssM);
+        if (sharedSecret) zeroize(sharedSecret);
       }
     }
 
@@ -356,6 +343,16 @@ export async function mlkemDecrypt(
   }
 
   const privateKeyBytes = toBytes(privateKey);
+  try {
+    return await decryptWithKeyBytes(payload, privateKeyBytes);
+  } finally {
+    if (typeof privateKey === 'string') {
+      zeroize(privateKeyBytes);
+    }
+  }
+}
+
+async function decryptWithKeyBytes(payload: EncryptedPayload, privateKeyBytes: Uint8Array): Promise<string> {
   if (privateKeyBytes.length !== PRIVATE_KEY_LENGTH) {
     throw new Error(`Invalid private key size: ${privateKeyBytes.length} (expected ${PRIVATE_KEY_LENGTH})`);
   }
@@ -372,9 +369,9 @@ export async function mlkemDecrypt(
   }
 
   const { skM, skX, pkM, pkX } = splitPrivateKey(privateKeyBytes);
-  const ownPublicKey = arrayBufferToBase64(concat(pkM, pkX));
+  const ownPublicKey = concat(pkM, pkX);
 
-  const recipient = payload.recipients.find(r => r.publicKey === ownPublicKey);
+  const recipient = payload.recipients.find(r => equalBytes(base64ToArrayBuffer(r.publicKey), ownPublicKey));
   if (!recipient) {
     throw new Error('Public key not found in recipients list');
   }
