@@ -103,29 +103,32 @@ export interface PrfSecret {
   credentialId: string;
 }
 
-const PRF_SECRET_LABEL = "w3pk-prf-v1";
+export const PRF_SECRET_LABEL = "w3pk-prf-v1";
 const PRF_SECRET_HKDF_SALT = new TextEncoder().encode("w3pk-prf-secret-v1");
 
-function prfSecretContext(origin: string, tag: string): Uint8Array<ArrayBuffer> {
+function prfSecretContext(label: string, origin: string, tag: string): Uint8Array<ArrayBuffer> {
   if (typeof tag !== "string" || tag.length === 0 || tag.includes(":")) {
     throw new CryptoError("PRF secret tag must be a non-empty string without ':'");
   }
-  return new TextEncoder().encode(`${PRF_SECRET_LABEL}:${origin}:${tag}`);
+  return new TextEncoder().encode(`${label}:${origin}:${tag}`);
 }
 
 /**
  * Derive a 32-byte secret for `origin` and `tag` from a fresh PRF evaluation.
  *
- * PRF input: SHA-256("w3pk-prf-v1:" + origin + ":" + tag).
+ * PRF input: SHA-256(label + ":" + origin + ":" + tag).
  * Secret: HKDF-SHA256(PRF output, fixed salt, info = the same context), 32 bytes.
  * Tags can't contain ':' so no origin/tag pair collides with another.
+ * The public API always uses `PRF_SECRET_LABEL`; secrets w3pk keeps to itself
+ * use their own label, which no public tag can reach.
  */
 export async function derivePrfSecret(
+  label: string,
   origin: string,
   tag: string,
   credentialId?: string
 ): Promise<PrfSecret> {
-  const context = prfSecretContext(origin, tag);
+  const context = prfSecretContext(label, origin, tag);
   const input = await crypto.subtle.digest("SHA-256", context);
   const evaluation = await evaluatePrf(input, credentialId);
 

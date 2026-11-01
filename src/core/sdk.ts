@@ -39,7 +39,7 @@ import {
 import { StealthAddressModule } from "../stealth";
 import { SessionManager } from "./session";
 import { CredentialStorage } from "../auth/storage";
-import { derivePrfSecret, type PrfSecret } from "../auth/prf";
+import { derivePrfSecret, PRF_SECRET_LABEL, type PrfSecret } from "../auth/prf";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
@@ -2516,6 +2516,7 @@ export class Web3Passkey {
   async derivePrfSecret(tag: string): Promise<PrfSecret> {
     try {
       return await derivePrfSecret(
+        PRF_SECRET_LABEL,
         normalizeOrigin(getCurrentOrigin()),
         tag,
         this.currentUser?.credentialId
