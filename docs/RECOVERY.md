@@ -10,7 +10,7 @@
 
 The W3PK backup system provides a simplified portable approach to wallet backups. A single backup file can be used for multiple purposes: restoration, registration, cross-device sync, and social recovery.
 
-W3PK uses a **universal backup file format** (BackupFile v2) as the foundation for all recovery workflows. Think of it as a portable encrypted file that can be used for multiple purposes.
+W3PK uses a **universal backup file format** (BackupFile v3) as the foundation for all recovery workflows. Think of it as a portable encrypted file that can be used for multiple purposes.
 
 ---
 
@@ -67,38 +67,47 @@ const { hasBackup } = await sdk.register({ username: 'alice' });
 
 if (!hasBackup) {
   // "Back up now": download a backup file...
-  const { blob, filename } = await sdk.createBackupFile('password', password);
+  const { blob, filename } = await sdk.createBackupFile(password);
   // ...or show the recovery phrase, then record the user's confirmation
   await sdk.confirmRecoveryPhraseBackup();
 }
 
 const status = await sdk.getBackupStatus();
-status.hasBackup;     // true once a backup file, QR code or confirmed phrase exists
-status.lastBackupAt;  // ISO 8601 time of the latest backup
-status.methods;       // e.g. ['file', 'phrase']
+status.hasBackup;       // true once a backup that restores without a passkey exists
+status.recommendedMode; // 'password', then 'prf', then undefined
+status.lastBackupAt;    // ISO 8601 time of the latest backup
+status.methods;         // e.g. ['file', 'phrase', 'prf']
 ```
 
-While `hasBackup` is `false`, the security score is capped at 20 and its level is `vulnerable`. Backups are recorded per wallet, in localStorage on this device.
+A lost device without a synced passkey can only be recovered from a backup that doesn't need the passkey: a password file, a QR code, the recovery phrase, or social recovery (which splits a password file). `hasBackup` counts only those. A `prf` file from `exportForSync()` is recorded (method `prf`) but doesn't count, since it needs the passkey.
+
+`recommendedMode` is the next backup to make:
+- `password` while no backup restores without a passkey: it's the backup that must exist
+- `prf` once one does, for convenient sync to devices where the passkey synced
+- `undefined` once both exist
+
+While `hasBackup` is `false`, the security score is capped at 20 and its level is `vulnerable`. A password-only backup isn't penalized. Backups are recorded per wallet, in localStorage on this device.
 
 ---
 
-## 🎯 Backup File Format
+## 🎯 Backup File Format (v3)
 
 All workflows use the same universal format:
 
 ```typescript
 interface BackupFile {
+  version: 3;
   createdAt: string;              // ISO 8601 timestamp
-  ethereumAddress: string;        // m/44'/60'/0'/0/0 (index #0)
-  encryptedMnemonic: string;      // AES-256-GCM encrypted
+  encryptedMnemonic: string;      // base64(iv || AES-256-GCM ciphertext)
   encryptionMethod: 'password' | 'prf';
-  addressChecksum: string;        // For verification
 
   // Optional fields based on encryption method
   passwordEncryption?: {          // password
-    salt: string;
-    iv: string;
-    iterations: number;
+    kdf: 'argon2id';
+    salt: string;                 // base64, 16 random bytes
+    memoryKiB: number;            // 19456
+    passes: number;               // 2
+    parallelism: number;          // 1
   };
   credential?: { id: string; publicKey: string }; // passkey that owns the wallet
   prfSalt?: string;               // prf
@@ -106,38 +115,48 @@ interface BackupFile {
 }
 ```
 
+The file holds no address, in clear or hashed: it doesn't say whose wallet it is. Restores derive the address from the decrypted mnemonic, and AES-GCM rejects a wrong key or an altered ciphertext.
+
 ### Example Backup File
 
 ```json
 {
-  "createdAt": "2025-11-25T17:02:43.393Z",
-  "ethereumAddress": "0x84Aa4D5c00D93CE377EfDc9b20b68C29C67E2c76",
-  "encryptedMnemonic": "+0ew4mo3jbsHGIJVb17eXsftc5Sqi710SW+h8EZ67I4...",
+  "version": 3,
+  "createdAt": "2026-11-01T17:02:43.393Z",
+  "encryptedMnemonic": "4XBZgFB0Lek9PCtj+0ew4mo3jbsHGIJVb17eXsftc5Sqi710SW+h8EZ67I4...",
   "encryptionMethod": "password",
   "passwordEncryption": {
-    "salt": "KUA/RBWL8N1Y648K6IkHIaaps8vyR1H3BxZqQd5agyM=",
-    "iv": "4XBZgFB0Lek9PCtj",
-    "iterations": 310000
+    "kdf": "argon2id",
+    "salt": "KUA/RBWL8N1Y648K6IkHIQ==",
+    "memoryKiB": 19456,
+    "passes": 2,
+    "parallelism": 1
   },
-  "addressChecksum": "OFVy+n2ehtgYy1Rq"
+  "credential": { "id": "…", "publicKey": "…" }
 }
 ```
+
+### v2 files
+
+w3pk restores v3 files only, with no compatibility layer. A v2 file (no `version` field) throws `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`). To recover a v2 password backup, open the [v0.10.6 offline tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html), extract the mnemonic, import it, then create a new backup. A v2 `prf` file can't be converted: export a new one with `exportForSync()` on a device where the wallet is. Guardian shares made before v3 rebuild a v2 file: the error then carries it as `backupFileJson`, for the v0.10.6 tool.
 
 ---
 
 ## 🔐 Encryption Methods
 
-### Password-based
+### Password-based (the backup that must exist)
 - **Use case**: Disaster recovery, social recovery, new device setup
-- **Security**: PBKDF2 (310,000 iterations) + AES-256-GCM
-- **Pros**: Platform-agnostic, works everywhere
+- **Security**: Argon2id (RFC 9106; 19 MiB, 2 passes, 1 lane; random 16-byte salt) + AES-256-GCM. The password is NFC-normalized.
+- **Pros**: Platform-agnostic, restores without a passkey, memory-hard against GPU guessing
 - **Cons**: Must remember password
 
-### PRF-based
+The Argon2id parameters are OWASP's first recommendation. They take about 0.4 s in pure JavaScript (`@noble/hashes`), so the offline tool runs them too. Restores read the parameters from the file, up to 64 MiB and 3 passes, so a crafted file can't freeze the page.
+
+### PRF-based (convenient sync)
 - **Use case**: Cross-device sync (when passkey is synced), from `exportForSync()`
 - **Security**: WebAuthn PRF output → HKDF-SHA256 → AES-256-GCM; decrypting takes a fresh assertion with the passkey
 - **Pros**: No password needed, uses synced passkey
-- **Cons**: Requires the passkey and an authenticator with PRF support
+- **Cons**: Requires the passkey and an authenticator with PRF support; doesn't help when the passkey is lost
 
 ### Removed: passkey and hybrid
 `passkey` and `hybrid` backups (before 0.11.0) derived their key from the credential ID and public key, with no WebAuthn ceremony: a `passkey` file decrypted from public data, and a `hybrid` file was only as strong as its password. Restoring one throws `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`). Log in where the wallet is and create a new `password` or `prf` backup.
@@ -156,8 +175,8 @@ const sdk = createWeb3Passkey();
 await sdk.login();
 
 // Password-protected backup (recommended)
-const { blob, filename } = await sdk.createBackupFile('password', 'MySecurePassword123!');
-// Downloads: w3pk-backup-0x1234abcd-2025-11-25.json
+const { blob, filename } = await sdk.createBackupFile('MySecurePassword123!');
+// Downloads: w3pk-backup-2026-11-01.json
 ```
 
 **Restore on New Device (Two Options):**
@@ -184,7 +203,7 @@ await sdk.importMnemonic(mnemonic);
 // Credentials now stored locally under existing passkey ✅
 ```
 
-**Encryption**: Password → PBKDF2 (310k iterations) → AES-256-GCM
+**Encryption**: Password → Argon2id (19 MiB, 2 passes) → AES-256-GCM
 
 **Use Cases:**
 1. **First backup after wallet creation** - Essential safety net
@@ -238,14 +257,14 @@ const sdk = createWeb3Passkey();
 
 await sdk.importFromSync(syncData); // or sdk.syncWalletWithPasskey(syncData)
 // 1. One passkey prompt, restricted to the file's passkey
-// 2. Decrypts the file and checks its address checksum
+// 2. Decrypts the file (the address comes from the decrypted mnemonic)
 // 3. Saves the passkey's metadata on this device if it's missing
 // 4. Stores wallet data locally, starts a session and fires onAuthStateChanged(true, user) ✅
 ```
 
 No `login()` first: on a device without the wallet, `login()` throws `SyncRequiredError` or `WalletMissingError`.
 
-**How it works**: the file (`encryptionMethod: 'prf'`) is encrypted with a key derived from the passkey's [WebAuthn PRF](https://w3c.github.io/webauthn/#prf-extension) output: HKDF-SHA256 over the PRF output at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, with a random `prfSalt` per file, then AES-256-GCM. The PRF secret syncs with the passkey but never leaves the authenticator, and the authenticator releases the output only on a user-verified assertion. So the file or its QR code alone decrypts nothing: it also takes the synced passkey and a biometric. An altered address checksum, address or ciphertext is rejected.
+**How it works**: the file (`encryptionMethod: 'prf'`) is encrypted with a key derived from the passkey's [WebAuthn PRF](https://w3c.github.io/webauthn/#prf-extension) output: HKDF-SHA256 over the PRF output at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, with a random `prfSalt` per file, then AES-256-GCM. The PRF secret syncs with the passkey but never leaves the authenticator, and the authenticator releases the output only on a user-verified assertion. So the file or its QR code alone decrypts nothing: it also takes the synced passkey and a biometric. An altered ciphertext or `prfSalt` is rejected. `restoreFromBackupFile(syncData)` restores a PRF file the same way.
 
 The file also names its passkey (`credential: { id, publicKey }`) and carries the username. The public key is not a secret and doesn't decrypt the file. A fresh device needs it for `login()` and for the wallet key, and checks it against the assertion's signature first (`SyncBootstrapError` with `reason: 'PUBLIC_KEY_MISMATCH'` if it doesn't match).
 
@@ -307,7 +326,7 @@ await sdk.login();
 
 // Step 1: Create password-encrypted backup file
 const password = 'MySecurePassword123!'; // User must remember this
-const { blob } = await sdk.createBackupFile('password', password);
+const { blob } = await sdk.createBackupFile(password);
 const backupFileJson = await blob.text();
 
 // Step 2: Split backup file among guardians
@@ -344,6 +363,7 @@ const socialRecovery = new SocialRecoveryManager();
 const shares = [aliceShareCode, bobShareCode, charlieShareCode];
 
 // Step 2: Reconstruct encrypted backup file from shares
+// (ethereumAddress comes from the shares: the v3 file holds no address)
 const { backupFileJson, ethereumAddress } = await socialRecovery.recoverFromGuardians(shares);
 
 // Step 3: Decrypt backup file with password
@@ -355,7 +375,7 @@ await sdk.registerWithBackupFile(backupFileJson, password, 'username');
 ```
 
 **Encryption**:
-1. User creates password-encrypted BackupFile (AES-256-GCM)
+1. User creates password-encrypted BackupFile v3 (Argon2id + AES-256-GCM)
 2. Serialize BackupFile to JSON
 3. Split JSON using Shamir Secret Sharing (M-of-N threshold)
 4. Each guardian gets one encrypted fragment
@@ -398,20 +418,19 @@ await sdk.registerWithBackupFile(backupFileJson, password, 'username');
 |----------|------------|----------|--------------|
 | **Backup/Restore** | Password | Lost all devices, platform switch | Password only |
 | **Sync (passkey + backup)** | Any | New device with synced passkey, no active session | Passkey synced + backup file |
-| **Sync (export/import)** | Passkey | Transfer from active device to another | Active session + passkey synced to target |
-| **Social Recovery** | Password* | Forgot everything, ultimate backup | 3+ guardians available |
-
-*Social recovery can use passkey encryption, but password is recommended for guardian scenarios.
+| **Sync (export/import)** | PRF | Transfer from active device to another | Active session + passkey synced to target |
+| **Social Recovery** | Password | Forgot everything, ultimate backup | 3+ guardians available |
 
 ---
 
 ## 🔒 Security Features
 
 1. **Never Exposes Mnemonic**: Mnemonic is always encrypted in backup files
-2. **Address Checksum**: Verification to detect corruption or wrong password
-3. **Version Control**: Future-proof format versioning
-4. **Shamir Secret Sharing**: No single guardian can recover wallet alone
-5. **Multiple Encryption Options**: Choose security/convenience tradeoff
+2. **No Address in the File**: A stolen file doesn't say whose wallet it is; AES-GCM detects corruption or a wrong password
+3. **Versioned Format**: `version: 3`; other versions fail with `UnsupportedBackupVersionError`
+4. **Memory-Hard Password KDF**: Argon2id makes offline guessing costly on GPUs
+5. **Shamir Secret Sharing**: No single guardian can recover wallet alone
+6. **Multiple Encryption Options**: Choose security/convenience tradeoff
 
 ### **Social Recovery Cryptography**
 
@@ -422,8 +441,8 @@ Example: 3-of-5 scheme
 
 Step 1: Create Encrypted Backup File
 - User creates password-encrypted backup file
-- Backup contains: { encryptedMnemonic, ethereumAddress, ... }
-- Encryption: PBKDF2(password) → AES-256-GCM
+- Backup contains: { version: 3, encryptedMnemonic, passwordEncryption, ... }
+- Encryption: Argon2id(password) → AES-256-GCM
 - Result: BackupFile JSON (already encrypted)
 
 Step 2: Split Backup File
@@ -501,7 +520,7 @@ Attacker:
 
 ```typescript
 // Password-protected backup
-const { blob, filename } = await w3pk.createBackupFile('password', password);
+const { blob, filename } = await w3pk.createBackupFile(password);
 
 // PRF backup, decrypted by the passkey on any device where it synced
 const { blob, filename } = await w3pk.exportForSync();
@@ -550,7 +569,7 @@ const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupDat
 import { SocialRecoveryManager } from 'w3pk';
 
 // Setup - Create password-encrypted backup and split among guardians
-const { blob } = await w3pk.createBackupFile('password', 'MyPassword123!');
+const { blob } = await w3pk.createBackupFile('MyPassword123!');
 const backupFileJson = await blob.text();
 
 const socialRecovery = new SocialRecoveryManager();
@@ -658,7 +677,7 @@ const blob = await w3pk.createZipBackup(password)
 src/backup/
 ├── backup-file.ts              # Main backup orchestration
 ├── types.ts                    # TypeScript interfaces
-├── encryption.ts               # PBKDF2 + AES-256-GCM utilities
+├── encryption.ts               # Argon2id key derivation (QR backups: PBKDF2)
 └── storage.ts                  # localStorage for metadata
 
 src/sync/
@@ -692,7 +711,8 @@ All tests pass:
 - ✅ Social recovery with guardian shares (3-of-5)
 - ✅ Guardian invitation generation with QR codes
 - ✅ Downloadable backup file creation
-- ✅ Address checksum verification
+- ✅ No address in the file; Argon2id parameters and bounds
+- ✅ Offline extractor decrypts v3 password files (`test/standalone-extract.test.ts`)
 
 ---
 
@@ -705,7 +725,7 @@ All tests pass:
    - Click "Backup Wallet" in settings
    - Choose "Password Backup"
    - Enter strong password (you MUST remember this!)
-   - Download w3pk-backup-[address]-[date].json
+   - Download w3pk-backup-[date].json
    - Store in password manager or encrypted cloud
 
 2. Optional: Set Up Social Recovery
@@ -955,13 +975,17 @@ The score is recalculated on-demand when you call `getBackupStatus()`, ensuring 
 
 ---
 
-## 📝 Migration from Old Format
+## 📝 Migration from v2
 
-The old backup format (version 1) is no longer supported. To migrate:
+BackupFile v2 (before 0.11.0) is no longer restored. To migrate a v2 password backup:
 
-1. Restore using old system
-2. Create new backup using `createBackupFile()`
-3. Update all stored backups and guardian shares
+1. Open the [v0.10.6 offline tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html) (`standalone/extract-mnemonic.html` at tag `v0.10.6`) and extract the mnemonic
+2. Import it (`importMnemonic()` while logged in), then create a new backup with `createBackupFile(password)`
+3. Replace all stored backups and set up guardian shares again
+
+## 🧰 Offline Extractor
+
+`standalone/extract-mnemonic.html` decrypts v3 password backups in the browser, with no server and no network: Argon2id is inlined (a bundle of `@noble/hashes`), and AES-GCM comes from WebCrypto. Only its optional "Derive Wallets" section loads ethers from a CDN. Regenerate the inlined Argon2id after upgrading `@noble/hashes` with `pnpm build:standalone`. For v2 files, use the v0.10.6 tool linked above.
 
 ---
 
