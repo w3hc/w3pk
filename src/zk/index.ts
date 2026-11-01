@@ -359,3 +359,6 @@ export type {
   NFTOwnershipProofInput,
   CircuitArtifacts,
 };
+
+export * from "./babyjub";
+export * from "./elgamal";

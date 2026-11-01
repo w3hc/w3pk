@@ -5,6 +5,17 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Baby Jubjub and exponential ElGamal** ([#150](https://github.com/w3hc/w3pk/issues/150)) in `w3pk/zk`, matching circomlib's `babyjub` gadgets and circomlibjs's encodings
+  - Point helpers: `babyJubAdd()`, `babyJubNeg()`, `babyJubMul()`, `isOnBabyJub()`, `isInBabyJubSubgroup()`, `packBabyJubPoint()`, `unpackBabyJubPoint()` and the curve constants (EIP-2494)
+  - Keys: `generateBabyJubKeyPair()`, `deriveBabyJubKeyPair(secret)` (HKDF-SHA256, info `w3pk-babyjub-v1`), `babyJubPublicKey()` (`sk · Base8`, as `BabyPbk`), `packBabyJubPublicKey()`, `unpackBabyJubPublicKey()`
+  - ElGamal `Enc(m; r) = (r · Base8, m · Base8 + r · PK)`: `elgamalEncrypt()`, `elgamalAdd()`, `elgamalRerandomize()`, `elgamalDecryptToPoint()`, and `elgamalDecrypt()` with a bounded discrete log (`babyJubDiscreteLog()`, up to 2^32)
+  - Public keys and ciphertexts outside the prime-order subgroup, low-order points, the identity as a key and non-canonical encodings throw `CryptoError`
+  - Native `bigint`, synchronous, with no runtime dependency on `circomlibjs`
+
 ## [0.10.5] - 2026-10-27
 
 ### Added
