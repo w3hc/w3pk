@@ -149,6 +149,19 @@ async function runTests() {
     passTest("scoped to the current wallet");
   });
 
+  await runTest("createBackupFile rejects the removed encryptionType argument", async () => {
+    localStorage.clear();
+    let error: unknown;
+    try {
+      await (loggedInSdk() as any).createBackupFile("password", "TestStrongPass123!NotReal");
+    } catch (e) {
+      error = e;
+    }
+    assert(error instanceof Error && /only the password/.test(error.message), "throws");
+    assertEqual(localStorage.getItem("w3pk_backups"), null, "no backup recorded");
+    passTest("rejected");
+  });
+
   await runTest("recommendedMode is password first, then prf", async () => {
     localStorage.clear();
     const sdk = loggedInSdk();

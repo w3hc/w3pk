@@ -1626,18 +1626,22 @@ export class Web3Passkey {
    * @param password - Encrypts the backup
    */
   async createBackupFile(password: string): Promise<{ blob: Blob; filename: string }> {
+    if (arguments.length > 1) {
+      throw new WalletError(
+        "createBackupFile() takes only the password: createBackupFile(password)"
+      );
+    }
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated to create backup");
+    }
+    if (!password) {
+      throw new WalletError("Password required for password-based backup");
     }
 
     const mnemonic = await this.getMnemonicFromSession(true);
 
     const { BackupFileManager } = await import("../backup/backup-file");
     const manager = new BackupFileManager();
-
-    if (!password) {
-      throw new WalletError("Password required for password-based backup");
-    }
     const { backupFile } = await manager.createPasswordBackup(
       mnemonic,
       password,
