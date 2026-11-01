@@ -36,6 +36,7 @@ export {
 } from "./auth/sync-auth";
 export type { PasskeySelectionResult } from "./auth/sync-auth";
 export type { PrfSecret } from "./auth/prf";
+export type { SemaphoreIdentity } from "./zk/semaphore";
 
 export { Web3Passkey } from "./core/sdk";
 export { StealthAddressModule } from "./stealth";

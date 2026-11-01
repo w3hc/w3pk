@@ -40,6 +40,7 @@ import { StealthAddressModule } from "../stealth";
 import { SessionManager } from "./session";
 import { CredentialStorage } from "../auth/storage";
 import { derivePrfSecret, PRF_SECRET_LABEL, type PrfSecret } from "../auth/prf";
+import type { SemaphoreIdentity } from "../zk/semaphore";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
@@ -2521,6 +2522,41 @@ export class Web3Passkey {
         tag,
         this.currentUser?.credentialId
       );
+    } catch (error) {
+      this.config.onError?.(error as any);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the commitment of a Semaphore v4 identity bound to the passkey
+   *
+   * The identity's private key is a PRF secret for the current origin and
+   * `tag`, derived under its own label so `derivePrfSecret(tag)` can't
+   * return it. The private key is never returned or stored. A new
+   * credential gives a new commitment: keep `credentialId` with the
+   * commitment you add to a group, and replace the member when it changes.
+   *
+   * Requires the optional dependency `@semaphore-protocol/identity`.
+   *
+   * @param tag - Non-empty label without ':', e.g. "voting"
+   * @returns The identity commitment and the credential it is bound to
+   * @throws PrfUnsupportedError when the authenticator doesn't support PRF
+   *
+   * @example
+   * const { commitment, credentialId } = await w3pk.getSemaphoreIdentity("voting")
+   * group.addMember(commitment)
+   */
+  async getSemaphoreIdentity(tag: string): Promise<SemaphoreIdentity> {
+    try {
+      const { SEMAPHORE_PRF_LABEL, semaphoreCommitment } = await import("../zk/semaphore");
+      const { secret, credentialId } = await derivePrfSecret(
+        SEMAPHORE_PRF_LABEL,
+        normalizeOrigin(getCurrentOrigin()),
+        tag,
+        this.currentUser?.credentialId
+      );
+      return { commitment: await semaphoreCommitment(secret), credentialId };
     } catch (error) {
       this.config.onError?.(error as any);
       throw error;
