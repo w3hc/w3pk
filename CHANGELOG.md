@@ -49,7 +49,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `getBackupStatus()`: new `recommendedMode` (`'password'` until a backup restores without a passkey, then `'prf'`); `hasBackup` and the score cap count only backups that restore without a passkey (file, QR, phrase, social recovery), so password-only backups aren't penalized; `exportForSync()` records PRF exports as method `'prf'`
   - `standalone/extract-mnemonic.html` decrypts v3 password files offline, with Argon2id inlined (`pnpm build:standalone` regenerates it); `docs/RECOVERY.md` links the v0.10.6 tool for v2 files
 
+- **BREAKING: encrypted payload v3 with a hybrid KEM** ([#137](https://github.com/w3hc/w3pk/issues/137)) replaces v1 and v2, with no compatibility layer
+  - Each recipient's AES-256 data key is sealed with HPKE ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180), mode_base, HKDF-SHA256, AES-256-GCM) over ML-KEM-1024 + X25519; the shared secret is `SHA3-256(ss_M || ss_X || ct_M || ct_X || pk_M || pk_X || "w3pk-MLKEM1024-X25519-v3")` (the UniversalCombiner of draft-irtf-cfrg-hybrid-kems)
+  - `EncryptedPayload` is `{ version: 3, recipients: [{ publicKey, enc, ciphertext }], encryptedData, iv, authTag }`: `enc` is the ML-KEM ciphertext (1568 bytes) followed by the X25519 ephemeral key (32), `ciphertext` the sealed data key (48)
+  - `deriveMLKemKeypair()` derives an X25519 key alongside the ML-KEM key (HKDF-SHA256, salt `w3pk-kem-keypair-v3`, info `ml-kem-1024:<context>` and `x25519:<context>`): public keys are 1600 bytes, private keys 3200, and `deriveMLKemPublicKey()` returns a new key for the same wallet, so recipients must re-share theirs
+  - `mlkemDecrypt(payload, privateKey)` drops its `publicKey` argument, finds its entry by the public key it derives, and throws `Unsupported payload version` for anything but v3
+  - New dependency: `@noble/curves` (X25519)
+
 ### Security
+
+- **Encrypted payloads no longer rest on ML-KEM alone** ([#137](https://github.com/w3hc/w3pk/issues/137)): a v3 payload stays confidential unless both ML-KEM-1024 and X25519 are broken. v1 payloads wrapped the key by XOR with the raw ML-KEM shared secret, with no key derivation or recipient binding; v1 and v2 payloads can no longer be read. KEM keys are long-lived, so there is no forward secrecy: a leaked key exposes every payload sealed to it.
 
 - **Password backups resist GPU guessing, and backup files no longer say whose wallet they are** ([#154](https://github.com/w3hc/w3pk/issues/154)): PBKDF2 isn't memory-hard, so a stolen v2 password file was cheap to attack on GPUs; v3 uses Argon2id. v2 files also stored the address in clear and as `addressChecksum`, an unsalted truncated SHA-256 that hashing onchain addresses reverses; v3 stores neither.
 
