@@ -1094,9 +1094,12 @@ Resources:
             shares = sharesInput.split(',').map(s => s.trim());
           }
 
+          const password = prompt('Enter the password of the backup the guardians hold:');
+          if (!password) return;
+
           window.showResult('Recovering from guardian shares...', null);
 
-          const result = await window.w3pk.recoverFromGuardians(shares);
+          const result = await window.w3pk.recoverFromGuardians(shares, password);
           console.log('Recovery result:', result);
 
           window.showResult('Recovery Successful', {
