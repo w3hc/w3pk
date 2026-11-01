@@ -37,6 +37,19 @@ export default defineConfig([
     platform: "browser",
     target: "es2020",
   },
+  // Web Worker for zkProve, resolved from dist/index.mjs
+  {
+    entry: {
+      "zk/prove-worker": "src/zk/prove-worker.ts",
+    },
+    format: ["esm"],
+    sourcemap: true,
+    minify: true,
+    splitting: false,
+    external: ["snarkjs"],
+    platform: "browser",
+    target: "es2020",
+  },
   // Chainlist subpath export
   {
     entry: {
