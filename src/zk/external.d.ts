@@ -14,8 +14,8 @@ declare module "snarkjs" {
   export namespace groth16 {
     export function fullProve(
       input: any,
-      wasmFile: string,
-      zkeyFile: string
+      wasmFile: string | Uint8Array,
+      zkeyFile: string | Uint8Array
     ): Promise<{ proof: any; publicSignals: any }>;
 
     export function verify(

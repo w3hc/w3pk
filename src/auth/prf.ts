@@ -106,13 +106,17 @@ export interface PrfSecret {
 export const PRF_SECRET_LABEL = "w3pk-prf-v1";
 const PRF_SECRET_HKDF_SALT = new TextEncoder().encode("w3pk-prf-secret-v1");
 
+export function assertPrfSecretTag(tag: string): void {
+  if (typeof tag !== "string" || tag.length === 0 || tag.includes(":")) {
+    throw new CryptoError("PRF secret tag must be a non-empty string without ':'");
+  }
+}
+
 function prfSecretContext(label: string, origin: string, tag: string): Uint8Array<ArrayBuffer> {
   if (label.length === 0 || label.includes(":")) {
     throw new CryptoError("PRF secret label must be a non-empty string without ':'");
   }
-  if (typeof tag !== "string" || tag.length === 0 || tag.includes(":")) {
-    throw new CryptoError("PRF secret tag must be a non-empty string without ':'");
-  }
+  assertPrfSecretTag(tag);
   return new TextEncoder().encode(`${label}:${origin}:${tag}`);
 }
 

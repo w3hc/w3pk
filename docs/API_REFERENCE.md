@@ -12,6 +12,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
   - [`getEIP1193Provider()`](#geteip1193provideroptions-eip1193providerinterface)
   - [`derivePrfSecret()`](#deriveprfsecrettag-string-promiseprfsecret)
   - [`getSemaphoreIdentity()`](#getsemaphoreidentitytag-string-promisesemaphoreidentity)
+  - [`zkProve()`](#zkprovetag-artifacts-publicinputs-extrawitness-options-promisezkproveresult)
 - [Stealth Addresses (ERC-5564)](#stealth-addresses-erc-5564)
 - [Zero-Knowledge Proofs](#zero-knowledge-proofs)
 - [Backup & Recovery](#backup--recovery)
@@ -1425,7 +1426,7 @@ try {
 - **Origin separation is w3pk's, not the browser's.** Passkeys are scoped to the RP ID (the hostname), so another origin on the same hostname (another port or scheme) can use the same passkey. The origin in the PRF input keeps `derivePrfSecret()` from giving one origin another's secret, but a script running on such an origin can evaluate the PRF itself with any input. Serve one app per hostname when that matters.
 - **Script on the origin.** Code running on the page (XSS, a compromised dependency) can call `derivePrfSecret()` or the PRF directly and get the secret after the user approves a prompt. User verification bounds it to a user action, not to the app's intent.
 - **Separate from the persistent session key.** That key uses a different PRF input, so no tag gives it.
-- **Separate from Semaphore identities.** [`getSemaphoreIdentity()`](#getsemaphoreidentitytag-string-promisesemaphoreidentity) uses a different PRF input, so no tag gives its private key.
+- **Separate from Semaphore identities and `zkProve()`.** [`getSemaphoreIdentity()`](#getsemaphoreidentitytag-string-promisesemaphoreidentity) and [`zkProve()`](#zkprovetag-artifacts-publicinputs-extrawitness-options-promisezkproveresult) use different PRF inputs, so no tag gives their secrets.
 
 ---
 
@@ -1473,7 +1474,69 @@ group.addMember(commitment)
 
 **Threat model:** the same as `derivePrfSecret()`'s, plus:
 - **Out of reach of `derivePrfSecret()`.** The label differs, so `derivePrfSecret(tag)` returns a different secret for every tag, and an app can't rebuild the identity through the public API. Code running on the origin can still evaluate the PRF directly with the identity's input.
-- **Proofs need the private key.** This method returns the commitment only; generating Semaphore proofs inside w3pk is not part of it.
+- **Proofs use the secret inside w3pk.** This method returns the commitment only; [`zkProve()`](#zkprovetag-artifacts-publicinputs-extrawitness-options-promisezkproveresult) with `secret: 'semaphore'` proves with the identity's `secretScalar` without returning it.
+
+---
+
+### `zkProve(tag, artifacts, publicInputs, extraWitness?, options?): Promise<ZkProveResult>`
+
+Make a Groth16 proof with a secret bound to the passkey, without the app ever seeing the secret, the values derived from it, or the proof's randomness. See [ZK.md](./ZK.md#proving-with-a-passkey-bound-secret) for the design.
+
+Requires the optional dependency `snarkjs`, plus `poseidon-lite` when `options.derive` is set and `@semaphore-protocol/identity` when `options.secret` is `'semaphore'`.
+
+**Parameters:**
+- `tag: string` - Non-empty label without `:`, such as `"voting"`. Case-sensitive.
+- `artifacts: ZkProveArtifacts` - `{ wasm, zkey, pins }`: the circuit's `.wasm` and `.zkey` as bytes or URLs, and their pinned CIDs (see [`verifyZkArtifacts`](./ZK.md#circuit-artifact-verification))
+- `publicInputs: ZkInputs` - The circuit's public inputs, by signal name
+- `extraWitness?: ZkInputs` - Other private inputs the app provides
+- `options?: ZkProveOptions`
+
+```typescript
+type ZkSignal = bigint | number | string | ZkSignal[];
+type ZkInputs = Record<string, ZkSignal>;
+
+interface ZkProveOptions {
+  secret?: 'zk' | 'semaphore';                 // default 'zk'
+  secretInput?: string;                        // default 'secret'
+  derive?: Record<string, (string | bigint)[]>; // name -> Poseidon terms
+  random?: string[];                           // inputs filled with fresh random scalars
+}
+
+interface ZkProveResult {
+  proof: { pi_a: string[]; pi_b: string[][]; pi_c: string[]; protocol: string; curve: string };
+  publicSignals: string[];
+}
+```
+
+**What happens:**
+1. Checks `tag`, the inputs and `options`; loads the dependencies; verifies the artifacts against `pins`; starts the proving worker. Any failure here comes before the prompt
+2. Derives the secret: for `'zk'`, a 32-byte PRF secret as [`derivePrfSecret()`](#deriveprfsecrettag-string-promiseprfsecret) does but with the label `w3pk-zk-v1`, turned into a Baby Jubjub private key with `deriveBabyJubKeyPair()`; for `'semaphore'`, the `secretScalar` of the identity [`getSemaphoreIdentity(tag)`](#getsemaphoreidentitytag-string-promisesemaphoreidentity) commits to
+3. Builds the witness: the caller's inputs, the secret under `secretInput`, a fresh scalar in `[1, l)` for each `random` name, then each `derive` entry as `Poseidon(terms)` in order
+4. Proves with snarkjs in a Web Worker (in-thread where `Worker` doesn't exist or the worker can't start)
+5. Refuses the proof if a public signal equals the secret or a random input; otherwise returns `{ proof, publicSignals }`
+
+**Example:**
+
+```typescript
+const { proof, publicSignals } = await w3pk.zkProve(
+  'voting',
+  { wasm: wasmUrl, zkey: zkeyUrl, pins },
+  { proposalId, root },
+  { vote: 1 },
+  { secret: 'semaphore', derive: { voteSecret: ['secret', 'proposalId', 1n] }, random: ['r'] }
+)
+```
+
+**Throws:**
+- `ZkArtifactMismatchError` if an artifact's CID differs from its pin (before any prompt)
+- `PrfUnsupportedError` if the authenticator returns no PRF output
+- `AuthenticationError` if the prompt is cancelled or the passkey isn't available
+- `CryptoError` for an invalid tag, inputs or options, a missing dependency (all before any prompt), a failed proof, or a circuit that makes the secret or a random input public
+
+**Threat model:** the same as `derivePrfSecret()`'s, plus:
+- **Out of the API, not out of reach.** w3pk runs in the app's JavaScript context: an honest app can't leak the secret or keep a receipt of the randomness, but malicious code on the page can still evaluate the PRF with the same input or read the witness in memory. The [cross-origin wallet](https://github.com/w3hc/w3pk/issues/156) isolates it fully.
+- **Out of reach of `derivePrfSecret()`.** Both secret sources use their own labels, so no tag returns them.
+- **The circuit decides what's public.** Derived values may be public signals (e.g. a nullifier); w3pk only refuses proofs that publish the secret or a random input.
 
 ---
 

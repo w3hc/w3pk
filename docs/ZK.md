@@ -17,6 +17,7 @@ Comprehensive cryptographic utilities for zero-knowledge proofs, key derivation,
   - [Baby Jubjub and ElGamal](#baby-jubjub-and-elgamal)
   - [Semaphore Identities](#semaphore-identities)
   - [Circuit Artifact Verification](#circuit-artifact-verification)
+  - [Proving with a Passkey-Bound Secret](#proving-with-a-passkey-bound-secret)
 - [Use Cases](#use-cases)
 - [Security Considerations](#security-considerations)
 - [API Reference](#api-reference)
@@ -61,6 +62,8 @@ For zero-knowledge proof features:
 ```bash
 npm install snarkjs circomlibjs
 ```
+
+For `zkProve()` derivations, also `poseidon-lite`; for Semaphore identities, `@semaphore-protocol/identity`.
 
 ---
 
@@ -421,6 +424,56 @@ try {
 | `ZkArtifactMismatchError` (`ZK_ARTIFACT_MISMATCH`) | an artifact's CID differs from its pin |
 | `Web3PasskeyError` `ZK_ARTIFACT_FETCH_ERROR` | an artifact URL can't be fetched |
 | `Web3PasskeyError` `ZK_ARTIFACT_NOT_PINNED` | the registry has no CID under a key |
+
+---
+
+### Proving with a Passkey-Bound Secret
+
+`w3pk.zkProve(tag, artifacts, publicInputs, extraWitness?, options?)` makes a Groth16 proof with a secret bound to the passkey that the app never sees. w3pk derives the secret, places it in the witness with any inputs it derives or randomizes for you, checks the artifacts against their pins, runs snarkjs in a Web Worker, and returns only `{ proof, publicSignals }`.
+
+```typescript
+const pins = await readZkArtifactPins(registry, { wasm: 'vote-v1.wasm', zkey: 'vote-v1.zkey' })
+
+const { proof, publicSignals } = await w3pk.zkProve(
+  'voting',
+  { wasm: '/circuits/vote.wasm', zkey: '/circuits/vote_final.zkey', pins },
+  { proposalId, root },                 // public inputs
+  { vote: 1, pathElements, pathIndices }, // other private inputs
+  {
+    secret: 'semaphore',                // the identity from getSemaphoreIdentity('voting')
+    derive: { voteSecret: ['secret', 'proposalId', 0x564f5445n] }, // Poseidon(secret, proposalId, "VOTE")
+    random: ['r'],                      // e.g. ElGamal randomness
+  }
+)
+```
+
+**Options**
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `secret` | `'zk'` | `'zk'`: a Baby Jubjub private key derived from a PRF secret under its own label, `w3pk-zk-v1`. `'semaphore'`: the `secretScalar` of the identity `getSemaphoreIdentity(tag)` commits to (label `w3pk-semaphore-v1`) |
+| `secretInput` | `'secret'` | circuit input that receives the secret |
+| `derive` | none | `{ name: terms }`: inputs w3pk computes as `Poseidon(terms)`, in order. A string term names another input (the secret, a public or extra input, a random input or an earlier derivation); a bigint is a constant. 1 to 16 terms |
+| `random` | none | inputs w3pk fills with fresh scalars in `[1, l)` (`randomBabyJubScalar()`), used for this proof and discarded |
+
+Both secrets are scalars in `[1, l)`, so a circuit can use either as a Baby Jubjub private key. Neither is reachable from `derivePrfSecret(tag)`, whose label is `w3pk-prf-v1`.
+
+**Guarantees**
+
+- The secret, derived values and random values are not returned, stored, logged or put in backups. A proof whose public signals contain the secret or a random input is refused with `CryptoError`. Derived values may be public, such as a nullifier: they are one-way, and the circuit decides what it exposes
+- The caller can't set an input w3pk sets itself (the secret, a derived or a random input)
+- Everything that can fail without the passkey (options, tag, missing dependencies, [artifact pins](#circuit-artifact-verification), the worker) fails before the prompt. Proving uses the bytes `verifyZkArtifacts` checked
+- Requires `snarkjs`, plus `poseidon-lite` for `derive` and `@semaphore-protocol/identity` for `secret: 'semaphore'`, all optional dependencies imported on use
+
+**Worker**
+
+snarkjs runs in a module worker, `dist/zk/prove-worker.mjs`, started with `new Worker(new URL('./zk/prove-worker.mjs', import.meta.url), { type: 'module' })`, which webpack 5 and Vite bundle with snarkjs. Proving runs in-thread where `Worker` doesn't exist (Node) or the worker can't start: the CommonJS build (no `import.meta.url`), a bundler that didn't emit the worker, or a CSP that blocks it. In Vite dev, if the worker isn't found, add `w3pk` to `optimizeDeps.exclude`. The worker keeps the UI responsive; it is not a security boundary.
+
+**Isolation limit**
+
+w3pk runs in the host app's JavaScript context. `zkProve` keeps the secret out of the API, so an honest app can't leak it or keep a receipt of its randomness, but it doesn't put the secret out of reach of malicious code on the same page (XSS, a compromised dependency): that code can evaluate the PRF with the same input after a user-approved prompt, or read the witness in memory. The [cross-origin wallet](https://github.com/w3hc/w3pk/issues/156) is what isolates it fully.
+
+See the [API reference](./API_REFERENCE.md#zkprovetag-artifacts-publicinputs-extrawitness-options-promisezkproveresult).
 
 ---
 
