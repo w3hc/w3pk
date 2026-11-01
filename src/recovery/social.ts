@@ -19,6 +19,7 @@ import {
   hexToBytes,
 } from './shamir';
 import { validateBackupFile } from '../backup/backup-file';
+import { UnsupportedBackupVersionError } from '../core/errors';
 
 // Singleton in-memory storage for non-browser environments
 const memoryStorageSingleton = new Map<string, string>();
@@ -363,6 +364,10 @@ Visit: https://docs.w3pk.org/social-recovery
       throw new Error('Invalid share data: missing threshold information');
     }
 
+    if (!expectedAddress) {
+      throw new Error('Invalid share data: missing ethereum address');
+    }
+
     if (shareData.length < threshold) {
       throw new Error(
         `Need at least ${threshold} shares, got ${shareData.length}`
@@ -400,7 +405,14 @@ Visit: https://docs.w3pk.org/social-recovery
     } catch {
       throw new Error('Recovered data is not valid JSON - invalid shares');
     }
-    validateBackupFile(recovered);
+    try {
+      validateBackupFile(recovered);
+    } catch (error) {
+      if (error instanceof UnsupportedBackupVersionError) {
+        error.backupFileJson = backupFileJson;
+      }
+      throw error;
+    }
 
     return {
       backupFileJson,

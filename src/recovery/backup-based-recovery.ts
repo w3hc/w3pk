@@ -7,6 +7,7 @@
 
 import type { BackupFile } from '../backup/types';
 import { validateBackupFile } from '../backup/backup-file';
+import { UnsupportedBackupVersionError } from '../core/errors';
 import {
   splitSecret,
   combineShares,
@@ -130,14 +131,22 @@ export class SocialRecovery {
     const recoveredBytes = combineShares(shareBytes, threshold);
 
     // Convert back to string and parse JSON
+    const backupJson = bytesToString(recoveredBytes);
     let recovered: unknown;
     try {
-      recovered = JSON.parse(bytesToString(recoveredBytes));
+      recovered = JSON.parse(backupJson);
     } catch {
       throw new Error('Recovered data is not a backup file - corrupted shares');
     }
 
-    return validateBackupFile(recovered);
+    try {
+      return validateBackupFile(recovered);
+    } catch (error) {
+      if (error instanceof UnsupportedBackupVersionError) {
+        error.backupFileJson = backupJson;
+      }
+      throw error;
+    }
   }
 
   /**
