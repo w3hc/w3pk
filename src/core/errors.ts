@@ -134,6 +134,20 @@ export class PrfUnsupportedError extends Web3PasskeyError {
   }
 }
 
+/**
+ * The backup uses the removed `passkey` or `hybrid` method, whose key came
+ * from public data rather than from the passkey. It can't be restored.
+ */
+export class RemovedBackupMethodError extends Web3PasskeyError {
+  constructor(public method: string) {
+    super(
+      `This ${method} backup is no longer supported: its key came from the passkey's public data, not from the passkey. Create a new password or PRF backup on a device where you're logged in.`,
+      "BACKUP_METHOD_REMOVED"
+    );
+    this.name = "RemovedBackupMethodError";
+  }
+}
+
 export type ZkArtifactName = "wasm" | "zkey";
 
 /**
