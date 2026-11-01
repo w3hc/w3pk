@@ -1335,7 +1335,7 @@ async function createEncryptedBackup() {
 #### 3. Social Recovery (Best UX)
 
 ```typescript
-async function setupSocialRecovery() {
+async function setupSocialRecovery(password: string) {
   const guardians = [
     { name: 'Alice', email: 'alice@example.com' },
     { name: 'Bob', email: 'bob@example.com' },
@@ -1348,7 +1348,7 @@ async function setupSocialRecovery() {
   const { guardianShares } = await w3pk.setupSocialRecovery(
     guardians,
     3, // threshold - need 3 out of 5 to recover
-    'optional-password' // optional password for additional encryption
+    password // encrypts the backup the shares rebuild
   )
 
   // Generate and send guardian invites
