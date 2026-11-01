@@ -26,9 +26,10 @@ export {
   WalletMissingError,
   SyncBootstrapError,
   PrfUnsupportedError,
+  ZkArtifactMismatchError,
 } from "./core/errors";
 
-export type { SyncBootstrapReason } from "./core/errors";
+export type { SyncBootstrapReason, ZkArtifactName } from "./core/errors";
 
 export {
   promptPasskeySelection,
