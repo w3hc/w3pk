@@ -13,6 +13,7 @@ import {
   Web3Passkey,
   SyncBootstrapError,
   RemovedBackupMethodError,
+  UnsupportedBackupVersionError,
   WalletError,
   Web3PasskeyError,
 } from "../src/index";
@@ -163,7 +164,7 @@ async function passwordBackupFromDeviceA(publicKey: string): Promise<string> {
     credentialId: CREDENTIAL_ID,
   };
   (sdk as any).getMnemonicFromSession = async () => MNEMONIC;
-  const { blob } = await sdk.createBackupFile("password", PASSWORD);
+  const { blob } = await sdk.createBackupFile(PASSWORD);
   localStorage.clear();
   return blob.text();
 }
@@ -286,12 +287,10 @@ async function runTests() {
     localStorage.clear();
     const { json: legacyJson } = await manager.createPasswordBackup(
       MNEMONIC,
-      ADDRESS,
       PASSWORD
     );
     const { json: otherJson } = await manager.createPasswordBackup(
       MNEMONIC,
-      ADDRESS,
       PASSWORD,
       { id: "another-passkey", publicKey }
     );
@@ -303,7 +302,6 @@ async function runTests() {
     );
     const { json: forgedJson } = await manager.createPasswordBackup(
       MNEMONIC,
-      ADDRESS,
       PASSWORD,
       {
         id: CREDENTIAL_ID,
@@ -343,13 +341,13 @@ async function runTests() {
     localStorage.clear();
     const { backupFile } = await manager.createPasswordBackup(
       MNEMONIC,
-      ADDRESS,
       PASSWORD,
       { id: CREDENTIAL_ID, publicKey }
     );
 
     for (const method of ["passkey", "hybrid"]) {
-      const json = JSON.stringify({ ...backupFile, encryptionMethod: method });
+      const { version: _, ...v2 } = backupFile;
+      const json = JSON.stringify({ ...v2, encryptionMethod: method });
       const restores: [string, (sdk: Web3Passkey) => Promise<unknown>][] = [
         ["syncWalletWithPasskey", (sdk) => sdk.syncWalletWithPasskey(json, PASSWORD)],
         ["restoreFromBackupFile", (sdk) => sdk.restoreFromBackupFile(json, PASSWORD)],
@@ -370,6 +368,48 @@ async function runTests() {
         assert(!authEvents.includes(true), `${name}, ${method} backup: no login`);
       }
     }
+  }
+  console.log("");
+
+  console.log("Test 6: v2 backups fail with UnsupportedBackupVersionError");
+  {
+    localStorage.clear();
+    const v2 = JSON.stringify({
+      createdAt: new Date().toISOString(),
+      ethereumAddress: ADDRESS,
+      encryptedMnemonic: "AAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      encryptionMethod: "password",
+      passwordEncryption: { salt: "AAAA", iv: "AAAA", iterations: 310000 },
+      addressChecksum: "AAAAAAAAAAAAAAAA",
+    });
+    const restores: [string, (sdk: Web3Passkey) => Promise<unknown>][] = [
+      ["syncWalletWithPasskey", (sdk) => sdk.syncWalletWithPasskey(v2, PASSWORD)],
+      ["restoreFromBackupFile", (sdk) => sdk.restoreFromBackupFile(v2, PASSWORD)],
+      ["registerWithBackupFile", (sdk) => sdk.registerWithBackupFile(v2, PASSWORD, "alice")],
+      ["importFromSync", (sdk) => sdk.importFromSync(v2)],
+    ];
+    for (const [name, fn] of restores) {
+      const { sdk, authEvents } = freshSdk();
+      const error = await capture(() => fn(sdk));
+      assert(
+        error instanceof UnsupportedBackupVersionError &&
+          error.code === "BACKUP_VERSION_UNSUPPORTED" &&
+          error.version === undefined,
+        `${name}: throws UnsupportedBackupVersionError`
+      );
+      assert(
+        (error as Error).message.includes("v0.10.6/standalone/extract-mnemonic.html"),
+        `${name}: names the v0.10.6 offline tool`
+      );
+      assert(!authEvents.includes(true), `${name}: no login`);
+    }
+    const v4 = await capture(() =>
+      new BackupFileManager().parseBackupFile(JSON.stringify({ version: 4 }))
+    );
+    assert(
+      v4 instanceof UnsupportedBackupVersionError && v4.version === 4,
+      "version 4: throws UnsupportedBackupVersionError with the version"
+    );
   }
   console.log("");
 

@@ -1,5 +1,5 @@
 /**
- * Simplified Backup File Manager
+ * BackupFile v3 Manager
  *
  * Creates a universal "floppy disk" backup file that can be used to:
  * 1. Restore wallet with existing passkey (same or synced device)
@@ -8,14 +8,19 @@
  * 4. Split among guardians for social recovery (via Shamir)
  */
 
+import { BACKUP_FILE_VERSION } from './types';
 import type { BackupCredential, BackupFile } from './types';
 import {
-  encryptWithPassword,
-  decryptWithPassword,
-  deriveAddressChecksum,
+  ARGON2ID_MAX_PARAMS,
+  ARGON2ID_PARAMS,
+  deriveKeyFromPasswordArgon2id,
 } from './encryption';
 import { encryptData, decryptData } from '../wallet/crypto';
-import { CryptoError, RemovedBackupMethodError } from '../core/errors';
+import {
+  CryptoError,
+  RemovedBackupMethodError,
+  UnsupportedBackupVersionError,
+} from '../core/errors';
 import { arrayBufferToBase64Url, base64UrlToArrayBuffer } from '../utils/base64';
 
 const PRF_SYNC_LABEL = new TextEncoder().encode('w3pk-prf-sync-v1');
@@ -53,33 +58,81 @@ async function derivePrfBackupKey(prfOutput: BufferSource, prfSalt: string): Pro
 
 const REMOVED_BACKUP_METHODS = ['passkey', 'hybrid'];
 
+function invalid(reason: string): never {
+  throw new Error(`Invalid backup file: ${reason}`);
+}
+
+function isBoundedInt(value: unknown, max: number): boolean {
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= max;
+}
+
 /**
- * Throws RemovedBackupMethodError for a `passkey` or `hybrid` backup, and
- * rejects any other method but `password` and `prf`
+ * Checks that `data` is a BackupFile v3 and returns it.
+ * Throws RemovedBackupMethodError for a `passkey` or `hybrid` backup and
+ * UnsupportedBackupVersionError for any other file that isn't v3.
  */
-export function assertSupportedBackupMethod(backupFile: BackupFile): void {
-  const method: string = backupFile.encryptionMethod;
-  if (REMOVED_BACKUP_METHODS.includes(method)) {
-    throw new RemovedBackupMethodError(method);
+export function validateBackupFile(data: unknown): BackupFile {
+  if (!data || typeof data !== 'object') invalid('not a JSON object');
+  const file = data as Record<string, any>;
+
+  if (REMOVED_BACKUP_METHODS.includes(file.encryptionMethod)) {
+    throw new RemovedBackupMethodError(file.encryptionMethod);
   }
-  if (method !== 'password' && method !== 'prf') {
-    throw new Error(`Invalid backup file: unknown encryption method ${method}`);
+  if (file.version !== BACKUP_FILE_VERSION) {
+    throw new UnsupportedBackupVersionError(file.version);
   }
+  if (typeof file.createdAt !== 'string' || typeof file.encryptedMnemonic !== 'string') {
+    invalid('missing required fields');
+  }
+
+  if (file.encryptionMethod === 'password') {
+    const kdf = file.passwordEncryption;
+    if (
+      !kdf ||
+      kdf.kdf !== 'argon2id' ||
+      typeof kdf.salt !== 'string' ||
+      !isBoundedInt(kdf.memoryKiB, ARGON2ID_MAX_PARAMS.memoryKiB) ||
+      !isBoundedInt(kdf.passes, ARGON2ID_MAX_PARAMS.passes) ||
+      !isBoundedInt(kdf.parallelism, ARGON2ID_MAX_PARAMS.parallelism)
+    ) {
+      invalid('password backup without valid Argon2id parameters');
+    }
+  } else if (file.encryptionMethod === 'prf') {
+    if (!file.prfSalt || !file.credential?.id || !file.credential.publicKey) {
+      invalid('PRF backup without its salt or passkey');
+    }
+  } else {
+    invalid(`unknown encryption method ${file.encryptionMethod}`);
+  }
+
+  return file as BackupFile;
+}
+
+async function addressOf(mnemonic: string): Promise<string> {
+  const { Wallet } = await import('ethers');
+  try {
+    return Wallet.fromPhrase(mnemonic).address;
+  } catch (error) {
+    throw new CryptoError('Decrypted backup is not a valid mnemonic', error);
+  }
+}
+
+function toJson(backupFile: BackupFile): { backupFile: BackupFile; json: string; blob: Blob } {
+  const json = JSON.stringify(backupFile, null, 2);
+  return { backupFile, json, blob: new Blob([json], { type: 'application/json' }) };
 }
 
 export class BackupFileManager {
   /**
-   * Create backup file encrypted with password
-   * This is the primary method for creating portable backups
+   * Create a BackupFile v3 encrypted with a password through Argon2id
+   * This is the backup that restores without a passkey
    *
    * @param mnemonic - The BIP39 mnemonic to encrypt
-   * @param ethereumAddress - The Ethereum address for verification
-   * @param password - User's password for encryption (required for security)
+   * @param password - User's password for encryption
    * @param credential - The passkey that owns the wallet, so a fresh device can sync with it
    */
   async createPasswordBackup(
     mnemonic: string,
-    ethereumAddress: string,
     password: string,
     credential?: BackupCredential
   ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
@@ -87,33 +140,26 @@ export class BackupFileManager {
       throw new Error('Password is required for password-based backup');
     }
 
-    const salt = crypto.getRandomValues(new Uint8Array(32));
-    const encrypted = await encryptWithPassword(mnemonic, password, salt);
-    const addressChecksum = await deriveAddressChecksum(ethereumAddress);
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKeyFromPasswordArgon2id(password, salt, ARGON2ID_PARAMS);
 
-    const backupFile: BackupFile = {
+    return toJson({
+      version: BACKUP_FILE_VERSION,
       createdAt: new Date().toISOString(),
-      ethereumAddress,
-      encryptedMnemonic: encrypted.encrypted,
+      encryptedMnemonic: await encryptData(mnemonic, key),
       encryptionMethod: 'password',
       passwordEncryption: {
-        salt: encrypted.salt,
-        iv: encrypted.iv,
-        iterations: encrypted.iterations,
+        kdf: 'argon2id',
+        salt: btoa(String.fromCharCode(...salt)),
+        ...ARGON2ID_PARAMS,
       },
       ...(credential && { credential: { id: credential.id, publicKey: credential.publicKey } }),
-      addressChecksum,
-    };
-
-    const json = JSON.stringify(backupFile, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-
-    return { backupFile, json, blob };
+    });
   }
 
   /**
-   * Create backup file encrypted with a key derived from the passkey's PRF
-   * output: decrypting needs a fresh assertion with that passkey, which
+   * Create a BackupFile v3 encrypted with a key derived from the passkey's
+   * PRF output: decrypting needs a fresh assertion with that passkey, which
    * syncs within its platform ecosystem
    *
    * @param prfSalt - From generatePrfSalt()
@@ -121,31 +167,22 @@ export class BackupFileManager {
    */
   async createPrfBackup(
     mnemonic: string,
-    ethereumAddress: string,
     credential: BackupCredential,
     username: string,
     prfSalt: string,
     prfOutput: BufferSource
   ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
     const encryptionKey = await derivePrfBackupKey(prfOutput, prfSalt);
-    const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
-    const addressChecksum = await deriveAddressChecksum(ethereumAddress);
 
-    const backupFile: BackupFile = {
+    return toJson({
+      version: BACKUP_FILE_VERSION,
       createdAt: new Date().toISOString(),
-      ethereumAddress,
-      encryptedMnemonic,
+      encryptedMnemonic: await encryptData(mnemonic, encryptionKey),
       encryptionMethod: 'prf',
       credential: { id: credential.id, publicKey: credential.publicKey },
       prfSalt,
       username,
-      addressChecksum,
-    };
-
-    const json = JSON.stringify(backupFile, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-
-    return { backupFile, json, blob };
+    });
   }
 
   /**
@@ -164,86 +201,45 @@ export class BackupFileManager {
     const encryptionKey = await derivePrfBackupKey(prfOutput, backupFile.prfSalt);
     const mnemonic = await decryptData(backupFile.encryptedMnemonic, encryptionKey);
 
-    const { Wallet } = await import('ethers');
-    const wallet = Wallet.fromPhrase(mnemonic);
-    const addressChecksum = await deriveAddressChecksum(wallet.address);
-
-    if (
-      addressChecksum !== backupFile.addressChecksum ||
-      wallet.address.toLowerCase() !== backupFile.ethereumAddress.toLowerCase()
-    ) {
-      throw new Error(
-        'Address checksum mismatch - corrupted backup or decryption failure'
-      );
-    }
-
-    return { mnemonic, ethereumAddress: wallet.address };
+    return { mnemonic, ethereumAddress: await addressOf(mnemonic) };
   }
 
   /**
-   * Restore from backup file using password
+   * Restore from a password backup
    * Use case: User doesn't have passkey on this device yet
+   *
+   * @throws CryptoError on a wrong password or a corrupted file
    */
   async restoreWithPassword(
     backupFile: BackupFile,
     password: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    if (backupFile.encryptionMethod !== 'password' || !backupFile.passwordEncryption) {
+    const kdf = backupFile.passwordEncryption;
+    if (backupFile.encryptionMethod !== 'password' || !kdf) {
       throw new Error('This backup is not password-protected.');
     }
 
-    const mnemonic = await decryptWithPassword(
-      backupFile.encryptedMnemonic,
-      password,
-      backupFile.passwordEncryption.salt,
-      backupFile.passwordEncryption.iv,
-      backupFile.passwordEncryption.iterations
-    );
-
-    // Verify address checksum
-    const { Wallet } = await import('ethers');
-    const wallet = Wallet.fromPhrase(mnemonic);
-    const addressChecksum = await deriveAddressChecksum(wallet.address);
-
-    if (
-      addressChecksum !== backupFile.addressChecksum ||
-      wallet.address.toLowerCase() !== backupFile.ethereumAddress.toLowerCase()
-    ) {
-      throw new Error(
-        'Address checksum mismatch - corrupted backup or wrong password'
-      );
+    const salt = Uint8Array.from(atob(kdf.salt), (c) => c.charCodeAt(0));
+    const key = await deriveKeyFromPasswordArgon2id(password, salt, kdf);
+    let mnemonic: string;
+    try {
+      mnemonic = await decryptData(backupFile.encryptedMnemonic, key);
+    } catch (error) {
+      throw new CryptoError('Wrong password or corrupted backup', error);
     }
 
-    return { mnemonic, ethereumAddress: wallet.address };
+    return { mnemonic, ethereumAddress: await addressOf(mnemonic) };
   }
 
   /**
-   * Parse backup file from JSON string or Blob
+   * Parse a BackupFile v3 from JSON string or Blob
+   *
+   * @throws UnsupportedBackupVersionError for a file that isn't v3
+   * @throws RemovedBackupMethodError for a `passkey` or `hybrid` backup
    */
   async parseBackupFile(data: string | Blob): Promise<BackupFile> {
-    let json: string;
-
-    if (data instanceof Blob) {
-      json = await data.text();
-    } else {
-      json = data;
-    }
-
-    const backupFile = JSON.parse(json) as BackupFile;
-
-    // Validate required fields
-    if (!backupFile.createdAt || !backupFile.ethereumAddress || !backupFile.encryptedMnemonic) {
-      throw new Error('Invalid backup file: missing required fields');
-    }
-    assertSupportedBackupMethod(backupFile);
-    if (
-      backupFile.encryptionMethod === 'prf' &&
-      (!backupFile.prfSalt || !backupFile.credential?.id || !backupFile.credential.publicKey)
-    ) {
-      throw new Error('Invalid backup file: PRF backup without its salt or passkey');
-    }
-
-    return backupFile;
+    const json = data instanceof Blob ? await data.text() : data;
+    return validateBackupFile(JSON.parse(json));
   }
 
   /**
@@ -255,9 +251,7 @@ export class BackupFileManager {
   ): { blob: Blob; filename: string } {
     const json = JSON.stringify(backupFile, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
-    const defaultFilename = `w3pk-backup-${backupFile.ethereumAddress.substring(0, 8)}-${
-      new Date().toISOString().split('T')[0]
-    }.json`;
+    const defaultFilename = `w3pk-backup-${new Date().toISOString().split('T')[0]}.json`;
 
     return {
       blob,

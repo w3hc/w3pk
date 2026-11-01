@@ -119,7 +119,6 @@ async function runTests() {
     const backupManager = new BackupFileManager();
     const { json: backupFileJson } = await backupManager.createPasswordBackup(
       testMnemonic,
-      testAddress,
       "test-password-123"
     );
 
@@ -177,7 +176,6 @@ async function runTests() {
     const backupManager = new BackupFileManager();
     const { json: backupFileJson } = await backupManager.createPasswordBackup(
       testMnemonic,
-      testAddress,
       "test-password-123"
     );
 
@@ -239,7 +237,6 @@ async function runTests() {
     const backupManager = new BackupFileManager();
     const { json: backupFileJson } = await backupManager.createPasswordBackup(
       testMnemonic,
-      testAddress,
       "test-password-123"
     );
 
@@ -316,7 +313,6 @@ async function runTests() {
     const backupManager = new BackupFileManager();
     const { json: backupFileJson } = await backupManager.createPasswordBackup(
       testMnemonic,
-      testAddress,
       "test-password-123"
     );
 
@@ -388,7 +384,6 @@ async function runTests() {
     const backupManager = new BackupFileManager();
     const { json: backupFileJson } = await backupManager.createPasswordBackup(
       testMnemonic,
-      testAddress,
       "test-password-123"
     );
 
@@ -444,7 +439,6 @@ async function runTests() {
     const backupManager = new BackupFileManager();
     const { json: backupFileJson } = await backupManager.createPasswordBackup(
       testMnemonic,
-      testAddress,
       "test-password-123"
     );
 
@@ -494,7 +488,6 @@ async function runTests() {
     const backupManager = new BackupFileManager();
     const { json: backupFileJson } = await backupManager.createPasswordBackup(
       testMnemonic,
-      testAddress,
       "test-password-123"
     );
 
@@ -540,7 +533,6 @@ async function runTests() {
     const backupManager = new BackupFileManager();
     const { json: backupFileJson } = await backupManager.createPasswordBackup(
       testMnemonic,
-      testAddress,
       "test-password-123"
     );
 

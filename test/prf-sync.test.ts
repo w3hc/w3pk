@@ -295,7 +295,10 @@ async function runTests() {
   const backup: BackupFile = JSON.parse(json);
   {
     assert(prompts === 1, "one passkey prompt");
+    assert(backup.version === 3, "is BackupFile v3");
     assert(backup.encryptionMethod === "prf", "encryptionMethod is 'prf'");
+    assert(!json.toLowerCase().includes(ADDRESS.slice(2).toLowerCase()), "no address in the file");
+    assert(!("addressChecksum" in backup), "no address checksum in the file");
     assert(backup.credential?.id === CREDENTIAL_ID, "names the passkey");
     assert(backup.credential?.publicKey === publicKey, "carries its public key");
     assert(backup.username === USERNAME, "carries the username");
@@ -373,7 +376,6 @@ async function runTests() {
   {
     const flip = (s: string, i: number) =>
       s.slice(0, i) + (s[i] === "A" ? "B" : "A") + s.slice(i + 1);
-    const otherAddress = Wallet.createRandom().address;
     const otherKey = await crypto.subtle.generateKey(
       { name: "ECDSA", namedCurve: "P-256" },
       true,
@@ -384,9 +386,7 @@ async function runTests() {
     );
 
     const cases: Array<[string, BackupFile]> = [
-      ["altered addressChecksum", { ...backup, addressChecksum: flip(backup.addressChecksum, 0) }],
       ["altered ciphertext", { ...backup, encryptedMnemonic: flip(backup.encryptedMnemonic, 30) }],
-      ["altered address", { ...backup, ethereumAddress: otherAddress }],
       ["altered prfSalt", { ...backup, prfSalt: flip(backup.prfSalt!, 5) }],
     ];
     for (const [label, altered] of cases) {

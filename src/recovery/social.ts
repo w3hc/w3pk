@@ -18,6 +18,7 @@ import {
   bytesToHex,
   hexToBytes,
 } from './shamir';
+import { validateBackupFile } from '../backup/backup-file';
 
 // Singleton in-memory storage for non-browser environments
 const memoryStorageSingleton = new Map<string, string>();
@@ -393,27 +394,17 @@ Visit: https://docs.w3pk.org/social-recovery
     // Convert to backup file JSON
     const backupFileJson = bytesToString(secretBytes);
 
-    // Verify it's valid JSON and has the expected structure
-    let backupFile: any;
+    let recovered: unknown;
     try {
-      backupFile = JSON.parse(backupFileJson);
+      recovered = JSON.parse(backupFileJson);
     } catch {
       throw new Error('Recovered data is not valid JSON - invalid shares');
     }
-
-    // Verify the ethereum address matches what we expected
-    if (!backupFile.ethereumAddress) {
-      throw new Error('Recovered backup file is missing ethereum address');
-    }
-
-    if (expectedAddress &&
-        backupFile.ethereumAddress.toLowerCase() !== expectedAddress.toLowerCase()) {
-      throw new Error('Recovered address does not match share data - invalid shares');
-    }
+    validateBackupFile(recovered);
 
     return {
       backupFileJson,
-      ethereumAddress: backupFile.ethereumAddress,
+      ethereumAddress: expectedAddress,
     };
   }
 

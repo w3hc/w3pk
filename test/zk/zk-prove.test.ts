@@ -367,7 +367,7 @@ async function runTests() {
       ...values.flatMap((v) => [v.toString(), v.toString(16)]),
     ];
     const serialized = JSON.stringify(result);
-    const { blob } = await sdk.createBackupFile("password", PASSWORD);
+    const { blob } = await sdk.createBackupFile(PASSWORD);
     const backup = await blob.text();
     const stored = snapshot();
     const leaks = secrets.filter(
