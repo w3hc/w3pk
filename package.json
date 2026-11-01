@@ -118,6 +118,7 @@
     "blockstore-core": "^7.0.1",
     "circomlibjs": "^0.1.7",
     "ipfs-unixfs-importer": "^17.0.1",
+    "poseidon-lite": "^0.3.0",
     "qrcode": "^1.5.4",
     "snarkjs": "^0.7.6"
   },

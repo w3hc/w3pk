@@ -68,6 +68,9 @@ importers:
       ipfs-unixfs-importer:
         specifier: ^17.0.1
         version: 17.0.1
+      poseidon-lite:
+        specifier: ^0.3.0
+        version: 0.3.0
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4

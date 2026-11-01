@@ -10,7 +10,7 @@ export default defineConfig([
     sourcemap: true,
     minify: true,
     splitting: false,
-    external: ["ethers", "snarkjs", "circomlibjs", "@semaphore-protocol/identity"],
+    external: ["ethers", "snarkjs", "circomlibjs", "@semaphore-protocol/identity", "poseidon-lite"],
     platform: "browser",
     target: "es2020",
     esbuildOptions(options) {
@@ -33,7 +33,7 @@ export default defineConfig([
     sourcemap: true,
     minify: true,
     splitting: false,
-    external: ["ethers", "snarkjs", "circomlibjs", "@semaphore-protocol/identity"],
+    external: ["ethers", "snarkjs", "circomlibjs", "@semaphore-protocol/identity", "poseidon-lite"],
     platform: "browser",
     target: "es2020",
   },
