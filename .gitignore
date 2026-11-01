@@ -59,6 +59,7 @@ src/zk/templates/artifacts.json
 # ZK Proving System Files
 *.ptau
 *.zkey
+!test/zk/fixtures/**/*.zkey
 *.vkey
 *.wtns
 *.proof
