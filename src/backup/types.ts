@@ -134,22 +134,6 @@ export interface BackupCredential {
   publicKey: string;
 }
 
-export interface EncryptedBackupData {
-  version: number;
-  encryptedMnemonic: string;
-  salt: string;
-  iterations: number;
-  metadata: BackupMetadata;
-  verification: {
-    addressChecksum: string;
-  };
-}
-
-export interface QRBackupOptions {
-  password?: string;
-  errorCorrection?: 'L' | 'M' | 'Q' | 'H';
-}
-
 export interface RecoveryScenario {
   type: 'lost-device' | 'lost-phrase' | 'lost-both' | 'switch-platform';
   description: string;

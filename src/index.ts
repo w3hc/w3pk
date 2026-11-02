@@ -127,7 +127,6 @@ export type {
   BackupStatus,
   BackupMethod,
   SecurityScore,
-  QRBackupOptions,
   RecoveryScenario,
   SimulationResult,
   EncryptedBackupInfo,
@@ -143,11 +142,7 @@ export type {
   RecoveryProgress,
 } from "./recovery/types";
 
-export type {
-  DeviceInfo,
-  SyncCapabilities,
-  SyncStatus,
-} from "./sync/types";
+export type { SyncCapabilities } from "./sync/types";
 
 export {
   requestExternalWalletAuthorization,

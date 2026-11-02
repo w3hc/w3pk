@@ -107,14 +107,3 @@ export interface DerivedWallet {
  * @deprecated Use GeneratedWallet or DerivedWallet instead
  */
 export type WalletInfo = GeneratedWallet | DerivedWallet;
-
-export interface ApiResponse<T = any> {
-  success: boolean;
-  message?: string;
-  data?: T;
-}
-
-export interface WebAuthnError extends Error {
-  code: string;
-  originalError?: unknown;
-}

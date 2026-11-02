@@ -37,11 +37,10 @@ await w3pk.getAddress()
 
 ### Don't Import Internal Classes
 
-Internal implementation classes like `WalletSigner`, `SessionManager`, `LocalStorageWalletStorage`, etc. are **not part of the public API** and may change without notice:
+Internal implementation classes like `SessionManager`, `LocalStorageWalletStorage`, etc. are **not part of the public API** and may change without notice:
 
 ```typescript
 // ❌ Don't do this - internal APIs
-import { WalletSigner } from 'w3pk/wallet/signing'
 import { SessionManager } from 'w3pk/core/session'
 import { LocalStorageWalletStorage } from 'w3pk/wallet/storage'
 
@@ -52,19 +51,14 @@ const w3pk = createWeb3Passkey()
 
 ### Why This Matters
 
-**For `signAuthorization` specifically:**
-- There are **two implementations** in the codebase:
-  - `WalletSigner.signAuthorization()` - Internal low-level utility
-  - `Web3Passkey.signAuthorization()` - Public SDK method
-- **Always use the SDK version** (`w3pk.signAuthorization()`)
-- The SDK version handles:
-  - Session management automatically
-  - Authentication prompts when needed
-  - Support for derived/stealth addresses
-  - Signature verification before returning
-  - Error handling and callbacks
+The SDK methods (e.g. `w3pk.signAuthorization()`) handle:
+- Session management automatically
+- Authentication prompts when needed
+- Support for derived/stealth addresses
+- Signature verification before returning
+- Error handling and callbacks
 
-**Example - Correct Usage:**
+**Example:**
 
 ```typescript
 const w3pk = createWeb3Passkey()
@@ -84,25 +78,6 @@ const auth2 = await w3pk.signAuthorization({
   chainId: 1,
   privateKey: derived.privateKey  // Sign from derived address
 })
-```
-
-**Example - Incorrect Usage:**
-
-```typescript
-// ❌ Don't use internal WalletSigner class directly
-import { WalletSigner } from 'w3pk/wallet/signing'
-import { LocalStorageWalletStorage } from 'w3pk/wallet/storage'
-
-const storage = new LocalStorageWalletStorage()
-const signer = new WalletSigner(storage)
-
-// This bypasses session management and requires manual credential handling
-await signer.signAuthorization(
-  ethereumAddress,
-  { contractAddress: '0x...', chainId: 1 },
-  credentialId,    // You have to manage this yourself
-  challenge        // You have to generate this yourself
-)
 ```
 
 ### Public API Surface
@@ -1402,11 +1377,6 @@ async function recoverWallet() {
     const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares, password)
     console.log('✅ Wallet recovered:', ethereumAddress)
 
-  } else if (method === 'qr-backup') {
-    const qrData = await scanQRCode()
-    const password = await getPasswordFromUser()
-    const { mnemonic, ethereumAddress } = await w3pk.restoreFromBackupFile(qrData, password)
-    console.log('✅ Wallet recovered:', ethereumAddress)
   }
 }
 ```

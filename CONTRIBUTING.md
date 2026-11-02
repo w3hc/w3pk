@@ -68,7 +68,7 @@ w3pk/
 ├── src/
 │   ├── auth/           # WebAuthn authentication
 │   ├── wallet/         # Wallet generation & signing
-│   ├── backup/         # Backup system (QR, backup files, encryption)
+│   ├── backup/         # Backup system (backup files, encryption)
 │   ├── recovery/       # Social recovery (Shamir Secret Sharing)
 │   ├── sync/           # Cross-device sync detection
 │   ├── education/      # Recovery scenario simulators
@@ -337,15 +337,6 @@ const status = await w3pk.getBackupStatus()
 // }
 ```
 
-#### `createQRBackup(password?, options?)`
-Create QR code backup.
-```typescript
-const { qrCodeDataURL, rawData } = await w3pk.createQRBackup('password', {
-  errorCorrection: 'H' // High (30% damage tolerance)
-})
-// Returns: { qrCodeDataURL, rawData, instructions }
-```
-
 #### `setupSocialRecovery(guardians, threshold, password)`
 Setup social recovery with guardians.
 ```typescript
@@ -395,13 +386,6 @@ const result = await w3pk.simulateRecoveryScenario({
   hasPasskeySync: true
 })
 // Returns: { canRecover, availableMethods, recommendation }
-```
-
-#### `getSyncStatus()`
-Get cross-device sync status.
-```typescript
-const status = await w3pk.getSyncStatus()
-// Returns: { platform, capabilities, enabled }
 ```
 
 #### `getEducation(topic)`
@@ -503,7 +487,7 @@ The browser tester provides buttons for testing:
 - **Network**: Get RPC endpoints, check EIP-7702 support
 - **Stealth Addresses**: Generate stealth addresses, scan announcements (ERC-5564)
 - **ZK Proofs**: Generate and verify zero-knowledge proofs
-- **Backup & Recovery**: Create/restore QR backups and backup files
+- **Backup & Recovery**: Create/restore backup files
 - **Social Recovery**: Setup guardians, generate invites, recover from shares
 - **Storage**: View and manage localStorage and IndexedDB
 

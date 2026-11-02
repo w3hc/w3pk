@@ -6,7 +6,7 @@
 
 import { Wallet } from "ethers";
 import { Web3Passkey } from "../src/index";
-import { BackupManager } from "../src/backup";
+import { BackupManager } from "../src/backup/manager";
 import {
   startTestSuite,
   endTestSuite,

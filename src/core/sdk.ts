@@ -301,7 +301,7 @@ export class Web3Passkey {
         mnemonic,
       };
 
-      const { BackupManager } = await import("../backup");
+      const { BackupManager } = await import("../backup/manager");
       const hasBackup = await new BackupManager().hasBackup(ethereumAddress);
       const evictionRisk = await detectEvictionRisk();
 
@@ -1611,7 +1611,7 @@ export class Web3Passkey {
       throw new WalletError("Must be authenticated to check backup status");
     }
 
-    const { BackupManager } = await import("../backup");
+    const { BackupManager } = await import("../backup/manager");
     const backupManager = new BackupManager();
     return backupManager.getBackupStatus(this.currentUser.ethereumAddress);
   }
@@ -1625,7 +1625,7 @@ export class Web3Passkey {
       throw new WalletError("Must be authenticated to confirm a backup");
     }
 
-    const { BackupManager } = await import("../backup");
+    const { BackupManager } = await import("../backup/manager");
     const { deriveAddressChecksum } = await import("../backup/encryption");
     const { ethereumAddress } = this.currentUser;
     await new BackupManager().confirmRecoveryPhraseBackup(
@@ -1790,7 +1790,7 @@ export class Web3Passkey {
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { SocialRecovery } = await import("../recovery/backup-based-recovery");
     const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup");
+    const { BackupManager } = await import("../backup/manager");
 
     const recovery = new SocialRecovery();
     const backupFileManager = new BackupFileManager();
@@ -1845,7 +1845,7 @@ export class Web3Passkey {
     password?: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup");
+    const { BackupManager } = await import("../backup/manager");
     const manager = new BackupFileManager();
     const backupManager = new BackupManager();
 
@@ -1954,7 +1954,7 @@ export class Web3Passkey {
     password?: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup");
+    const { BackupManager } = await import("../backup/manager");
     const { promptPasskeySelection } = await import("../auth/sync-auth");
 
     const manager = new BackupFileManager();
@@ -2015,7 +2015,7 @@ export class Web3Passkey {
     backupFile: BackupFile
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { DeviceSyncManager } = await import("../sync/backup-sync");
-    const { BackupManager } = await import("../backup");
+    const { BackupManager } = await import("../backup/manager");
 
     const credential = backupFile.credential!;
     const stored = await new CredentialStorage().getCredentialById(credential.id);
@@ -2113,7 +2113,7 @@ export class Web3Passkey {
     username: string
   ): Promise<{ address: string; username: string }> {
     const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup");
+    const { BackupManager } = await import("../backup/manager");
     const manager = new BackupFileManager();
     const backupManager = new BackupManager();
 
@@ -2262,7 +2262,7 @@ export class Web3Passkey {
    * Detect platform sync capabilities
    */
   async detectSyncCapabilities(): Promise<any> {
-    const { PlatformDetector } = await import("../sync");
+    const { PlatformDetector } = await import("../sync/platform-detect");
     const detector = new PlatformDetector();
 
     return detector.detectSyncCapabilities();
