@@ -63,7 +63,21 @@ async function runTests() {
   assert(typeof root === "string", "computeMerkleRoot resolves to a string");
   console.log("");
 
-  console.log("Test 3: w3pk.zk is not a thenable");
+  console.log("Test 3: an unknown member rejects");
+  const unknown = await (w3pk.zk as any).verifyMembershp().then(
+    () => null,
+    (error: Error) => error
+  );
+  assert(unknown instanceof TypeError, "w3pk.zk.verifyMembershp() rejects with a TypeError");
+  console.log("");
+
+  console.log("Test 4: isAvailable() is false when the module can't load");
+  const broken = new Web3Passkey();
+  (broken as any).loadZKModule = () => Promise.reject(new Error("ZK module not available"));
+  assert((await broken.zk.isAvailable()) === false, "isAvailable() resolves to false");
+  console.log("");
+
+  console.log("Test 5: w3pk.zk is not a thenable");
   assert((w3pk.zk as any).then === undefined, "w3pk.zk.then is undefined");
   const timeout = new Promise((resolve) => setTimeout(() => resolve("timeout"), 1000));
   const awaited = await Promise.race([(async () => await w3pk.zk)(), timeout]);
