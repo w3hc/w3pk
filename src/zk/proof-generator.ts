@@ -4,7 +4,6 @@
  */
 
 import { CryptoError } from "../core/errors";
-import { bufferToBigInt } from "./utils";
 import type {
   ProofType,
   ZKProof,
@@ -133,16 +132,8 @@ export class ZKProofGenerator {
     const cleanOwnerAddress = input.ownerAddress.startsWith('0x') ? input.ownerAddress : '0x' + input.ownerAddress;
     const cleanContractAddress = input.contractAddress.startsWith('0x') ? input.contractAddress : '0x' + input.contractAddress;
     
-    const ownerHashResult = poseidon([BigInt(cleanOwnerAddress)]);
-    const contractHashResult = poseidon([BigInt(cleanContractAddress)]);
-    
-    // Convert Uint8Array results to BigInt if needed
-    const ownerAddressHash = ownerHashResult instanceof Uint8Array 
-      ? bufferToBigInt(ownerHashResult) 
-      : ownerHashResult;
-    const contractAddressHash = contractHashResult instanceof Uint8Array 
-      ? bufferToBigInt(contractHashResult) 
-      : contractHashResult;
+    const ownerAddressHash = poseidon.F.toObject(poseidon([BigInt(cleanOwnerAddress)]));
+    const contractAddressHash = poseidon.F.toObject(poseidon([BigInt(cleanContractAddress)]));
 
     const circuitInputs: CircomInputs = {
       ownerAddress: ownerAddressHash.toString(),
@@ -215,7 +206,7 @@ export class ZKProofGenerator {
       const poseidon = await this.getPoseidonHash();
       const commitment = poseidon([value, blinding]);
 
-      return commitment.toString();
+      return poseidon.F.toObject(commitment).toString();
     } catch (error) {
       throw new CryptoError("Failed to create commitment", error);
     }
@@ -255,9 +246,9 @@ export class ZKProofGenerator {
         const index = pathIndices[i];
 
         if (index === 0) {
-          current = poseidon([current, sibling]);
+          current = poseidon.F.toObject(poseidon([current, sibling]));
         } else {
-          current = poseidon([sibling, current]);
+          current = poseidon.F.toObject(poseidon([sibling, current]));
         }
       }
 
