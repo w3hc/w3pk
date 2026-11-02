@@ -257,8 +257,7 @@ export class BackupManager {
     ]
       .filter(Boolean)
       .join(', ');
-    const toReach = (target: string) =>
-      `${steps.charAt(0).toUpperCase()}${steps.slice(1)} to reach ${target}`;
+    const toReach = (target: string) => `Reach ${target}: ${steps}`;
 
     let level: SecurityScore['level'];
     let nextMilestone: string;

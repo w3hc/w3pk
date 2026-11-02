@@ -237,13 +237,13 @@ async function runTests() {
     assertEqual(almost.level, "fort-knox", "61+: fort-knox");
     assertEqual(
       almost.nextMilestone,
-      "Verify your backup again to reach the maximum (70 pts)",
+      "Reach the maximum (70 pts): verify your backup again",
       "61+: verify again"
     );
     assertEqual(secured.level, "secured", "50: secured");
     assertEqual(
       secured.nextMilestone,
-      'Sync your passkey to another device, verify your backup again to reach "fort-knox" (61+ pts)',
+      'Reach "fort-knox" (61+ pts): sync your passkey to another device, verify your backup again',
       "50: sync to another device"
     );
     passTest(`max ${max.total}/70`);
