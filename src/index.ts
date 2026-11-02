@@ -143,11 +143,7 @@ export type {
   RecoveryProgress,
 } from "./recovery/types";
 
-export type {
-  DeviceInfo,
-  SyncCapabilities,
-  SyncStatus,
-} from "./sync/types";
+export type { SyncCapabilities } from "./sync/types";
 
 export {
   requestExternalWalletAuthorization,
