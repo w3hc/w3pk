@@ -303,4 +303,10 @@ console.log('\nTest 12: Educational Note Quality');
 console.log('\n✅ All Recovery Education Tests Passed!\n');
 }
 
-runTests().catch(console.error);
+runTests().catch((error) => {
+
+  console.error(error);
+
+  process.exit(1);
+
+});

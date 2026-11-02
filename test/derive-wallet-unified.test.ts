@@ -129,4 +129,10 @@ async function runTests() {
   console.log('\n✅ All Unified deriveWallet() API Tests Passed!\n');
 }
 
-runTests().catch(console.error);
+runTests().catch((error) => {
+
+  console.error(error);
+
+  process.exit(1);
+
+});
