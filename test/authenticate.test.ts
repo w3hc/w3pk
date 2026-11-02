@@ -36,7 +36,8 @@ function rawToDer(raw: Uint8Array): Uint8Array {
 
 async function buildAssertion(
   counter: number,
-  rpId: string
+  rpId: string,
+  challenge: ArrayBuffer = crypto.getRandomValues(new Uint8Array(32)).buffer
 ): Promise<AuthenticationCredential> {
   const authenticatorData = new Uint8Array(37);
   authenticatorData.set(
@@ -49,7 +50,11 @@ async function buildAssertion(
   new DataView(authenticatorData.buffer).setUint32(33, counter);
 
   const clientDataJSON = new TextEncoder().encode(
-    JSON.stringify({ type: "webauthn.get", origin: `http://${rpId}` })
+    JSON.stringify({
+      type: "webauthn.get",
+      challenge: arrayBufferToBase64Url(challenge),
+      origin: window.location.origin,
+    })
   );
   const clientDataHash = new Uint8Array(
     await crypto.subtle.digest("SHA-256", clientDataJSON)
@@ -115,7 +120,12 @@ async function setup() {
     configurable: true,
     value: {
       credentials: {
-        get: async () => buildAssertion(next.counter, next.rpId),
+        get: async (options: CredentialRequestOptions) =>
+          buildAssertion(
+            next.counter,
+            next.rpId,
+            options.publicKey!.challenge as ArrayBuffer
+          ),
       },
     },
   });
@@ -147,6 +157,7 @@ setup().then(() =>
         await setStoredCounter(5);
         const { error } = await attemptLogin(0);
         assert(error !== undefined, "login should reject a reset counter");
+        assertEqual(await storedCounter(), 5, "stored counter unchanged");
       },
     },
     {
