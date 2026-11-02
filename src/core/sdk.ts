@@ -18,7 +18,7 @@
  */
 
 import { register } from "../auth/register";
-import { login, verifyAssertionSignature } from "../auth/authenticate";
+import { login } from "../auth/authenticate";
 import { LocalStorageWalletStorage } from "../wallet/storage";
 import {
   generateBIP39Wallet,
@@ -57,7 +57,7 @@ import type {
 } from "../zk/prove";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
-import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
+import type { BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
@@ -65,7 +65,6 @@ import {
   AuthenticationError,
   CryptoError,
   PrfUnsupportedError,
-  SyncBootstrapError,
   WalletError,
   WalletMissingError,
 } from "./errors";
@@ -78,6 +77,19 @@ import type { GuardianShare } from "../recovery/backup-based-recovery";
 import { createEIP1193Provider, type EIP1193ProviderInterface } from "./eip1193";
 import type { SdkContext } from "./context";
 import { deriveMLKemPublicKey, mlkemDecrypt, mlkemEncrypt } from "./mlkem";
+import {
+  backupCredential,
+  confirmRecoveryPhraseBackup,
+  createBackupFile,
+  detectSyncCapabilities,
+  exportForSync,
+  getBackupStatus,
+  getSyncStatus,
+  importFromSync,
+  registerWithBackupFile,
+  restoreFromBackupFile,
+  syncWalletWithPasskey,
+} from "./backup-sync";
 
 /** ZKProofModule methods as exposed by `Web3Passkey.zk`, each returning a Promise */
 export type ZKMethods = {
@@ -129,8 +141,29 @@ export class Web3Passkey {
       get currentUser() {
         return sdk.currentUser;
       },
+      set currentUser(user) {
+        sdk.currentUser = user;
+      },
+      get currentWallet() {
+        return sdk.currentWallet;
+      },
+      set currentWallet(wallet) {
+        sdk.currentWallet = wallet;
+      },
+      get config() {
+        return sdk.config;
+      },
+      get walletStorage() {
+        return sdk.walletStorage;
+      },
+      get sessionManager() {
+        return sdk.sessionManager;
+      },
       getMnemonicFromSession: (forceAuth, securityMode) =>
         sdk.getMnemonicFromSession(forceAuth, securityMode),
+      storeWallet: (...args) => sdk.storeWallet(...args),
+      requestPersistentStorage: () => sdk.requestPersistentStorage(),
+      register: (options) => sdk.register(options),
     };
   }
 
@@ -1448,13 +1481,7 @@ export class Web3Passkey {
    * Get backup status
    */
   async getBackupStatus(): Promise<BackupStatus> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to check backup status");
-    }
-
-    const { BackupManager } = await import("../backup/manager");
-    const backupManager = new BackupManager();
-    return backupManager.getBackupStatus(this.currentUser.ethereumAddress);
+    return getBackupStatus(this.ctx);
   }
 
   /**
@@ -1462,17 +1489,7 @@ export class Web3Passkey {
    * Call it once the user confirms, so getBackupStatus() reports a backup
    */
   async confirmRecoveryPhraseBackup(): Promise<void> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to confirm a backup");
-    }
-
-    const { BackupManager } = await import("../backup/manager");
-    const { deriveAddressChecksum } = await import("../backup/encryption");
-    const { ethereumAddress } = this.currentUser;
-    await new BackupManager().confirmRecoveryPhraseBackup(
-      ethereumAddress,
-      await deriveAddressChecksum(ethereumAddress)
-    );
+    return confirmRecoveryPhraseBackup(this.ctx);
   }
 
   /**
@@ -1494,49 +1511,7 @@ export class Web3Passkey {
         "createBackupFile() takes only the password: createBackupFile(password)"
       );
     }
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to create backup");
-    }
-    if (!password) {
-      throw new WalletError("Password required for password-based backup");
-    }
-
-    const mnemonic = await this.getMnemonicFromSession(true);
-
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const manager = new BackupFileManager();
-    const { backupFile } = await manager.createPasswordBackup(
-      mnemonic,
-      password,
-      await this.backupCredential()
-    );
-
-    await this.recordBackup('file');
-
-    return manager.createDownloadableBackup(backupFile);
-  }
-
-  /** Store backup metadata for the backup status and security score */
-  private async recordBackup(method: 'file' | 'prf'): Promise<void> {
-    const { BackupStorage } = await import("../backup/storage");
-    const { deriveAddressChecksum } = await import("../backup/encryption");
-    const { ethereumAddress } = this.currentUser!;
-    await new BackupStorage().storeBackupMetadata({
-      id: crypto.randomUUID(),
-      ethereumAddress,
-      method,
-      createdAt: new Date().toISOString(),
-      addressChecksum: await deriveAddressChecksum(ethereumAddress),
-    });
-  }
-
-  private async backupCredential(): Promise<BackupCredential | undefined> {
-    const credential = await new CredentialStorage().getCredentialById(
-      this.currentUser!.credentialId
-    );
-    return credential
-      ? { id: credential.id, publicKey: credential.publicKey }
-      : undefined;
+    return createBackupFile(this.ctx, password);
   }
 
   /**
@@ -1569,7 +1544,7 @@ export class Web3Passkey {
     const { backupFile } = await new BackupFileManager().createPasswordBackup(
       mnemonic,
       password,
-      await this.backupCredential()
+      await backupCredential(this.ctx)
     );
 
     // Split backup among guardians
@@ -1685,93 +1660,7 @@ export class Web3Passkey {
     backupData: string | Blob,
     password?: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup/manager");
-    const manager = new BackupFileManager();
-    const backupManager = new BackupManager();
-
-    const backupFile = await manager.parseBackupFile(backupData);
-
-    if (backupFile.encryptionMethod === 'prf') {
-      if (this.currentUser && this.currentUser.credentialId !== backupFile.credential!.id) {
-        throw new SyncBootstrapError("CREDENTIAL_MISMATCH", this.currentUser.credentialId);
-      }
-      return this.restorePrfBackup(backupFile);
-    }
-
-    if (!password) {
-      throw new WalletError("Password required to restore password-encrypted backup");
-    }
-    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
-
-    // Mark backup as verified (successful restore proves the backup works)
-    backupManager.markBackupVerified(ethereumAddress);
-
-    // Set the current wallet with the restored mnemonic
-    // This allows the user to subsequently call register() to create a new passkey
-    this.currentWallet = {
-      address: ethereumAddress,
-      mnemonic,
-    };
-
-    // Persist the restored wallet to storage if user is logged in
-    if (this.currentUser) {
-      // Get credential for encryption
-      const storage = new CredentialStorage();
-      const credentials = await storage.getAllCredentials();
-      const credential = credentials.find(c =>
-        c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
-      );
-
-      if (credential) {
-        const oldAddress = this.currentUser.ethereumAddress;
-
-        // Delete the old wallet if the address is different
-        if (oldAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
-          await this.walletStorage.delete(oldAddress);
-        }
-
-        // Update credential with new address
-        await storage.updateCredentialAddress(credential.id, ethereumAddress);
-
-        // One assertion releases the PRF output the wallet key comes from;
-        // without PRF, the restored wallet stays in memory only
-        let prfOutput: ArrayBuffer | undefined;
-        try {
-          prfOutput = (await evaluatePrf(PRF_INPUT, credential.id)).output;
-        } catch (error) {
-          if (!(error instanceof PrfUnsupportedError)) throw error;
-        }
-
-        if (prfOutput) {
-          await this.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
-        } else {
-          await this.walletStorage.delete(ethereumAddress);
-        }
-
-        // Update current user with new address
-        this.currentUser = {
-          ...this.currentUser,
-          ethereumAddress,
-        };
-
-        await this.sessionManager.startSession(
-          mnemonic,
-          credential.id,
-          ethereumAddress,
-          prfOutput
-            ? await derivePrfSessionKey(prfOutput, this.sessionManager.storesSessionKey)
-            : undefined,
-          'STANDARD' // Default security mode
-        );
-
-        // Notify app of auth state change with updated user
-        void this.requestPersistentStorage();
-        this.config.onAuthStateChanged?.(true, this.currentUser);
-      }
-    }
-
-    return { mnemonic, ethereumAddress };
+    return restoreFromBackupFile(this.ctx, backupData, password);
   }
 
   /**
@@ -1794,148 +1683,7 @@ export class Web3Passkey {
     backupData: string | Blob,
     password?: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup/manager");
-    const { promptPasskeySelection } = await import("../auth/sync-auth");
-
-    const manager = new BackupFileManager();
-    const backupManager = new BackupManager();
-
-    const backupFile = await manager.parseBackupFile(backupData);
-
-    if (backupFile.encryptionMethod === 'prf') {
-      return this.restorePrfBackup(backupFile);
-    }
-
-    const passkeyResult = await promptPasskeySelection();
-    const credentialId = passkeyResult.credentialId;
-
-    // A fresh device has no metadata for the passkey: its public key comes
-    // from the password backup that names it
-    let publicKey = passkeyResult.publicKey;
-    if (!publicKey) {
-      if (!backupFile.credential) {
-        throw new SyncBootstrapError("NO_CREDENTIAL", credentialId);
-      }
-      if (backupFile.credential.id !== credentialId) {
-        throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
-      }
-      publicKey = backupFile.credential.publicKey;
-      if (!(await verifyAssertionSignature(passkeyResult.assertion, publicKey))) {
-        throw new SyncBootstrapError("PUBLIC_KEY_MISMATCH", credentialId);
-      }
-    }
-
-    if (!password) {
-      throw new WalletError("Password required to restore password-encrypted backup");
-    }
-    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
-
-    backupManager.markBackupVerified(ethereumAddress);
-
-    await this.bootstrapCredential(
-      {
-        id: credentialId,
-        publicKey,
-        username: passkeyResult.username ?? ethereumAddress,
-      },
-      mnemonic,
-      ethereumAddress,
-      passkeyResult.prfOutput
-    );
-
-    return { mnemonic, ethereumAddress };
-  }
-
-  /**
-   * Restore a PRF backup with its passkey and set this device up for it.
-   * The public key is this device's when it has the passkey's metadata,
-   * else the backup's, checked against the assertion's signature.
-   */
-  private async restorePrfBackup(
-    backupFile: BackupFile
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { DeviceSyncManager } = await import("../sync/backup-sync");
-    const { BackupManager } = await import("../backup/manager");
-
-    const credential = backupFile.credential!;
-    const stored = await new CredentialStorage().getCredentialById(credential.id);
-    const publicKey = stored?.publicKey ?? credential.publicKey;
-
-    const { mnemonic, ethereumAddress, walletPrfOutput } = await new DeviceSyncManager().importFromSync(
-      backupFile,
-      publicKey
-    );
-
-    new BackupManager().markBackupVerified(ethereumAddress);
-
-    await this.bootstrapCredential(
-      {
-        id: credential.id,
-        publicKey,
-        username: backupFile.username ?? ethereumAddress,
-      },
-      mnemonic,
-      ethereumAddress,
-      walletPrfOutput
-    );
-
-    return { mnemonic, ethereumAddress };
-  }
-
-  /**
-   * Set this device up for a passkey and a synced wallet: saves the
-   * passkey's metadata (or points it at the wallet), stores the wallet
-   * under the key derived from `prfOutput` and starts a session. Without
-   * `prfOutput`, the wallet and the session stay in memory only.
-   */
-  private async bootstrapCredential(
-    credential: { id: string; publicKey: string; username: string },
-    mnemonic: string,
-    ethereumAddress: string,
-    prfOutput?: ArrayBuffer
-  ): Promise<void> {
-    const storage = new CredentialStorage();
-    const stored = await storage.getCredentialById(credential.id);
-
-    if (!stored) {
-      const now = new Date().toISOString();
-      await storage.saveCredential({
-        id: credential.id,
-        publicKey: credential.publicKey,
-        username: credential.username,
-        ethereumAddress,
-        createdAt: now,
-        lastUsed: now,
-      });
-    } else if (stored.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
-      await storage.updateCredentialAddress(credential.id, ethereumAddress);
-    }
-
-    if (prfOutput) {
-      await this.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
-    } else {
-      await this.walletStorage.delete(ethereumAddress);
-    }
-
-    this.currentUser = {
-      username: stored?.username ?? credential.username,
-      ethereumAddress,
-      credentialId: credential.id,
-    };
-
-    await this.sessionManager.startSession(
-      mnemonic,
-      credential.id,
-      ethereumAddress,
-      prfOutput
-        ? await derivePrfSessionKey(prfOutput, this.sessionManager.storesSessionKey)
-        : undefined,
-      'STANDARD'
-    );
-
-    void this.requestPersistentStorage();
-    this.config.onAuthStateChanged?.(true, this.currentUser);
+    return syncWalletWithPasskey(this.ctx, backupData, password);
   }
 
   /**
@@ -1953,54 +1701,14 @@ export class Web3Passkey {
     password: string,
     username: string
   ): Promise<{ address: string; username: string }> {
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup/manager");
-    const manager = new BackupFileManager();
-    const backupManager = new BackupManager();
-
-    // Parse and restore the backup
-    const backupFile = await manager.parseBackupFile(backupData);
-
-    if (backupFile.encryptionMethod !== 'password') {
-      throw new WalletError(
-        "Can only register with password-encrypted backups. Use syncWalletWithPasskey() or importFromSync() for PRF backups."
-      );
-    }
-
-    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(
-      backupFile,
-      password
-    );
-
-    // Verify the mnemonic produces the expected address
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(mnemonic);
-
-    if (wallet.address.toLowerCase() !== ethereumAddress.toLowerCase()) {
-      throw new WalletError("Backup verification failed: address mismatch");
-    }
-
-    // Mark backup as verified (successful restore proves the backup works)
-    backupManager.markBackupVerified(ethereumAddress);
-
-    // Set the current wallet
-    this.currentWallet = {
-      address: ethereumAddress,
-      mnemonic,
-    };
-
-    // Now register with the restored wallet
-    return this.register({ username });
+    return registerWithBackupFile(this.ctx, backupData, password, username);
   }
 
   /**
    * Get cross-device sync status
    */
   async getSyncStatus(): Promise<DeviceSyncInfo | null> {
-    const { DeviceSyncManager } = await import("../sync/backup-sync");
-    const syncManager = new DeviceSyncManager();
-
-    return syncManager.getSyncInfo();
+    return getSyncStatus();
   }
 
   /**
@@ -2017,51 +1725,7 @@ export class Web3Passkey {
   async exportForSync(
     password?: string
   ): Promise<{ blob: Blob; filename: string; qrCode?: string }> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to export for sync");
-    }
-
-    // The PRF assertion below is the fresh user verification, so a cached
-    // session doesn't cost a second prompt
-    const mnemonic = await this.getMnemonicFromSession();
-
-    const walletData = await this.walletStorage.retrieve(
-      this.currentUser.ethereumAddress
-    );
-    if (!walletData) {
-      throw new WalletError("No wallet data found");
-    }
-
-    const storage = new CredentialStorage();
-    const credential = await storage.getCredentialById(walletData.credentialId);
-    if (!credential) {
-      throw new WalletError("Credential not found");
-    }
-
-    const { DeviceSyncManager } = await import("../sync/backup-sync");
-    const syncManager = new DeviceSyncManager();
-
-    const { backupFile, blob } = await syncManager.exportForSync(
-      mnemonic,
-      { id: credential.id, publicKey: credential.publicKey },
-      this.currentUser.username,
-      password
-    );
-
-    await this.recordBackup(backupFile.encryptionMethod === 'prf' ? 'prf' : 'file');
-
-    const filename = `w3pk-sync-${new Date().toISOString().split('T')[0]}.json`;
-
-    // Optionally generate QR code
-    let qrCode: string | undefined;
-    try {
-      qrCode = await syncManager.generateSyncQR(backupFile);
-    } catch (error) {
-      // QR code generation is optional
-      console.warn('QR code generation failed:', error);
-    }
-
-    return { blob, filename, qrCode };
+    return exportForSync(this.ctx, password);
   }
 
   /**
@@ -2078,35 +1742,14 @@ export class Web3Passkey {
   async importFromSync(
     syncData: string | Blob
   ): Promise<{ ethereumAddress: string; success: boolean }> {
-    const { BackupFileManager } = await import("../backup/backup-file");
-
-    const backupFile = await new BackupFileManager().parseBackupFile(syncData);
-
-    if (backupFile.encryptionMethod !== 'prf') {
-      throw new WalletError(
-        "importFromSync() takes PRF backups from exportForSync(). Use syncWalletWithPasskey() for other backups."
-      );
-    }
-    if (this.currentUser && this.currentUser.credentialId !== backupFile.credential!.id) {
-      throw new SyncBootstrapError("CREDENTIAL_MISMATCH", this.currentUser.credentialId);
-    }
-
-    const { ethereumAddress } = await this.restorePrfBackup(backupFile);
-
-    return {
-      ethereumAddress,
-      success: true,
-    };
+    return importFromSync(this.ctx, syncData);
   }
 
   /**
    * Detect platform sync capabilities
    */
   async detectSyncCapabilities(): Promise<SyncCapabilities> {
-    const { PlatformDetector } = await import("../sync/platform-detect");
-    const detector = new PlatformDetector();
-
-    return detector.detectSyncCapabilities();
+    return detectSyncCapabilities();
   }
 
   hasActiveSession(): boolean {
