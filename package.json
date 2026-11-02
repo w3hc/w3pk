@@ -86,7 +86,7 @@
     "test:education": "node scripts/run-tests.mjs test/recovery-education.test.ts",
     "test:username": "node scripts/run-tests.mjs test/username-encoding.test.ts test/username-validation.test.ts",
     "test:recovery": "node scripts/run-tests.mjs test/backup.test.ts test/backup-file.test.ts test/social-recovery.test.ts test/recovery-education.test.ts",
-    "test:zk": "node scripts/run-tests.mjs test/zk/zk.test.ts test/zk/babyjub.test.ts test/zk/elgamal.test.ts test/zk/artifacts.test.ts test/zk/zk-prove.test.ts",
+    "test:zk": "node scripts/run-tests.mjs test/zk/zk.test.ts test/zk/babyjub.test.ts test/zk/elgamal.test.ts test/zk/artifacts.test.ts test/zk/zk-prove.test.ts test/zk/zk-proxy.test.ts",
     "test:nft": "node scripts/run-tests.mjs test/nft-ownership.test.ts",
     "test:chainlist": "node scripts/run-tests.mjs test/chainlist.test.ts",
     "test:eip7702": "node scripts/run-tests.mjs test/eip7702.test.ts",

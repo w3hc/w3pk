@@ -95,13 +95,14 @@ import {
   syncWalletWithPasskey,
 } from "./backup-sync";
 
-/** ZKProofModule methods as exposed by `Web3Passkey.zk`, each returning a Promise */
+/**
+ * ZKProofModule members as exposed by `Web3Passkey.zk`: methods return a
+ * Promise, properties become calls resolving to their value
+ */
 export type ZKMethods = {
-  [K in keyof ZKProofModule as ZKProofModule[K] extends (...args: never[]) => unknown
-    ? K
-    : never]: ZKProofModule[K] extends (...args: infer A) => infer R
+  [K in keyof ZKProofModule]: ZKProofModule[K] extends (...args: infer A) => infer R
     ? (...args: A) => Promise<Awaited<R>>
-    : never;
+    : () => Promise<ZKProofModule[K]>;
 };
 
 export class Web3Passkey {
@@ -1464,18 +1465,28 @@ export class Web3Passkey {
   }
 
   /**
-   * Lazily loaded ZKProofModule (from `w3pk/zk`): each method loads the
-   * module on first call and returns a Promise
+   * Lazily loaded ZKProofModule (from `w3pk/zk`): each member loads the
+   * module on first call and returns a Promise; a property such as
+   * `isAvailable` resolves to its value, and `isAvailable()` resolves to
+   * false when the module can't load
    */
   get zk(): ZKMethods {
     return new Proxy({} as ZKMethods, {
       get: (_target, prop) => {
+        if (typeof prop === "symbol" || prop === "then") return undefined;
         return async (...args: unknown[]) => {
-          const zkModule = await this.loadZKModule();
-          const method = zkModule[prop as keyof ZKProofModule] as unknown as (
-            ...args: unknown[]
-          ) => unknown;
-          return method.apply(zkModule, args);
+          const zkModule =
+            prop === "isAvailable"
+              ? await this.loadZKModule().catch(() => null)
+              : await this.loadZKModule();
+          if (!zkModule) return false;
+          if (!(prop in zkModule) || prop in Object.prototype) {
+            throw new TypeError(`w3pk.zk.${prop} is not a function`);
+          }
+          const member: unknown = zkModule[prop as keyof ZKProofModule];
+          return typeof member === "function"
+            ? member.apply(zkModule, args)
+            : member;
         };
       },
     });

@@ -1962,7 +1962,7 @@ const w3pk = createWeb3Passkey({
 })
 ```
 
-All ZK methods are accessed via `w3pk.zk.*` (typed `ZKMethods`). The first call loads `ZKProofModule` from `w3pk/zk`, so every `w3pk.zk` method returns a Promise.
+All ZK methods are accessed via `w3pk.zk.*` (typed `ZKMethods`). The first call loads `ZKProofModule` from `w3pk/zk`, so every `w3pk.zk` method returns a Promise, and the `isAvailable` property is read as `await w3pk.zk.isAvailable()`.
 
 ### `zk.proveMembership(input: MembershipProofInput): Promise<ZKProof>`
 
@@ -2367,16 +2367,14 @@ await w3pk.zk.registerCircuit('custom', {
 
 ---
 
-### `ZKProofModule.isAvailable: boolean` (property)
+### `zk.isAvailable(): Promise<boolean>`
 
-Check if ZK proofs are available. `w3pk.zk` exposes methods only, so read this property on a `ZKProofModule` from `w3pk/zk`.
+Check if ZK proofs are available. Resolves to `false` when `w3pk/zk` or its optional dependencies (snarkjs, circomlibjs) can't load. On a `ZKProofModule` from `w3pk/zk`, `isAvailable` is a `boolean` property.
 
 **Example:**
 
 ```typescript
-import { ZKProofModule } from 'w3pk/zk'
-
-if (new ZKProofModule().isAvailable) {
+if (await w3pk.zk.isAvailable()) {
   console.log('ZK proofs enabled')
 }
 ```

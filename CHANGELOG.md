@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The four `tsup.config.ts` entries spread a shared `base` of format, sourcemap, minify, splitting, platform and target options
 - **`Web3Passkey` types** ([#189](https://github.com/w3hc/w3pk/issues/189)): no `Web3Passkey` public signature uses `any`, except the `on`/`removeListener` listeners of the EIP-1193 provider
   - `getSyncStatus()` returns `DeviceSyncInfo | null`, `detectSyncCapabilities()` returns `SyncCapabilities`, `mlkemEncrypt()` returns `EncryptedPayload` and `mlkemDecrypt()` takes one
-  - `w3pk.zk` is typed `ZKMethods`: the `ZKProofModule` methods, each returning a Promise. `isAvailable` is not on it, since the getter only exposes methods
+  - `w3pk.zk` is typed `ZKMethods`: the `ZKProofModule` methods, each returning a Promise, and `isAvailable()` returning `Promise<boolean>`
   - `ZKProofConfig` is the one from `w3pk/zk`: `customCircuits` takes `CircuitArtifacts` values
   - The EIP-1193 provider's `request()` takes `params?: unknown[]` and returns `Promise<unknown>`
   - `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` use `GuardianShare`; `requestExternalWalletDelegation()` takes an `EIP1193Provider`
@@ -77,6 +77,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The error when `w3pk/zk` can't load says to install the optional dependencies snarkjs and circomlibjs, without naming a package manager
 - **`pnpm build` passes when `dist/` holds a previous build** ([#206](https://github.com/w3hc/w3pk/issues/206)): `w3pk/zk` resolved through the package's own `exports` to `dist/zk/index.d.ts`, so the type build failed with TS5055. `tsconfig.json` now maps `w3pk/zk` to `src/zk/index.ts`, replacing its ambient declaration; the build output is unchanged
 - **`dist/index.js` and `dist/index.mjs` no longer inline the whole `package.json`** ([#207](https://github.com/w3hc/w3pk/issues/207)): `getPackageVersion()` imports only `version`, so esbuild drops the other fields (scripts, devDependencies, keywords). The build hash changes; the declared types don't
+- **`w3pk.zk` resolves properties instead of calling them** ([#208](https://github.com/w3hc/w3pk/issues/208)): `await w3pk.zk.isAvailable()` resolves to `true`, or `false` when `w3pk/zk` can't load, instead of throwing `true is not a function`
+  - `await w3pk.zk` settles: the Proxy has no `then`, so it is no longer a thenable that never resolves
+  - A member `ZKProofModule` doesn't have rejects with a `TypeError` instead of an error from inside the Proxy
 
 ## [0.11.0] - 2026-11-02
 
