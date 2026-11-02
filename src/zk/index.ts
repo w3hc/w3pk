@@ -278,7 +278,7 @@ export class ZKProofModule {
   // ========================================
 
   /**
-   * Create a Pedersen commitment for hiding values
+   * Create a Poseidon commitment for hiding values
    */
   async createCommitment(value: bigint, blinding: bigint): Promise<string> {
     try {

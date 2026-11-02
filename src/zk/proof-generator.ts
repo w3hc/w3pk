@@ -198,7 +198,7 @@ export class ZKProofGenerator {
   }
 
   /**
-   * Create a Pedersen commitment: H(value, blinding)
+   * Create a Poseidon commitment: H(value, blinding)
    */
   async createCommitment(value: bigint, blinding: bigint): Promise<string> {
     try {
