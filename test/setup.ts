@@ -21,7 +21,8 @@ if (typeof window === 'undefined') {
   (global as any).window = {
     localStorage: mockLocalStorage,
     location: {
-      hostname: 'localhost'
+      hostname: 'localhost',
+      origin: 'http://localhost'
     }
   };
 }
