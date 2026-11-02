@@ -73,20 +73,6 @@ export class RecoverySimulator {
             });
           });
         }
-
-        // Check social recovery
-        if (currentStatus.socialRecovery?.enabled) {
-          methods.push({
-            method: 'Social Recovery',
-            success: true,
-            time: '24 hours',
-            requirements: [
-              `Contact ${currentStatus.socialRecovery.threshold} guardians`,
-              'Collect shares from guardians',
-              'Verify identity with each guardian',
-            ],
-          });
-        }
         break;
 
       case 'lost-phrase':
@@ -119,16 +105,6 @@ export class RecoverySimulator {
             requirements: ['Backup file', 'Password'],
           });
         }
-
-        // Social recovery
-        if (currentStatus.socialRecovery?.enabled) {
-          methods.push({
-            method: 'Social Recovery',
-            success: true,
-            time: '24 hours',
-            requirements: [`${currentStatus.socialRecovery.threshold} guardian shares`],
-          });
-        }
         break;
 
       case 'lost-both':
@@ -145,19 +121,6 @@ export class RecoverySimulator {
             ],
           });
         }
-
-        // Social recovery is the safety net
-        if (currentStatus.socialRecovery?.enabled) {
-          methods.push({
-            method: 'Social Recovery',
-            success: true,
-            time: '24 hours',
-            requirements: [
-              `${currentStatus.socialRecovery.threshold} guardian shares`,
-              'Identity verification with guardians',
-            ],
-          });
-        }
         break;
 
       case 'switch-platform':
@@ -169,15 +132,6 @@ export class RecoverySimulator {
             success: true,
             time: '2 minutes',
             requirements: ['Backup file', 'Password'],
-          });
-        }
-
-        if (currentStatus.socialRecovery?.enabled) {
-          methods.push({
-            method: 'Social Recovery',
-            success: true,
-            time: '24 hours',
-            requirements: [`${currentStatus.socialRecovery.threshold} guardian shares`],
           });
         }
         break;
@@ -243,7 +197,7 @@ This is why backup is critical!
 IMMEDIATE ACTION REQUIRED:
 -------------------------
 
-To prevent permanent loss, set up AT LEAST TWO of these:
+To prevent permanent loss, set up both of these:
 
 1. Encrypted Backup (+20 pts)
    - Takes 2 minutes
@@ -251,13 +205,7 @@ To prevent permanent loss, set up AT LEAST TWO of these:
    - Requires password
    [Create backup now]
 
-2. Social Recovery (+20-30 pts)
-   - Takes 30 minutes setup
-   - Most secure
-   - Requires 3-5 trusted friends
-   [Set up guardians]
-
-3. Verify Your Backup (+10 pts)
+2. Verify Your Backup (+10 pts)
    - Test restore process
    - Proves backup works
    - Takes 5 minutes
@@ -300,16 +248,8 @@ Don't wait until it's too late!
       if (!status.recoveryPhrase.verified) {
         note += `   ✅ Verify your backup → +10 pts\n`;
       }
-
-      if (!status.socialRecovery?.enabled) {
-        note += `   👥 Set up social recovery → +20-30 pts\n`;
-      }
     } else if (score < 70) {
       note += `🟡 Good start! Score: ${score}/100\n\n`;
-
-      if (!status.socialRecovery?.enabled) {
-        note += `   👥 Add social recovery → +20-30 pts\n`;
-      }
 
       if (!status.recoveryPhrase.verified) {
         note += `   ✅ Verify your backup → +10 pts\n`;
@@ -318,10 +258,6 @@ Don't wait until it's too late!
       note += `\n   Target: Reach 70+ for "secured" status!\n`;
     } else if (score < 80) {
       note += `🟢 Great! Score: ${score}/100\n\n`;
-
-      if (status.socialRecovery && status.socialRecovery.verifiedGuardians < status.socialRecovery.threshold) {
-        note += `   👥 Verify your guardians → +10 pts\n`;
-      }
 
       if (status.passkeySync.deviceCount === 1) {
         note += `   📱 Sync passkey to another device → +10 pts\n`;
@@ -390,8 +326,7 @@ Don't wait until it's too late!
     feedback += `🔑 Passkey Active: ${breakdown.passkeyActive}/20\n`;
     feedback += `📱 Multi-Device Sync: ${breakdown.passkeyMultiDevice}/10\n`;
     feedback += `💾 Encrypted Backup: ${breakdown.encryptedBackup}/20\n`;
-    feedback += `✅ Backup Verified: ${breakdown.phraseVerified}/20\n`;
-    feedback += `👥 Social Recovery: ${breakdown.socialRecovery}/30\n\n`;
+    feedback += `✅ Backup Verified: ${breakdown.phraseVerified}/20\n\n`;
 
     // Recommendations based on security score
     feedback += `NEXT STEPS:\n`;
@@ -409,9 +344,6 @@ Don't wait until it's too late!
         if (breakdown.phraseVerified < 20) {
           feedback += `  • Verify your backup multiple times (+${20 - breakdown.phraseVerified} pts)\n`;
         }
-        if (breakdown.socialRecovery < 30) {
-          feedback += `  • Verify all your guardians (+${30 - breakdown.socialRecovery} pts)\n`;
-        }
       }
     } else if (securityScore >= 50) {
       feedback += `${currentStatus.securityScore.nextMilestone}\n\n`;
@@ -423,15 +355,11 @@ Don't wait until it's too late!
       if (breakdown.phraseVerified === 0) {
         feedback += `  2. Test your backup (+10 pts)\n`;
       }
-      if (breakdown.socialRecovery === 0) {
-        feedback += `  3. Set up social recovery (+20-30 pts)\n`;
-      }
     } else {
       feedback += `⚠️  URGENT: Your wallet security is at risk!\n\n`;
       feedback += `Critical actions needed:\n`;
       feedback += `  1. Create encrypted backup NOW (+20 pts)\n`;
-      feedback += `  2. Test the backup immediately (+10 pts)\n`;
-      feedback += `  3. Set up social recovery (+20-30 pts)\n\n`;
+      feedback += `  2. Test the backup immediately (+10 pts)\n\n`;
       feedback += `Target: Reach at least 50/100 for basic protection.\n`;
     }
 
