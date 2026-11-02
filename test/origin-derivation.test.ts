@@ -3,6 +3,7 @@
  * Tests for tag-based origin address derivation
  */
 
+import assert from "node:assert";
 import {
   getOriginSpecificAddress,
   deriveIndexFromOriginModeAndTag,
@@ -24,12 +25,12 @@ async function runTests() {
     const origin = "https://example.com";
     const wallet = await getOriginSpecificAddress(testMnemonic, origin);
 
-    console.assert(wallet.address, "Should have an address");
-    console.assert(wallet.privateKey === undefined, "STANDARD mode should NOT expose private key");
-    console.assert(wallet.index >= 0, "Should have a valid index");
-    console.assert(wallet.origin === origin, "Should preserve origin");
-    console.assert(wallet.mode === DEFAULT_MODE, "Should use STANDARD mode by default");
-    console.assert(wallet.tag === DEFAULT_TAG, "Should use MAIN tag by default");
+    assert(wallet.address, "Should have an address");
+    assert(wallet.privateKey === undefined, "STANDARD mode should NOT expose private key");
+    assert(wallet.index >= 0, "Should have a valid index");
+    assert(wallet.origin === origin, "Should preserve origin");
+    assert(wallet.mode === DEFAULT_MODE, "Should use STANDARD mode by default");
+    assert(wallet.tag === DEFAULT_TAG, "Should use MAIN tag by default");
 
     console.log(`  Origin: ${wallet.origin}`);
     console.log(`  Mode: ${wallet.mode}`);
@@ -50,33 +51,33 @@ async function runTests() {
     const yoloMain = await getOriginSpecificAddress(testMnemonic, origin, 'YOLO');
     const standardGaming = await getOriginSpecificAddress(testMnemonic, origin, 'STANDARD', 'GAMING');
 
-    console.assert(
+    assert(
       standardMain.address !== strictMain.address,
       "STANDARD and STRICT modes should have different addresses"
     );
-    console.assert(
+    assert(
       standardMain.address !== yoloMain.address,
       "STANDARD and YOLO modes should have different addresses"
     );
-    console.assert(
+    assert(
       standardMain.address !== standardGaming.address,
       "MAIN and GAMING tags should have different addresses"
     );
 
     // SECURITY: Check mode-based private key exposure
-    console.assert(
+    assert(
       standardMain.privateKey === undefined,
       "STANDARD mode should NOT expose private key"
     );
-    console.assert(
+    assert(
       strictMain.privateKey === undefined,
       "STRICT mode should NOT expose private key"
     );
-    console.assert(
+    assert(
       yoloMain.privateKey !== undefined,
       "YOLO mode SHOULD expose private key"
     );
-    console.assert(
+    assert(
       standardGaming.privateKey === undefined,
       "STANDARD mode should NOT expose private key (even with custom tag)"
     );
@@ -98,15 +99,15 @@ async function runTests() {
     const wallet1 = await getOriginSpecificAddress(testMnemonic, origin, mode, tag);
     const wallet2 = await getOriginSpecificAddress(testMnemonic, origin, mode, tag);
 
-    console.assert(
+    assert(
       wallet1.address === wallet2.address,
       "Same origin, mode, and tag should produce same address"
     );
-    console.assert(
+    assert(
       wallet1.privateKey === wallet2.privateKey,
       "Same origin, mode, and tag should produce same private key"
     );
-    console.assert(
+    assert(
       wallet1.index === wallet2.index,
       "Same origin, mode, and tag should produce same index"
     );
@@ -131,11 +132,11 @@ async function runTests() {
       "https://app.example.com"
     );
 
-    console.assert(
+    assert(
       wallet1.address !== wallet2.address,
       "Different domains should have different addresses"
     );
-    console.assert(
+    assert(
       wallet1.address !== wallet3.address,
       "Different subdomains should have different addresses"
     );
@@ -155,15 +156,15 @@ async function runTests() {
     const normalized3 = normalizeOrigin("https://EXAMPLE.COM");
     const normalized4 = normalizeOrigin("https://example.com:443");
 
-    console.assert(
+    assert(
       normalized1 === normalized2,
       "Trailing slash should be removed"
     );
-    console.assert(
+    assert(
       normalized1 === normalized3,
       "Should be case-insensitive"
     );
-    console.assert(
+    assert(
       normalized1 === normalized4,
       "Default HTTPS port should be removed"
     );
@@ -180,7 +181,7 @@ async function runTests() {
       "https://EXAMPLE.COM/"
     );
 
-    console.assert(
+    assert(
       wallet1.address === wallet2.address,
       "Normalized origins should produce same address"
     );
@@ -196,28 +197,31 @@ async function runTests() {
     const wallet1 = await getOriginSpecificAddress(
       testMnemonic,
       origin,
+      undefined,
       "gaming"
     );
     const wallet2 = await getOriginSpecificAddress(
       testMnemonic,
       origin,
+      undefined,
       "GAMING"
     );
     const wallet3 = await getOriginSpecificAddress(
       testMnemonic,
       origin,
+      undefined,
       "GaMiNg"
     );
 
-    console.assert(
+    assert(
       wallet1.address === wallet2.address,
       "Tag should be case-insensitive"
     );
-    console.assert(
+    assert(
       wallet1.address === wallet3.address,
       "Tag should be case-insensitive"
     );
-    console.assert(
+    assert(
       wallet1.tag === "GAMING" && wallet2.tag === "GAMING",
       "Tag should be normalized to uppercase"
     );
@@ -231,17 +235,17 @@ async function runTests() {
   {
     const origin = "https://example.com";
 
-    const index1 = await deriveIndexFromOriginAndTag(origin, "MAIN");
-    const index2 = await deriveIndexFromOriginAndTag(origin, "MAIN");
-    const index3 = await deriveIndexFromOriginAndTag(origin, "GAMING");
+    const index1 = await deriveIndexFromOriginModeAndTag(origin, DEFAULT_MODE, "MAIN");
+    const index2 = await deriveIndexFromOriginModeAndTag(origin, DEFAULT_MODE, "MAIN");
+    const index3 = await deriveIndexFromOriginModeAndTag(origin, DEFAULT_MODE, "GAMING");
 
-    console.assert(index1 === index2, "Same inputs should produce same index");
-    console.assert(
+    assert(index1 === index2, "Same inputs should produce same index");
+    assert(
       index1 !== index3,
       "Different tags should produce different indices"
     );
-    console.assert(index1 >= 0 && index1 < 0x7fffffff, "Index should be valid");
-    console.assert(
+    assert(index1 >= 0 && index1 < 0x7fffffff, "Index should be valid");
+    assert(
       index3 >= 0 && index3 < 0x7fffffff,
       "Index should be valid"
     );
@@ -259,21 +263,21 @@ async function runTests() {
     const wallets = [];
 
     for (const tag of tags) {
-      const wallet = await getOriginSpecificAddress(testMnemonic, origin, tag);
+      const wallet = await getOriginSpecificAddress(testMnemonic, origin, undefined, tag);
       wallets.push(wallet);
       console.log(`  ${tag.padEnd(8)}: ${wallet.address} (index: ${wallet.index})`);
     }
 
     // Verify all addresses are unique
     const addresses = new Set(wallets.map((w) => w.address));
-    console.assert(
+    assert(
       addresses.size === tags.length,
       "All tags should produce unique addresses"
     );
 
     // Verify all indices are unique
     const indices = new Set(wallets.map((w) => w.index));
-    console.assert(
+    assert(
       indices.size === tags.length,
       "All tags should produce unique indices"
     );
@@ -303,6 +307,7 @@ async function runTests() {
       const wallet = await getOriginSpecificAddress(
         testMnemonic,
         domain,
+        undefined,
         "GAMING"
       );
       const domainName = new URL(domain).hostname;
@@ -324,15 +329,15 @@ async function runTests() {
       "https://example.com"
     );
 
-    console.assert(
+    assert(
       httpWallet.address !== httpsWallet.address,
       "HTTP and HTTPS should be different"
     );
-    console.assert(
+    assert(
       httpWallet.origin === "http://example.com",
       "HTTP origin preserved"
     );
-    console.assert(
+    assert(
       httpsWallet.origin === "https://example.com",
       "HTTPS origin preserved"
     );
@@ -354,11 +359,11 @@ async function runTests() {
       "https://example.com:8443"
     );
 
-    console.assert(
+    assert(
       standard.address !== nonStandard.address,
       "Non-standard port should be different"
     );
-    console.assert(
+    assert(
       nonStandard.origin === "https://example.com:8443",
       "Non-standard port preserved"
     );
@@ -373,22 +378,24 @@ async function runTests() {
   {
     const origin = "https://example.com";
 
-    const tag1 = await getOriginSpecificAddress(testMnemonic, origin, "MY-TAG");
+    const tag1 = await getOriginSpecificAddress(testMnemonic, origin, undefined, "MY-TAG");
     const tag2 = await getOriginSpecificAddress(
       testMnemonic,
       origin,
+      undefined,
       "MY_TAG_123"
     );
     const tag3 = await getOriginSpecificAddress(
       testMnemonic,
       origin,
+      undefined,
       "EMOJI_🎮"
     );
 
-    console.assert(tag1.address, "Hyphenated tag should work");
-    console.assert(tag2.address, "Underscored tag should work");
-    console.assert(tag3.address, "Emoji tag should work");
-    console.assert(
+    assert(tag1.address, "Hyphenated tag should work");
+    assert(tag2.address, "Underscored tag should work");
+    assert(tag3.address, "Emoji tag should work");
+    assert(
       tag1.address !== tag2.address,
       "Different special tags should differ"
     );
@@ -405,27 +412,28 @@ async function runTests() {
     const wallet = await getOriginSpecificAddress(
       testMnemonic,
       "https://example.com",
+      "YOLO",
       "GAMING"
     );
 
-    console.assert(wallet.address.startsWith("0x"), "Should start with 0x");
-    console.assert(wallet.address.length === 42, "Should be 42 characters");
-    console.assert(
+    assert(wallet.address.startsWith("0x"), "Should start with 0x");
+    assert(wallet.address.length === 42, "Should be 42 characters");
+    assert(
       wallet.privateKey !== undefined,
-      "GAMING tag should expose private key"
+      "YOLO mode should expose private key"
     );
-    console.assert(
+    assert(
       wallet.privateKey!.startsWith("0x"),
       "Private key should start with 0x"
     );
-    console.assert(
+    assert(
       wallet.privateKey!.length === 66,
       "Private key should be 66 characters"
     );
 
     // Verify it's a valid hex address
     const isValidHex = /^0x[0-9a-fA-F]{40}$/.test(wallet.address);
-    console.assert(isValidHex, "Should be valid hex address");
+    assert(isValidHex, "Should be valid hex address");
 
     console.log(`  Address: ${wallet.address}`);
     console.log("✅ Valid Ethereum addresses generated");
