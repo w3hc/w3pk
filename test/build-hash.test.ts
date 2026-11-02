@@ -3,6 +3,9 @@
  * Tests for IPFS hash computation utilities
  */
 
+import { readFileSync } from 'node:fs';
+import { getPackageVersion } from '../src/utils/build-hash';
+
 console.log('\n🧪 Testing Build Hash Utilities...\n');
 
 // Test the base32 encoding
@@ -97,12 +100,25 @@ async function testHashConsistency() {
   }
 }
 
+function testPackageVersion() {
+  console.log('\nTesting package version...');
+
+  const { version } = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+  );
+  if (getPackageVersion() !== version) {
+    throw new Error(`Expected version ${version}, got ${getPackageVersion()}`);
+  }
+  console.log(`  ✓ Package version: ${version}`);
+}
+
 // Run all tests
 async function runTests() {
   try {
     testBase32Encode();
     await testIPFSHashFormat();
     await testHashConsistency();
+    testPackageVersion();
 
     console.log('\n✅ All build hash tests passed!\n');
     console.log('💡 To compute the actual build hash, run:');
