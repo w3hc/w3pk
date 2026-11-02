@@ -3,6 +3,7 @@
  * Verifies that applications cannot access sensitive key material based on security mode
  */
 
+import assert from "node:assert";
 import {
   getOriginSpecificAddress,
   DEFAULT_TAG,
@@ -24,15 +25,15 @@ async function runSecurityTests() {
       "https://app.example.com"
     );
 
-    console.assert(
+    assert(
       wallet.mode === DEFAULT_MODE,
       "Should use STANDARD mode by default"
     );
-    console.assert(
+    assert(
       wallet.privateKey === undefined,
       "STANDARD mode must NOT expose private key"
     );
-    console.assert(
+    assert(
       wallet.address !== undefined,
       "STANDARD mode should provide address"
     );
@@ -51,15 +52,15 @@ async function runSecurityTests() {
       'STRICT'
     );
 
-    console.assert(
+    assert(
       wallet.mode === 'STRICT',
       "Should use STRICT mode"
     );
-    console.assert(
+    assert(
       wallet.privateKey === undefined,
       "STRICT mode must NOT expose private key"
     );
-    console.assert(
+    assert(
       wallet.address !== undefined,
       "STRICT mode should provide address"
     );
@@ -78,19 +79,19 @@ async function runSecurityTests() {
       'YOLO'
     );
 
-    console.assert(
+    assert(
       wallet.mode === 'YOLO',
       "Should use YOLO mode"
     );
-    console.assert(
+    assert(
       wallet.privateKey !== undefined,
       "YOLO mode must expose private key"
     );
-    console.assert(
+    assert(
       wallet.privateKey!.startsWith("0x"),
       "Private key should be valid hex"
     );
-    console.assert(
+    assert(
       wallet.privateKey!.length === 66,
       "Private key should be 32 bytes (66 hex chars)"
     );
@@ -116,7 +117,7 @@ async function runSecurityTests() {
       console.log(`  ${origin.padEnd(25)} → ${wallet.address}`);
     }
 
-    console.assert(
+    assert(
       addresses.size === origins.length,
       "Each origin should get unique address"
     );
@@ -140,11 +141,11 @@ async function runSecurityTests() {
       'GAMING'
     );
 
-    console.assert(
+    assert(
       wallet1.address === wallet2.address,
       "Same origin+mode+tag should give same address"
     );
-    console.assert(
+    assert(
       wallet1.privateKey === wallet2.privateKey,
       "Same origin+mode+tag should give same private key"
     );
@@ -154,23 +155,15 @@ async function runSecurityTests() {
     console.log("✅ Derivation is deterministic");
   }
 
-  // Test 6: exportMnemonic is disabled
-  console.log("\nTest 6: exportMnemonic() restriction");
+  // Test 6: exportMnemonic is not part of the SDK
+  console.log("\nTest 6: exportMnemonic() is not exposed");
   {
     const sdk = new Web3Passkey();
-
-    try {
-      await sdk.exportMnemonic();
-      console.error("❌ exportMnemonic() should throw an error!");
-      process.exit(1);
-    } catch (error: any) {
-      console.assert(
-        error.message.includes("disabled for security"),
-        "Error should mention security restriction"
-      );
-      console.log(`  ✓ exportMnemonic() throws: "${error.message.slice(0, 60)}..."`);
-      console.log("✅ exportMnemonic() is properly disabled");
-    }
+    assert(
+      !("exportMnemonic" in sdk),
+      "exportMnemonic() should not exist on the SDK"
+    );
+    console.log("✅ exportMnemonic() is not exposed");
   }
 
   // Test 7: Verify STANDARD and STRICT modes never leak private keys
@@ -198,7 +191,7 @@ async function runSecurityTests() {
       }
     }
 
-    console.assert(allSecure, "All STANDARD/STRICT mode wallets should hide private keys");
+    assert(allSecure, "All STANDARD/STRICT mode wallets should hide private keys");
     console.log(`  ✓ Tested ${origins.length * modes.length} combinations`);
     console.log("✅ No STANDARD/STRICT mode private key leaks detected");
   }
@@ -213,15 +206,15 @@ async function runSecurityTests() {
     const strict = await getOriginSpecificAddress(testMnemonic, origin, 'STRICT', tag);
     const yolo = await getOriginSpecificAddress(testMnemonic, origin, 'YOLO', tag);
 
-    console.assert(
+    assert(
       standard.address !== strict.address,
       "STANDARD and STRICT should produce different addresses"
     );
-    console.assert(
+    assert(
       standard.address !== yolo.address,
       "STANDARD and YOLO should produce different addresses"
     );
-    console.assert(
+    assert(
       strict.address !== yolo.address,
       "STRICT and YOLO should produce different addresses"
     );
@@ -237,7 +230,7 @@ async function runSecurityTests() {
   console.log("  • STANDARD mode: Address only (no private key), persistent sessions allowed");
   console.log("  • STRICT mode: Address only (no private key), no persistent sessions");
   console.log("  • YOLO mode: Full access (address + private key), persistent sessions allowed");
-  console.log("  • exportMnemonic(): Disabled for security");
+  console.log("  • exportMnemonic(): Not exposed");
   console.log("  • Origin isolation: Each origin gets unique addresses");
   console.log("  • Mode isolation: Each mode gets unique addresses");
   console.log("  • Deterministic: Same origin+mode+tag always gives same result");
@@ -254,4 +247,7 @@ async function runSecurityTests() {
   console.log("");
 }
 
-runSecurityTests().catch(console.error);
+runSecurityTests().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

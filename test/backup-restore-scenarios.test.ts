@@ -1,13 +1,13 @@
 /**
- * Comprehensive test suite for Step 2: Backup/Restore scenarios
- * Tests all scenarios described in FLOPPY_DISK.md
+ * Backup/restore scenarios: device loss, storage deletion, login-less
+ * recovery, wrong passwords, corrupted files and repeated restores
  */
 
 import { Wallet } from 'ethers';
 import { BackupFileManager } from '../src/backup/backup-file';
 import { BackupManager } from '../src/backup/manager';
 
-console.log('\n🧪 Testing Step 2: Backup/Restore Scenarios\n');
+console.log('\n🧪 Testing Backup/Restore Scenarios\n');
 
 // Helper to simulate storage clearing
 function clearStorage() {
@@ -226,13 +226,17 @@ async function testCorruptedBackup() {
   ];
 
   for (const [index, corrupted] of corruptedBackups.entries()) {
+    let rejected: any;
     try {
       await manager.parseBackupFile(corrupted);
-      throw new Error(`Should have failed for corrupted backup ${index + 1}`);
-    } catch (error: any) {
-      console.log(`  ✓ Test ${index + 1}: Correctly rejected corrupted backup`);
-      console.log(`    Error: ${error.message.substring(0, 60)}...`);
+    } catch (error) {
+      rejected = error;
     }
+    if (!rejected) {
+      throw new Error(`Should have failed for corrupted backup ${index + 1}`);
+    }
+    console.log(`  ✓ Test ${index + 1}: Correctly rejected corrupted backup`);
+    console.log(`    Error: ${rejected.message.substring(0, 60)}...`);
   }
 
   console.log('  ✅ Corrupted backup test PASSED\n');
@@ -524,7 +528,7 @@ async function testPerformance() {
 async function runAllTests() {
   try {
     console.log('═══════════════════════════════════════════════════════');
-    console.log('  STEP 2: BACKUP/RESTORE - COMPREHENSIVE TEST SUITE');
+    console.log('  BACKUP/RESTORE SCENARIOS');
     console.log('═══════════════════════════════════════════════════════\n');
 
     // Core scenarios
@@ -548,10 +552,9 @@ async function runAllTests() {
     await testPerformance();
 
     console.log('═══════════════════════════════════════════════════════');
-    console.log('  🎉 ALL STEP 2 TESTS PASSED!');
+    console.log('  🎉 ALL BACKUP/RESTORE TESTS PASSED!');
     console.log('═══════════════════════════════════════════════════════\n');
 
-    console.log('✅ Step 2: Backup/Restore is ready for integration testing\n');
   } catch (error) {
     console.error('\n❌ Test failed:', error);
     process.exit(1);

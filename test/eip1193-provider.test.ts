@@ -471,4 +471,7 @@ async function runTests() {
   endTestSuite();
 }
 
-runTests().catch(console.error);
+runTests().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

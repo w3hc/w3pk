@@ -3,6 +3,7 @@
  * Tests for PRIMARY mode (P-256 WebAuthn signatures) and helper functions
  */
 
+import assert from "node:assert";
 import { extractRS } from "../src/utils/crypto";
 import {
   base64UrlToArrayBuffer,
@@ -40,10 +41,10 @@ async function runTests() {
 
     const result = extractRS(derSig);
 
-    console.assert(result.r.startsWith("0x"), "r should start with 0x");
-    console.assert(result.s.startsWith("0x"), "s should start with 0x");
-    console.assert(result.r.length === 66, "r should be 66 chars (0x + 64 hex)");
-    console.assert(result.s.length === 66, "s should be 66 chars (0x + 64 hex)");
+    assert(result.r.startsWith("0x"), "r should start with 0x");
+    assert(result.s.startsWith("0x"), "s should start with 0x");
+    assert(result.r.length === 66, "r should be 66 chars (0x + 64 hex)");
+    assert(result.s.length === 66, "s should be 66 chars (0x + 64 hex)");
 
     console.log(`  ✓ r: ${result.r.slice(0, 20)}...`);
     console.log(`  ✓ s: ${result.s.slice(0, 20)}...`);
@@ -77,10 +78,10 @@ async function runTests() {
 
     const result = extractRS(derSig);
 
-    console.assert(result.r.startsWith("0x"), "r should start with 0x");
-    console.assert(result.s.startsWith("0x"), "s should start with 0x");
-    console.assert(result.r.length === 66, "r should be 66 chars");
-    console.assert(result.s.length === 66, "s should be 66 chars");
+    assert(result.r.startsWith("0x"), "r should start with 0x");
+    assert(result.s.startsWith("0x"), "s should start with 0x");
+    assert(result.r.length === 66, "r should be 66 chars");
+    assert(result.s.length === 66, "s should be 66 chars");
 
     console.log(`  ✓ Handled padded r: ${result.r.slice(0, 20)}...`);
     console.log(`  ✓ Handled padded s: ${result.s.slice(0, 20)}...`);
@@ -114,11 +115,11 @@ async function runTests() {
 
     // Extract the s value and verify it's been normalized
     const extractedS = BigInt(result.s);
-    console.assert(
+    assert(
       extractedS <= halfN,
       "s should be normalized to low-s (s <= n/2)"
     );
-    console.assert(extractedS === n - highS, "s should equal n - original_s");
+    assert(extractedS === n - highS, "s should equal n - original_s");
 
     console.log(`  ✓ Original s > n/2: ${highS.toString(16).slice(0, 20)}...`);
     console.log(
@@ -134,13 +135,13 @@ async function runTests() {
 
     try {
       extractRS(invalidSig);
-      console.assert(false, "Should have thrown error for invalid signature");
+      assert(false, "Should have thrown error for invalid signature");
     } catch (error) {
-      console.assert(
+      assert(
         error instanceof Error,
         "Should throw Error for invalid signature"
       );
-      console.assert(
+      assert(
         (error as Error).message.includes("Invalid DER signature"),
         "Error message should indicate invalid DER"
       );
@@ -156,7 +157,7 @@ async function runTests() {
     const result = base64UrlToArrayBuffer(input);
     const decoded = new TextDecoder().decode(result);
 
-    console.assert(decoded === "Hello World", "Should decode to 'Hello World'");
+    assert(decoded === "Hello World", "Should decode to 'Hello World'");
     console.log(`  ✓ Decoded: ${decoded}`);
     console.log("✅ base64UrlToArrayBuffer works correctly");
   }
@@ -169,7 +170,7 @@ async function runTests() {
     const result = base64UrlToArrayBuffer(unpadded);
     const decoded = new TextDecoder().decode(result);
 
-    console.assert(decoded === "Hello World", "Should handle unpadded input");
+    assert(decoded === "Hello World", "Should handle unpadded input");
     console.log(`  ✓ Handled unpadded input`);
     console.log("✅ base64UrlToArrayBuffer handles missing padding");
   }
@@ -181,7 +182,7 @@ async function runTests() {
     const urlSafe = "SGVsbG8tV29ybGRf"; // Contains - and _
     const result = base64UrlToArrayBuffer(urlSafe);
 
-    console.assert(result instanceof ArrayBuffer, "Should return ArrayBuffer");
+    assert(result instanceof ArrayBuffer, "Should return ArrayBuffer");
     console.log(`  ✓ Converted URL-safe base64`);
     console.log("✅ base64UrlToArrayBuffer handles URL-safe characters");
   }
@@ -196,10 +197,10 @@ async function runTests() {
     const decoded = base64UrlToArrayBuffer(encoded);
     const result = new TextDecoder().decode(decoded);
 
-    console.assert(result === original, "Round-trip should preserve data");
-    console.assert(!encoded.includes("+"), "Should not contain +");
-    console.assert(!encoded.includes("/"), "Should not contain /");
-    console.assert(!encoded.includes("="), "Should not contain padding");
+    assert(result === original, "Round-trip should preserve data");
+    assert(!encoded.includes("+"), "Should not contain +");
+    assert(!encoded.includes("/"), "Should not contain /");
+    assert(!encoded.includes("="), "Should not contain padding");
 
     console.log(`  ✓ Original: ${original}`);
     console.log(`  ✓ Encoded: ${encoded}`);
@@ -214,7 +215,7 @@ async function runTests() {
     const result1 = base64UrlDecode(input);
     const result2 = base64UrlToArrayBuffer(input);
 
-    console.assert(
+    assert(
       result1.byteLength === result2.byteLength,
       "Alias should work identically"
     );
@@ -222,7 +223,7 @@ async function runTests() {
     const decoded1 = new TextDecoder().decode(result1);
     const decoded2 = new TextDecoder().decode(result2);
 
-    console.assert(
+    assert(
       decoded1 === decoded2,
       "Alias should produce same result"
     );
@@ -237,7 +238,7 @@ async function runTests() {
     const result = base64ToArrayBuffer(input);
     const decoded = new TextDecoder().decode(result);
 
-    console.assert(decoded === "Hello World", "Should decode standard base64");
+    assert(decoded === "Hello World", "Should decode standard base64");
     console.log(`  ✓ Decoded: ${decoded}`);
     console.log("✅ base64ToArrayBuffer works with standard base64");
   }
@@ -251,7 +252,7 @@ async function runTests() {
     const result1 = safeAtob(base64);
     const result2 = safeAtob(base64url);
 
-    console.assert(result1 === result2, "Should handle both formats");
+    assert(result1 === result2, "Should handle both formats");
     console.log(`  ✓ Handled both base64 and base64url`);
     console.log("✅ safeAtob handles both formats");
   }
@@ -262,8 +263,8 @@ async function runTests() {
     const unicode = "Hello 世界 🌍";
     const encoded = safeBtoa(unicode);
 
-    console.assert(encoded.length > 0, "Should encode Unicode");
-    console.assert(!encoded.includes(unicode), "Should be encoded");
+    assert(encoded.length > 0, "Should encode Unicode");
+    assert(!encoded.includes(unicode), "Should be encoded");
 
     console.log(`  ✓ Encoded Unicode string`);
     console.log("✅ safeBtoa handles Unicode correctly");
@@ -292,12 +293,12 @@ async function runTests() {
     // Derive address
     const address = await deriveAddressFromP256PublicKey(publicKeySpki);
 
-    console.assert(address.startsWith("0x"), "Address should start with 0x");
-    console.assert(
+    assert(address.startsWith("0x"), "Address should start with 0x");
+    assert(
       address.length === 42,
       "Address should be 42 chars (0x + 40 hex)"
     );
-    console.assert(
+    assert(
       /^0x[0-9a-fA-F]{40}$/.test(address),
       "Address should be valid hex"
     );
@@ -329,7 +330,7 @@ async function runTests() {
     const address1 = await deriveAddressFromP256PublicKey(publicKeySpki);
     const address2 = await deriveAddressFromP256PublicKey(publicKeySpki);
 
-    console.assert(
+    assert(
       address1 === address2,
       "Same public key should produce same address"
     );
@@ -373,7 +374,7 @@ async function runTests() {
       arrayBufferToBase64Url(publicKey2)
     );
 
-    console.assert(
+    assert(
       address1 !== address2,
       "Different keys should produce different addresses"
     );
@@ -430,7 +431,7 @@ async function runTests() {
     const hash = keccak256(uncompressedKey);
     const manualAddress = "0x" + hash.slice(-40);
 
-    console.assert(
+    assert(
       address.toLowerCase() === manualAddress.toLowerCase(),
       "Function should match manual derivation"
     );
@@ -500,11 +501,11 @@ async function runTests() {
     const qy =
       "0x" + Buffer.from(base64UrlToArrayBuffer(jwk.y!)).toString("hex");
 
-    console.assert(r.startsWith("0x"), "r should be hex");
-    console.assert(s.startsWith("0x"), "s should be hex");
-    console.assert(address.startsWith("0x"), "address should be hex");
-    console.assert(qx.startsWith("0x"), "qx should be hex");
-    console.assert(qy.startsWith("0x"), "qy should be hex");
+    assert(r.startsWith("0x"), "r should be hex");
+    assert(s.startsWith("0x"), "s should be hex");
+    assert(address.startsWith("0x"), "address should be hex");
+    assert(qx.startsWith("0x"), "qx should be hex");
+    assert(qy.startsWith("0x"), "qy should be hex");
 
     console.log(`  ✓ Message: ${message}`);
     console.log(`  ✓ Signature r: ${r.slice(0, 20)}...`);
@@ -522,7 +523,7 @@ async function runTests() {
     const encoded = arrayBufferToBase64Url(emptyBuffer);
     const decoded = base64UrlToArrayBuffer(encoded);
 
-    console.assert(decoded.byteLength === 0, "Empty buffer should remain empty");
+    assert(decoded.byteLength === 0, "Empty buffer should remain empty");
     console.log(`  ✓ Handled empty buffer`);
     console.log("✅ Empty buffer handling works");
   }
@@ -534,13 +535,13 @@ async function runTests() {
     const encoded = arrayBufferToBase64Url(largeBuffer);
     const decoded = base64UrlToArrayBuffer(encoded);
 
-    console.assert(
+    assert(
       decoded.byteLength === largeBuffer.length,
       "Large buffer size should be preserved"
     );
 
     const decodedArray = new Uint8Array(decoded);
-    console.assert(
+    assert(
       decodedArray.every((b) => b === 0x42),
       "Large buffer contents should be preserved"
     );
@@ -569,10 +570,10 @@ async function runTests() {
 
     const result = extractRS(derSig);
 
-    console.assert(result.r.startsWith("0x"), "r should be hex");
-    console.assert(result.s.startsWith("0x"), "s should be hex");
-    console.assert(result.r.length === 66, "r should be padded to 32 bytes");
-    console.assert(result.s.length === 66, "s should be padded to 32 bytes");
+    assert(result.r.startsWith("0x"), "r should be hex");
+    assert(result.s.startsWith("0x"), "s should be hex");
+    assert(result.r.length === 66, "r should be padded to 32 bytes");
+    assert(result.s.length === 66, "s should be padded to 32 bytes");
 
     console.log(`  ✓ Minimal r: ${result.r}`);
     console.log(`  ✓ Minimal s: ${result.s}`);
@@ -586,12 +587,12 @@ async function runTests() {
     // Here we just validate that the method is properly typed and exported
     const { Web3Passkey } = await import("../src/core/sdk");
 
-    console.assert(Web3Passkey !== undefined, "Web3Passkey should be exported");
-    console.assert(typeof Web3Passkey === "function", "Web3Passkey should be a constructor");
+    assert(Web3Passkey !== undefined, "Web3Passkey should be exported");
+    assert(typeof Web3Passkey === "function", "Web3Passkey should be a constructor");
 
     // Check that the getAddress method exists on the prototype
     const instance = new Web3Passkey();
-    console.assert(typeof instance.getAddress === "function", "getAddress should be a method");
+    assert(typeof instance.getAddress === "function", "getAddress should be a method");
 
     console.log(`  ✓ Web3Passkey exported correctly`);
     console.log(`  ✓ getAddress method exists`);
@@ -609,4 +610,7 @@ async function runTests() {
   console.log("");
 }
 
-runTests().catch(console.error);
+runTests().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

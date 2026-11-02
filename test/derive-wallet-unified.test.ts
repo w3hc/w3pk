@@ -3,6 +3,7 @@
  * Tests for the new unified API supporting index/tag/auto modes
  */
 
+import assert from 'node:assert';
 import { deriveWalletFromMnemonic } from '../src/wallet/generate';
 import { getOriginSpecificAddress, DEFAULT_TAG } from '../src/wallet/origin-derivation';
 
@@ -20,8 +21,8 @@ async function runTests() {
 
     if (typeof indexOrTag === 'number') {
       const wallet = deriveWalletFromMnemonic(testMnemonic, indexOrTag);
-      console.assert(wallet.address, 'Should have address');
-      console.assert(wallet.privateKey, 'Should have private key');
+      assert(wallet.address, 'Should have address');
+      assert(wallet.privateKey, 'Should have private key');
       console.log(`  Index 0: ${wallet.address}`);
     }
 
@@ -39,16 +40,16 @@ async function runTests() {
     const origin = 'https://example.com'; // Would come from getCurrentOrigin()
 
     if (typeof indexOrTag === 'string') {
-      const wallet = await getOriginSpecificAddress(testMnemonic, origin, indexOrTag);
-      console.assert(wallet.address, 'Should have address');
-      console.assert(wallet.tag === 'GAMING', 'Should have GAMING tag');
-      console.assert(wallet.origin === origin, 'Should have origin');
+      const wallet = await getOriginSpecificAddress(testMnemonic, origin, undefined, indexOrTag);
+      assert(wallet.address, 'Should have address');
+      assert(wallet.tag === 'GAMING', 'Should have GAMING tag');
+      assert(wallet.origin === origin, 'Should have origin');
       console.log(`  GAMING tag: ${wallet.address}`);
       console.log(`  Tag: ${wallet.tag}, Origin: ${wallet.origin}`);
     }
 
     // Simulate: deriveWallet('TRADING')
-    const tradingWallet = await getOriginSpecificAddress(testMnemonic, origin, 'TRADING');
+    const tradingWallet = await getOriginSpecificAddress(testMnemonic, origin, undefined, 'TRADING');
     console.log(`  TRADING tag: ${tradingWallet.address}`);
 
     console.log('✅ Tag-based derivation working');
@@ -61,10 +62,10 @@ async function runTests() {
     const origin = 'https://example.com';
 
     const tag = typeof indexOrTag === 'string' ? indexOrTag : DEFAULT_TAG;
-    const wallet = await getOriginSpecificAddress(testMnemonic, origin, tag);
+    const wallet = await getOriginSpecificAddress(testMnemonic, origin, undefined, tag);
 
-    console.assert(wallet.tag === 'MAIN', 'Should default to MAIN tag');
-    console.assert(wallet.origin === origin, 'Should have origin');
+    assert(wallet.tag === 'MAIN', 'Should default to MAIN tag');
+    assert(wallet.origin === origin, 'Should have origin');
     console.log(`  Auto (MAIN): ${wallet.address}`);
     console.log(`  Tag: ${wallet.tag}, Origin: ${wallet.origin}`);
 
@@ -79,16 +80,16 @@ async function runTests() {
     const indexWallet = deriveWalletFromMnemonic(testMnemonic, 0);
 
     // MAIN tag (auto)
-    const mainWallet = await getOriginSpecificAddress(testMnemonic, origin, DEFAULT_TAG);
+    const mainWallet = await getOriginSpecificAddress(testMnemonic, origin, undefined, DEFAULT_TAG);
 
     // GAMING tag
-    const gamingWallet = await getOriginSpecificAddress(testMnemonic, origin, 'GAMING');
+    const gamingWallet = await getOriginSpecificAddress(testMnemonic, origin, undefined, 'GAMING');
 
-    console.assert(
+    assert(
       indexWallet.address !== mainWallet.address,
       'Index 0 should differ from MAIN tag'
     );
-    console.assert(
+    assert(
       mainWallet.address !== gamingWallet.address,
       'MAIN tag should differ from GAMING tag'
     );
@@ -106,17 +107,17 @@ async function runTests() {
     const origin2 = 'https://another.com';
 
     // Same tag, different origins = different addresses
-    const wallet1 = await getOriginSpecificAddress(testMnemonic, origin1, 'GAMING');
-    const wallet2 = await getOriginSpecificAddress(testMnemonic, origin2, 'GAMING');
+    const wallet1 = await getOriginSpecificAddress(testMnemonic, origin1, undefined, 'GAMING');
+    const wallet2 = await getOriginSpecificAddress(testMnemonic, origin2, undefined, 'GAMING');
 
-    console.assert(
+    assert(
       wallet1.address !== wallet2.address,
       'Different origins should have different addresses'
     );
 
     // Same origin, same tag = same address
-    const wallet3 = await getOriginSpecificAddress(testMnemonic, origin1, 'GAMING');
-    console.assert(
+    const wallet3 = await getOriginSpecificAddress(testMnemonic, origin1, undefined, 'GAMING');
+    assert(
       wallet1.address === wallet3.address,
       'Same origin + tag should give same address'
     );
@@ -129,4 +130,7 @@ async function runTests() {
   console.log('\n✅ All Unified deriveWallet() API Tests Passed!\n');
 }
 
-runTests().catch(console.error);
+runTests().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

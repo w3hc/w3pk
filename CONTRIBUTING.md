@@ -31,7 +31,7 @@ npm install -g pnpm
 # Install dependencies
 pnpm install
 
-# Run tests
+# Run every test/**/*.test.ts file
 pnpm test
 
 # Run specific test suites
@@ -41,15 +41,20 @@ pnpm test:recovery        # Backup & recovery system tests
 pnpm test:backup          # Backup system tests only
 pnpm test:social-recovery # Social recovery tests only
 pnpm test:education       # Recovery education tests only
+pnpm test:username        # Username encoding and validation tests
 pnpm test:zk              # Zero-knowledge proof tests
 pnpm test:nft             # NFT ownership tests
 pnpm test:chainlist       # RPC endpoint tests
 pnpm test:eip7702         # EIP-7702 support tests
+pnpm test:eip7951         # P-256 (EIP-7951) signature tests
 pnpm test:erc5564         # Stealth address tests
+pnpm test:external-wallet # External wallet tests
+pnpm test:sign-message    # Message signing tests
+pnpm test:siwe            # Sign-In with Ethereum tests
 
-# Or run individual test files
-pnpm tsx test/persistent-session.test.ts  # Persistent session tests (requires browser)
-pnpm tsx test/credential-checking.test.ts  # Credential checking methods
+# Or run a directory or individual test files
+node scripts/run-tests.mjs test/zk
+node scripts/run-tests.mjs test/persistent-session.test.ts test/credential-checking.test.ts
 
 # Build
 pnpm build
@@ -440,6 +445,8 @@ See [Security Architecture](./docs/SECURITY.md) for detailed analysis.
 
 ### Testing
 - Add tests for new features
+- Name test files `*.test.ts` under `test/`: `pnpm test` runs every one of them through `scripts/run-tests.mjs`, so there is no list to update
+- Each test file runs on its own with `tsx` and must exit non-zero when a test fails: throw (or use `assert` from `node:assert` or `test/test-utils.ts`) rather than `console.assert`, and end with `endTestSuite()` or `process.exit(1)` on failure
 - Maintain 100% test pass rate
 - Test both success and error cases
 - Use the mock setup from `test/setup.ts`
