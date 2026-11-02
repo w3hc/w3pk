@@ -32,13 +32,12 @@ const mockBackupStatus: BackupStatus = {
     ]
   },
   securityScore: {
-    total: 80,
+    total: 50,
     breakdown: {
       passkeyActive: 20,
       passkeyMultiDevice: 10,
       phraseVerified: 0,
-      encryptedBackup: 20,
-      socialRecovery: 30
+      encryptedBackup: 20
     },
     level: 'secured',
     nextMilestone: 'Verify phrase to reach fort-knox'
@@ -183,8 +182,7 @@ console.log('\nTest 7: Test with Vulnerable Status');
         passkeyActive: 20,
         passkeyMultiDevice: 0,
         phraseVerified: 0,
-        encryptedBackup: 0,
-        socialRecovery: 0
+        encryptedBackup: 0
       },
       level: 'vulnerable',
       nextMilestone: 'Create backup'

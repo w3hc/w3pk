@@ -197,7 +197,6 @@ async function runTests() {
         { enabled: true, deviceCount: 1 },
         methods.map((method) => ({ id: method, method, location: "local", createdAt: "" })),
         undefined,
-        undefined,
         restoresWithoutPasskey
       );
     const passwordOnly = score(["file"], true);

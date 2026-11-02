@@ -7,7 +7,6 @@ import type {
   BackupStatus,
   SecurityScore,
   EncryptedBackupInfo,
-  SocialRecoveryStatus,
 } from './types';
 import { PASSKEY_INDEPENDENT_METHODS } from './types';
 import { BackupStorage } from './storage';
@@ -75,7 +74,6 @@ export class BackupManager {
       securityScore: this.calculateSecurityScore(
         passkeySync,
         encryptedBackups,
-        undefined,
         verificationStatus,
         hasBackup
       ),
@@ -227,22 +225,9 @@ export class BackupManager {
   private calculateSecurityScore(
     passkeySync: any,
     encryptedBackups: EncryptedBackupInfo[],
-    socialRecoveryStatus?: SocialRecoveryStatus,
     verificationStatus?: { verified: boolean; count: number },
     restoresWithoutPasskey = false
   ): SecurityScore {
-    // Calculate social recovery score
-    let socialRecoveryScore = 0;
-    if (socialRecoveryStatus?.enabled) {
-      // Base score for having social recovery setup
-      socialRecoveryScore = 20;
-
-      // Bonus for verified guardians
-      if (socialRecoveryStatus.verifiedGuardians >= socialRecoveryStatus.threshold) {
-        socialRecoveryScore += 10; // +10 if enough guardians are verified
-      }
-    }
-
     // Calculate verification score
     let verificationScore = 0;
     if (verificationStatus?.verified) {
@@ -256,7 +241,6 @@ export class BackupManager {
       passkeyMultiDevice: passkeySync.deviceCount > 1 ? 10 : 0,
       phraseVerified: verificationScore,
       encryptedBackup: encryptedBackups.length > 0 ? 20 : 0,
-      socialRecovery: socialRecoveryScore,
     };
 
     const sum = Object.values(breakdown).reduce((acc, val) => acc + val, 0);
