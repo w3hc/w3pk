@@ -188,7 +188,7 @@ export class RecoverySimulator {
 ❌ WALLET CANNOT BE RECOVERED
 
 Scenario: ${scenario.description}
-Current Security Score: ${score}/100 (${level})
+Current Security Score: ${score}/70 (${level})
 
 Unfortunately, you have no recovery options for this scenario.
 
@@ -211,7 +211,7 @@ To prevent permanent loss, set up both of these:
    - Takes 5 minutes
    [Test backup now]
 
-Target: Reach at least 50/100 for basic protection!
+Target: Reach at least 21/70 for basic protection!
 
 ---
 
@@ -220,7 +220,7 @@ Don't wait until it's too late!
     }
 
     let note = `✅ YOU CAN RECOVER!\n\nScenario: ${scenario.description}\n`;
-    note += `Security Score: ${score}/100 (${level})\n\n`;
+    note += `Security Score: ${score}/70 (${level})\n\n`;
 
     note += `Available recovery methods (${methods.length}):\n\n`;
 
@@ -237,8 +237,8 @@ Don't wait until it's too late!
     // Add score-based recommendations
     note += `\nSECURITY RECOMMENDATIONS:\n`;
 
-    if (score < 50) {
-      note += `⚠️  Your score is below 50/100.\n`;
+    if (score <= 20) {
+      note += `⚠️  Your score is 20/70 or below.\n`;
       note += `   Add more backups to improve protection:\n\n`;
 
       if (!status.recoveryPhrase.encryptedBackups.length) {
@@ -248,16 +248,16 @@ Don't wait until it's too late!
       if (!status.recoveryPhrase.verified) {
         note += `   ✅ Verify your backup → +10 pts\n`;
       }
-    } else if (score < 70) {
-      note += `🟡 Good start! Score: ${score}/100\n\n`;
+    } else if (score <= 40) {
+      note += `🟡 Good start! Score: ${score}/70\n\n`;
 
       if (!status.recoveryPhrase.verified) {
         note += `   ✅ Verify your backup → +10 pts\n`;
       }
 
-      note += `\n   Target: Reach 70+ for "secured" status!\n`;
-    } else if (score < 80) {
-      note += `🟢 Great! Score: ${score}/100\n\n`;
+      note += `\n   Target: Reach 41+ for "secured" status!\n`;
+    } else if (score <= 60) {
+      note += `🟢 Great! Score: ${score}/70\n\n`;
 
       if (status.passkeySync.deviceCount === 1) {
         note += `   📱 Sync passkey to another device → +10 pts\n`;
@@ -265,7 +265,7 @@ Don't wait until it's too late!
 
       note += `\n   You're close to "fort-knox" status!\n`;
     } else {
-      note += `🏆 Excellent! Score: ${score}/100\n`;
+      note += `🏆 Excellent! Score: ${score}/70\n`;
       note += `   Your wallet is extremely well-protected!\n`;
       note += `   You can survive almost any disaster scenario.\n`;
     }
@@ -316,7 +316,7 @@ Don't wait until it's too late!
       feedback += `⚠️  AT RISK! You can only recover in ${successCount}/${scenarios.length} scenarios.\n`;
     }
 
-    feedback += `\nSECURITY SCORE: ${securityScore}/100 (${securityLevel})\n`;
+    feedback += `\nSECURITY SCORE: ${securityScore}/70 (${securityLevel})\n`;
     feedback += `${'='.repeat(50)}\n\n`;
 
     // Score breakdown
@@ -332,12 +332,12 @@ Don't wait until it's too late!
     feedback += `NEXT STEPS:\n`;
     feedback += `${'='.repeat(50)}\n\n`;
 
-    if (securityScore >= 80) {
+    if (securityScore > 60) {
       feedback += `🏆 Excellent security posture!\n`;
       feedback += `Your wallet is extremely well-protected.\n\n`;
 
-      if (securityScore < 100) {
-        feedback += `To reach perfect 100/100:\n`;
+      if (securityScore < 70) {
+        feedback += `To reach perfect 70/70:\n`;
         if (breakdown.passkeyMultiDevice === 0) {
           feedback += `  • Sync passkey to another device (+10 pts)\n`;
         }
@@ -345,7 +345,7 @@ Don't wait until it's too late!
           feedback += `  • Verify your backup multiple times (+${20 - breakdown.phraseVerified} pts)\n`;
         }
       }
-    } else if (securityScore >= 50) {
+    } else if (securityScore > 20) {
       feedback += `${currentStatus.securityScore.nextMilestone}\n\n`;
       feedback += `Recommended actions:\n`;
 
@@ -360,7 +360,7 @@ Don't wait until it's too late!
       feedback += `Critical actions needed:\n`;
       feedback += `  1. Create encrypted backup NOW (+20 pts)\n`;
       feedback += `  2. Test the backup immediately (+10 pts)\n\n`;
-      feedback += `Target: Reach at least 50/100 for basic protection.\n`;
+      feedback += `Target: Reach at least 21/70 for basic protection.\n`;
     }
 
     return {
