@@ -451,6 +451,8 @@ For advanced users who need to export their mnemonic to use in other wallets, W3
 
 See [standalone/extract-mnemonic.html](../standalone/extract-mnemonic.html) for a complete standalone implementation.
 
+To try it, [examples/w3pk_backup_example_2026-11-02.json](../examples/w3pk_backup_example_2026-11-02.json) is a password backup of the public test mnemonic `test test test test test test test test test test test junk`, with the password `test-password`.
+
 #### Key Features to Implement
 
 1. **Offline-First Design**
