@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Web3Passkey.hasExistingCredential()` and `getExistingCredentialCount()`: use `listExistingCredentials()` and its `length`
   - `UserInfo.id` and `UserInfo.displayName`, which nothing set: use `ethereumAddress` and `username`
   - The `WalletInfo` type: `GeneratedWallet` and `DerivedWallet` are now exported from `w3pk`
+- **BREAKING: `SocialRecoveryManager`** ([#184](https://github.com/w3hc/w3pk/issues/184)), a second guardian-recovery stack the SDK didn't use, which kept every Shamir share together in localStorage (`w3pk_social_recovery`): whoever could read the site's storage held enough shares to rebuild the backup. Use `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()`, which store no share on the device
+  - The `Guardian`, `GuardianInvite`, `SocialRecoveryConfig`, `RecoveryShare` and `RecoveryProgress` types, and the `src/recovery` barrel
+  - `getBackupStatus()` no longer reads `w3pk_social_recovery`, so its `socialRecovery` field stays unset. Apps that used `SocialRecoveryManager` can remove that key from localStorage
 
 ## [0.11.0] - 2026-11-02
 
