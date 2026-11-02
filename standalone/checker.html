@@ -1073,7 +1073,9 @@ Resources:
         try {
           window.showResult('Running recovery test...', null);
 
-          const result = await window.w3pk.runRecoveryTest();
+          const { RecoverySimulator } = await import('./dist/index.mjs');
+          const status = await window.w3pk.getBackupStatus();
+          const result = await new RecoverySimulator().runInteractiveTest(status);
           console.log('Recovery test:', result);
 
           let scenariosHtml = '<div style="margin-top: 10px;"><strong>Scenarios:</strong></div>';
@@ -1098,10 +1100,12 @@ Resources:
 
       window.testSimulateLostDevice = async function() {
         try {
-          const result = await window.w3pk.simulateRecoveryScenario({
+          const { RecoverySimulator } = await import('./dist/index.mjs');
+          const status = await window.w3pk.getBackupStatus();
+          const result = await new RecoverySimulator().simulateScenario({
             type: 'lost-device',
             description: 'Your phone fell in the ocean'
-          });
+          }, status);
           console.log('Lost device simulation:', result);
 
           let methodsHtml = '<div style="margin-top: 10px;"><strong>Available Methods:</strong></div>';
@@ -1126,10 +1130,12 @@ Resources:
 
       window.testSimulateLostPhrase = async function() {
         try {
-          const result = await window.w3pk.simulateRecoveryScenario({
+          const { RecoverySimulator } = await import('./dist/index.mjs');
+          const status = await window.w3pk.getBackupStatus();
+          const result = await new RecoverySimulator().simulateScenario({
             type: 'lost-phrase',
             description: 'Your paper backup burned in a fire'
-          });
+          }, status);
           console.log('Lost phrase simulation:', result);
 
           let methodsHtml = '<div style="margin-top: 10px;"><strong>Available Methods:</strong></div>';
@@ -1154,7 +1160,8 @@ Resources:
 
       window.testGetEducation = async function() {
         try {
-          const content = await window.w3pk.getEducation('whatIsPasskey');
+          const { getExplainer } = await import('./dist/index.mjs');
+          const content = getExplainer('whatIsPasskey');
           console.log('Educational content:', content);
 
           const div = document.createElement('div');
