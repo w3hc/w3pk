@@ -670,7 +670,9 @@ src/recovery/
 └── types.ts                    # Recovery-related interfaces
 
 src/core/
-└── sdk.ts                      # Main SDK with all workflow methods
+├── sdk.ts                      # Web3Passkey: public workflow methods
+├── backup-sync.ts              # Backup, restore and sync workflows
+└── social-recovery.ts          # Social recovery workflows
 ```
 
 ---

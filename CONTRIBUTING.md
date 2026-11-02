@@ -82,6 +82,12 @@ w3pk/
 │   ├── chainlist/      # RPC endpoint management
 │   ├── eip7702/        # EIP-7702 detection
 │   └── core/           # SDK core & configuration
+│       ├── sdk.ts             # Web3Passkey: auth, session, wallet core
+│       ├── context.ts         # SdkContext passed to the feature files
+│       ├── backup-sync.ts     # Backup and cross-device sync methods
+│       ├── social-recovery.ts # Social recovery methods
+│       ├── eip1193.ts         # EIP-1193 provider
+│       └── mlkem.ts           # ML-KEM methods
 ├── test/               # Test files
 ├── examples/           # Usage examples
 └── docs/               # Documentation
@@ -595,7 +601,7 @@ See [.github/RELEASE_WORKFLOW.md](./.github/RELEASE_WORKFLOW.md) for complete re
 
 ### Adding a New SDK Method
 
-1. Add method to `src/core/sdk.ts`
+1. Add method to `Web3Passkey` in `src/core/sdk.ts`; for a feature with its own file in `src/core/` (backup and sync, social recovery, EIP-1193, ML-KEM), keep the public signature and JSDoc on the class and put the body in that file, taking the `Pick<SdkContext, ...>` it needs
 2. Add tests to appropriate test file
 3. Update this CONTRIBUTING.md
 4. Update README.md if user-facing

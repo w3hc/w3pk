@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The EIP-1193 provider's `request()` takes `params?: unknown[]` and returns `Promise<unknown>`
   - `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` use `GuardianShare`; `requestExternalWalletDelegation()` takes an `EIP1193Provider`
   - `MLKEM_DEFAULT_CONTEXT` (`'mlkem-v1'`) replaces the six defaults of the ML-KEM context
+- **`src/core/sdk.ts` split by feature** ([#190](https://github.com/w3hc/w3pk/issues/190)): the public API and behavior are unchanged
+  - Backup and sync, social recovery, the EIP-1193 provider and ML-KEM move to `src/core/backup-sync.ts`, `social-recovery.ts`, `eip1193.ts` and `mlkem.ts`; `sdk.ts` keeps auth, session and wallet core
+  - `Web3Passkey` keeps each public method's signature and JSDoc and delegates to those files, which take the internals they need through `SdkContext` (`src/core/context.ts`)
 
 ### Removed
 
