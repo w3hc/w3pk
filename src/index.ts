@@ -157,6 +157,7 @@ export {
   mlkemEncryptWithKey,
   mlkemDecryptWithKey,
   deriveMLKemKeypair,
+  MLKEM_DEFAULT_CONTEXT,
   type EncryptedPayload,
   type MLKemKeypair,
 } from "./crypto/mlkem";

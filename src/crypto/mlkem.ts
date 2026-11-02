@@ -26,6 +26,9 @@ export interface EncryptedPayload {
   authTag: string;          // Base64 auth tag
 }
 
+/** Default context string for hybrid keypair derivation */
+export const MLKEM_DEFAULT_CONTEXT = 'mlkem-v1';
+
 const ML_KEM_PUBLIC_KEY_LENGTH = 1568;
 const ML_KEM_PRIVATE_KEY_LENGTH = 3168;
 const ML_KEM_CIPHERTEXT_LENGTH = 1568;
@@ -204,7 +207,7 @@ function splitPrivateKey(privateKey: Uint8Array) {
  * key (info `x25519:<context>`).
  *
  * @param privateKey - Private key material (hex string with optional 0x prefix, or Uint8Array)
- * @param context - Context string for domain separation (default: 'mlkem-v1')
+ * @param context - Context string for domain separation (default: MLKEM_DEFAULT_CONTEXT)
  * @returns Hybrid keypair (publicKey: 1600 bytes, privateKey: 3200 bytes)
  *
  * @example
@@ -214,7 +217,7 @@ function splitPrivateKey(privateKey: Uint8Array) {
  */
 export async function deriveMLKemKeypair(
   privateKey: string | Uint8Array,
-  context: string = 'mlkem-v1'
+  context: string = MLKEM_DEFAULT_CONTEXT
 ): Promise<MLKemKeypair> {
   const mlkem = await createMlKem1024();
 
@@ -422,14 +425,14 @@ async function decryptWithKeyBytes(payload: EncryptedPayload, privateKeyBytes: U
  * @param plaintext - The data to encrypt
  * @param senderPrivateKey - Sender's private key (hex string or Uint8Array)
  * @param recipientPublicKeys - Recipient hybrid public keys (from deriveMLKemKeypair)
- * @param senderContext - Context for the sender's key derivation (default: 'mlkem-v1')
+ * @param senderContext - Context for the sender's key derivation (default: MLKEM_DEFAULT_CONTEXT)
  * @returns Encrypted payload with sender + recipients
  */
 export async function mlkemEncryptWithKey(
   plaintext: string,
   senderPrivateKey: string | Uint8Array,
   recipientPublicKeys: Array<string | Uint8Array>,
-  senderContext: string = 'mlkem-v1'
+  senderContext: string = MLKEM_DEFAULT_CONTEXT
 ): Promise<EncryptedPayload> {
   const senderKeypair = await deriveMLKemKeypair(senderPrivateKey, senderContext);
 
@@ -445,13 +448,13 @@ export async function mlkemEncryptWithKey(
  *
  * @param payload - The encrypted payload
  * @param privateKey - Private key material (hex string or Uint8Array)
- * @param context - Context for key derivation (default: 'mlkem-v1')
+ * @param context - Context for key derivation (default: MLKEM_DEFAULT_CONTEXT)
  * @returns Decrypted plaintext
  */
 export async function mlkemDecryptWithKey(
   payload: EncryptedPayload,
   privateKey: string | Uint8Array,
-  context: string = 'mlkem-v1'
+  context: string = MLKEM_DEFAULT_CONTEXT
 ): Promise<string> {
   const keypair = await deriveMLKemKeypair(privateKey, context);
 

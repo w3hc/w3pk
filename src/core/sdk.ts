@@ -69,6 +69,7 @@ import {
   WalletMissingError,
 } from "./errors";
 import { getEndpoints } from "../chainlist";
+import { MLKEM_DEFAULT_CONTEXT } from "../crypto/mlkem";
 import { supportsEIP7702 } from "../eip7702";
 
 /** Minimal EIP-1193 provider interface (matches the existing EIP1193Provider shape) */
@@ -2438,7 +2439,7 @@ export class Web3Passkey {
    * The hybrid keypair is derived deterministically from the wallet's private key.
    *
    * @param options - Optional configuration
-   * @param options.context - Context string for domain separation (default: 'mlkem-v1')
+   * @param options.context - Context string for domain separation (default: MLKEM_DEFAULT_CONTEXT)
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
    * @param options.tag - Tag for address derivation (default: 'MAIN')
    * @param options.requireAuth - Force WebAuthn re-authentication
@@ -2469,7 +2470,7 @@ export class Web3Passkey {
     const effectiveMode = options?.mode || 'STANDARD';
     const effectiveTag = options?.tag || DEFAULT_TAG;
     const origin = getCurrentOrigin();
-    const context = options?.context || 'mlkem-v1';
+    const context = options?.context || MLKEM_DEFAULT_CONTEXT;
     const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
     // PRIMARY mode uses P-256 WebAuthn keys, not Ethereum keys
@@ -2516,7 +2517,7 @@ export class Web3Passkey {
    * @param plaintext - The data to encrypt
    * @param recipientPublicKeys - Array of recipient hybrid public keys (base64 strings or Uint8Arrays, 1600 bytes)
    * @param options - Optional configuration
-   * @param options.context - Context string for key derivation (default: 'mlkem-v1')
+   * @param options.context - Context string for key derivation (default: MLKEM_DEFAULT_CONTEXT)
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
    * @param options.tag - Tag for address derivation (default: 'MAIN')
    * @param options.requireAuth - Force WebAuthn re-authentication
@@ -2559,7 +2560,7 @@ export class Web3Passkey {
     const effectiveMode = options?.mode || 'STANDARD';
     const effectiveTag = options?.tag || DEFAULT_TAG;
     const origin = getCurrentOrigin();
-    const context = options?.context || 'mlkem-v1';
+    const context = options?.context || MLKEM_DEFAULT_CONTEXT;
     const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
     if (effectiveMode === 'PRIMARY') {
@@ -2599,7 +2600,7 @@ export class Web3Passkey {
    *
    * @param payload - The encrypted payload (from mlkemEncrypt)
    * @param options - Optional configuration
-   * @param options.context - Context string for key derivation (default: 'mlkem-v1', must match encryption)
+   * @param options.context - Context string for key derivation (default: MLKEM_DEFAULT_CONTEXT, must match encryption)
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
    * @param options.tag - Tag for address derivation (default: 'MAIN')
    * @param options.requireAuth - Force WebAuthn re-authentication
@@ -2635,7 +2636,7 @@ export class Web3Passkey {
     const effectiveMode = options?.mode || 'STANDARD';
     const effectiveTag = options?.tag || DEFAULT_TAG;
     const origin = getCurrentOrigin();
-    const context = options?.context || 'mlkem-v1';
+    const context = options?.context || MLKEM_DEFAULT_CONTEXT;
     const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
     if (effectiveMode === 'PRIMARY') {
