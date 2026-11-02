@@ -212,7 +212,8 @@ export function createEIP1193Provider(
     },
 
     removeListener(event: EIP1193Event, handler: EIP1193Events[EIP1193Event]) {
-      listeners[event] = listeners[event]?.filter(fn => fn !== handler);
+      if (!listeners[event]) return;
+      listeners[event] = listeners[event].filter(fn => fn !== handler);
     },
   };
 
