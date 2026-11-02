@@ -70,7 +70,7 @@
     "dist",
     "README.md",
     "LICENSE",
-    "docs/",
+    "docs/*.md",
     "scripts/compute-build-hash.mjs"
   ],
   "scripts": {

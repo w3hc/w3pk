@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`src/core/sdk.ts` split by feature** ([#190](https://github.com/w3hc/w3pk/issues/190)): the public API and behavior are unchanged
   - Backup and sync, social recovery, the EIP-1193 provider and ML-KEM move to `src/core/backup-sync.ts`, `social-recovery.ts`, `eip1193.ts` and `mlkem.ts`; `sdk.ts` keeps auth, session and wallet core
   - `Web3Passkey` keeps each public method's signature and JSDoc and delegates to those files, which take the internals they need through `SdkContext` (`src/core/context.ts`)
+- **Repository files** ([#191](https://github.com/w3hc/w3pk/issues/191)):
+  - `JUNE_9_2026_AUDIT.md` moves from the repository root to `docs/`
+  - `examples/w3pk_backup_example_2026-11-02.json`, a BackupFile v3 password backup of the test mnemonic `test test … junk` (password `test-password`), replaces the v2 `examples/w3pk_backup_example_2025-12-19.json`. `docs/PORTABILITY.md` links it
 
 ### Removed
 
@@ -60,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING: education wrappers on `Web3Passkey`** ([#185](https://github.com/w3hc/w3pk/issues/185)), which only added an auth check to standalone exports and returned `any`:
   - `getEducation(topic)`: use `getExplainer(topic)`, which returns `null` for an unknown topic instead of throwing
   - `simulateRecoveryScenario(scenario)` and `runRecoveryTest()`: use `new RecoverySimulator().simulateScenario(scenario, status)` and `runInteractiveTest(status)` with `status = await w3pk.getBackupStatus()`
+- **`docs/notes/` from the npm package** ([#191](https://github.com/w3hc/w3pk/issues/191)): `"files"` lists `docs/*.md` instead of `docs/`, so internal notes no longer ship. They stay in the repository
 
 ### Fixed
 

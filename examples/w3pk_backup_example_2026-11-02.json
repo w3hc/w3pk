@@ -1,0 +1,13 @@
+{
+  "version": 3,
+  "createdAt": "2026-11-02T11:47:18.534Z",
+  "encryptedMnemonic": "j/ArSwGdCIH69BmBWgXQYEDYGE7+uT+L6R7yXDS2cTurdd+rDFK0lT7LDDSxoppkw2L5CMbzxLImGPvd65onCbiyh5LVI38nWy21rSo9ELk28nU4a3Hb",
+  "encryptionMethod": "password",
+  "passwordEncryption": {
+    "kdf": "argon2id",
+    "salt": "En+MNgh6n6Y07Z727zGpNA==",
+    "memoryKiB": 19456,
+    "passes": 2,
+    "parallelism": 1
+  }
+}
