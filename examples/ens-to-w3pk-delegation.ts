@@ -284,7 +284,7 @@ if (typeof window !== "undefined") {
 
   console.log("To run this example:");
   console.log("  1. Create an HTML file that imports this module");
-  console.log("  2. Serve it with: npx serve . -l 3000");
+  console.log("  2. Serve it with: pnpm dlx serve . -l 3000");
   console.log("  3. Open http://localhost:3000 in browser\n");
 
   console.log("Quick start:");
