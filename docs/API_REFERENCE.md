@@ -719,7 +719,7 @@ You can specify a different mode, tag, and signing method to customize the signa
 - `options.tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
 - `options.signingMethod?: SigningMethod` - Signing method: 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash' (default: 'EIP191')
-- `options.eip712Domain?: object` - EIP-712 domain separator (required for EIP712 method)
+- `options.eip712Domain?: TypedDataDomain` - EIP-712 domain separator (ethers' [`TypedDataDomain`](https://docs.ethers.org/v6/api/hashing/#TypedDataDomain)) (required for EIP712 method)
 - `options.eip712Types?: object` - EIP-712 type definitions (required for EIP712 method)
 - `options.eip712PrimaryType?: string` - Primary type name (required for EIP712 method)
 
@@ -1157,9 +1157,7 @@ Low-level API to request an external wallet to sign an EIP-7702 authorization. U
 
 ```typescript
 interface EIP1193Provider {
-  request(args: { method: string; params?: any[] }): Promise<any>
-  on?(event: string, handler: (...args: any[]) => void): void
-  removeListener?(event: string, handler: (...args: any[]) => void): void
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>
 }
 
 params: {
@@ -1651,10 +1649,21 @@ options?: {
 // import type { EIP1193ProviderInterface } from 'w3pk'
 interface EIP1193ProviderInterface {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
-  on(event: string, handler: (...args: any[]) => void): void;
-  removeListener(event: string, handler: (...args: any[]) => void): void;
+  // One overload per EIP-1193 event; removeListener takes the same pairs
+  on(event: 'accountsChanged', handler: (accounts: string[]) => void): void;
+  on(event: 'chainChanged', handler: (chainId: string) => void): void;
+  on(event: 'connect', handler: (info: ProviderConnectInfo) => void): void;
+  on(event: 'disconnect', handler: (error: ProviderRpcError) => void): void;
+  on(event: 'message', handler: (message: ProviderMessage) => void): void;
 }
+
+// Also exported from 'w3pk'
+interface ProviderConnectInfo { readonly chainId: string }
+interface ProviderRpcError extends Error { code: number; data?: unknown }
+interface ProviderMessage { readonly type: string; readonly data: unknown }
 ```
+
+Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 
 **Supported JSON-RPC methods:**
 
@@ -2220,8 +2229,8 @@ Verify any ZK proof.
 interface VerificationResult {
   valid: boolean;
   type: ProofType;
-  publicSignals: Record<string, any>;
-  timestamp: number;
+  publicSignals: Record<string, string>;
+  timestamp: string;
 }
 ```
 
@@ -2351,7 +2360,7 @@ Register a custom circuit for proof generation.
 interface CircuitArtifacts {
   wasmPath: string;           // Path to circuit WASM file
   zkeyPath: string;           // Path to zkey file
-  verificationKey: any;       // Verification key JSON
+  verificationKey: unknown;   // Verification key JSON
 }
 ```
 

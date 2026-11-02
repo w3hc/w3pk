@@ -2,11 +2,48 @@ import type { SecurityMode } from "../types";
 import { WalletError } from "./errors";
 import type { Web3Passkey } from "./sdk";
 
+/** Payload of the EIP-1193 `connect` event */
+export interface ProviderConnectInfo {
+  readonly chainId: string;
+}
+
+/** Error passed to EIP-1193 `disconnect` listeners */
+export interface ProviderRpcError extends Error {
+  code: number;
+  data?: unknown;
+}
+
+/** Payload of the EIP-1193 `message` event */
+export interface ProviderMessage {
+  readonly type: string;
+  readonly data: unknown;
+}
+
+type EIP1193Events = {
+  accountsChanged: (accounts: string[]) => void;
+  chainChanged: (chainId: string) => void;
+  connect: (info: ProviderConnectInfo) => void;
+  disconnect: (error: ProviderRpcError) => void;
+  message: (message: ProviderMessage) => void;
+};
+
+type EIP1193Event = keyof EIP1193Events;
+
+type Listener = (...args: unknown[]) => void;
+
 /** EIP-1193 provider returned by `Web3Passkey.getEIP1193Provider()` */
 export interface EIP1193ProviderInterface {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
-  on(event: string, handler: (...args: any[]) => void): void;
-  removeListener(event: string, handler: (...args: any[]) => void): void;
+  on(event: 'accountsChanged', handler: (accounts: string[]) => void): void;
+  on(event: 'chainChanged', handler: (chainId: string) => void): void;
+  on(event: 'connect', handler: (info: ProviderConnectInfo) => void): void;
+  on(event: 'disconnect', handler: (error: ProviderRpcError) => void): void;
+  on(event: 'message', handler: (message: ProviderMessage) => void): void;
+  removeListener(event: 'accountsChanged', handler: (accounts: string[]) => void): void;
+  removeListener(event: 'chainChanged', handler: (chainId: string) => void): void;
+  removeListener(event: 'connect', handler: (info: ProviderConnectInfo) => void): void;
+  removeListener(event: 'disconnect', handler: (error: ProviderRpcError) => void): void;
+  removeListener(event: 'message', handler: (message: ProviderMessage) => void): void;
 }
 
 /** Returns true if a string looks like a 0x-prefixed hex value */
@@ -34,9 +71,9 @@ export function createEIP1193Provider(
   let activeChainId = options?.chainId ?? 1;
 
   // Minimal EventEmitter (subset needed by EIP-1193)
-  const listeners: Record<string, Array<(...args: any[]) => void>> = {};
+  const listeners: Partial<Record<EIP1193Event, Listener[]>> = {};
 
-  const emit = (event: string, ...args: any[]) => {
+  const emit = <E extends EIP1193Event>(event: E, ...args: Parameters<EIP1193Events[E]>) => {
     (listeners[event] ?? []).forEach(fn => fn(...args));
   };
 
@@ -170,12 +207,11 @@ export function createEIP1193Provider(
       }
     },
 
-    on(event: string, handler: (...args: any[]) => void) {
-      if (!listeners[event]) listeners[event] = [];
-      listeners[event].push(handler);
+    on(event: EIP1193Event, handler: EIP1193Events[EIP1193Event]) {
+      (listeners[event] ??= []).push(handler as Listener);
     },
 
-    removeListener(event: string, handler: (...args: any[]) => void) {
+    removeListener(event: EIP1193Event, handler: EIP1193Events[EIP1193Event]) {
       if (!listeners[event]) return;
       listeners[event] = listeners[event].filter(fn => fn !== handler);
     },

@@ -12,12 +12,15 @@
  * - Unsupported method throws
  * - Multiple independent provider instances are isolated
  * - on / removeListener event wiring
+ * - Typed event handlers compile (type-level, via the TypeScript compiler)
  */
 
 import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { verifyMessage, recoverAddress, TypedDataEncoder } from "ethers";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import {
   startTestSuite,
   endTestSuite,
@@ -466,6 +469,34 @@ async function runTests() {
 
     passTest(`Provider satisfies EIP-1193 duck-type. chainId=${chainId}`);
     logInfo("Compatible with: ethers BrowserProvider, viem custom transport, wagmi connector");
+  });
+
+  // ------------------------------------------------------------------
+  // 21. Typed event handlers compile
+  // ------------------------------------------------------------------
+  await runTest("Typed event handlers compile", async () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const config = ts.getParsedCommandLineOfConfigFile(
+      `${root}tsconfig.json`,
+      { noEmit: true, rootDir: undefined },
+      { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} }
+    );
+    assert(
+      config !== undefined && config.errors.length === 0,
+      "tsconfig.json should parse without errors"
+    );
+    const program = ts.createProgram(
+      [`${root}test/fixtures/eip1193-handlers.ts`, `${root}src/zk/external.d.ts`],
+      config!.options
+    );
+    const diagnostics = ts.getPreEmitDiagnostics(program);
+    const report = ts.formatDiagnostics(diagnostics, {
+      getCanonicalFileName: (f) => f,
+      getCurrentDirectory: () => root,
+      getNewLine: () => "\n",
+    });
+    assertEqual(diagnostics.length, 0, `Type errors:\n${report}`);
+    passTest("Handlers typed per EIP-1193 event compile; mistyped ones don't");
   });
 
   endTestSuite();
