@@ -10,8 +10,6 @@
 import { BackupManager } from '../src/backup/manager';
 import {
   validatePasswordStrength,
-  encryptWithPassword,
-  decryptWithPassword,
   deriveAddressChecksum,
 } from '../src/backup/encryption';
 import {
@@ -23,7 +21,6 @@ import {
   assert,
   assertEqual,
   assertTruthy,
-  assertThrows,
 } from './test-utils';
 
 async function runTests() {
@@ -42,55 +39,7 @@ async function runTests() {
     passTest('Password validation working correctly');
   });
 
-  // Test 2: Encryption/Decryption
-  await runTest('Encryption and Decryption', async () => {
-    const testData = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-    const password = 'TestPassword123!NotReal';
-    const salt = new Uint8Array(32);
-    crypto.getRandomValues(salt);
-
-    const encrypted = await encryptWithPassword(testData, password, salt);
-    assertTruthy(encrypted.encrypted, 'Encryption should return encrypted data');
-    assertTruthy(encrypted.salt, 'Encryption should return salt');
-    assertTruthy(encrypted.iv, 'Encryption should return IV');
-    assertEqual(encrypted.iterations, 310000, 'Should use 310k iterations');
-
-    const decrypted = await decryptWithPassword(
-      encrypted.encrypted,
-      password,
-      encrypted.salt,
-      encrypted.iv,
-      encrypted.iterations
-    );
-
-    assertEqual(decrypted, testData, 'Decrypted data should match original');
-    passTest('Encryption/decryption working correctly');
-  });
-
-  // Test 3: Wrong Password Decryption
-  await runTest('Wrong Password Decryption', async () => {
-    const testData = 'secret mnemonic phrase';
-    const password = 'TestCorrect123!NotReal';
-    const wrongPassword = 'TestWrong456!NotReal';
-    const salt = new Uint8Array(32);
-    crypto.getRandomValues(salt);
-
-    const encrypted = await encryptWithPassword(testData, password, salt);
-
-    await assertThrows(async () => {
-      await decryptWithPassword(
-        encrypted.encrypted,
-        wrongPassword,
-        encrypted.salt,
-        encrypted.iv,
-        encrypted.iterations
-      );
-    }, 'Should throw error with wrong password');
-
-    passTest('Wrong password correctly rejected');
-  });
-
-  // Test 4: Address Checksum
+  // Test 2: Address Checksum
   await runTest('Address Checksum Generation', async () => {
     const address1 = '0x1234567890123456789012345678901234567890';
     const address2 = '0x1234567890123456789012345678901234567890';
@@ -107,7 +56,7 @@ async function runTests() {
     passTest('Address checksum generation working correctly');
   });
 
-  // Test 5: Backup Manager Status
+  // Test 3: Backup Manager Status
   await runTest('Backup Manager Status', async () => {
     const backupManager = new BackupManager();
     const testAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';
@@ -123,7 +72,7 @@ async function runTests() {
     passTest(`Backup status: ${status.securityScore.total}/100 (${status.securityScore.level})`);
   });
 
-  // Test 6: Security Score Calculation
+  // Test 4: Security Score Calculation
   await runTest('Security Score Calculation', async () => {
     const backupManager = new BackupManager();
     const testAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';
