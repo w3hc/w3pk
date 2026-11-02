@@ -11,8 +11,22 @@ export type {
   ZKProofConfig,
 } from "./core/config";
 export type { EIP1193ProviderInterface, ZKMethods } from "./core/sdk";
-export type { UserInfo, GeneratedWallet, DerivedWallet } from "./types";
-export type { StealthKeys, StealthAddressResult } from "./stealth";
+export type {
+  UserInfo,
+  GeneratedWallet,
+  DerivedWallet,
+  RegisterResult,
+  SecurityMode,
+  SigningMethod,
+  SignMessageOptions,
+} from "./types";
+export type { PersistentSessionConfig } from "./core/persistent-session";
+export type {
+  StealthKeys,
+  StealthAddressResult,
+  Announcement,
+  ParseAnnouncementResult,
+} from "./stealth";
 export type {
   EIP7702Authorization,
   SignAuthorizationParams,
@@ -55,6 +69,17 @@ export type {
   ZkSecretSource,
   ZkSignal,
 } from "./zk/prove";
+export type {
+  ProofType,
+  ZKProof,
+  VerificationResult,
+  MembershipProofInput,
+  ThresholdProofInput,
+  RangeProofInput,
+  OwnershipProofInput,
+  NFTOwnershipProofInput,
+  CircuitArtifacts,
+} from "./zk/types";
 
 export { Web3Passkey } from "./core/sdk";
 export { StealthAddressModule } from "./stealth";
@@ -157,6 +182,7 @@ export {
   getChainById,
   clearCache,
 } from "./chainlist";
+export type { Chain, ChainlistOptions } from "./chainlist";
 
 export {
   mlkemEncrypt,

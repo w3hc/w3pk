@@ -60,7 +60,7 @@ import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
-import type { UserInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
+import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
   AuthenticationError,
   CryptoError,
@@ -242,14 +242,7 @@ export class Web3Passkey {
    * Register new user with WebAuthn
    * Automatically generates wallet if none exists and associates with passkey
    */
-  async register(options: {
-    username: string;
-  }): Promise<{
-    address: string;
-    username: string;
-    hasBackup: boolean;
-    evictionRisk: boolean;
-  }> {
+  async register(options: { username: string }): Promise<RegisterResult> {
     try {
       if (!this.currentWallet?.address) {
         await this.generateWallet();
