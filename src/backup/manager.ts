@@ -11,17 +11,14 @@ import type {
 } from './types';
 import { PASSKEY_INDEPENDENT_METHODS } from './types';
 import { BackupStorage } from './storage';
-import { SocialRecoveryManager } from '../recovery/social';
 import { detectEvictionRisk } from '../utils/eviction';
 
 export class BackupManager {
   private storage: BackupStorage;
-  private socialRecoveryManager: SocialRecoveryManager;
   private verificationStorageKey = 'w3pk_backup_verifications';
 
   constructor() {
     this.storage = new BackupStorage();
-    this.socialRecoveryManager = new SocialRecoveryManager();
   }
 
   /**
@@ -52,14 +49,10 @@ export class BackupManager {
         deviceFingerprint: backup.deviceFingerprint,
       }));
 
-    // Get social recovery status
-    const socialRecoveryStatus = this.getSocialRecoveryStatus();
-
     // Get verification status
     const verificationStatus = this.getVerificationStatus(ethereumAddress);
 
-    const hasBackup =
-      methods.some((m) => PASSKEY_INDEPENDENT_METHODS.includes(m)) || !!socialRecoveryStatus?.enabled;
+    const hasBackup = methods.some((m) => PASSKEY_INDEPENDENT_METHODS.includes(m));
     const recommendedMode = !hasBackup
       ? 'password'
       : methods.includes('prf')
@@ -79,11 +72,10 @@ export class BackupManager {
         verificationCount: verificationStatus.count,
         encryptedBackups,
       },
-      socialRecovery: socialRecoveryStatus,
       securityScore: this.calculateSecurityScore(
         passkeySync,
         encryptedBackups,
-        socialRecoveryStatus,
+        undefined,
         verificationStatus,
         hasBackup
       ),
@@ -151,26 +143,6 @@ export class BackupManager {
   }
 
   /**
-   * Get social recovery status from SocialRecoveryManager
-   */
-  private getSocialRecoveryStatus(): SocialRecoveryStatus | undefined {
-    const config = this.socialRecoveryManager.getSocialRecoveryConfig();
-    if (!config) {
-      return undefined;
-    }
-
-    const verifiedGuardians = config.guardians.filter((g) => g.status === 'active').length;
-
-    return {
-      enabled: true,
-      guardians: config.guardians,
-      threshold: config.threshold,
-      sharesDistributed: config.guardians.length,
-      verifiedGuardians,
-    };
-  }
-
-  /**
    * Get verification status from storage
    */
   private getVerificationStatus(ethereumAddress: string): {
@@ -201,10 +173,7 @@ export class BackupManager {
 
   async hasBackup(ethereumAddress: string): Promise<boolean> {
     const backups = await this.storage.getBackupsByAddress(ethereumAddress);
-    return (
-      backups.some((b) => PASSKEY_INDEPENDENT_METHODS.includes(b.method)) ||
-      !!this.getSocialRecoveryStatus()?.enabled
-    );
+    return backups.some((b) => PASSKEY_INDEPENDENT_METHODS.includes(b.method));
   }
 
   /**
