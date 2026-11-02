@@ -235,7 +235,7 @@ export async function syncWalletWithPasskey(
  * The public key is this device's when it has the passkey's metadata,
  * else the backup's, checked against the assertion's signature.
  */
-export async function restorePrfBackup(
+async function restorePrfBackup(
   ctx: SdkContext,
   backupFile: BackupFile
 ): Promise<{ mnemonic: string; ethereumAddress: string }> {
@@ -273,7 +273,7 @@ export async function restorePrfBackup(
  * under the key derived from `prfOutput` and starts a session. Without
  * `prfOutput`, the wallet and the session stay in memory only.
  */
-export async function bootstrapCredential(
+async function bootstrapCredential(
   ctx: SdkContext,
   credential: { id: string; publicKey: string; username: string },
   mnemonic: string,
