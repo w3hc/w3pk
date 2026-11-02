@@ -17,6 +17,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
 - [Zero-Knowledge Proofs](#zero-knowledge-proofs)
 - [Backup & Recovery](#backup--recovery)
 - [Cross-Device Sync](#cross-device-sync)
+  - [`getSyncStatus()`](#getsyncstatus-promisedevicesyncinfo--null)
   - [`syncWalletWithPasskey()`](#syncwalletwithpasskey)
 - [Session Management](#session-management)
 - [Blockchain Utilities](#blockchain-utilities)
@@ -1647,8 +1648,9 @@ options?: {
 **Returns:** An object with:
 
 ```typescript
+// import type { EIP1193ProviderInterface } from 'w3pk'
 interface EIP1193ProviderInterface {
-  request(args: { method: string; params?: any[] }): Promise<any>;
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
   on(event: string, handler: (...args: any[]) => void): void;
   removeListener(event: string, handler: (...args: any[]) => void): void;
 }
@@ -1960,7 +1962,7 @@ const w3pk = createWeb3Passkey({
 })
 ```
 
-All ZK methods are accessed via `w3pk.zk.*`
+All ZK methods are accessed via `w3pk.zk.*` (typed `ZKMethods`). The first call loads `ZKProofModule` from `w3pk/zk`, so every `w3pk.zk` method returns a Promise.
 
 ### `zk.proveMembership(input: MembershipProofInput): Promise<ZKProof>`
 
@@ -2339,7 +2341,7 @@ const root = await w3pk.zk.computeMerkleRoot(leaf, pathIndices, pathElements)
 
 ---
 
-### `zk.registerCircuit(type: ProofType, artifacts: CircuitArtifacts): void`
+### `zk.registerCircuit(type: ProofType, artifacts: CircuitArtifacts): Promise<void>`
 
 Register a custom circuit for proof generation.
 
@@ -2356,7 +2358,7 @@ interface CircuitArtifacts {
 **Example:**
 
 ```typescript
-w3pk.zk.registerCircuit('custom', {
+await w3pk.zk.registerCircuit('custom', {
   wasmPath: '/circuits/custom.wasm',
   zkeyPath: '/circuits/custom.zkey',
   verificationKey: customVKey
@@ -2365,19 +2367,17 @@ w3pk.zk.registerCircuit('custom', {
 
 ---
 
-### `zk.isAvailable: boolean` (property)
+### `ZKProofModule.isAvailable: boolean` (property)
 
-Check if ZK proofs are available (configured and dependencies loaded).
+Check if ZK proofs are available. `w3pk.zk` exposes methods only, so read this property on a `ZKProofModule` from `w3pk/zk`.
 
 **Example:**
 
 ```typescript
-if (w3pk.zk?.isAvailable) {
+import { ZKProofModule } from 'w3pk/zk'
+
+if (new ZKProofModule().isAvailable) {
   console.log('ZK proofs enabled')
-  // Use ZK features
-} else {
-  console.log('ZK dependencies not installed')
-  console.log('Run: npm install snarkjs circomlibjs')
 }
 ```
 
@@ -2691,6 +2691,33 @@ console.log('Address:', address)
 ---
 
 ## Cross-Device Sync
+
+### `getSyncStatus(): Promise<DeviceSyncInfo | null>`
+
+Get this device's sync record: written when a wallet is imported from another device. Returns `null` when no wallet was synced to this device.
+
+**Returns:**
+
+```typescript
+interface DeviceSyncInfo {
+  deviceName: string;
+  platform: 'ios' | 'android' | 'macos' | 'windows' | 'linux' | 'unknown';
+  lastSyncTime: string;    // ISO 8601
+  walletsSynced: string[]; // Ethereum addresses synced to this device
+}
+```
+
+**Example:**
+
+```typescript
+const status = await w3pk.getSyncStatus()
+
+if (status) {
+  console.log(`Last sync on ${status.platform}: ${status.lastSyncTime}`)
+}
+```
+
+---
 
 ### `detectSyncCapabilities(): Promise<SyncCapabilities>`
 
@@ -3404,7 +3431,7 @@ Derive your hybrid ML-KEM-1024 + X25519 public key for sharing with others.
 **Parameters:**
 ```typescript
 {
-  context?: string;        // Domain separation (default: 'mlkem-v1')
+  context?: string;        // Domain separation (default: MLKEM_DEFAULT_CONTEXT, 'mlkem-v1')
   mode?: SecurityMode;     // 'STANDARD', 'STRICT', or 'YOLO' (default: 'STANDARD')
   tag?: string;            // Address derivation tag (default: 'MAIN')
   requireAuth?: boolean;   // Force re-auth (default: false, always true in STRICT)
@@ -3433,7 +3460,7 @@ Encrypt data for yourself and additional recipients.
 **Parameters:**
 ```typescript
 {
-  context?: string;        // Domain separation (default: 'mlkem-v1')
+  context?: string;        // Domain separation (default: MLKEM_DEFAULT_CONTEXT, 'mlkem-v1')
   mode?: SecurityMode;     // Security mode (default: 'STANDARD')
   tag?: string;            // Tag (default: 'MAIN')
   requireAuth?: boolean;   // Force re-auth (default: false)
@@ -3479,7 +3506,7 @@ Derive a deterministic hybrid keypair (ML-KEM-1024 + X25519) from any private ke
 
 **Parameters:**
 - `privateKey` - Ethereum private key (hex with optional `0x` prefix or Uint8Array)
-- `context` - Context string for domain separation (default: `'mlkem-v1'`)
+- `context` - Context string for domain separation (default: `MLKEM_DEFAULT_CONTEXT`, `'mlkem-v1'`, exported from `w3pk`)
 
 **Returns:**
 ```typescript
@@ -3864,12 +3891,17 @@ Key types exported from the package:
 // Core types
 import type {
   Web3PasskeyConfig,
+  PersistentSessionConfig,
   StealthAddressConfig,
   ZKProofConfig,
   UserInfo,
   GeneratedWallet,
   DerivedWallet,
-  RegisterResult
+  RegisterResult,
+  SecurityMode,
+  SigningMethod,
+  SignMessageOptions,
+  EIP1193ProviderInterface
 } from 'w3pk'
 
 // Stealth address types
@@ -3884,19 +3916,23 @@ import type {
 import type {
   BackupStatus,
   SecurityScore,
-  ZipBackupOptions,
-  RecoveryResult,
+  GuardianShare,
   RecoveryScenario,
   SimulationResult
 } from 'w3pk'
 
 // Sync types
-import type { SyncCapabilities } from 'w3pk'
+import type { SyncCapabilities, DeviceSyncInfo } from 'w3pk'
+
+// ML-KEM types
+import type { EncryptedPayload, MLKemKeypair } from 'w3pk'
 
 // ZK types
 import type {
+  ZKMethods,
   ZKProof,
   ProofType,
+  CircuitArtifacts,
   MembershipProofInput,
   ThresholdProofInput,
   RangeProofInput,
@@ -3909,7 +3945,8 @@ import type {
 import type {
   Chain,
   ChainlistOptions,
-  EIP7702Options
+  EIP1193Provider,
+  EIP7702Authorization
 } from 'w3pk'
 ```
 
