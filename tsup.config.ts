@@ -1,18 +1,24 @@
-import { defineConfig } from "tsup";
+import { defineConfig, type Options } from "tsup";
+
+const base = {
+  format: ["cjs", "esm"],
+  sourcemap: true,
+  minify: true,
+  splitting: false,
+  platform: "browser",
+  target: "es2020",
+} satisfies Options;
+
+const external = ["ethers", "snarkjs", "circomlibjs", "@semaphore-protocol/identity", "poseidon-lite"];
 
 export default defineConfig([
   // Main entry point (core features: WebAuthn, wallets, stealth addresses)
   {
+    ...base,
     entry: ["src/index.ts"],
-    format: ["cjs", "esm"],
     dts: true,
     clean: true,
-    sourcemap: true,
-    minify: true,
-    splitting: false,
-    external: ["ethers", "snarkjs", "circomlibjs", "@semaphore-protocol/identity", "poseidon-lite"],
-    platform: "browser",
-    target: "es2020",
+    external,
     esbuildOptions(options) {
       options.mainFields = ["browser", "module", "main"];
       // Mark ZK module as external to prevent bundling circomlibjs
@@ -24,43 +30,29 @@ export default defineConfig([
   },
   // ZK subpath exports (requires optional dependencies)
   {
+    ...base,
     entry: {
       "zk/index": "src/zk/index.ts",
       "zk/utils": "src/zk/utils.ts",
     },
-    format: ["cjs", "esm"],
     dts: true,
-    sourcemap: true,
-    minify: true,
-    splitting: false,
-    external: ["ethers", "snarkjs", "circomlibjs", "@semaphore-protocol/identity", "poseidon-lite"],
-    platform: "browser",
-    target: "es2020",
+    external,
   },
   // Web Worker for zkProve, resolved from dist/index.mjs
   {
+    ...base,
     entry: {
       "zk/prove-worker": "src/zk/prove-worker.ts",
     },
     format: ["esm"],
-    sourcemap: true,
-    minify: true,
-    splitting: false,
     external: ["snarkjs"],
-    platform: "browser",
-    target: "es2020",
   },
   // Chainlist subpath export
   {
+    ...base,
     entry: {
       "chainlist/index": "src/chainlist/index.ts",
     },
-    format: ["cjs", "esm"],
     dts: true,
-    sourcemap: true,
-    minify: true,
-    splitting: false,
-    platform: "browser",
-    target: "es2020",
   },
 ]);

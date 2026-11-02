@@ -147,7 +147,7 @@ function generateProvingKey(name) {
     // Generate proving key
     log('Running Groth16 setup (this may take a while)...', 'yellow');
     
-    // Try global snarkjs first, then npx
+    // Try global snarkjs first, then the local one
     try {
       execSync(
         `snarkjs groth16 setup ${r1csPath} ${ptauPath} ${zkeyPath}`,
@@ -155,7 +155,7 @@ function generateProvingKey(name) {
       );
     } catch {
       execSync(
-        `npx snarkjs groth16 setup ${r1csPath} ${ptauPath} ${zkeyPath}`,
+        `pnpm exec snarkjs groth16 setup ${r1csPath} ${ptauPath} ${zkeyPath}`,
         { stdio: 'inherit' }
       );
     }
@@ -169,7 +169,7 @@ function generateProvingKey(name) {
       );
     } catch {
       execSync(
-        `npx snarkjs zkey export verificationkey ${zkeyPath} ${vkeyPath}`,
+        `pnpm exec snarkjs zkey export verificationkey ${zkeyPath} ${vkeyPath}`,
         { stdio: 'inherit' }
       );
     }

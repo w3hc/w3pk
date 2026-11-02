@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Authenticators without PRF keep no wallet on the device**: the wallet stays in memory for the session and comes back from a backup on the next visit. This includes unverified assertions with `userVerification: 'preferred'`, where `login()` throws `WalletMissingError`
 - **Wallets stored before this release** are re-encrypted at the next `login()` from a PRF persistent session when one exists; otherwise `login()` throws `WalletMissingError` and the wallet is restored from a backup
 - `DeviceSyncManager.importFromSync()` also returns `walletPrfOutput`, the PRF output the wallet key comes from
+- **Build configuration** ([#187](https://github.com/w3hc/w3pk/issues/187)): the build output is unchanged
+  - `build:zk` and `html` run with `pnpm` (`pnpm run`, `pnpm dlx serve`) instead of `npm` and `npx`, and `compile:circuits` falls back to `pnpm exec snarkjs`
+  - `pnpm.overrides` keeps one entry per package: `minimatch@>=5.0.0 <5.1.8` and `jsonpath@<=1.2.1`
+  - The four `tsup.config.ts` entries spread a shared `base` of format, sourcemap, minify, splitting, platform and target options
 
 ### Removed
 
