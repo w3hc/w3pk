@@ -362,7 +362,7 @@ console.log('New wallet:', mnemonic)
 
 ---
 
-### `deriveWallet(mode?: SecurityMode, tag?: string, options?: { requireAuth?: boolean; origin?: string }): Promise<WalletInfo>`
+### `deriveWallet(mode?: SecurityMode, tag?: string, options?: { requireAuth?: boolean }): Promise<WalletInfo>`
 
 Origin-centric wallet derivation with three security modes:
 
@@ -375,7 +375,6 @@ Origin-centric wallet derivation with three security modes:
 - `mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
 - `tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
-- `options.origin?: string` - Override origin URL (default: current origin)
 
 **Returns:**
 
@@ -419,11 +418,6 @@ console.log('Private key:', tradingWallet.privateKey) // undefined
 
 // Force fresh authentication
 const secureWallet = await w3pk.deriveWallet('STANDARD', 'MAIN', { requireAuth: true })
-
-// Override origin (advanced use case)
-const customWallet = await w3pk.deriveWallet('YOLO', 'GAMING', {
-  origin: 'https://custom-domain.com'
-})
 ```
 
 **Security Benefits:**
@@ -435,14 +429,13 @@ const customWallet = await w3pk.deriveWallet('YOLO', 'GAMING', {
 
 ---
 
-### `getAddress(mode?: SecurityMode, tag?: string, options?: { origin?: string }): Promise<string>`
+### `getAddress(mode?: SecurityMode, tag?: string): Promise<string>`
 
 Lightweight method to get the public address for a specific security mode and tag without exposing private keys or creating full wallet objects.
 
 **Parameters:**
 - `mode?: SecurityMode` - Security mode: 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
 - `tag?: string` - Tag for derivation (default: 'MAIN')
-- `options.origin?: string` - Override origin URL (default: current origin)
 
 **Returns:** `Promise<string>` - The Ethereum address for this mode/tag combination
 
@@ -770,7 +763,6 @@ You can specify a different mode, tag, and signing method to customize the signa
 - `options.mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
 - `options.tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
-- `options.origin?: string` - Override origin URL (testing only)
 - `options.signingMethod?: SigningMethod` - Signing method: 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash' (default: 'EIP191')
 - `options.eip712Domain?: object` - EIP-712 domain separator (required for EIP712 method)
 - `options.eip712Types?: object` - EIP-712 type definitions (required for EIP712 method)
@@ -1564,7 +1556,6 @@ options?: {
   mode?: SecurityMode;    // 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
   tag?: string;           // Wallet tag (default: 'MAIN')
   requireAuth?: boolean;  // Force fresh authentication (default: false)
-  origin?: string;        // Override origin URL (testing only)
   rpcUrl?: string;        // Override RPC endpoint (required for PRIMARY mode)
 }
 ```
@@ -1591,7 +1582,7 @@ The RPC endpoint is resolved in this order:
 
 **Sender address**
 
-The transaction is always sent **from the address derived for the active mode, tag, and origin**. With no options the defaults are `mode: 'STANDARD'`, `tag: 'MAIN'`, `origin: window.location.origin`.
+The transaction is always sent **from the address derived for the active mode, tag, and origin**. With no options the defaults are `mode: 'STANDARD'` and `tag: 'MAIN'`; the origin is always `window.location.origin`.
 
 ```
 sender = getOriginSpecificAddress(mnemonic, window.location.origin, 'STANDARD', 'MAIN')
@@ -3555,7 +3546,6 @@ Derive your hybrid ML-KEM-1024 + X25519 public key for sharing with others.
   context?: string;        // Domain separation (default: 'mlkem-v1')
   mode?: SecurityMode;     // 'STANDARD', 'STRICT', or 'YOLO' (default: 'STANDARD')
   tag?: string;            // Address derivation tag (default: 'MAIN')
-  origin?: string;         // Origin (default: current origin)
   requireAuth?: boolean;   // Force re-auth (default: false, always true in STRICT)
 }
 ```
@@ -3585,7 +3575,6 @@ Encrypt data for yourself and additional recipients.
   context?: string;        // Domain separation (default: 'mlkem-v1')
   mode?: SecurityMode;     // Security mode (default: 'STANDARD')
   tag?: string;            // Tag (default: 'MAIN')
-  origin?: string;         // Origin (default: current)
   requireAuth?: boolean;   // Force re-auth (default: false)
 }
 ```

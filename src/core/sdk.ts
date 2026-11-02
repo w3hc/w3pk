@@ -597,7 +597,6 @@ export class Web3Passkey {
    * @param mode - Security mode for derivation (default: "STANDARD")
    * @param tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
-   * @param options.origin - Override origin URL (testing only)
    *
    * @example
    * // Default: STANDARD mode with MAIN tag
@@ -612,7 +611,7 @@ export class Web3Passkey {
   async deriveWallet(
     mode?: SecurityMode,
     tag?: string,
-    options?: { requireAuth?: boolean; origin?: string }
+    options?: { requireAuth?: boolean }
   ): Promise<DerivedWallet> {
     try {
       if (!this.currentUser) {
@@ -621,7 +620,7 @@ export class Web3Passkey {
 
       const effectiveMode = mode || DEFAULT_MODE;
       const effectiveTag = tag || DEFAULT_TAG;
-      const origin = options?.origin || getCurrentOrigin();
+      const origin = getCurrentOrigin();
 
       // PRIMARY mode: Use WebAuthn P-256 public key directly (EIP-7951)
       if (effectiveMode === 'PRIMARY') {
@@ -677,7 +676,6 @@ export class Web3Passkey {
    *
    * @param mode - Security mode (default: "STANDARD")
    * @param tag - Derivation tag (default: "MAIN")
-   * @param options.origin - Override origin URL (testing only)
    * @returns The Ethereum address for this mode/tag combination
    *
    * @example
@@ -695,8 +693,7 @@ export class Web3Passkey {
    */
   async getAddress(
     mode?: SecurityMode,
-    tag?: string,
-    options?: { origin?: string }
+    tag?: string
   ): Promise<string> {
     try {
       if (!this.currentUser) {
@@ -705,7 +702,7 @@ export class Web3Passkey {
 
       const effectiveMode = mode || DEFAULT_MODE;
       const effectiveTag = tag || DEFAULT_TAG;
-      const origin = options?.origin || getCurrentOrigin();
+      const origin = getCurrentOrigin();
 
       // PRIMARY mode: Use WebAuthn P-256 public key directly (EIP-7951)
       if (effectiveMode === 'PRIMARY') {
@@ -805,7 +802,6 @@ export class Web3Passkey {
    * @param options.mode - Security mode for derivation (default: "STANDARD")
    * @param options.tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
-   * @param options.origin - Override origin URL (testing only)
    * @returns Signature result with address, mode, and tag information
    *
    * @example
@@ -855,7 +851,7 @@ export class Web3Passkey {
       }
 
       const effectiveTag = options?.tag || DEFAULT_TAG;
-      const origin = options?.origin || getCurrentOrigin();
+      const origin = getCurrentOrigin();
 
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
@@ -1108,7 +1104,6 @@ export class Web3Passkey {
    * @param options.mode - Security mode (default: STANDARD)
    * @param options.tag - Wallet tag (optional)
    * @param options.requireAuth - Force fresh authentication (optional)
-   * @param options.origin - Origin override (optional)
    * @param options.rpcUrl - RPC endpoint override (optional, required for PRIMARY mode)
    * @returns Transaction hash and metadata
    *
@@ -1131,7 +1126,6 @@ export class Web3Passkey {
       mode?: SecurityMode;
       tag?: string;
       requireAuth?: boolean;
-      origin?: string;
       rpcUrl?: string;
     }
   ): Promise<{
@@ -1149,7 +1143,7 @@ export class Web3Passkey {
 
       const effectiveMode = options?.mode || DEFAULT_MODE;
       const effectiveTag = options?.tag || DEFAULT_TAG;
-      const origin = options?.origin || getCurrentOrigin();
+      const origin = getCurrentOrigin();
 
       // PRIMARY mode requires a bundler/relayer rpcUrl
       if (effectiveMode === 'PRIMARY') {
@@ -2517,7 +2511,6 @@ export class Web3Passkey {
    * @param options.context - Context string for domain separation (default: 'mlkem-v1')
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
    * @param options.tag - Tag for address derivation (default: 'MAIN')
-   * @param options.origin - Origin for derivation (default: current origin)
    * @param options.requireAuth - Force WebAuthn re-authentication
    * @returns Base64-encoded hybrid public key (1600 bytes: ML-KEM-1024 || X25519)
    *
@@ -2534,7 +2527,6 @@ export class Web3Passkey {
     context?: string;
     mode?: SecurityMode;
     tag?: string;
-    origin?: string;
     requireAuth?: boolean;
   }): Promise<string> {
     if (!this.currentUser) {
@@ -2546,7 +2538,7 @@ export class Web3Passkey {
 
     const effectiveMode = options?.mode || 'STANDARD';
     const effectiveTag = options?.tag || DEFAULT_TAG;
-    const origin = options?.origin || getCurrentOrigin();
+    const origin = getCurrentOrigin();
     const context = options?.context || 'mlkem-v1';
     const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
@@ -2597,7 +2589,6 @@ export class Web3Passkey {
    * @param options.context - Context string for key derivation (default: 'mlkem-v1')
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
    * @param options.tag - Tag for address derivation (default: 'MAIN')
-   * @param options.origin - Origin for derivation (default: current origin)
    * @param options.requireAuth - Force WebAuthn re-authentication
    * @returns Encrypted payload that can be decrypted by sender or recipients
    *
@@ -2626,7 +2617,6 @@ export class Web3Passkey {
       context?: string;
       mode?: SecurityMode;
       tag?: string;
-      origin?: string;
       requireAuth?: boolean;
     }
   ): Promise<any> {
@@ -2638,7 +2628,7 @@ export class Web3Passkey {
 
     const effectiveMode = options?.mode || 'STANDARD';
     const effectiveTag = options?.tag || DEFAULT_TAG;
-    const origin = options?.origin || getCurrentOrigin();
+    const origin = getCurrentOrigin();
     const context = options?.context || 'mlkem-v1';
     const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
@@ -2682,7 +2672,6 @@ export class Web3Passkey {
    * @param options.context - Context string for key derivation (default: 'mlkem-v1', must match encryption)
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
    * @param options.tag - Tag for address derivation (default: 'MAIN')
-   * @param options.origin - Origin for derivation (default: current origin)
    * @param options.requireAuth - Force WebAuthn re-authentication
    * @returns Decrypted plaintext
    *
@@ -2704,7 +2693,6 @@ export class Web3Passkey {
       context?: string;
       mode?: SecurityMode;
       tag?: string;
-      origin?: string;
       requireAuth?: boolean;
     }
   ): Promise<string> {
@@ -2716,7 +2704,7 @@ export class Web3Passkey {
 
     const effectiveMode = options?.mode || 'STANDARD';
     const effectiveTag = options?.tag || DEFAULT_TAG;
-    const origin = options?.origin || getCurrentOrigin();
+    const origin = getCurrentOrigin();
     const context = options?.context || 'mlkem-v1';
     const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
