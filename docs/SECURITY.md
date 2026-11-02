@@ -3332,18 +3332,22 @@ await w3pk.createZipBackup('MyS3cur3!Password@2024')
 **2. Test recovery before trusting:**
 ```typescript
 // Simulate recovery scenarios
-const test1 = await w3pk.simulateRecoveryScenario({
-  type: 'lost-device',
-  hasBackup: true,
-  hasSocialRecovery: true
-})
-console.log('Can recover?', test1.canRecover)
+import { RecoverySimulator } from 'w3pk'
 
-const test2 = await w3pk.simulateRecoveryScenario({
-  type: 'lost-phrase',
-  hasPasskeySync: true
-})
-console.log('Can recover?', test2.canRecover)
+const simulator = new RecoverySimulator()
+const status = await w3pk.getBackupStatus()
+
+const test1 = await simulator.simulateScenario(
+  { type: 'lost-device', description: 'Phone lost' },
+  status
+)
+console.log('Can recover?', test1.success)
+
+const test2 = await simulator.simulateScenario(
+  { type: 'lost-phrase', description: 'Recovery phrase lost' },
+  status
+)
+console.log('Can recover?', test2.success)
 ```
 
 **3. Store backups securely:**

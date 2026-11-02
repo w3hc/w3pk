@@ -3917,22 +3917,34 @@ import type {
 
 ## Education & Recovery Testing
 
-### `getEducation(topic: string): Promise<any>`
+These are standalone exports. The simulator takes the backup status, so call `w3pk.getBackupStatus()` (requires authentication) and pass the result.
 
-Get educational content by topic.
+### `getExplainer(topic: string): EducationalModule | null`
+
+Get educational content by topic. Returns `null` for an unknown topic.
 
 **Parameters:**
-- `topic: string` - Topic name (e.g., "passkey-sync", "backup-methods", "social-recovery")
+- `topic: string` - Topic id (e.g., `"whatIsPasskey"`, `"howDoesSyncWork"`, `"whyBackupMatters"`)
 
-**Returns:** Educational content object for the specified topic
+**Returns:**
+
+```typescript
+interface EducationalModule {
+  title: string;
+  content: string;
+  visual?: string;
+  interactive?: string;
+}
+```
 
 **Example:**
 
 ```typescript
-const explainer = await w3pk.getEducation('passkey-sync')
-console.log(explainer.title)
-console.log(explainer.content)
-console.log(explainer.examples)
+import { getExplainer } from 'w3pk'
+
+const explainer = getExplainer('howDoesSyncWork')
+console.log(explainer?.title)
+console.log(explainer?.content)
 ```
 
 **Available Topics:**
@@ -3941,7 +3953,7 @@ console.log(explainer.examples)
 
 ---
 
-### `simulateRecoveryScenario(scenario: RecoveryScenario): Promise<SimulationResult>`
+### `RecoverySimulator.simulateScenario(scenario: RecoveryScenario, status: BackupStatus): Promise<SimulationResult>`
 
 Simulate recovery scenario to test backup preparedness.
 
@@ -3958,61 +3970,60 @@ interface RecoveryScenario {
 
 ```typescript
 interface SimulationResult {
-  canRecover: boolean;
-  methods: string[];
-  recommendations: string[];
-  risks: string[];
+  scenario: RecoveryScenario;
+  success: boolean;
+  availableMethods: RecoveryMethod[];
+  timeEstimate: string;
+  educationalNote: string;
 }
 ```
 
 **Example:**
 
 ```typescript
-const result = await w3pk.simulateRecoveryScenario({
-  type: 'lost-device',
-  description: 'Phone dropped in water, device destroyed'
-})
+import { RecoverySimulator } from 'w3pk'
 
-console.log('Can recover:', result.canRecover)
-console.log('Recovery methods:', result.methods)
-console.log('Recommendations:', result.recommendations)
+const result = await new RecoverySimulator().simulateScenario(
+  { type: 'lost-device', description: 'Phone dropped in water, device destroyed' },
+  await w3pk.getBackupStatus()
+)
+
+console.log('Can recover:', result.success)
+console.log('Recovery methods:', result.availableMethods.map(m => m.method))
+console.log('Note:', result.educationalNote)
 ```
 
 ---
 
-### `runRecoveryTest(): Promise<{ scenarios: any[]; overallScore: number; feedback: string }>`
+### `RecoverySimulator.runInteractiveTest(status: BackupStatus)`
 
-Run interactive recovery test across multiple scenarios.
-
-Tests wallet recovery preparedness by simulating various disaster scenarios.
+Run the predefined scenarios (`getScenarios()`) and score recovery preparedness.
 
 **Returns:**
 
 ```typescript
-{
-  scenarios: Array<{
-    name: string;
-    canRecover: boolean;
-    methods: string[];
-  }>;
+Promise<{
+  scenarios: SimulationResult[];
   overallScore: number;    // 0-100
+  securityScore: number;
   feedback: string;        // Personalized recommendations
-}
+}>
 ```
 
 **Example:**
 
 ```typescript
-const test = await w3pk.runRecoveryTest()
+import { RecoverySimulator } from 'w3pk'
+
+const test = await new RecoverySimulator().runInteractiveTest(
+  await w3pk.getBackupStatus()
+)
 
 console.log('Overall Score:', test.overallScore, '/ 100')
 console.log('Feedback:', test.feedback)
 
-test.scenarios.forEach(scenario => {
-  console.log(`${scenario.name}: ${scenario.canRecover ? '✅' : '❌'}`)
-  if (scenario.canRecover) {
-    console.log('  Methods:', scenario.methods.join(', '))
-  }
+test.scenarios.forEach(result => {
+  console.log(`${result.scenario.description}: ${result.success ? '✅' : '❌'}`)
 })
 ```
 
