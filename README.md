@@ -385,10 +385,11 @@ const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians([share1, s
 await w3pk.restoreFromBackupFile(encryptedData, password)
 
 // Simulate recovery scenarios
-const result = await w3pk.simulateRecoveryScenario({
-  type: 'lost-device',
-  description: 'Device lost with iCloud Keychain enabled'
-})
+import { RecoverySimulator } from 'w3pk'
+const result = await new RecoverySimulator().simulateScenario(
+  { type: 'lost-device', description: 'Device lost with iCloud Keychain enabled' },
+  await w3pk.getBackupStatus()
+)
 ```
 
 ### Build Verification
