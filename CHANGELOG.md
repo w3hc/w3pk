@@ -42,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `getEducation(topic)`: use `getExplainer(topic)`, which returns `null` for an unknown topic instead of throwing
   - `simulateRecoveryScenario(scenario)` and `runRecoveryTest()`: use `new RecoverySimulator().simulateScenario(scenario, status)` and `runInteractiveTest(status)` with `status = await w3pk.getBackupStatus()`
 
+### Fixed
+
+- **`pnpm test` runs every `test/**/*.test.ts` file** ([#186](https://github.com/w3hc/w3pk/issues/186)) through `scripts/run-tests.mjs` instead of a hand-written chain that left five files out. The `test:*` subsets use the same runner, and `node scripts/run-tests.mjs <dir or files>` runs any subset
+  - `test/test.ts` is now `test/basic.test.ts`
+  - `sign-authorization.test.ts` signs with an explicit `privateKey` and checks the recovered signer, so it runs in Node without WebAuthn
+  - `security-validation.test.ts` is gone: it imported `vitest`, which isn't a dependency, and only asserted on constants it defined without calling the SDK
+- **Test files exit non-zero when a test fails**: `console.assert` is replaced by `node:assert` and `.catch(console.error)` by an exit code. This surfaced tests that had been failing silently in `origin-derivation`, `derive-wallet-unified` and `security-restrictions` (tags passed as the security mode, a renamed index function, a check of the removed `exportMnemonic()`), now fixed
+
 ## [0.11.0] - 2026-11-02
 
 ### Added
