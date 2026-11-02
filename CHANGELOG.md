@@ -5,6 +5,27 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **The wallet stored on the device is encrypted under a key from the passkey's PRF output** ([#179](https://github.com/w3hc/w3pk/issues/179)). Its key was derived from `credentialId` and `publicKey`, both stored on the device, so anyone who could read the site's storage could decrypt the mnemonic without the authenticator
+  - `deriveWalletKey(prfOutput)`: HKDF-SHA256 of the PRF output at `PRF_INPUT`, info `w3pk-prf-wallet-key-v1`, separate from the persistent-session key
+  - `register()` uses the PRF output from creation, or runs one assertion when the platform doesn't return it
+  - `login()`, `getMnemonic()` and `importMnemonic()` take the key from their assertion's PRF output
+  - `syncWalletWithPasskey()`, `importFromSync()` and `restoreFromBackupFile()` evaluate the wallet's PRF input in the assertion they already run (`prf.eval.second` for PRF backups), and now start a persistent session too; `restoreFromBackupFile()` with a password backup while logged in adds one assertion
+
+### Changed
+
+- **Authenticators without PRF keep no wallet on the device**: the wallet stays in memory for the session and comes back from a backup on the next visit. This includes unverified assertions with `userVerification: 'preferred'`, where `login()` throws `WalletMissingError`
+- **Wallets stored before this release** are re-encrypted at the next `login()` from a PRF persistent session when one exists; otherwise `login()` throws `WalletMissingError` and the wallet is restored from a backup
+- `DeviceSyncManager.importFromSync()` also returns `walletPrfOutput`, the PRF output the wallet key comes from
+
+### Removed
+
+- `deriveEncryptionKeyFromWebAuthn()` and the deprecated `deriveEncryptionKey()`
+- `VaultSync.createSyncPackage()`, `VaultSync.restoreFromSync()` and the `SyncVault` type, which used the same key. PRF backups (`exportForSync()`) replace them
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

@@ -32,7 +32,8 @@ Until the first trigger fires, w3pk deliberately does **not** deploy interim sma
 **Low/moderate risk (already mitigated):**
 - ✅ Encrypted backups, session storage (AES-256-GCM) — 128-bit quantum security, negligible harvest-now-decrypt-later (HNDL) exposure
 - ✅ Data encrypted with `mlkemEncrypt`/`mlkemDecrypt` — post-quantum secure today, and still safe if ML-KEM alone falls to classical cryptanalysis
-- ✅ PBKDF2 key derivation — Grover's algorithm halves effective security; current iteration counts (210k/310k/100k) leave ample margin for the 2030s
+- ✅ PBKDF2 key derivation — Grover's algorithm halves effective security; current iteration counts (310k/100k) leave ample margin for the 2030s
+- ✅ Wallet key from the passkey's PRF output (HKDF-SHA256, 256-bit) — 128-bit quantum security
 
 **High risk (tracks Ethereum's own timeline, not w3pk's):**
 - ⚠️ Transaction signatures (secp256k1 ECDSA) — broken by Shor's algorithm on a CRQC; fix depends on Ethereum shipping EIP-8141 + a PQ verification path
@@ -114,7 +115,7 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 
 | Component | Algorithm | Parameters | Quantum resistance |
 | --- | --- | --- | --- |
-| Wallet encryption | PBKDF2-SHA256 | 210,000 iterations | Moderate — Grover's algorithm halves effective security |
+| Wallet encryption | HKDF-SHA256 of the WebAuthn PRF output | 256-bit key material | Strong — 128-bit quantum security |
 | Backup encryption | PBKDF2-SHA256 | 310,000 iterations | Moderate |
 | Metadata encryption | PBKDF2-SHA256 | 100,000 iterations | Moderate |
 
