@@ -870,12 +870,11 @@ Resources:
           const status = await window.w3pk.getBackupStatus();
           console.log('Backup status:', status);
           window.showResult('Backup Status', {
-            securityScore: status.securityScore.total + '/100',
+            securityScore: status.securityScore.total + '/70',
             level: status.securityScore.level,
             passkeySync: status.passkeySync.enabled,
             platform: status.passkeySync.platform,
-            encryptedBackups: status.recoveryPhrase.encryptedBackups.length,
-            socialRecovery: status.socialRecovery?.enabled || false
+            encryptedBackups: status.recoveryPhrase.encryptedBackups.length
           }, 'success');
         } catch (error) {
           window.handleError(error);
