@@ -69,7 +69,7 @@ export async function recordBackup(ctx: SdkContext, method: 'file' | 'prf'): Pro
   });
 }
 
-export async function backupCredential(ctx: SdkContext): Promise<BackupCredential | undefined> {
+export async function backupCredential(ctx: Pick<SdkContext, 'currentUser'>): Promise<BackupCredential | undefined> {
   const credential = await new CredentialStorage().getCredentialById(
     ctx.currentUser!.credentialId
   );
