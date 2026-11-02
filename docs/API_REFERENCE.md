@@ -2505,32 +2505,33 @@ a.click()
 
 ## Social Recovery API
 
-Social recovery is handled by the `SocialRecoveryManager` class, which splits password-encrypted backup files into guardian shares using Shamir Secret Sharing.
+Social recovery splits a password-encrypted backup file into guardian shares using Shamir Secret Sharing. w3pk stores no share on the device: each guardian keeps theirs.
 
-### Import
+### `setupSocialRecovery(guardians: { name: string; email?: string }[], threshold: number, password: string): Promise<{ guardianShares: GuardianShare[]; setupComplete: boolean }>`
 
-```typescript
-import { SocialRecoveryManager } from 'w3pk';
-```
-
-### `SocialRecoveryManager.setupSocialRecovery(backupFileJson: string, ethereumAddress: string, guardians: Guardian[], threshold: number): Promise<Guardian[]>`
-
-Set up social recovery by splitting an encrypted backup file among guardians.
+Encrypt the logged-in wallet into a password backup file and split it among guardians.
 
 **Parameters:**
-- `backupFileJson: string` - Password-encrypted backup file JSON
-- `ethereumAddress: string` - Ethereum address for verification
-- `guardians: Guardian[]`
-  ```typescript
-  interface Guardian {
-    name: string;
-    email?: string;
-    phone?: string;
-  }
-  ```
-- `threshold: number` - Number of guardians required to recover (M in M-of-N)
+- `guardians` - Guardian names (and optional emails)
+- `threshold: number` - Number of guardians required to recover (M in M-of-N, at least 2)
+- `password: string` - Encrypts the backup the shares rebuild
 
-**Returns:** Array of guardians with encrypted share fragments
+**Returns:**
+
+```typescript
+{
+  guardianShares: Array<{
+    guardianId: string;
+    guardianName: string;
+    shareData: string;     // Hex-encoded Shamir share
+    shareIndex: number;    // 1-based
+    threshold: number;
+    createdAt: string;
+    walletAddress: string;
+  }>;
+  setupComplete: boolean;
+}
+```
 
 **Security:**
 - Guardians receive fragments of an already-encrypted backup file
@@ -2540,130 +2541,62 @@ Set up social recovery by splitting an encrypted backup file among guardians.
 **Example:**
 
 ```typescript
-import { SocialRecoveryManager } from 'w3pk';
-
-// Step 1: Create password-encrypted backup file
-const { blob } = await w3pk.createBackupFile('MySecurePassword123!');
-const backupFileJson = await blob.text();
-
-// Step 2: Setup social recovery with 3-of-5 threshold
-const socialRecovery = new SocialRecoveryManager();
-const guardians = await socialRecovery.setupSocialRecovery(
-  backupFileJson,
-  w3pk.user.ethereumAddress,
+const { guardianShares } = await w3pk.setupSocialRecovery(
   [
     { name: 'Alice', email: 'alice@example.com' },
-    { name: 'Bob', phone: '+1234567890' },
+    { name: 'Bob' },
     { name: 'Charlie', email: 'charlie@example.com' },
     { name: 'Dave' },
     { name: 'Eve', email: 'eve@example.com' }
   ],
-  3  // Need 3 guardians to recover
+  3, // Need 3 guardians to recover
+  'MySecurePassword123!'
 );
-
-console.log('Social recovery configured with', guardians.length, 'guardians');
 ```
 
 ---
 
-### `SocialRecoveryManager.generateGuardianInvite(guardian: Guardian): Promise<GuardianInvite>`
+### `generateGuardianInvite(guardianShare: GuardianShare, message?: string): Promise<{ qrCodeDataURL?: string; shareDocument: string; downloadBlob: Blob; filename: string }>`
 
-Generate invitation for a guardian with their encrypted share fragment.
+Build what a guardian keeps: a share file, a printable document and, when the optional `qrcode` package is installed, a QR code of the share.
 
 **Parameters:**
-- `guardian: Guardian` - Guardian object with share
-
-**Returns:**
-
-```typescript
-interface GuardianInvite {
-  guardianId: string;
-  qrCode: string;        // Data URL for QR code
-  shareCode: string;     // JSON string for manual entry
-  explainer: string;     // Educational text for guardian
-}
-```
+- `guardianShare` - One of the `guardianShares` from `setupSocialRecovery()`
+- `message?: string` - Custom message for the guardian
 
 **Example:**
 
 ```typescript
-const socialRecovery = new SocialRecoveryManager();
+for (const share of guardianShares) {
+  const { downloadBlob, filename, shareDocument, qrCodeDataURL } =
+    await w3pk.generateGuardianInvite(share, 'Please keep this safe');
 
-for (const guardian of guardians) {
-  const invite = await socialRecovery.generateGuardianInvite(guardian);
-
-  // Show QR code to guardian
-  console.log('QR code:', invite.qrCode);
-  console.log('Share code:', invite.shareCode);
-  console.log('Instructions:', invite.explainer);
-
-  // Send via email, messaging app, etc.
+  // Send the share file, document or QR code to the guardian
 }
 ```
 
 ---
 
-### `SocialRecoveryManager.recoverFromGuardians(shares: string[]): Promise<{ backupFileJson: string; ethereumAddress: string }>`
+### `recoverFromGuardians(shares: Array<string | GuardianShare>, password: string): Promise<{ mnemonic: string; ethereumAddress: string }>`
 
-Reconstruct encrypted backup file from guardian shares.
+Combine guardian shares into the backup file and decrypt it.
 
 **Parameters:**
-- `shares: string[]` - Array of share codes from guardians (JSON strings)
-
-**Returns:**
-
-```typescript
-{
-  backupFileJson: string;      // Reconstructed encrypted backup file
-  ethereumAddress: string;     // Ethereum address from the shares (the v3 file holds no address)
-}
-```
+- `shares` - At least `threshold` share files (JSON strings) or share objects
+- `password: string` - Password set in `setupSocialRecovery()`
 
 **Throws:** `UnsupportedBackupVersionError` when the shares rebuild a v2 file (shares made before 0.11.0); its `backupFileJson` holds the rebuilt file, for the v0.10.6 offline tool
 
 **Example:**
 
 ```typescript
-import { SocialRecoveryManager } from 'w3pk';
+const shares = [aliceShareFile, bobShareFile, charlieShareFile]; // JSON strings
 
-const socialRecovery = new SocialRecoveryManager();
-
-// Step 1: Collect shares from 3+ guardians
-const shares = [
-  aliceShareCode,   // JSON string from Alice
-  bobShareCode,     // JSON string from Bob
-  charlieShareCode  // JSON string from Charlie
-];
-
-// Step 2: Reconstruct encrypted backup file
-const { backupFileJson, ethereumAddress } = await socialRecovery.recoverFromGuardians(shares);
-console.log('Backup file reconstructed for:', ethereumAddress);
-
-// Step 3: Decrypt with password and register
-const password = 'MySecurePassword123!'; // Password set during setup
-await w3pk.registerWithBackupFile(backupFileJson, password, 'username');
-console.log('Wallet recovered and registered!');
-```
-
----
-
-### `SocialRecoveryManager.getSocialRecoveryConfig(): SocialRecoveryConfig | null`
-
-Get current social recovery configuration from localStorage.
-
-**Returns:** Social recovery configuration or null if not set up
-
-**Example:**
-
-```typescript
-const socialRecovery = new SocialRecoveryManager();
-const config = socialRecovery.getSocialRecoveryConfig();
-
-if (config) {
-  console.log('Threshold:', config.threshold);
-  console.log('Total guardians:', config.totalGuardians);
-  console.log('Guardians:', config.guardians);
-}
+const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(
+  shares,
+  'MySecurePassword123!'
+);
+console.log('Wallet recovered:', ethereumAddress);
 ```
 
 ---
@@ -3955,14 +3888,6 @@ import type {
   RecoveryResult,
   RecoveryScenario,
   SimulationResult
-} from 'w3pk'
-
-// Social recovery types
-import type {
-  Guardian,
-  GuardianInvite,
-  SocialRecoveryConfig,
-  RecoveryShare
 } from 'w3pk'
 
 // Sync types

@@ -319,59 +319,49 @@ On a fresh device, `syncWalletWithPasskey()` and `importFromSync()` throw `SyncB
 
 **Setup (3-of-5 example):**
 ```typescript
-import { SocialRecoveryManager } from 'w3pk';
-
 const sdk = createWeb3Passkey();
 await sdk.login();
 
-// Step 1: Create password-encrypted backup file
+// Step 1: Encrypt the wallet with a password and split it among guardians
 const password = 'MySecurePassword123!'; // User must remember this
-const { blob } = await sdk.createBackupFile(password);
-const backupFileJson = await blob.text();
-
-// Step 2: Split backup file among guardians
-const socialRecovery = new SocialRecoveryManager();
-const guardians = await socialRecovery.setupSocialRecovery(
-  backupFileJson, // Encrypted backup file JSON
-  sdk.user.ethereumAddress,
-  [
-    { name: 'Alice', email: 'alice@example.com' },
-    { name: 'Bob', email: 'bob@example.com' },
-    { name: 'Charlie', email: 'charlie@example.com' },
-    { name: 'David', email: 'david@example.com' },
-    { name: 'Eve', email: 'eve@example.com' },
-  ],
-  3 // threshold: need 3 shares to recover
+const guardians = [
+  { name: 'Alice', email: 'alice@example.com' },
+  { name: 'Bob', email: 'bob@example.com' },
+  { name: 'Charlie', email: 'charlie@example.com' },
+  { name: 'David', email: 'david@example.com' },
+  { name: 'Eve', email: 'eve@example.com' },
+];
+const { guardianShares } = await sdk.setupSocialRecovery(
+  guardians,
+  3, // threshold: need 3 shares to recover
+  password
 );
 
-// Step 3: Generate invitation for each guardian
-for (const guardian of guardians) {
-  const invite = await socialRecovery.generateGuardianInvite(guardian);
-  // Send invite.qrCode and invite.explainer to guardian
+// Step 2: Generate invitation for each guardian
+for (const share of guardianShares) {
+  const { downloadBlob, filename, shareDocument, qrCodeDataURL } =
+    await sdk.generateGuardianInvite(share);
+  // Send the share file (or document / QR code) to the guardian
   // Guardian stores their share safely (password manager, etc.)
 }
 ```
 
+w3pk stores no share on the device: only the guardians hold them.
+
 **Recover Wallet:**
 ```typescript
-import { SocialRecoveryManager } from 'w3pk';
-
 const sdk = createWeb3Passkey();
-const socialRecovery = new SocialRecoveryManager();
 
-// Step 1: Collect shares from 3+ guardians
-const shares = [aliceShareCode, bobShareCode, charlieShareCode];
+// Step 1: Collect share files from 3+ guardians
+const shares = [aliceShareFile, bobShareFile, charlieShareFile];
 
-// Step 2: Reconstruct encrypted backup file from shares
-// (ethereumAddress comes from the shares: the v3 file holds no address)
-const { backupFileJson, ethereumAddress } = await socialRecovery.recoverFromGuardians(shares);
-
-// Step 3: Decrypt backup file with password
+// Step 2: Rebuild the backup file from the shares and decrypt it with the password
 const password = prompt('Enter your backup password');
+const { mnemonic, ethereumAddress } = await sdk.recoverFromGuardians(shares, password);
 
-// Step 4: Register new passkey with recovered backup file
-await sdk.registerWithBackupFile(backupFileJson, password, 'username');
-// Now logged in with new passkey, credentials stored locally ✅
+// Step 3: Register a new passkey and import the recovered wallet
+await sdk.register({ username: 'username' });
+await sdk.importMnemonic(mnemonic);
 ```
 
 **Encryption**:
@@ -566,36 +556,26 @@ const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupDat
 ### Social Recovery
 
 ```typescript
-import { SocialRecoveryManager } from 'w3pk';
-
-// Setup - Create password-encrypted backup and split among guardians
-const { blob } = await w3pk.createBackupFile('MyPassword123!');
-const backupFileJson = await blob.text();
-
-const socialRecovery = new SocialRecoveryManager();
-const guardians = await socialRecovery.setupSocialRecovery(
-  backupFileJson,
-  w3pk.user.ethereumAddress,
+// Setup - Encrypt the wallet with a password and split it among guardians
+const { guardianShares } = await w3pk.setupSocialRecovery(
   [
     { name: 'Alice', email: 'alice@example.com' },
     { name: 'Bob', email: 'bob@example.com' },
     { name: 'Charlie', email: 'charlie@example.com' }
   ],
-  2 // threshold
+  2, // threshold
+  'MyPassword123!'
 );
 
 // Generate invitations for guardians
-for (const guardian of guardians) {
-  const invite = await socialRecovery.generateGuardianInvite(guardian);
-  // Send invite.qrCode and invite.shareCode to guardian
+for (const share of guardianShares) {
+  const { downloadBlob, filename } = await w3pk.generateGuardianInvite(share);
+  // Send the share file to the guardian
 }
 
-// Recover - Collect shares and reconstruct encrypted backup file
-const shares = [aliceShareCode, bobShareCode]; // JSON strings from guardians
-const { backupFileJson, ethereumAddress } = await socialRecovery.recoverFromGuardians(shares);
-
-// Decrypt and register with password
-await w3pk.registerWithBackupFile(backupFileJson, 'MyPassword123!', 'username');
+// Recover - Collect share files, rebuild the backup and decrypt it
+const shares = [aliceShareFile, bobShareFile]; // JSON strings from guardians
+const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares, 'MyPassword123!');
 ```
 
 ---

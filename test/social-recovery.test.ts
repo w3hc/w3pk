@@ -1,9 +1,11 @@
 /**
- * Social Recovery Tests
- * Tests for Shamir Secret Sharing and guardian-based recovery
+ * Social recovery: Shamir Secret Sharing and the guardian flow through the SDK
+ *
+ * NOTE: the mnemonics are standard BIP39 test vectors, not real secrets
  */
 
-import { SocialRecoveryManager } from "../src/recovery/social";
+import { Wallet } from "ethers";
+import { Web3Passkey } from "../src/index";
 import {
   splitSecret,
   combineShares,
@@ -12,558 +14,253 @@ import {
   bytesToHex,
   hexToBytes,
 } from "../src/recovery/shamir";
+import {
+  startTestSuite,
+  endTestSuite,
+  runTest,
+  passTest,
+  assert,
+  assertEqual,
+  assertThrows,
+} from "./test-utils";
+
+class MemoryStorage {
+  private items = new Map<string, string>();
+  get length() {
+    return this.items.size;
+  }
+  key(i: number) {
+    return [...this.items.keys()][i] ?? null;
+  }
+  getItem(k: string) {
+    return this.items.get(k) ?? null;
+  }
+  setItem(k: string, v: string) {
+    this.items.set(k, String(v));
+  }
+  removeItem(k: string) {
+    this.items.delete(k);
+  }
+  clear() {
+    this.items.clear();
+  }
+}
+
+const localStorage = new MemoryStorage();
+(globalThis as any).localStorage = localStorage;
+(globalThis as any).window = {
+  location: { hostname: "localhost", origin: "http://localhost" },
+  localStorage,
+};
+
+const MNEMONIC =
+  "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+const ADDRESS = Wallet.fromPhrase(MNEMONIC).address;
+const OTHER_MNEMONIC =
+  "test test test test test test test test test test test junk";
+const PASSWORD = "TestStrongPass123!NotReal";
+
+function loggedInSdk(mnemonic = MNEMONIC): Web3Passkey {
+  const sdk = new Web3Passkey();
+  (sdk as any).currentUser = {
+    username: "alice",
+    ethereumAddress: Wallet.fromPhrase(mnemonic).address,
+    credentialId: "test-credential",
+  };
+  (sdk as any).getMnemonicFromSession = async () => mnemonic;
+  return sdk;
+}
+
+async function shareFiles(sdk: Web3Passkey, guardianShares: any[]): Promise<string[]> {
+  return Promise.all(
+    guardianShares.map(async (share) => {
+      const invite = await sdk.generateGuardianInvite(share);
+      return invite.downloadBlob.text();
+    })
+  );
+}
 
 async function runTests() {
-  console.log("\n🧪 Running Social Recovery Tests...\n");
+  startTestSuite("Social Recovery Tests");
 
-  // Test 1: Shamir Secret Sharing - Basic Split and Combine
-  console.log("Test 1: Shamir Secret Sharing - 3-of-5");
-  {
-    const secret =
-      "test test test test test test test test test test test junk";
-    const secretBytes = stringToBytes(secret);
-
-    const shares = splitSecret(secretBytes, 3, 5);
-
-    console.assert(shares.length === 5, "Should create 5 shares");
-    console.assert(shares[0][0] === 1, "First share should have X=1");
-    console.assert(shares[4][0] === 5, "Last share should have X=5");
-
-    // Combine first 3 shares
-    const recovered = combineShares(shares.slice(0, 3), 3);
-    const recoveredSecret = bytesToString(recovered);
-
-    console.assert(
-      recoveredSecret === secret,
-      "Should recover original secret"
-    );
-    console.log("✅ 3-of-5 secret sharing working correctly");
-  }
-
-  // Test 2: Different Share Combinations
-  console.log("\nTest 2: Different Share Combinations");
-  {
+  await runTest("Shamir 3-of-5 recovers from any 3 shares", async () => {
     const secret = "test secret message for recovery";
-    const secretBytes = stringToBytes(secret);
+    const shares = splitSecret(stringToBytes(secret), 3, 5);
 
-    const shares = splitSecret(secretBytes, 3, 5);
-
-    // Try different combinations of 3 shares
-    const combo1 = combineShares([shares[0], shares[1], shares[2]], 3);
-    const combo2 = combineShares([shares[1], shares[2], shares[3]], 3);
-    const combo3 = combineShares([shares[0], shares[2], shares[4]], 3);
-
-    console.assert(bytesToString(combo1) === secret, "Combo 1 should work");
-    console.assert(bytesToString(combo2) === secret, "Combo 2 should work");
-    console.assert(bytesToString(combo3) === secret, "Combo 3 should work");
-
-    console.log("✅ All combinations work correctly");
-  }
-
-  // Test 3: Insufficient Shares
-  console.log("\nTest 3: Insufficient Shares");
-  {
-    const secret = "cannot recover with too few shares";
-    const secretBytes = stringToBytes(secret);
-
-    const shares = splitSecret(secretBytes, 3, 5);
-
-    try {
-      // Try with only 2 shares (need 3)
-      combineShares(shares.slice(0, 2), 3);
-      console.assert(false, "Should throw error with insufficient shares");
-    } catch (error) {
-      console.assert(error instanceof Error, "Should throw Error");
-      console.log("✅ Correctly rejects insufficient shares");
+    assertEqual(shares.length, 5, "5 shares");
+    assertEqual(shares[0][0], 1, "first share has X=1");
+    assertEqual(shares[4][0], 5, "last share has X=5");
+    for (const combo of [[0, 1, 2], [1, 2, 3], [0, 2, 4]]) {
+      const recovered = combineShares(combo.map((i) => shares[i]), 3);
+      assertEqual(bytesToString(recovered), secret, `combo ${combo.join(",")}`);
     }
-  }
-
-  // Test 4: Hex Encoding/Decoding
-  console.log("\nTest 4: Hex Encoding and Decoding");
-  {
-    const testData = new Uint8Array([1, 2, 3, 4, 5, 255, 128, 64]);
-
-    const hex = bytesToHex(testData);
-    console.assert(
-      hex === "0102030405ff8040",
-      "Hex encoding should be correct"
+    await assertThrows(
+      () => {
+        combineShares(shares.slice(0, 2), 3);
+      },
+      "2 shares can't rebuild a 3-of-5 secret"
     );
+    passTest();
+  });
 
-    const decoded = hexToBytes(hex);
-    console.assert(
-      decoded.length === testData.length,
-      "Decoded should have same length"
-    );
-    console.assert(
-      decoded.every((byte, i) => byte === testData[i]),
-      "Decoded should match original"
-    );
+  await runTest("Hex encoding round-trips", async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4, 5, 255, 128, 64]);
+    const hex = bytesToHex(bytes);
 
-    console.log("✅ Hex encoding/decoding working correctly");
-  }
+    assertEqual(hex, "0102030405ff8040", "hex encoding");
+    assertEqual(hexToBytes(hex).join(","), bytes.join(","), "hex decoding");
+    passTest();
+  });
 
-  // Test 5: Social Recovery Setup
-  console.log("\nTest 5: Social Recovery Setup");
-  {
-    const socialRecovery = new SocialRecoveryManager();
-    const testMnemonic =
-      "test test test test test test test test test test test junk";
-
-    // Derive the actual address from the mnemonic
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    // Create a password-encrypted backup file
-    const { BackupFileManager } = await import("../src/backup/backup-file");
-    const backupManager = new BackupFileManager();
-    const { json: backupFileJson } = await backupManager.createPasswordBackup(
-      testMnemonic,
-      "test-password-123"
-    );
-
-    const guardians = [
-      { name: "Alice", email: "alice@example.com" },
-      { name: "Bob", email: "bob@example.com" },
-      { name: "Charlie" },
-      { name: "Diana", email: "diana@example.com" },
-      { name: "Eve", phone: "+1234567890" },
-    ];
-
-    const result = await socialRecovery.setupSocialRecovery(
-      backupFileJson,
-      testAddress,
-      guardians,
-      3
-    );
-
-    console.assert(result.length === 5, "Should create 5 guardians");
-    console.assert(
-      result[0].name === "Alice",
-      "Should preserve guardian names"
-    );
-    console.assert(
-      result[0].email === "alice@example.com",
-      "Should preserve guardian emails"
-    );
-    console.assert(result[0].id, "Each guardian should have ID");
-    console.assert(
-      result[0].shareEncrypted,
-      "Each guardian should have encrypted share"
-    );
-    console.assert(
-      result[0].status === "pending",
-      "Initial status should be pending"
-    );
-
-    console.log("✅ Social recovery setup working correctly");
-  }
-
-  // Test 6: Guardian Invite Generation
-  console.log("\nTest 6: Guardian Invite Generation");
-  {
-    const socialRecovery = new SocialRecoveryManager();
-    const testMnemonic =
-      "test test test test test test test test test test test junk";
-
-    // Derive the actual address from the mnemonic
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    // Create a password-encrypted backup file
-    const { BackupFileManager } = await import("../src/backup/backup-file");
-    const backupManager = new BackupFileManager();
-    const { json: backupFileJson } = await backupManager.createPasswordBackup(
-      testMnemonic,
-      "test-password-123"
-    );
-
+  await runTest("setupSocialRecovery gives each guardian a share", async () => {
+    localStorage.clear();
     const guardians = [
       { name: "Alice", email: "alice@example.com" },
       { name: "Bob" },
       { name: "Charlie" },
+      { name: "Diana" },
+      { name: "Eve" },
     ];
 
-    const result = await socialRecovery.setupSocialRecovery(
-      backupFileJson,
-      testAddress,
+    const { guardianShares, setupComplete } = await loggedInSdk().setupSocialRecovery(
       guardians,
-      2
+      3,
+      PASSWORD
     );
 
-    const invite = await socialRecovery.generateGuardianInvite(result[0]);
-
-    console.assert(
-      invite.guardianId === result[0].id,
-      "Invite should have correct guardian ID"
+    assert(setupComplete, "setup complete");
+    assertEqual(guardianShares.length, 5, "one share per guardian");
+    guardianShares.forEach((share, i) => {
+      assertEqual(share.guardianName, guardians[i].name, "guardian name");
+      assertEqual(share.shareIndex, i + 1, "1-based share index");
+      assertEqual(share.threshold, 3, "threshold");
+      assertEqual(share.walletAddress, ADDRESS, "wallet address");
+    });
+    assertEqual(
+      new Set(guardianShares.map((s) => s.shareData)).size,
+      5,
+      "shares differ"
     );
-    console.assert(invite.qrCode, "Invite should have QR code");
-    console.assert(invite.shareCode, "Invite should have share code");
-    console.assert(invite.explainer, "Invite should have explainer");
+    assertEqual(localStorage.length, 0, "no share is stored on the device");
+    passTest();
+  });
 
-    const parsedShare = JSON.parse(invite.shareCode);
-    console.assert(
-      parsedShare.guardianId === result[0].id,
-      "Share should have guardian ID"
+  await runTest("setupSocialRecovery rejects invalid input", async () => {
+    const guardians = [{ name: "Alice" }, { name: "Bob" }];
+
+    await assertThrows(
+      () => new Web3Passkey().setupSocialRecovery(guardians, 2, PASSWORD).then(() => {}),
+      "needs a logged-in user"
     );
-    console.assert(
-      parsedShare.guardianName === "Alice",
-      "Share should have guardian name"
+    await assertThrows(
+      () => loggedInSdk().setupSocialRecovery(guardians, 2, "").then(() => {}),
+      "needs a password"
     );
-    console.assert(parsedShare.threshold === 2, "Share should have threshold");
-    console.assert(
-      parsedShare.totalGuardians === 3,
-      "Share should have total guardians"
+    await assertThrows(
+      () => loggedInSdk().setupSocialRecovery(guardians, 3, PASSWORD).then(() => {}),
+      "threshold can't exceed the guardians"
     );
-
-    console.log("✅ Guardian invite generation working correctly");
-  }
-
-  // Test 7: Recovery from Guardians
-  console.log("\nTest 7: Recovery from Guardians");
-  {
-    const socialRecovery = new SocialRecoveryManager();
-    const testMnemonic =
-      "test test test test test test test test test test test junk";
-
-    // Derive the actual address from the mnemonic
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    // Create a password-encrypted backup file
-    const { BackupFileManager } = await import("../src/backup/backup-file");
-    const backupManager = new BackupFileManager();
-    const { json: backupFileJson } = await backupManager.createPasswordBackup(
-      testMnemonic,
-      "test-password-123"
+    await assertThrows(
+      () => loggedInSdk().setupSocialRecovery(guardians, 1, PASSWORD).then(() => {}),
+      "threshold is at least 2"
     );
+    passTest();
+  });
 
-    const guardians = [
-      { name: "Guardian1" },
-      { name: "Guardian2" },
-      { name: "Guardian3" },
-      { name: "Guardian4" },
-      { name: "Guardian5" },
-    ];
-
-    // Setup social recovery
-    const result = await socialRecovery.setupSocialRecovery(
-      backupFileJson,
-      testAddress,
-      guardians,
-      3
+  await runTest("generateGuardianInvite builds a share file and document", async () => {
+    const sdk = loggedInSdk();
+    const { guardianShares } = await sdk.setupSocialRecovery(
+      [{ name: "Alice Smith" }, { name: "Bob" }],
+      2,
+      PASSWORD
     );
 
-    // Generate invites for first 3 guardians
-    const invite1 = await socialRecovery.generateGuardianInvite(result[0]);
-    const invite2 = await socialRecovery.generateGuardianInvite(result[1]);
-    const invite3 = await socialRecovery.generateGuardianInvite(result[2]);
+    const invite = await sdk.generateGuardianInvite(guardianShares[0], "Keep this safe");
+    const file = JSON.parse(await invite.downloadBlob.text());
 
-    // Recover from shares
-    const { backupFileJson: recoveredBackupJson, ethereumAddress } =
-      await socialRecovery.recoverFromGuardians([
-        invite1.shareCode,
-        invite2.shareCode,
-        invite3.shareCode,
-      ]);
+    assertEqual(invite.filename, "w3pk-guardian-Alice-Smith-share-1.json", "filename");
+    assertEqual(file.type, "w3pk-guardian-share", "file type");
+    assertEqual(file.shareData, guardianShares[0].shareData, "file holds the share");
+    assertEqual(file.threshold, 2, "file holds the threshold");
+    assertEqual(file.walletAddress, ADDRESS, "file holds the address");
+    assert(invite.shareDocument.includes(guardianShares[0].shareData), "document holds the share");
+    assert(invite.shareDocument.includes("Keep this safe"), "document holds the message");
+    passTest();
+  });
 
-    console.assert(
-      recoveredBackupJson === backupFileJson,
-      "Recovered backup file JSON should match original"
+  await runTest("recoverFromGuardians restores from any threshold of shares", async () => {
+    const sdk = loggedInSdk();
+    const { guardianShares } = await sdk.setupSocialRecovery(
+      Array.from({ length: 5 }, (_, i) => ({ name: `Guardian${i + 1}` })),
+      3,
+      PASSWORD
     );
-    console.assert(
-      ethereumAddress.toLowerCase() === testAddress.toLowerCase(),
-      "Address should match"
-    );
+    const files = await shareFiles(sdk, guardianShares);
 
-    // Now decrypt the backup file with password to verify it works
-    const recoveredBackupFile = await backupManager.parseBackupFile(
-      recoveredBackupJson
-    );
-    const { mnemonic: recoveredMnemonic } =
-      await backupManager.restoreWithPassword(
-        recoveredBackupFile,
-        "test-password-123"
+    for (const combo of [[0, 1, 2], [1, 3, 4], [0, 2, 4]]) {
+      const result = await new Web3Passkey().recoverFromGuardians(
+        combo.map((i) => files[i]),
+        PASSWORD
       );
+      assertEqual(result.mnemonic, MNEMONIC, `mnemonic from ${combo.join(",")}`);
+      assertEqual(result.ethereumAddress, ADDRESS, `address from ${combo.join(",")}`);
+    }
 
-    console.assert(
-      recoveredMnemonic === testMnemonic,
-      "Decrypted mnemonic should match original"
+    const fromObjects = await new Web3Passkey().recoverFromGuardians(
+      guardianShares.slice(0, 3),
+      PASSWORD
+    );
+    assertEqual(fromObjects.mnemonic, MNEMONIC, "parsed share objects work too");
+    passTest();
+  });
+
+  await runTest("recoverFromGuardians rejects bad shares or password", async () => {
+    const sdk = loggedInSdk();
+    const { guardianShares } = await sdk.setupSocialRecovery(
+      [{ name: "Alice" }, { name: "Bob" }, { name: "Charlie" }],
+      3,
+      PASSWORD
+    );
+    const files = await shareFiles(sdk, guardianShares);
+    const other = loggedInSdk(OTHER_MNEMONIC);
+    const otherFiles = await shareFiles(
+      other,
+      (await other.setupSocialRecovery(
+        [{ name: "Alice" }, { name: "Bob" }, { name: "Charlie" }],
+        3,
+        PASSWORD
+      )).guardianShares
     );
 
-    console.log("✅ Recovery from guardians working correctly");
-  }
-
-  // Test 8: Recovery with Different Share Combinations
-  console.log("\nTest 8: Recovery with Different Share Combinations");
-  {
-    const socialRecovery = new SocialRecoveryManager();
-    const testMnemonic =
-      "test test test test test test test test test test test junk";
-
-    // Derive the actual address from the mnemonic
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    // Create a password-encrypted backup file
-    const { BackupFileManager } = await import("../src/backup/backup-file");
-    const backupManager = new BackupFileManager();
-    const { json: backupFileJson } = await backupManager.createPasswordBackup(
-      testMnemonic,
-      "test-password-123"
+    await assertThrows(
+      () => new Web3Passkey().recoverFromGuardians(files.slice(0, 2), PASSWORD).then(() => {}),
+      "below the threshold"
     );
-
-    const guardians = Array.from({ length: 5 }, (_, i) => ({
-      name: `Guardian${i + 1}`,
-    }));
-
-    const result = await socialRecovery.setupSocialRecovery(
-      backupFileJson,
-      testAddress,
-      guardians,
-      3
+    await assertThrows(
+      () => new Web3Passkey().recoverFromGuardians(files, "WrongPass123!NotReal").then(() => {}),
+      "wrong password"
     );
-
-    // Generate all invites
-    const invites = await Promise.all(
-      result.map((guardian) => socialRecovery.generateGuardianInvite(guardian))
+    await assertThrows(
+      () =>
+        new Web3Passkey()
+          .recoverFromGuardians([files[0], files[1], otherFiles[2]], PASSWORD)
+          .then(() => {}),
+      "shares of two wallets"
     );
-
-    // Try different combinations
-    const combo1 = await socialRecovery.recoverFromGuardians([
-      invites[0].shareCode,
-      invites[1].shareCode,
-      invites[2].shareCode,
-    ]);
-
-    const combo2 = await socialRecovery.recoverFromGuardians([
-      invites[1].shareCode,
-      invites[3].shareCode,
-      invites[4].shareCode,
-    ]);
-
-    const combo3 = await socialRecovery.recoverFromGuardians([
-      invites[0].shareCode,
-      invites[2].shareCode,
-      invites[4].shareCode,
-    ]);
-
-    console.assert(
-      combo1.backupFileJson === backupFileJson,
-      "Combo 1 should recover"
+    await assertThrows(
+      () =>
+        new Web3Passkey()
+          .recoverFromGuardians([JSON.stringify({ type: "other" }), files[1], files[2]], PASSWORD)
+          .then(() => {}),
+      "not a guardian share"
     );
-    console.assert(
-      combo2.backupFileJson === backupFileJson,
-      "Combo 2 should recover"
-    );
-    console.assert(
-      combo3.backupFileJson === backupFileJson,
-      "Combo 3 should recover"
-    );
+    passTest();
+  });
 
-    console.log("✅ All share combinations work");
-  }
-
-  // Test 9: Recovery Progress Tracking
-  console.log("\nTest 9: Recovery Progress Tracking");
-  {
-    const socialRecovery = new SocialRecoveryManager();
-    const testMnemonic =
-      "test test test test test test test test test test test junk";
-
-    // Derive the actual address from the mnemonic
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    // Create a password-encrypted backup file
-    const { BackupFileManager } = await import("../src/backup/backup-file");
-    const backupManager = new BackupFileManager();
-    const { json: backupFileJson } = await backupManager.createPasswordBackup(
-      testMnemonic,
-      "test-password-123"
-    );
-
-    const guardians = [{ name: "Alice" }, { name: "Bob" }, { name: "Charlie" }];
-
-    const result = await socialRecovery.setupSocialRecovery(
-      backupFileJson,
-      testAddress,
-      guardians,
-      2
-    );
-
-    const invites = await Promise.all(
-      result.map((g) => socialRecovery.generateGuardianInvite(g))
-    );
-
-    // Check progress with 1 share
-    const progress1 = socialRecovery.getRecoveryProgress([
-      invites[0].shareCode,
-    ]);
-    console.assert(progress1.collected === 1, "Should have 1 collected");
-    console.assert(progress1.required === 2, "Should require 2");
-    console.assert(!progress1.canRecover, "Cannot recover with 1 share");
-
-    // Check progress with 2 shares
-    const progress2 = socialRecovery.getRecoveryProgress([
-      invites[0].shareCode,
-      invites[1].shareCode,
-    ]);
-    console.assert(progress2.collected === 2, "Should have 2 collected");
-    console.assert(
-      progress2.canRecover,
-      "Should be able to recover with 2 shares"
-    );
-
-    console.log("✅ Recovery progress tracking working correctly");
-  }
-
-  // Test 10: Guardian Verification
-  console.log("\nTest 10: Guardian Verification");
-  {
-    const socialRecovery = new SocialRecoveryManager();
-    const testMnemonic =
-      "test test test test test test test test test test test junk";
-
-    // Derive the actual address from the mnemonic
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    // Create a password-encrypted backup file
-    const { BackupFileManager } = await import("../src/backup/backup-file");
-    const backupManager = new BackupFileManager();
-    const { json: backupFileJson } = await backupManager.createPasswordBackup(
-      testMnemonic,
-      "test-password-123"
-    );
-
-    const guardians = [{ name: "Alice" }, { name: "Bob" }];
-
-    const result = await socialRecovery.setupSocialRecovery(
-      backupFileJson,
-      testAddress,
-      guardians,
-      2
-    );
-
-    const guardianId = result[0].id;
-
-    // Mark as verified
-    socialRecovery.markGuardianVerified(guardianId);
-
-    const config = socialRecovery.getSocialRecoveryConfig();
-    const verifiedGuardian = config?.guardians.find((g) => g.id === guardianId);
-
-    console.assert(
-      verifiedGuardian?.status === "active",
-      "Guardian should be active"
-    );
-    console.assert(
-      verifiedGuardian?.lastVerified,
-      "Should have lastVerified timestamp"
-    );
-
-    console.log("✅ Guardian verification working correctly");
-  }
-
-  // Test 11: Guardian Revocation
-  console.log("\nTest 11: Guardian Revocation");
-  {
-    const socialRecovery = new SocialRecoveryManager();
-    const testMnemonic =
-      "test test test test test test test test test test test junk";
-
-    // Derive the actual address from the mnemonic
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    // Create a password-encrypted backup file
-    const { BackupFileManager } = await import("../src/backup/backup-file");
-    const backupManager = new BackupFileManager();
-    const { json: backupFileJson } = await backupManager.createPasswordBackup(
-      testMnemonic,
-      "test-password-123"
-    );
-
-    const guardians = [{ name: "Alice" }, { name: "Bob" }, { name: "Charlie" }];
-
-    const result = await socialRecovery.setupSocialRecovery(
-      backupFileJson,
-      testAddress,
-      guardians,
-      2
-    );
-
-    const guardianId = result[1].id;
-
-    // Revoke guardian
-    socialRecovery.revokeGuardian(guardianId);
-
-    const config = socialRecovery.getSocialRecoveryConfig();
-    const revokedGuardian = config?.guardians.find((g) => g.id === guardianId);
-
-    console.assert(
-      revokedGuardian?.status === "revoked",
-      "Guardian should be revoked"
-    );
-
-    console.log("✅ Guardian revocation working correctly");
-  }
-
-  // Test 12: Storage Persistence
-  console.log("\nTest 12: Storage Persistence");
-  {
-    const socialRecovery = new SocialRecoveryManager();
-    const testMnemonic =
-      "test test test test test test test test test test test junk";
-
-    // Derive the actual address from the mnemonic
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    // Create a password-encrypted backup file
-    const { BackupFileManager } = await import("../src/backup/backup-file");
-    const backupManager = new BackupFileManager();
-    const { json: backupFileJson } = await backupManager.createPasswordBackup(
-      testMnemonic,
-      "test-password-123"
-    );
-
-    const guardians = [{ name: "Alice" }, { name: "Bob" }];
-
-    await socialRecovery.setupSocialRecovery(
-      backupFileJson,
-      testAddress,
-      guardians,
-      2
-    );
-
-    // Create new instance and retrieve config
-    const socialRecovery2 = new SocialRecoveryManager();
-    const config = socialRecovery2.getSocialRecoveryConfig();
-
-    console.assert(config !== null, "Config should be persisted");
-    console.assert(config?.threshold === 2, "Threshold should be persisted");
-    console.assert(
-      config?.guardians.length === 2,
-      "Guardians should be persisted"
-    );
-    console.assert(
-      config?.ethereumAddress === testAddress,
-      "Address should be persisted"
-    );
-
-    console.log("✅ Storage persistence working correctly");
-  }
-
-  console.log("\n✅ All Social Recovery Tests Passed!\n");
+  endTestSuite();
 }
 
-runTests().catch(console.error);
+runTests().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

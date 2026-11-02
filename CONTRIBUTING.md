@@ -328,22 +328,22 @@ const status = await w3pk.getBackupStatus()
 #### `setupSocialRecovery(guardians, threshold, password)`
 Setup social recovery with guardians.
 ```typescript
-const guardianObjects = await w3pk.setupSocialRecovery(
+const { guardianShares } = await w3pk.setupSocialRecovery(
   [
     { name: 'Alice', email: 'alice@example.com' },
-    { name: 'Bob', phone: '+1234567890' }
+    { name: 'Bob' }
   ],
   2, // Need 2 guardians to recover
   password // Encrypts the backup the shares rebuild
 )
-// Returns: Guardian[] (with IDs for invite generation)
+// Returns: { guardianShares, setupComplete } (one share per guardian)
 ```
 
-#### `generateGuardianInvite(guardianId)`
+#### `generateGuardianInvite(guardianShare, message?)`
 Generate invitation for guardian.
 ```typescript
-const invite = await w3pk.generateGuardianInvite(guardianId)
-// Returns: { guardianId, qrCode, shareCode, explainer }
+const invite = await w3pk.generateGuardianInvite(guardianShares[0])
+// Returns: { qrCodeDataURL?, shareDocument, downloadBlob, filename }
 ```
 
 #### `recoverFromGuardians(shares, password)`
