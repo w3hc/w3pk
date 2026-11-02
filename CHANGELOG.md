@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Repository files** ([#191](https://github.com/w3hc/w3pk/issues/191)):
   - `JUNE_9_2026_AUDIT.md` moves from the repository root to `docs/`
   - `examples/w3pk_backup_example_2026-11-02.json`, a BackupFile v3 password backup of the test mnemonic `test test … junk` (password `test-password`), replaces the v2 `examples/w3pk_backup_example_2025-12-19.json`. `docs/PORTABILITY.md` links it
+- **BREAKING: the security score tops out at 70** ([#211](https://github.com/w3hc/w3pk/issues/211)), the points left without social recovery's 30, so its maximum is reachable again. Levels: `vulnerable` 0-20, `protected` 21-40, `secured` 41-60, `fort-knox` 61-70. `nextMilestone` lists the steps still missing, e.g. `Reach "fort-knox" (61+ pts): verify your backup again`. Apps comparing `total` against the old 0-100 cut-offs need the new ones
 
 ### Removed
 
@@ -69,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING: education wrappers on `Web3Passkey`** ([#185](https://github.com/w3hc/w3pk/issues/185)), which only added an auth check to standalone exports and returned `any`:
   - `getEducation(topic)`: use `getExplainer(topic)`, which returns `null` for an unknown topic instead of throwing
   - `simulateRecoveryScenario(scenario)` and `runRecoveryTest()`: use `new RecoverySimulator().simulateScenario(scenario, status)` and `runInteractiveTest(status)` with `status = await w3pk.getBackupStatus()`
+- **BREAKING: the `socialRecovery` backup status** ([#211](https://github.com/w3hc/w3pk/issues/211)), which `getBackupStatus()` stopped setting in [#184](https://github.com/w3hc/w3pk/issues/184): `BackupStatus.socialRecovery`, `SecurityScore.breakdown.socialRecovery`, and the `SocialRecoveryStatus` and `Guardian` types in `src/backup/types.ts`. The recovery simulator no longer lists social recovery as a method or a step. `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` stay
 - **Internal notes from the npm package** ([#191](https://github.com/w3hc/w3pk/issues/191)): `"files"` lists `docs/*.md` instead of `docs/`, so only the top-level docs ship
 
 ### Fixed
