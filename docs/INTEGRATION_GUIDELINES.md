@@ -1517,7 +1517,7 @@ class WalletManager {
   async promptBackup() {
     const status = await this.w3pk.getBackupStatus()
 
-    if (status.securityScore.score < 60) {
+    if (status.securityScore.total <= 40) {
       // Show backup modal to user
       const choice = await this.showBackupOptions()
 

@@ -3292,14 +3292,14 @@ Given M-1 shares {S₁, S₂, ..., Sₘ₋₁}:
 
 **Security scoring:**
 
-w3pk calculates a security score (0-100) based on active backup methods:
+w3pk calculates a security score (0-70) based on active backup methods:
 
 | Configuration | Score | Level |
 |--------------|-------|-------|
 | No backup that restores without a passkey (none, or `prf` only) | ≤ 20 | 🔴 Vulnerable |
-| Passkey + password backup | 40-50 | 🟡 Protected |
-| Passkey + password backup + social recovery | 60-80 | 🟢 Secured |
-| All layers, verified | 85-100 | 🟦 Fort Knox |
+| Passkey + password backup | 40 | 🟡 Protected |
+| Passkey + password backup, verified or synced to 2+ devices | 41-60 | 🟢 Secured |
+| All layers, verified | 61-70 | 🟦 Fort Knox |
 
 **Score calculation:**
 ```typescript
@@ -3308,7 +3308,6 @@ score = 0
 + (passkeySync.deviceCount > 1 ? 10 : 0)
 + (backupVerified ? 10 + min(verifications - 1, 10) : 0)
 + (encryptedBackups > 0 ? 20 : 0)          // file, QR or prf
-+ (socialRecovery.enabled ? 20 (+10 when enough guardians are verified) : 0)
 
 // Capped at 20 while no backup restores without a passkey: a lost device
 // with no synced passkey can only be recovered from a password file, a QR
