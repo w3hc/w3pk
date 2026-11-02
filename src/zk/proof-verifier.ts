@@ -228,7 +228,7 @@ export class ZKProofVerifier {
   private parsePublicSignals(
     type: ProofType,
     signals: string[]
-  ): Record<string, any> {
+  ): Record<string, string> {
     switch (type) {
       case "membership":
         return { root: signals[0] };
@@ -264,7 +264,7 @@ export class ZKProofVerifier {
         return signals.reduce((acc, signal, idx) => {
           acc[`signal_${idx}`] = signal;
           return acc;
-        }, {} as Record<string, any>);
+        }, {} as Record<string, string>);
     }
   }
 

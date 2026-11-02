@@ -27,7 +27,7 @@ export type ProofType =
 export interface CircuitArtifacts {
   wasmPath: string;
   zkeyPath: string;
-  verificationKey: any;
+  verificationKey: unknown;
 }
 
 export interface ProofInput {
@@ -52,7 +52,7 @@ export interface ZKProof {
 export interface VerificationResult {
   valid: boolean;
   type: ProofType;
-  publicSignals: Record<string, any>;
+  publicSignals: Record<string, string>;
   timestamp: string;
 }
 
