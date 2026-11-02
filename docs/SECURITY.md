@@ -176,15 +176,15 @@ w3pk supports multiple wallets on a single device, but applications should imple
 **Detection Methods:**
 
 ```typescript
-// Check if any wallets exist
-const hasWallet = await w3pk.hasExistingCredential()
-
-// Get count of wallets
-const count = await w3pk.getExistingCredentialCount()
-
 // List all wallets with metadata
 const wallets = await w3pk.listExistingCredentials()
 // Returns: [{ username, ethereumAddress, createdAt, lastUsed }, ...]
+
+// Check if any wallets exist
+const hasWallet = wallets.length > 0
+
+// Get count of wallets
+const count = wallets.length
 ```
 
 **Security Implications:**
@@ -209,9 +209,9 @@ const wallets = await w3pk.listExistingCredentials()
 
 ```typescript
 // Before registration
-const count = await w3pk.getExistingCredentialCount()
+const wallets = await w3pk.listExistingCredentials()
+const count = wallets.length
 if (count > 0) {
-  const wallets = await w3pk.listExistingCredentials()
   // Show warning: "You have {count} wallet(s). Creating a new one will generate
   // a DIFFERENT address. Funds sent to different addresses won't be accessible."
   // Offer: [Login to Existing] [Create New Anyway] [Cancel]
