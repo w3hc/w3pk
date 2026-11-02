@@ -481,7 +481,10 @@ async function runTests() {
       { noEmit: true, rootDir: undefined },
       { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} }
     );
-    assert(config !== undefined, "tsconfig.json should parse");
+    assert(
+      config !== undefined && config.errors.length === 0,
+      "tsconfig.json should parse without errors"
+    );
     const program = ts.createProgram(
       [`${root}test/fixtures/eip1193-handlers.ts`, `${root}src/zk/external.d.ts`],
       config!.options
