@@ -7,7 +7,7 @@
  * Test passwords: All passwords are clearly marked with "Test" and "NotReal"
  */
 
-import { BackupManager } from '../src/backup';
+import { BackupManager } from '../src/backup/manager';
 import {
   validatePasswordStrength,
   encryptWithPassword,
