@@ -6,8 +6,6 @@
 import type {
   BackupStatus,
   SecurityScore,
-  RecoveryScenario,
-  SimulationResult,
   BackupMetadata,
   EncryptedBackupInfo,
   SocialRecoveryStatus,
@@ -324,130 +322,6 @@ export class BackupManager {
       breakdown,
       level,
       nextMilestone,
-    };
-  }
-
-  /**
-   * Simulate recovery scenario (educational)
-   */
-  async simulateRecoveryScenario(
-    scenario: RecoveryScenario,
-    currentStatus: BackupStatus
-  ): Promise<SimulationResult> {
-    const methods: any[] = [];
-
-    // Check available recovery methods based on scenario
-    switch (scenario.type) {
-      case 'lost-device':
-        if (currentStatus.passkeySync.enabled && currentStatus.passkeySync.deviceCount > 1) {
-          methods.push({
-            method: 'Passkey Sync (iCloud/Google)',
-            success: true,
-            time: '5 minutes',
-            requirements: ['Sign in to cloud account', 'Authenticate on new device'],
-          });
-        }
-
-        if (currentStatus.recoveryPhrase.encryptedBackups.length > 0) {
-          methods.push({
-            method: 'Encrypted Backup',
-            success: true,
-            time: '2 minutes',
-            requirements: ['Backup file', 'Password'],
-          });
-        }
-
-        if (currentStatus.socialRecovery?.enabled) {
-          methods.push({
-            method: 'Social Recovery',
-            success: true,
-            time: '24 hours',
-            requirements: [`${currentStatus.socialRecovery.threshold} guardian shares`],
-          });
-        }
-        break;
-
-      case 'lost-phrase':
-        if (currentStatus.passkeySync.enabled) {
-          methods.push({
-            method: 'Passkey (current device)',
-            success: true,
-            time: 'instant',
-            requirements: ['Current device', 'Biometric/PIN'],
-          });
-        }
-
-        if (currentStatus.socialRecovery?.enabled) {
-          methods.push({
-            method: 'Social Recovery',
-            success: true,
-            time: '24 hours',
-            requirements: [`${currentStatus.socialRecovery.threshold} guardian shares`],
-          });
-        }
-        break;
-
-      case 'lost-both':
-        if (currentStatus.passkeySync.enabled && currentStatus.passkeySync.deviceCount > 1) {
-          methods.push({
-            method: 'Passkey Sync',
-            success: true,
-            time: '5 minutes',
-            requirements: ['Cloud account access', 'New device'],
-          });
-        }
-
-        if (currentStatus.socialRecovery?.enabled) {
-          methods.push({
-            method: 'Social Recovery',
-            success: true,
-            time: '24 hours',
-            requirements: [`${currentStatus.socialRecovery.threshold} guardian shares`],
-          });
-        }
-        break;
-
-      case 'switch-platform':
-        if (currentStatus.recoveryPhrase.encryptedBackups.length > 0) {
-          methods.push({
-            method: 'Encrypted Backup',
-            success: true,
-            time: '2 minutes',
-            requirements: ['Backup file', 'Password'],
-          });
-        }
-
-        if (currentStatus.socialRecovery?.enabled) {
-          methods.push({
-            method: 'Social Recovery',
-            success: true,
-            time: '24 hours',
-            requirements: [`${currentStatus.socialRecovery.threshold} guardian shares`],
-          });
-        }
-        break;
-    }
-
-    const success = methods.length > 0 && methods.some((m) => m.success);
-
-    let educationalNote = '';
-    if (success) {
-      educationalNote = `✅ You're safe! ${methods.length} way${methods.length > 1 ? 's' : ''} to recover.\n\n`;
-      educationalNote += 'Available recovery methods:\n';
-      methods.forEach((m) => {
-        educationalNote += `- ${m.method} (~${m.time})\n`;
-      });
-    } else {
-      educationalNote = `❌ Wallet cannot be recovered in this scenario.\n\n`;
-      educationalNote += 'Recommendation: Set up at least 2 backup methods to prevent total loss.';
-    }
-
-    return {
-      scenario,
-      success,
-      availableMethods: methods,
-      timeEstimate: success ? methods[0].time : 'N/A',
-      educationalNote,
     };
   }
 }
