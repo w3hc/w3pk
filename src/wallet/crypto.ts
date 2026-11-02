@@ -28,6 +28,35 @@ export const PRF_INPUT = new TextEncoder().encode("w3pk-prf-input-v1");
 
 const PRF_HKDF_INFO = new TextEncoder().encode("w3pk-prf-session-key-v1");
 
+const PRF_WALLET_HKDF_INFO = new TextEncoder().encode("w3pk-prf-wallet-key-v1");
+
+async function derivePrfAesKey(
+  prfOutput: BufferSource,
+  info: Uint8Array<ArrayBuffer>,
+  extractable: boolean
+): Promise<CryptoKey> {
+  const byteLength = prfOutput.byteLength;
+  if (byteLength !== 32) {
+    throw new Error(`PRF output must be 32 bytes, got ${byteLength}`);
+  }
+
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    prfOutput,
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    extractable,
+    ["encrypt", "decrypt"]
+  );
+}
+
 /**
  * Derive the persistent-session encryption key from a WebAuthn PRF output.
  *
@@ -44,34 +73,22 @@ export async function derivePrfSessionKey(
   extractable = false
 ): Promise<CryptoKey> {
   try {
-    const byteLength =
-      prfOutput instanceof ArrayBuffer ? prfOutput.byteLength : prfOutput.byteLength;
-    if (byteLength !== 32) {
-      throw new Error(`PRF output must be 32 bytes, got ${byteLength}`);
-    }
-
-    const keyMaterial = await crypto.subtle.importKey(
-      "raw",
-      prfOutput,
-      "HKDF",
-      false,
-      ["deriveKey"]
-    );
-
-    return crypto.subtle.deriveKey(
-      {
-        name: "HKDF",
-        hash: "SHA-256",
-        salt: new Uint8Array(32),
-        info: PRF_HKDF_INFO,
-      },
-      keyMaterial,
-      { name: "AES-GCM", length: 256 },
-      extractable,
-      ["encrypt", "decrypt"]
-    );
+    return await derivePrfAesKey(prfOutput, PRF_HKDF_INFO, extractable);
   } catch (error: any) {
     throw new CryptoError("Failed to derive session key from PRF output", error);
+  }
+}
+
+/**
+ * Derive the key that encrypts the wallet stored on the device from the PRF
+ * output at `PRF_INPUT`. Same PRF output as the session key, separate HKDF
+ * info, so neither key reveals the other. Never extractable.
+ */
+export async function deriveWalletKey(prfOutput: BufferSource): Promise<CryptoKey> {
+  try {
+    return await derivePrfAesKey(prfOutput, PRF_WALLET_HKDF_INFO, false);
+  } catch (error: any) {
+    throw new CryptoError("Failed to derive wallet key from PRF output", error);
   }
 }
 
