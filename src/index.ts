@@ -11,7 +11,12 @@ export type {
   ZKProofConfig,
 } from "./core/config";
 export type { ZKMethods } from "./core/sdk";
-export type { EIP1193ProviderInterface } from "./core/eip1193";
+export type {
+  EIP1193ProviderInterface,
+  ProviderConnectInfo,
+  ProviderMessage,
+  ProviderRpcError,
+} from "./core/eip1193";
 export type {
   UserInfo,
   GeneratedWallet,
