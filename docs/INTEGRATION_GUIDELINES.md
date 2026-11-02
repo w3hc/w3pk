@@ -102,7 +102,6 @@ const auth2 = await w3pk.signAuthorization({
 - `recoverFromGuardians()` - Recover from guardian shares
 
 **Utility Methods:**
-- `hasExistingCredential()` - Check if wallet exists
 - `listExistingCredentials()` - List all wallets on device
 - `getBackupStatus()` - Check backup coverage
 - `hasActiveSession()` - Check session status
@@ -1033,30 +1032,21 @@ const optimismProvider = w3pk.getEIP1193Provider({ chainId: 10, rpcUrl: 'https:/
 
 **Critical:** Before registering a new wallet, always check if one exists on the device.
 
-#### Available Methods
+#### Available Method
 
-w3pk provides three methods for checking existing credentials:
-
-1. **`hasExistingCredential(): Promise<boolean>`**
-   - Returns `true` if at least one wallet exists on the device
-   - Use for simple yes/no checks
-
-2. **`getExistingCredentialCount(): Promise<number>`**
-   - Returns the number of existing wallets
-   - Useful for showing counts in warning messages
-
-3. **`listExistingCredentials(): Promise<Array<{username, ethereumAddress, createdAt, lastUsed}>>`**
-   - Returns full list of wallets with metadata
-   - Use for showing users which wallets they have
+**`listExistingCredentials(): Promise<Array<{username, ethereumAddress, createdAt, lastUsed}>>`**
+- Returns full list of wallets with metadata
+- `.length > 0` checks whether a wallet exists on the device
+- `.length` gives the count for warning messages
 
 ```typescript
 // ✅ Correct registration flow
 async function handleUserOnboarding() {
   try {
     // Check if user already has a wallet on this device
-    const hasExisting = await w3pk.hasExistingCredential()
+    const wallets = await w3pk.listExistingCredentials()
 
-    if (hasExisting) {
+    if (wallets.length > 0) {
       // User already has a wallet - use login instead
       console.log('Found existing wallet, logging in...')
       await w3pk.login()
@@ -1105,9 +1095,9 @@ const w3pk = createWeb3Passkey({
 
 async function onboardUser(email: string) {
   // 1. Check for existing credential
-  const existing = await w3pk.hasExistingCredential()
+  const wallets = await w3pk.listExistingCredentials()
 
-  if (existing) {
+  if (wallets.length > 0) {
     // Show "Welcome back" UI
     await w3pk.login()
     return { isNewUser: false }
@@ -1135,13 +1125,11 @@ For applications that want to support multiple wallets but warn users:
 ```typescript
 async function onboardUserWithWarning(email: string) {
   // 1. Check for existing credentials
-  const count = await w3pk.getExistingCredentialCount()
+  const existingWallets = await w3pk.listExistingCredentials()
+  const count = existingWallets.length
 
   if (count > 0) {
-    // 2. List existing wallets
-    const existingWallets = await w3pk.listExistingCredentials()
-
-    // 3. Show warning dialog to user
+    // 2. Show warning dialog to user
     const userChoice = await showWarningDialog({
       title: 'Wallet Already Exists',
       message: `You have ${count} wallet(s) on this device:
@@ -1169,7 +1157,7 @@ What would you like to do?`,
     // else: userChoice === 'create', continue with registration
   }
 
-  // 4. Proceed with registration (user explicitly confirmed or no existing wallet)
+  // 3. Proceed with registration (user explicitly confirmed or no existing wallet)
   const { address, username } = await w3pk.register({
     username: email
   })
@@ -1510,9 +1498,9 @@ class WalletManager {
 
   async onboard(username: string) {
     // Check for existing wallet
-    const hasExisting = await this.w3pk.hasExistingCredential()
+    const wallets = await this.w3pk.listExistingCredentials()
 
-    if (hasExisting) {
+    if (wallets.length > 0) {
       await this.w3pk.login()
       return { isNewUser: false }
     }
@@ -1580,7 +1568,7 @@ await wallet.onboard('user@example.com')
 
 Use this checklist to ensure proper integration:
 
-- [ ] Check for existing credentials before registration using `hasExistingCredential()`
+- [ ] Check for existing credentials before registration using `listExistingCredentials()`
 - [ ] Consider showing warning with `listExistingCredentials()` if allowing multiple wallets
 - [ ] Use STANDARD mode by default (no private key exposure)
 - [ ] Only use YOLO mode when you need private keys (and understand the implications)

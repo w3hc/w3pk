@@ -65,18 +65,15 @@ const endpoints = await w3pk.getEndpoints(1)
 ### Authentication
 
 ```typescript
-// Check for existing wallet
-const hasWallet = await w3pk.hasExistingCredential()
+// List all wallets on device
+const wallets = await w3pk.listExistingCredentials()
 
 // Register or login
-if (hasWallet) {
+if (wallets.length > 0) {
   await w3pk.login()
 } else {
   const { address, username } = await w3pk.register({ username: 'alice' })
 }
-
-// List all wallets on device
-const wallets = await w3pk.listExistingCredentials()
 
 // Logout
 await w3pk.logout()

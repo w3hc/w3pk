@@ -161,25 +161,13 @@ Get current user info.
 const user = w3pk.user // UserInfo | null
 ```
 
-#### `hasExistingCredential()`
-Check if any wallets exist on this device.
-```typescript
-const hasWallet = await w3pk.hasExistingCredential()
-// Returns: boolean
-```
-
-#### `getExistingCredentialCount()`
-Get count of existing wallets.
-```typescript
-const count = await w3pk.getExistingCredentialCount()
-// Returns: number
-```
-
 #### `listExistingCredentials()`
 List all wallets with metadata.
 ```typescript
 const wallets = await w3pk.listExistingCredentials()
 // Returns: Array<{ username, ethereumAddress, createdAt, lastUsed }>
+const hasWallet = wallets.length > 0
+const count = wallets.length
 ```
 
 ### Session Management

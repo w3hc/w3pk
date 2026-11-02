@@ -1,6 +1,6 @@
 /**
  * Credential Checking Tests
- * Tests for hasExistingCredential(), getExistingCredentialCount(), and listExistingCredentials()
+ * Tests for listExistingCredentials()
  */
 import "./setup"; // Import setup to initialize mocks
 import { CredentialStorage } from "../src/auth/storage";
@@ -167,8 +167,8 @@ async function runTests() {
     passTest("Clear all working");
   });
 
-  // Test 9: Simulate the SDK hasExistingCredential pattern
-  await runTest("Simulating hasExistingCredential()", async () => {
+  // Test 9: Simulate listExistingCredentials().length > 0
+  await runTest("Simulating listExistingCredentials().length > 0", async () => {
     const storage = new CredentialStorage();
 
     // Empty state
@@ -194,11 +194,11 @@ async function runTests() {
     assert(hasExisting, "Should have existing credential");
     logDetail("Has credentials: true");
 
-    passTest("hasExistingCredential pattern working");
+    passTest("Existence check working");
   });
 
-  // Test 10: Simulate getExistingCredentialCount pattern
-  await runTest("Simulating getExistingCredentialCount()", async () => {
+  // Test 10: Simulate listExistingCredentials().length
+  await runTest("Simulating listExistingCredentials().length", async () => {
     const storage = new CredentialStorage();
 
     let count = (await storage.getAllCredentials()).length;
@@ -226,7 +226,7 @@ async function runTests() {
     count = (await storage.getAllCredentials()).length;
     assertEqual(count, 3, "Should have 3 credentials");
 
-    passTest("getExistingCredentialCount pattern working");
+    passTest("Count check working");
     logDetail(`Total credentials: ${count}`);
   });
 
