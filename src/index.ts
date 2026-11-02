@@ -5,7 +5,12 @@ export function createWeb3Passkey(config: Web3PasskeyConfig = {}): Web3Passkey {
   return new Web3Passkey(config);
 }
 
-export type { Web3PasskeyConfig, StealthAddressConfig } from "./core/config";
+export type {
+  Web3PasskeyConfig,
+  StealthAddressConfig,
+  ZKProofConfig,
+} from "./core/config";
+export type { ZKMethods } from "./core/sdk";
 export type { UserInfo, GeneratedWallet, DerivedWallet } from "./types";
 export type { StealthKeys, StealthAddressResult } from "./stealth";
 export type {

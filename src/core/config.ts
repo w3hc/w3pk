@@ -1,21 +1,11 @@
 import type { UserInfo } from "../types";
 import type { Web3PasskeyError } from "./errors";
 import type { PersistentSessionConfig } from "./persistent-session";
+import type { ZKProofConfig } from "../zk/types";
 
 export interface StealthAddressConfig {}
 
-export interface ZKProofConfig {
-  enabledProofs?: Array<
-    | "membership"
-    | "threshold"
-    | "range"
-    | "equality"
-    | "ownership"
-    | "signature"
-    | "nft"
-  >;
-  customCircuits?: Record<string, any>;
-}
+export type { ZKProofConfig };
 
 export interface Web3PasskeyConfig {
   debug?: boolean;

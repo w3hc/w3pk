@@ -48,6 +48,7 @@ import {
   type PrfSecret,
 } from "../auth/prf";
 import type { SemaphoreIdentity } from "../zk/semaphore";
+import type { ZKProofModule } from "../zk/index";
 import type {
   ZkInputs,
   ZkProveArtifacts,
@@ -81,6 +82,15 @@ interface EIP1193ProviderInterface {
   removeListener(event: string, handler: (...args: any[]) => void): void;
 }
 
+/** ZKProofModule methods as exposed by `Web3Passkey.zk`, each returning a Promise */
+export type ZKMethods = {
+  [K in keyof ZKProofModule as ZKProofModule[K] extends (...args: never[]) => unknown
+    ? K
+    : never]: ZKProofModule[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : never;
+};
+
 /** Returns true if a string looks like a 0x-prefixed hex value */
 function isHex(value: string): boolean {
   return typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value);
@@ -102,7 +112,7 @@ export class Web3Passkey {
   private sessionManager: SessionManager;
 
   public stealth?: StealthAddressModule;
-  private zkModule?: any;
+  private zkModule?: ZKProofModule;
 
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
@@ -129,14 +139,14 @@ export class Web3Passkey {
   /**
    * Lazy-load ZK module to prevent bundling unless accessed
    */
-  private async loadZKModule() {
+  private async loadZKModule(): Promise<ZKProofModule> {
     if (this.zkModule) {
       return this.zkModule;
     }
 
     try {
       const { ZKProofModule } = await import("w3pk/zk");
-      const zkConfig = (this.config as any).zkProofs || {};
+      const zkConfig = this.config.zkProofs || {};
       this.zkModule = new ZKProofModule(zkConfig);
       return this.zkModule;
     } catch (error) {
@@ -1575,18 +1585,22 @@ export class Web3Passkey {
     });
   }
 
-  get zk(): any {
-    return new Proxy(
-      {},
-      {
-        get: (_target, prop) => {
-          return async (...args: any[]) => {
-            const zkModule = await this.loadZKModule();
-            return zkModule[prop](...args);
-          };
-        },
-      }
-    );
+  /**
+   * Lazily loaded ZKProofModule (from `w3pk/zk`): each method loads the
+   * module on first call and returns a Promise
+   */
+  get zk(): ZKMethods {
+    return new Proxy({} as ZKMethods, {
+      get: (_target, prop) => {
+        return async (...args: unknown[]) => {
+          const zkModule = await this.loadZKModule();
+          const method = zkModule[prop as keyof ZKProofModule] as unknown as (
+            ...args: unknown[]
+          ) => unknown;
+          return method.apply(zkModule, args);
+        };
+      },
+    });
   }
 
   /**
