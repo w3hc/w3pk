@@ -52,6 +52,7 @@ async function runTests() {
       "✗ Failed to initialize ZK module:",
       (error as Error).message
     );
+    process.exitCode = 1;
     return;
   }
 
@@ -314,6 +315,7 @@ async function runTests() {
     }
   } else {
     console.log("\n⚠ Some tests failed");
+    process.exitCode = 1;
   }
 
   console.log("\n=== ZK Module Status ===");
