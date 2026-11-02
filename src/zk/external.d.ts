@@ -46,3 +46,7 @@ declare module "snarkjs" {
     export function stringifyBigInts(obj: any): any;
   }
 }
+
+declare module "w3pk/zk" {
+  export const ZKProofModule: typeof import("./index").ZKProofModule;
+}
