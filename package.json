@@ -95,6 +95,7 @@
     "test:erc5564": "node scripts/run-tests.mjs test/erc5564.test.ts",
     "test:sign-message": "node scripts/run-tests.mjs test/sign-message.test.ts",
     "test:siwe": "node scripts/run-tests.mjs test/siwe.test.ts",
+    "test:auth": "node scripts/run-tests.mjs test/authenticate.test.ts",
     "prepublishOnly": "pnpm build",
     "build:hash": "node scripts/compute-build-hash.mjs",
     "build:standalone": "node scripts/build-standalone-argon2.mjs",
