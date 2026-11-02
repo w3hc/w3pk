@@ -13,7 +13,7 @@ import { login } from "../src/auth/authenticate";
 import { isUserVerified } from "../src/auth/flags";
 import { CredentialStorage } from "../src/auth/storage";
 import { LocalStorageWalletStorage } from "../src/wallet/storage";
-import { deriveEncryptionKeyFromWebAuthn, encryptData } from "../src/wallet/crypto";
+import { deriveWalletKey, encryptData } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
 console.log("\n==================================================");
@@ -197,7 +197,7 @@ async function storeWallet(publicKey: string): Promise<void> {
     createdAt: now,
     lastUsed: now,
   });
-  const key = await deriveEncryptionKeyFromWebAuthn(CREDENTIAL_ID, publicKey);
+  const key = await deriveWalletKey(authenticator.prfOutput);
   await new LocalStorageWalletStorage(localStorage as unknown as Storage).store({
     ethereumAddress: ADDRESS,
     encryptedMnemonic: await encryptData(MNEMONIC, key),
@@ -292,13 +292,21 @@ async function runTests() {
   {
     await storeWallet(publicKey);
     reset(UP);
-    const sdk = new Web3Passkey({ userVerification: "preferred" });
-    await sdk.login();
-    assert(sdk.isAuthenticated, "unverified login opens the wallet");
+    const unverified = new Web3Passkey({ userVerification: "preferred" });
+    const loginError = await unverified.login().then(() => undefined, (e) => e);
+    assert(
+      loginError?.name === "WalletMissingError" && !unverified.isAuthenticated,
+      "unverified login can't open the stored wallet: no PRF output"
+    );
     assert(
       authenticator.getCalls.every((c) => c.userVerification === "preferred"),
       "login() requests 'preferred'"
     );
+
+    reset(UP | UV);
+    const sdk = new Web3Passkey({ userVerification: "preferred" });
+    await sdk.login();
+    assert(sdk.isAuthenticated, "verified login opens the wallet");
 
     reset(UP);
     try {

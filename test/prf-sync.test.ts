@@ -19,7 +19,7 @@ import {
 } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
 import { LocalStorageWalletStorage } from "../src/wallet/storage";
-import { deriveEncryptionKeyFromWebAuthn, encryptData } from "../src/wallet/crypto";
+import { decryptData, deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
 import { BackupFileManager, prfSyncInput } from "../src/backup/backup-file";
 import { DeviceSyncManager } from "../src/sync/backup-sync";
 import type { BackupFile } from "../src/backup/types";
@@ -152,9 +152,11 @@ async function setupAuthenticator(): Promise<string> {
             )
           );
 
-          const input = (publicKey.extensions as any)?.prf?.eval?.first;
+          const inputs = (publicKey.extensions as any)?.prf?.eval;
           const first =
-            authenticator.prf && input ? await prf(authenticator.secret, input) : undefined;
+            authenticator.prf && inputs?.first ? await prf(authenticator.secret, inputs.first) : undefined;
+          const second =
+            authenticator.prf && inputs?.second ? await prf(authenticator.secret, inputs.second) : undefined;
 
           return {
             id: CREDENTIAL_ID,
@@ -167,7 +169,7 @@ async function setupAuthenticator(): Promise<string> {
               userHandle: new TextEncoder().encode(USERNAME).buffer,
             },
             getClientExtensionResults: () =>
-              first ? { prf: { results: { first } } } : {},
+              first ? { prf: { results: second ? { first, second } : { first } } } : {},
           };
         },
       },
@@ -188,7 +190,7 @@ async function loggedInDeviceA(publicKey: string): Promise<Web3Passkey> {
     createdAt: now,
     lastUsed: now,
   });
-  const key = await deriveEncryptionKeyFromWebAuthn(CREDENTIAL_ID, publicKey);
+  const key = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
   await new LocalStorageWalletStorage(localStorage as unknown as Storage).store({
     ethereumAddress: ADDRESS,
     encryptedMnemonic: await encryptData(MNEMONIC, key),
@@ -336,7 +338,25 @@ async function runTests() {
     const { sdk, authEvents } = freshSdk();
     const result = await sdk.importFromSync(json);
     assert(authenticator.calls.length === 1, "one passkey prompt");
+    assert(
+      (authenticator.calls[0].extensions as any)?.prf?.eval?.second === PRF_INPUT,
+      "the same assertion evaluates the wallet's PRF input"
+    );
     assert(result.success && result.ethereumAddress === ADDRESS, "imports the wallet");
+
+    const stored = await new LocalStorageWalletStorage(
+      localStorage as unknown as Storage
+    ).retrieve(ADDRESS);
+    const walletKey = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
+    assert(
+      (await decryptData(stored!.encryptedMnemonic, walletKey)) === MNEMONIC,
+      "the stored wallet decrypts with the passkey's PRF output"
+    );
+    const otherKey = await deriveWalletKey(crypto.getRandomValues(new Uint8Array(32)));
+    assert(
+      (await capture(() => decryptData(stored!.encryptedMnemonic, otherKey))) instanceof Error,
+      "the stored wallet doesn't decrypt without it"
+    );
     await assertSyncedAndLogsIn(sdk, authEvents, publicKey);
   }
   console.log("");
@@ -460,11 +480,12 @@ async function runTests() {
     const importError = await capture(() => freshSdk().sdk.importFromSync(fallback.json));
     assert(importError instanceof WalletError, "importFromSync() points to syncWalletWithPasskey()");
 
+    // Device B's authenticator has PRF, so it can keep the wallet
+    authenticator.prf = true;
     localStorage.clear();
     const { sdk: deviceB, authEvents } = freshSdk();
     const result = await deviceB.syncWalletWithPasskey(fallback.json, PASSWORD);
     assert(result.mnemonic === MNEMONIC, "syncWalletWithPasskey() restores it with the password");
-    authenticator.prf = true;
     await assertSyncedAndLogsIn(deviceB, authEvents, publicKey);
   }
   console.log("");
