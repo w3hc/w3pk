@@ -76,9 +76,9 @@ import type { SyncCapabilities } from "../sync/types";
 import { supportsEIP7702, type EIP1193Provider } from "../eip7702";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
 
-/** Minimal EIP-1193 provider interface (matches the existing EIP1193Provider shape) */
-interface EIP1193ProviderInterface {
-  request(args: { method: string; params?: any[] }): Promise<any>;
+/** EIP-1193 provider returned by `Web3Passkey.getEIP1193Provider()` */
+export interface EIP1193ProviderInterface {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
   on(event: string, handler: (...args: any[]) => void): void;
   removeListener(event: string, handler: (...args: any[]) => void): void;
 }
@@ -1360,7 +1360,8 @@ export class Web3Passkey {
     };
 
     const provider: EIP1193ProviderInterface = {
-      async request({ method, params }: { method: string; params?: any[] }): Promise<any> {
+      async request({ method, params: rawParams }: { method: string; params?: unknown[] }): Promise<unknown> {
+        const params = rawParams as any[] | undefined;
         switch (method) {
           // ── Account discovery ──────────────────────────────────────────
           case 'eth_accounts':
