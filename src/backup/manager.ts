@@ -6,7 +6,6 @@
 import type {
   BackupStatus,
   SecurityScore,
-  QRBackupOptions,
   RecoveryScenario,
   SimulationResult,
   BackupMetadata,
@@ -15,19 +14,16 @@ import type {
 } from './types';
 import { PASSKEY_INDEPENDENT_METHODS } from './types';
 import { BackupStorage } from './storage';
-import { QRBackupCreator } from './qr-backup';
 import { SocialRecoveryManager } from '../recovery/social';
 import { detectEvictionRisk } from '../utils/eviction';
 
 export class BackupManager {
   private storage: BackupStorage;
-  private qrCreator: QRBackupCreator;
   private socialRecoveryManager: SocialRecoveryManager;
   private verificationStorageKey = 'w3pk_backup_verifications';
 
   constructor() {
     this.storage = new BackupStorage();
-    this.qrCreator = new QRBackupCreator();
     this.socialRecoveryManager = new SocialRecoveryManager();
   }
 
@@ -329,44 +325,6 @@ export class BackupManager {
       level,
       nextMilestone,
     };
-  }
-
-  /**
-   * Create QR code backup
-   */
-  async createQRBackup(
-    mnemonic: string,
-    ethereumAddress: string,
-    options?: QRBackupOptions
-  ): Promise<{
-    qrCodeDataURL: string;
-    instructions: string;
-  }> {
-    const { qrCodeDataURL, rawData, instructions } =
-      await this.qrCreator.createQRBackup(mnemonic, ethereumAddress, options);
-
-    // Store metadata
-    const metadata: BackupMetadata = {
-      id: crypto.randomUUID(),
-      ethereumAddress,
-      method: 'qr',
-      createdAt: new Date().toISOString(),
-      addressChecksum: JSON.parse(rawData).checksum,
-    };
-
-    await this.storage.storeBackupMetadata(metadata);
-
-    return { qrCodeDataURL, instructions };
-  }
-
-  /**
-   * Restore from QR backup
-   */
-  async restoreFromQR(
-    qrData: string,
-    password?: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    return await this.qrCreator.restoreFromQR(qrData, password);
   }
 
   /**

@@ -5,7 +5,7 @@
  * For full type definitions, consumers can install @types/qrcode
  *
  * Note: qrcode is an optionalDependency - code gracefully degrades
- * when not available (see QRBackupCreator.createFallbackQRDataURL)
+ * when not available (see SocialRecoveryManager)
  *
  * @see https://www.npmjs.com/package/qrcode
  * @see https://www.npmjs.com/package/@types/qrcode

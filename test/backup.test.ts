@@ -1,15 +1,13 @@
 /**
  * Backup System Tests
- * Tests for encrypted backups, QR codes, and backup management
+ * Tests for encrypted backups and backup management
  *
  * NOTE: This file contains TEST FIXTURES only - not real secrets!
  * Test mnemonic: "abandon abandon..." is the standard BIP39 test vector
  * Test passwords: All passwords are clearly marked with "Test" and "NotReal"
  */
 
-import { Wallet } from 'ethers';
 import { BackupManager } from '../src/backup';
-import { QRBackupCreator } from '../src/backup/qr-backup';
 import {
   validatePasswordStrength,
   encryptWithPassword,
@@ -109,93 +107,7 @@ async function runTests() {
     passTest('Address checksum generation working correctly');
   });
 
-  // Test 5: QR Backup Creation (Encrypted)
-  await runTest('QR Backup Creation (Encrypted)', async () => {
-    try {
-      const qrCreator = new QRBackupCreator();
-      const testMnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-      const testAddress = '0x1234567890123456789012345678901234567890';
-      const password = 'TestQRCode123!NotReal';
-
-      const { qrCodeDataURL, rawData, instructions } = await qrCreator.createQRBackup(
-        testMnemonic,
-        testAddress,
-        { password, errorCorrection: 'H' }
-      );
-
-      // qrCodeDataURL might be empty string if qrcode library is not installed
-      if (qrCodeDataURL && qrCodeDataURL.startsWith('data:image/')) {
-        passTest('QR code image generated');
-      }
-      assertTruthy(rawData, 'Should return raw data');
-      assertTruthy(instructions, 'Should return instructions');
-
-      const parsed = JSON.parse(rawData);
-      assertEqual(parsed.version, 1, 'Should have version');
-      assertEqual(parsed.type, 'encrypted', 'Should be encrypted');
-      assertTruthy(parsed.data, 'Should have encrypted data');
-      assertTruthy(parsed.salt, 'Should have salt');
-      assertTruthy(parsed.checksum, 'Should have checksum');
-
-      passTest('QR backup creation working correctly');
-    } catch (error) {
-      if (error instanceof Error && (error.message.includes('qrcode') || error.message.includes('Cannot find module'))) {
-        skipTest('qrcode library not installed (optional)');
-      } else {
-        throw error;
-      }
-    }
-  });
-
-  // Test 6: QR Backup Creation (Plain)
-  await runTest('QR Backup Creation (Plain)', async () => {
-    const qrCreator = new QRBackupCreator();
-    const testMnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-    const testAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';
-
-    const { rawData } = await qrCreator.createQRBackup(
-      testMnemonic,
-      testAddress
-    );
-
-    const parsed = JSON.parse(rawData);
-    assertEqual(parsed.type, 'plain', 'Should be plain type');
-    assertEqual(parsed.data, testMnemonic, 'Should contain mnemonic');
-
-    passTest('QR plain backup working correctly');
-  });
-
-  // Test 7: QR Backup Restoration
-  await runTest('QR Backup Restoration', async () => {
-    const qrCreator = new QRBackupCreator();
-    const testMnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-
-    // Derive the actual address from the mnemonic
-    const wallet = Wallet.fromPhrase(testMnemonic);
-    const testAddress = wallet.address;
-
-    const password = 'TestQRRestore123!NotReal';
-
-    // Create encrypted QR backup
-    const { rawData } = await qrCreator.createQRBackup(
-      testMnemonic,
-      testAddress,
-      { password }
-    );
-
-    // Restore from QR
-    const { mnemonic, ethereumAddress } = await qrCreator.restoreFromQR(
-      rawData,
-      password
-    );
-
-    assertEqual(mnemonic, testMnemonic, 'Restored mnemonic should match');
-    assertEqual(ethereumAddress.toLowerCase(), testAddress.toLowerCase(), 'Address should match');
-
-    passTest('QR backup restoration working correctly');
-  });
-
-  // Test 8: Backup Manager Status
+  // Test 5: Backup Manager Status
   await runTest('Backup Manager Status', async () => {
     const backupManager = new BackupManager();
     const testAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';
@@ -211,7 +123,7 @@ async function runTests() {
     passTest(`Backup status: ${status.securityScore.total}/100 (${status.securityScore.level})`);
   });
 
-  // Test 9: Security Score Calculation
+  // Test 6: Security Score Calculation
   await runTest('Security Score Calculation', async () => {
     const backupManager = new BackupManager();
     const testAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';

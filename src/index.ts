@@ -127,7 +127,6 @@ export type {
   BackupStatus,
   BackupMethod,
   SecurityScore,
-  QRBackupOptions,
   RecoveryScenario,
   SimulationResult,
   EncryptedBackupInfo,
