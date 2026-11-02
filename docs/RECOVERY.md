@@ -677,7 +677,7 @@ const blob = await w3pk.createZipBackup(password)
 src/backup/
 ├── backup-file.ts              # Main backup orchestration
 ├── types.ts                    # TypeScript interfaces
-├── encryption.ts               # Argon2id key derivation (QR backups: PBKDF2)
+├── encryption.ts               # Argon2id key derivation
 └── storage.ts                  # localStorage for metadata
 
 src/sync/

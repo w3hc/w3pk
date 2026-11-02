@@ -2805,32 +2805,6 @@ console.log('Address:', address)
 
 ## Cross-Device Sync
 
-### `getSyncStatus(): Promise<SyncStatus>`
-
-Get cross-device sync status for passkeys.
-
-**Returns:**
-
-```typescript
-interface SyncStatus {
-  enabled: boolean;
-  devices: DeviceInfo[];
-  lastSyncTime?: number;
-  platform: 'apple' | 'google' | 'microsoft' | 'none';
-}
-```
-
-**Example:**
-
-```typescript
-const syncStatus = await w3pk.getSyncStatus()
-console.log('Sync enabled:', syncStatus.enabled)
-console.log('Platform:', syncStatus.platform)
-console.log('Devices:', syncStatus.devices.length)
-```
-
----
-
 ### `detectSyncCapabilities(): Promise<SyncCapabilities>`
 
 Detect available platform sync capabilities (iCloud, Google, Microsoft).
@@ -4023,8 +3997,6 @@ import type {
   BackupStatus,
   SecurityScore,
   ZipBackupOptions,
-  QRBackupOptions,
-  QRBackupResult,
   RecoveryResult,
   RecoveryScenario,
   SimulationResult
@@ -4039,11 +4011,7 @@ import type {
 } from 'w3pk'
 
 // Sync types
-import type {
-  SyncStatus,
-  SyncCapabilities,
-  DeviceInfo
-} from 'w3pk'
+import type { SyncCapabilities } from 'w3pk'
 
 // ZK types
 import type {

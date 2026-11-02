@@ -3110,8 +3110,8 @@ w3pk implements a **three-layer backup and recovery system** that balances secur
 
 **How it works:**
 - Mnemonic encrypted with user-chosen password
-- Multiple backup formats: QR codes and backup files
-- Encryption: **AES-256-GCM** with **Argon2id** (19 MiB, 2 passes) for backup files; QR backups still use PBKDF2 (310,000 iterations)
+- Backup format: encrypted backup files
+- Encryption: **AES-256-GCM** with **Argon2id** (19 MiB, 2 passes) for backup files
 
 **Security properties:**
 - ✅ **Military-grade encryption** - AES-256-GCM
@@ -3397,13 +3397,11 @@ console.log('Can recover?', test2.canRecover)
 ```typescript
 // These operations trigger biometric prompt
 await w3pk.createZipBackup(password)        // ✅ Auth required
-await w3pk.createQRBackup(password)         // ✅ Auth required
 await w3pk.setupSocialRecovery(...)         // ✅ Auth required
 await w3pk.exportMnemonic()                 // ✅ Auth required
 
 // Read-only operations don't require auth
 await w3pk.getBackupStatus()                // ✅ No auth needed
-await w3pk.getSyncStatus()                  // ✅ No auth needed
 ```
 
 **Password validation is client-side:**
