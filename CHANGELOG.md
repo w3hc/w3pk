@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING: education wrappers on `Web3Passkey`** ([#185](https://github.com/w3hc/w3pk/issues/185)), which only added an auth check to standalone exports and returned `any`:
   - `getEducation(topic)`: use `getExplainer(topic)`, which returns `null` for an unknown topic instead of throwing
   - `simulateRecoveryScenario(scenario)` and `runRecoveryTest()`: use `new RecoverySimulator().simulateScenario(scenario, status)` and `runInteractiveTest(status)` with `status = await w3pk.getBackupStatus()`
-- **`docs/notes/` from the npm package** ([#191](https://github.com/w3hc/w3pk/issues/191)): `"files"` lists `docs/*.md` instead of `docs/`, so internal notes no longer ship. They stay in the repository
+- **Internal notes from the npm package** ([#191](https://github.com/w3hc/w3pk/issues/191)): `"files"` lists `docs/*.md` instead of `docs/`, so only the top-level docs ship
 
 ### Fixed
 
