@@ -248,6 +248,18 @@ export class BackupManager {
     // (or its storage) with no synced passkey loses the wallet for good
     const total = restoresWithoutPasskey ? sum : Math.min(sum, 20);
 
+    const steps = [
+      !breakdown.passkeyActive && 'enable passkey sync',
+      !breakdown.passkeyMultiDevice && 'sync your passkey to another device',
+      !breakdown.encryptedBackup && 'create an encrypted backup',
+      breakdown.phraseVerified < 20 &&
+        (breakdown.phraseVerified ? 'verify your backup again' : 'verify your backup'),
+    ]
+      .filter(Boolean)
+      .join(', ');
+    const toReach = (target: string) =>
+      `${steps.charAt(0).toUpperCase()}${steps.slice(1)} to reach ${target}`;
+
     let level: SecurityScore['level'];
     let nextMilestone: string;
 
@@ -257,16 +269,16 @@ export class BackupManager {
         'Create a password backup file or confirm your recovery phrase: without a backup that restores without a passkey, losing this device can lose the wallet';
     } else if (total <= 20) {
       level = 'vulnerable';
-      nextMilestone = 'Create encrypted backup to reach "protected" (40+ pts)';
-    } else if (total <= 50) {
+      nextMilestone = toReach('"protected" (21+ pts)');
+    } else if (total <= 40) {
       level = 'protected';
-      nextMilestone = 'Set up social recovery to reach "secured" (70+ pts)';
-    } else if (total <= 80) {
+      nextMilestone = toReach('"secured" (41+ pts)');
+    } else if (total <= 60) {
       level = 'secured';
-      nextMilestone = 'Enable all methods to reach "fort-knox" (100 pts)';
+      nextMilestone = toReach('"fort-knox" (61+ pts)');
     } else {
       level = 'fort-knox';
-      nextMilestone = 'Maximum security achieved!';
+      nextMilestone = total < 70 ? toReach('the maximum (70 pts)') : 'Maximum security achieved!';
     }
 
     return {

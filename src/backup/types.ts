@@ -55,7 +55,7 @@ export interface EncryptedBackupInfo {
 }
 
 export interface SecurityScore {
-  total: number; // 0-100
+  total: number; // 0-70
   breakdown: {
     passkeyActive: number;
     passkeyMultiDevice: number;

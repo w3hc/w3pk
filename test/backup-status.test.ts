@@ -85,7 +85,7 @@ async function runTests() {
       status.securityScore.nextMilestone.includes("backup"),
       "next milestone asks for a backup"
     );
-    passTest(`score ${status.securityScore.total}/100`);
+    passTest(`score ${status.securityScore.total}/70`);
   });
 
   await runTest("createBackupFile records a file backup", async () => {
@@ -188,7 +188,7 @@ async function runTests() {
     assertEqual(status.recommendedMode, "password", "recommends a password backup");
     assert(status.securityScore.total <= 20, "score capped at 20");
     assertEqual(status.securityScore.level, "vulnerable", "level is vulnerable");
-    passTest(`score ${status.securityScore.total}/100`);
+    passTest(`score ${status.securityScore.total}/70`);
   });
 
   await runTest("A password backup alone isn't penalized", async () => {
@@ -207,6 +207,46 @@ async function runTests() {
     assertEqual(both.total, passwordOnly.total, "adding a PRF backup doesn't change the score");
     assert(prfOnly.total <= 20 && prfOnly.level === "vulnerable", "prf-only: capped, vulnerable");
     passTest(`password-only ${passwordOnly.total}, prf-only ${prfOnly.total}`);
+  });
+
+  await runTest("Every method reaches fort-knox at 70", async () => {
+    const manager = new BackupManager() as any;
+    const backups = [{ id: "file", method: "file", location: "local", createdAt: "" }];
+    const max = manager.calculateSecurityScore(
+      { enabled: true, deviceCount: 2 },
+      backups,
+      { verified: true, count: 11 },
+      true
+    );
+    const almost = manager.calculateSecurityScore(
+      { enabled: true, deviceCount: 2 },
+      backups,
+      { verified: true, count: 2 },
+      true
+    );
+    const secured = manager.calculateSecurityScore(
+      { enabled: true, deviceCount: 1 },
+      backups,
+      { verified: true, count: 1 },
+      true
+    );
+
+    assertEqual(max.total, 70, "max is 70");
+    assertEqual(max.level, "fort-knox", "max: fort-knox");
+    assertEqual(max.nextMilestone, "Maximum security achieved!", "max: no milestone left");
+    assertEqual(almost.level, "fort-knox", "61+: fort-knox");
+    assertEqual(
+      almost.nextMilestone,
+      "Verify your backup again to reach the maximum (70 pts)",
+      "61+: verify again"
+    );
+    assertEqual(secured.level, "secured", "50: secured");
+    assertEqual(
+      secured.nextMilestone,
+      'Sync your passkey to another device, verify your backup again to reach "fort-knox" (61+ pts)',
+      "50: sync to another device"
+    );
+    passTest(`max ${max.total}/70`);
   });
 
   endTestSuite();

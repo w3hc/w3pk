@@ -120,7 +120,7 @@ async function testStorageDeletionRecovery() {
 
   // Check backup status
   const status = await backupManager.getBackupStatus(address);
-  console.log(`  ✓ Security score: ${status.securityScore.total}/100`);
+  console.log(`  ✓ Security score: ${status.securityScore.total}/70`);
 
   console.log('  ✅ Storage deletion recovery PASSED\n');
 }
@@ -475,7 +475,7 @@ async function testCompleteDeviceLoss() {
 
   // Check security status
   const status = await backupManager.getBackupStatus(address);
-  console.log(`  ✓ Security score: ${status.securityScore.total}/100`);
+  console.log(`  ✓ Security score: ${status.securityScore.total}/70`);
   console.log(`  ✓ Backup verified: ${status.recoveryPhrase.verified}`);
 
   console.log('  ✅ Complete device loss recovery PASSED\n');
