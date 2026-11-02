@@ -3,6 +3,10 @@
  * Tests for IPFS hash computation utilities
  */
 
+import assert from 'node:assert';
+import { existsSync, readFileSync } from 'node:fs';
+import { getPackageVersion } from '../src/utils/build-hash';
+
 console.log('\n🧪 Testing Build Hash Utilities...\n');
 
 // Test the base32 encoding
@@ -97,12 +101,35 @@ async function testHashConsistency() {
   }
 }
 
+function testPackageVersion() {
+  console.log('\nTesting package version...');
+
+  const { version } = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+  );
+  assert.strictEqual(getPackageVersion(), version);
+  console.log(`  ✓ Package version: ${version}`);
+
+  for (const file of ['index.js', 'index.mjs']) {
+    const url = new URL(`../dist/${file}`, import.meta.url);
+    if (!existsSync(url)) {
+      console.log(`  - Skipped dist/${file} check: run pnpm build first`);
+      continue;
+    }
+    const bundle = readFileSync(url, 'utf8');
+    assert.ok(bundle.includes(`"${version}"`), `dist/${file} holds the version`);
+    assert.ok(!bundle.includes('devDependencies'), `dist/${file} holds no devDependencies`);
+    console.log(`  ✓ dist/${file} inlines only the version`);
+  }
+}
+
 // Run all tests
 async function runTests() {
   try {
     testBase32Encode();
     await testIPFSHashFormat();
     await testHashConsistency();
+    testPackageVersion();
 
     console.log('\n✅ All build hash tests passed!\n');
     console.log('💡 To compute the actual build hash, run:');

@@ -3,6 +3,7 @@
  * Computes IPFS CIDv1 hash of the w3pk build output using official IPFS libraries
  */
 
+import { version } from '../../package.json';
 import { computeIpfsCid } from './ipfs-cid';
 
 /**
@@ -66,14 +67,7 @@ export async function getW3pkBuildHash(distUrl: string): Promise<string> {
  * Gets the current package version from package.json
  */
 export function getPackageVersion(): string {
-  // Import version directly from package.json
-  // This will be resolved at build time by the bundler
-  try {
-    // @ts-ignore - package.json import may not have types
-    return require('../../package.json').version;
-  } catch {
-    throw new Error('Failed to read package version');
-  }
+  return version;
 }
 
 /**
@@ -87,8 +81,7 @@ export function getPackageVersion(): string {
  * ```
  */
 export async function getCurrentBuildHash(): Promise<string> {
-  const version = getPackageVersion();
-  return getW3pkBuildHash(`https://unpkg.com/w3pk@${version}/dist`);
+  return getW3pkBuildHash(`https://unpkg.com/w3pk@${getPackageVersion()}/dist`);
 }
 
 /**
