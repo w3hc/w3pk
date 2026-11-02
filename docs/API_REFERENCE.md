@@ -159,10 +159,9 @@ Authenticate user with WebAuthn (passwordless, usernameless).
 
 ```typescript
 interface UserInfo {
-  id: string;              // Ethereum address
   username: string;        // Username
-  displayName: string;     // Same as username
   ethereumAddress: string; // Ethereum address
+  credentialId: string;    // Passkey credential ID
 }
 ```
 
@@ -255,54 +254,6 @@ if (w3pk.storagePersisted === false) {
 
 ---
 
-### `hasExistingCredential(): Promise<boolean>`
-
-Check if there are existing credentials (wallets) on this device.
-
-**Returns:** `boolean` - `true` if at least one credential exists
-
-**What happens:**
-1. Queries localStorage for stored credentials
-2. Returns `true` if any wallets are found
-3. Returns `false` if no wallets exist or storage fails
-
-**Use case:** Prevent accidental multiple wallet creation, especially on iOS/macOS where multiple passkeys can cause confusion.
-
-**Example:**
-
-```typescript
-const hasWallet = await w3pk.hasExistingCredential()
-if (hasWallet) {
-  // User already has a wallet - suggest login instead
-  await w3pk.login()
-} else {
-  // No wallet found - proceed with registration
-  await w3pk.register({ username: 'alice' })
-}
-```
-
----
-
-### `getExistingCredentialCount(): Promise<number>`
-
-Get the number of existing credentials (wallets) on this device.
-
-**Returns:** `number` - Count of existing wallets
-
-**Use case:** Show warning messages with specific counts when user attempts to create multiple wallets.
-
-**Example:**
-
-```typescript
-const count = await w3pk.getExistingCredentialCount()
-if (count > 0) {
-  console.warn(`⚠️ You have ${count} wallet(s) on this device`)
-  console.warn('Creating another wallet will generate a DIFFERENT address')
-}
-```
-
----
-
 ### `listExistingCredentials(): Promise<Array<CredentialInfo>>`
 
 List all existing credentials (wallets) on this device with metadata.
@@ -319,6 +270,8 @@ interface CredentialInfo {
 ```
 
 **Use case:** Allow users to see and select which wallet to login to when multiple wallets exist.
+
+Use `wallets.length > 0` to check whether the device has a wallet, and `wallets.length` to count them.
 
 **Example:**
 
@@ -362,7 +315,7 @@ console.log('New wallet:', mnemonic)
 
 ---
 
-### `deriveWallet(mode?: SecurityMode, tag?: string, options?: { requireAuth?: boolean }): Promise<WalletInfo>`
+### `deriveWallet(mode?: SecurityMode, tag?: string, options?: { requireAuth?: boolean }): Promise<DerivedWallet>`
 
 Origin-centric wallet derivation with three security modes:
 
@@ -379,13 +332,14 @@ Origin-centric wallet derivation with three security modes:
 **Returns:**
 
 ```typescript
-interface WalletInfo {
+interface DerivedWallet {
   address: string;       // Ethereum address
   privateKey?: string;   // Private key (only in YOLO mode)
   index?: number;        // BIP32 derivation index
   origin?: string;       // Origin URL
   mode?: SecurityMode;   // Security mode used
   tag?: string;          // Tag name
+  publicKey?: string;    // P-256 public key (PRIMARY mode)
 }
 ```
 
@@ -3980,7 +3934,8 @@ import type {
   StealthAddressConfig,
   ZKProofConfig,
   UserInfo,
-  WalletInfo,
+  GeneratedWallet,
+  DerivedWallet,
   RegisterResult
 } from 'w3pk'
 
