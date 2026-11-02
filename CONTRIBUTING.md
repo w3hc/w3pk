@@ -364,23 +364,28 @@ const { mnemonic, metadata } = await w3pk.restoreFromBackup(
 )
 ```
 
-#### `simulateRecoveryScenario(scenario)`
-Test recovery scenarios.
+#### `RecoverySimulator`
+Test recovery scenarios against the current backup status.
 ```typescript
-const result = await w3pk.simulateRecoveryScenario({
-  type: 'lost-device', // or 'lost-phrase', 'lost-both', 'switch-platform'
-  hasBackup: true,
-  hasSocialRecovery: true,
-  hasPasskeySync: true
-})
-// Returns: { canRecover, availableMethods, recommendation }
+import { RecoverySimulator } from 'w3pk'
+
+const result = await new RecoverySimulator().simulateScenario(
+  {
+    type: 'lost-device', // or 'lost-phrase', 'lost-both', 'switch-platform'
+    description: 'Your phone fell in the ocean'
+  },
+  await w3pk.getBackupStatus()
+)
+// Returns: { scenario, success, availableMethods, timeEstimate, educationalNote }
 ```
 
-#### `getEducation(topic)`
+#### `getExplainer(topic)`
 Get educational content.
 ```typescript
-const explainer = await w3pk.getEducation('what-is-passkey')
-// Returns: { title, content, notes }
+import { getExplainer } from 'w3pk'
+
+const explainer = getExplainer('whatIsPasskey')
+// Returns: { title, content, visual?, interactive? } or null
 ```
 
 ### Zero-Knowledge Proof Methods

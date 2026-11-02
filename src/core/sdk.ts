@@ -2252,59 +2252,6 @@ export class Web3Passkey {
     return detector.detectSyncCapabilities();
   }
 
-  /**
-   * Simulate recovery scenario
-   */
-  async simulateRecoveryScenario(scenario: {
-    type: "lost-device" | "lost-phrase" | "lost-both" | "switch-platform";
-    description: string;
-  }): Promise<any> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to run recovery simulation");
-    }
-
-    const status = await this.getBackupStatus();
-
-    const { RecoverySimulator } = await import("../education");
-    const simulator = new RecoverySimulator();
-
-    return simulator.simulateScenario(scenario, status);
-  }
-
-  /**
-   * Run interactive recovery test
-   */
-  async runRecoveryTest(): Promise<{
-    scenarios: any[];
-    overallScore: number;
-    feedback: string;
-  }> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to run recovery test");
-    }
-
-    const status = await this.getBackupStatus();
-
-    const { RecoverySimulator } = await import("../education");
-    const simulator = new RecoverySimulator();
-
-    return simulator.runInteractiveTest(status);
-  }
-
-  /**
-   * Get educational content by topic
-   */
-  async getEducation(topic: string): Promise<any> {
-    const { getExplainer } = await import("../education");
-    const explainer = getExplainer(topic);
-
-    if (!explainer) {
-      throw new WalletError(`Unknown education topic: ${topic}`);
-    }
-
-    return explainer;
-  }
-
   hasActiveSession(): boolean {
     return this.sessionManager.isActive();
   }
