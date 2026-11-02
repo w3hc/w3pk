@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING: the `options.origin` override** ([#181](https://github.com/w3hc/w3pk/issues/181)) from `deriveWallet()`, `getAddress()` (which no longer takes `options`), `signMessage()` (`SignMessageOptions.origin`), `sendTransaction()`, `deriveMLKemPublicKey()`, `mlkemEncrypt()` and `mlkemDecrypt()`. Any app could pass another site's origin and, in YOLO mode, get that origin's private key. Every derivation uses `getCurrentOrigin()`; `DerivedWallet.origin` stays as a return field
 - `deriveEncryptionKeyFromWebAuthn()` and the deprecated `deriveEncryptionKey()`
 - `VaultSync.createSyncPackage()`, `VaultSync.restoreFromSync()` and the `SyncVault` type, which used the same key. PRF backups (`exportForSync()`) replace them
 
