@@ -59,7 +59,7 @@ import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
-import type { UserInfo, WalletInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
+import type { UserInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
   AuthenticationError,
   CryptoError,
@@ -545,22 +545,6 @@ export class Web3Passkey {
     } catch (error) {
       return [];
     }
-  }
-
-  /**
-   * Check if there are existing credentials on this device
-   * @deprecated Use listExistingCredentials().length > 0 instead
-   */
-  async hasExistingCredential(): Promise<boolean> {
-    return (await this.listExistingCredentials()).length > 0;
-  }
-
-  /**
-   * Get the number of existing credentials on this device
-   * @deprecated Use listExistingCredentials().length instead
-   */
-  async getExistingCredentialCount(): Promise<number> {
-    return (await this.listExistingCredentials()).length;
   }
 
   /**

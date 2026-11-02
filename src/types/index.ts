@@ -6,10 +6,6 @@ export interface UserInfo {
   username: string;
   ethereumAddress: string;
   credentialId: string;
-  /** @deprecated Use ethereumAddress instead */
-  id?: string;
-  /** @deprecated Use username instead */
-  displayName?: string;
 }
 
 /**
@@ -102,8 +98,3 @@ export interface DerivedWallet {
   tag?: string;
   publicKey?: string;
 }
-
-/**
- * @deprecated Use GeneratedWallet or DerivedWallet instead
- */
-export type WalletInfo = GeneratedWallet | DerivedWallet;
