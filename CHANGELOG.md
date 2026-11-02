@@ -80,6 +80,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`w3pk.zk` resolves properties instead of calling them** ([#208](https://github.com/w3hc/w3pk/issues/208)): `await w3pk.zk.isAvailable()` resolves to `true`, or `false` when `w3pk/zk` can't load, instead of throwing `true is not a function`
   - `await w3pk.zk` settles: the Proxy has no `then`, so it is no longer a thenable that never resolves
   - A member `ZKProofModule` doesn't have rejects with a `TypeError` instead of an error from inside the Proxy
+- **Poseidon hashes are field elements** ([#209](https://github.com/w3hc/w3pk/issues/209)): circomlibjs's `buildPoseidon()` returns raw bytes in Montgomery form, which were used as-is. Every output now goes through `poseidon.F.toObject()`, so it matches what the circuits compute
+  - `createCommitment()` returns the commitment as a decimal string instead of comma-joined bytes, so the threshold and range circuits accept it
+  - `computeMerkleRoot()` returns a decimal string and matches `buildMerkleTree()`
+  - `buildMerkleTree()`, `buildNFTHoldersMerkleTree()`, the NFT ownership proof inputs and `verifyNFTOwnership()` used `bufferToBigInt()` on those bytes, which gave a different number than the circuit; their roots, leaves and hashes change
+  - Commitments, roots and NFT hashes stored before this release don't match the new values and must be recomputed
 
 ## [0.11.0] - 2026-11-02
 

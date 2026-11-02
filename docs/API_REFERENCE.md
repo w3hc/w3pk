@@ -2315,7 +2315,7 @@ const isOwner = await w3pk.zk.verifyNFTOwnership(proof, contract, root, 1n)
 
 ### `zk.createCommitment(value: bigint, blinding: bigint): Promise<string>`
 
-Create a Pedersen commitment for hiding values in ZK proofs.
+Create a Poseidon commitment `Poseidon(value, blinding)` for hiding values in ZK proofs. Returns the field element as a decimal string, the value the threshold and range circuits take as `commitment`.
 
 **Example:**
 
@@ -2331,7 +2331,7 @@ const commitment = await w3pk.zk.createCommitment(value, blinding)
 
 ### `zk.computeMerkleRoot(leaf: string, pathIndices: number[], pathElements: string[]): Promise<string>`
 
-Compute merkle root from a leaf and proof path.
+Compute merkle root from a leaf and proof path, hashing each level with Poseidon. Returns the root as a decimal string, the same as `buildMerkleTree()`.
 
 **Example:**
 
