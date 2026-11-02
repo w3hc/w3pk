@@ -2,15 +2,6 @@
  * Cross-Device Sync Type Definitions
  */
 
-export interface SyncVault {
-  id: string;
-  encryptedData: string; // Encrypted mnemonic
-  deviceFingerprints: string[]; // Devices that can decrypt
-  syncMethod: 'icloud' | 'google' | 'microsoft' | 'custom';
-  version: number;
-  updatedAt: string;
-}
-
 export interface DeviceInfo {
   id: string;
   name: string;

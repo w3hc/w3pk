@@ -2,9 +2,8 @@
  * Cryptographic utilities for wallet encryption
  *
  * SECURITY:
- * - Encryption keys derived from WebAuthn credentials
- * - Requires biometric/PIN authentication
- * - Hardware-backed security
+ * - Encryption keys derived from the passkey's WebAuthn PRF output
+ * - Released only on a user-verified assertion
  */
 
 import { CryptoError } from "../core/errors";
@@ -117,109 +116,6 @@ export async function importSessionKey(rawKey: string): Promise<CryptoKey> {
     );
   } catch (error: any) {
     throw new CryptoError("Failed to import session key", error);
-  }
-}
-
-/**
- * Derive encryption key from WebAuthn credential
- *
- * SECURITY:
- * - Authentication-gated encryption via biometric/PIN
- * - Uses PBKDF2 with 210,000 iterations (OWASP 2023)
- * - Session caching prevents repeated prompts
- */
-export async function deriveEncryptionKeyFromWebAuthn(
-  credentialId: string,
-  publicKey?: string
-): Promise<CryptoKey> {
-  try {
-    const keyMaterial = publicKey
-      ? `w3pk-v4:${credentialId}:${publicKey}`
-      : `w3pk-v4:${credentialId}`;
-
-    const keyMaterialHash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(keyMaterial)
-    );
-
-    const importedKey = await crypto.subtle.importKey(
-      "raw",
-      keyMaterialHash,
-      { name: "PBKDF2" },
-      false,
-      ["deriveKey"]
-    );
-
-    const salt = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode("w3pk-salt-v4")
-    );
-
-    return crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: new Uint8Array(salt),
-        iterations: 210000,
-        hash: "SHA-256",
-      },
-      importedKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt", "decrypt"]
-    );
-  } catch (error: any) {
-    throw new CryptoError(
-      "Failed to derive encryption key from WebAuthn",
-      error
-    );
-  }
-}
-
-/**
- * Derive encryption key from credential ID (fallback)
- * @deprecated Use deriveEncryptionKeyFromWebAuthn
- */
-export async function deriveEncryptionKey(
-  credentialId: string,
-  publicKey?: string
-): Promise<CryptoKey> {
-  try {
-    const keyMaterial = publicKey
-      ? `w3pk-v2:${credentialId}:${publicKey}`
-      : `w3pk-v2:${credentialId}`;
-
-    const keyMaterialHash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(keyMaterial)
-    );
-
-    const importedKey = await crypto.subtle.importKey(
-      "raw",
-      keyMaterialHash,
-      { name: "PBKDF2" },
-      false,
-      ["deriveKey"]
-    );
-
-    const salt = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode("w3pk-salt-v2")
-    );
-
-    return crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: new Uint8Array(salt),
-        iterations: 210000,
-        hash: "SHA-256",
-      },
-      importedKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt", "decrypt"]
-    );
-  } catch (error) {
-    throw new CryptoError("Failed to derive encryption key", error);
   }
 }
 
