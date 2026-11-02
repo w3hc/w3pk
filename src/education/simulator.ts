@@ -237,32 +237,17 @@ Don't wait until it's too late!
     // Add score-based recommendations
     note += `\nSECURITY RECOMMENDATIONS:\n`;
 
-    if (score <= 20) {
+    const { nextMilestone } = status.securityScore;
+
+    if (level === 'vulnerable') {
       note += `⚠️  Your score is 20/70 or below.\n`;
-      note += `   Add more backups to improve protection:\n\n`;
-
-      if (!status.recoveryPhrase.encryptedBackups.length) {
-        note += `   📥 Create encrypted backup → +20 pts\n`;
-      }
-
-      if (!status.recoveryPhrase.verified) {
-        note += `   ✅ Verify your backup → +10 pts\n`;
-      }
-    } else if (score <= 40) {
+      note += `   ${nextMilestone}\n`;
+    } else if (level === 'protected') {
       note += `🟡 Good start! Score: ${score}/70\n\n`;
-
-      if (!status.recoveryPhrase.verified) {
-        note += `   ✅ Verify your backup → +10 pts\n`;
-      }
-
-      note += `\n   Target: Reach 41+ for "secured" status!\n`;
-    } else if (score <= 60) {
+      note += `   ${nextMilestone}\n`;
+    } else if (level === 'secured') {
       note += `🟢 Great! Score: ${score}/70\n\n`;
-
-      if (status.passkeySync.deviceCount === 1) {
-        note += `   📱 Sync passkey to another device → +10 pts\n`;
-      }
-
+      note += `   ${nextMilestone}\n`;
       note += `\n   You're close to "fort-knox" status!\n`;
     } else {
       note += `🏆 Excellent! Score: ${score}/70\n`;
@@ -332,34 +317,19 @@ Don't wait until it's too late!
     feedback += `NEXT STEPS:\n`;
     feedback += `${'='.repeat(50)}\n\n`;
 
-    if (securityScore > 60) {
+    const { nextMilestone } = currentStatus.securityScore;
+
+    if (securityLevel === 'fort-knox') {
       feedback += `🏆 Excellent security posture!\n`;
       feedback += `Your wallet is extremely well-protected.\n\n`;
-
       if (securityScore < 70) {
-        feedback += `To reach perfect 70/70:\n`;
-        if (breakdown.passkeyMultiDevice === 0) {
-          feedback += `  • Sync passkey to another device (+10 pts)\n`;
-        }
-        if (breakdown.phraseVerified < 20) {
-          feedback += `  • Verify your backup multiple times (+${20 - breakdown.phraseVerified} pts)\n`;
-        }
+        feedback += `${nextMilestone}\n`;
       }
-    } else if (securityScore > 20) {
-      feedback += `${currentStatus.securityScore.nextMilestone}\n\n`;
-      feedback += `Recommended actions:\n`;
-
-      if (breakdown.encryptedBackup === 0) {
-        feedback += `  1. Create encrypted backup (+20 pts)\n`;
-      }
-      if (breakdown.phraseVerified === 0) {
-        feedback += `  2. Test your backup (+10 pts)\n`;
-      }
+    } else if (securityLevel !== 'vulnerable') {
+      feedback += `${nextMilestone}\n`;
     } else {
       feedback += `⚠️  URGENT: Your wallet security is at risk!\n\n`;
-      feedback += `Critical actions needed:\n`;
-      feedback += `  1. Create encrypted backup NOW (+20 pts)\n`;
-      feedback += `  2. Test the backup immediately (+10 pts)\n\n`;
+      feedback += `${nextMilestone}\n\n`;
       feedback += `Target: Reach at least 21/70 for basic protection.\n`;
     }
 
