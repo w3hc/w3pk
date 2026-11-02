@@ -69,7 +69,9 @@ import {
   WalletMissingError,
 } from "./errors";
 import { getEndpoints } from "../chainlist";
-import { MLKEM_DEFAULT_CONTEXT } from "../crypto/mlkem";
+import { MLKEM_DEFAULT_CONTEXT, type EncryptedPayload } from "../crypto/mlkem";
+import type { DeviceSyncInfo } from "../sync/backup-sync";
+import type { SyncCapabilities } from "../sync/types";
 import { supportsEIP7702 } from "../eip7702";
 
 /** Minimal EIP-1193 provider interface (matches the existing EIP1193Provider shape) */
@@ -2139,7 +2141,7 @@ export class Web3Passkey {
   /**
    * Get cross-device sync status
    */
-  async getSyncStatus(): Promise<any> {
+  async getSyncStatus(): Promise<DeviceSyncInfo | null> {
     const { DeviceSyncManager } = await import("../sync/backup-sync");
     const syncManager = new DeviceSyncManager();
 
@@ -2245,7 +2247,7 @@ export class Web3Passkey {
   /**
    * Detect platform sync capabilities
    */
-  async detectSyncCapabilities(): Promise<any> {
+  async detectSyncCapabilities(): Promise<SyncCapabilities> {
     const { PlatformDetector } = await import("../sync/platform-detect");
     const detector = new PlatformDetector();
 
@@ -2550,7 +2552,7 @@ export class Web3Passkey {
       tag?: string;
       requireAuth?: boolean;
     }
-  ): Promise<any> {
+  ): Promise<EncryptedPayload> {
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated to encrypt data");
     }
@@ -2619,7 +2621,7 @@ export class Web3Passkey {
    * ```
    */
   async mlkemDecrypt(
-    payload: any,
+    payload: EncryptedPayload,
     options?: {
       context?: string;
       mode?: SecurityMode;

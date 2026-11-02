@@ -133,6 +133,7 @@ export type {
 } from "./backup/types";
 
 export type { SyncCapabilities } from "./sync/types";
+export type { DeviceSyncInfo } from "./sync/backup-sync";
 
 export {
   requestExternalWalletAuthorization,
