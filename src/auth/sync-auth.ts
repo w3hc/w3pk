@@ -10,7 +10,8 @@ import {
   arrayBufferToBase64Url,
   base64UrlToArrayBuffer,
 } from "../utils/base64";
-import { generateChallenge } from "../wallet/crypto";
+import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
+import { isUserVerified } from "./flags";
 
 export interface PasskeySelectionResult {
   credentialId: string;
@@ -19,6 +20,8 @@ export interface PasskeySelectionResult {
   username?: string;
   /** The selection assertion, to verify against a public key from a backup */
   assertion: AuthenticationCredential;
+  /** PRF output at `PRF_INPUT`, the source of the wallet key; absent without PRF */
+  prfOutput?: ArrayBuffer;
 }
 
 /**
@@ -56,6 +59,9 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
       rpId: window.location.hostname,
       userVerification: "required",
       timeout: 120000, // Longer timeout for sync flow (2 minutes)
+      extensions: {
+        prf: { eval: { first: PRF_INPUT } },
+      } as AuthenticationExtensionsClientInputs,
     };
 
     // Add allowCredentials if we have any stored credentials
@@ -77,6 +83,9 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
     }
 
     const credentialId = credential.id;
+    const prfOutput = isUserVerified(new Uint8Array(credential.response.authenticatorData))
+      ? credential.getClientExtensionResults?.().prf?.results?.first
+      : undefined;
     const userHandle = credential.response.userHandle;
     const username = userHandle?.byteLength
       ? new TextDecoder().decode(userHandle)
@@ -94,6 +103,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
         ethereumAddress: undefined,
         username,
         assertion: credential,
+        prfOutput,
       };
     }
 
@@ -104,6 +114,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
       ethereumAddress: storedCredential.ethereumAddress,
       username: storedCredential.username,
       assertion: credential,
+      prfOutput,
     };
   } catch (error: any) {
     if (error?.name === "NotAllowedError") {

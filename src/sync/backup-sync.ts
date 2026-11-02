@@ -127,7 +127,9 @@ export class DeviceSyncManager {
   /**
    * Import a PRF backup from another device
    * Runs one assertion restricted to the backup's passkey, checks its
-   * signature against `publicKey`, then decrypts with the PRF output
+   * signature against `publicKey`, then decrypts with the PRF output.
+   * The same assertion evaluates `PRF_INPUT` as its second input, for the
+   * key of the wallet stored on this device.
    *
    * @param publicKey - The passkey's public key: this device's, or the backup's on a fresh device
    * @throws SyncBootstrapError ('PUBLIC_KEY_MISMATCH') when the signature doesn't match `publicKey`
@@ -135,8 +137,9 @@ export class DeviceSyncManager {
   async importFromSync(
     backupFile: BackupFile,
     publicKey: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+  ): Promise<{ mnemonic: string; ethereumAddress: string; walletPrfOutput?: ArrayBuffer }> {
     const { BackupFileManager, prfSyncInput } = await import('../backup/backup-file');
+    const { PRF_INPUT } = await import('../wallet/crypto');
     const { evaluatePrf } = await import('../auth/prf');
     const { verifyAssertionSignature } = await import('../auth/authenticate');
     const { SyncBootstrapError } = await import('../core/errors');
@@ -147,7 +150,11 @@ export class DeviceSyncManager {
     }
     const credentialId = backupFile.credential.id;
 
-    const evaluation = await evaluatePrf(await prfSyncInput(backupFile.prfSalt), credentialId);
+    const evaluation = await evaluatePrf(
+      await prfSyncInput(backupFile.prfSalt),
+      credentialId,
+      PRF_INPUT
+    );
     let result: { mnemonic: string; ethereumAddress: string };
     try {
       if (evaluation.credentialId !== credentialId) {
@@ -157,13 +164,16 @@ export class DeviceSyncManager {
         throw new SyncBootstrapError('PUBLIC_KEY_MISMATCH', credentialId);
       }
       result = await manager.restoreWithPrf(backupFile, evaluation.output);
+    } catch (error) {
+      if (evaluation.secondOutput) new Uint8Array(evaluation.secondOutput).fill(0);
+      throw error;
     } finally {
       new Uint8Array(evaluation.output).fill(0);
     }
 
     await this.updateSyncInfo(result.ethereumAddress);
 
-    return result;
+    return { ...result, walletPrfOutput: evaluation.secondOutput };
   }
 
   /**

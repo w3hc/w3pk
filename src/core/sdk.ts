@@ -31,7 +31,6 @@ import {
   DEFAULT_MODE,
 } from "../wallet/origin-derivation";
 import {
-  deriveEncryptionKeyFromWebAuthn,
   derivePrfSessionKey,
   deriveWalletKey,
   encryptData,
@@ -1900,23 +1899,20 @@ export class Web3Passkey {
         // Update credential with new address
         await storage.updateCredentialAddress(credential.id, ethereumAddress);
 
-        // Encrypt and store the wallet data with new address
-        const encryptionKey = await (await import("../wallet/crypto")).deriveEncryptionKeyFromWebAuthn(
-          credential.id,
-          credential.publicKey
-        );
+        // One assertion releases the PRF output the wallet key comes from;
+        // without PRF, the restored wallet stays in memory only
+        let prfOutput: ArrayBuffer | undefined;
+        try {
+          prfOutput = (await evaluatePrf(PRF_INPUT, credential.id)).output;
+        } catch (error) {
+          if (!(error instanceof PrfUnsupportedError)) throw error;
+        }
 
-        const encryptedMnemonic = await (await import("../wallet/crypto")).encryptData(
-          mnemonic,
-          encryptionKey
-        );
-
-        await this.walletStorage.store({
-          ethereumAddress,
-          encryptedMnemonic,
-          credentialId: credential.id,
-          createdAt: new Date().toISOString(),
-        });
+        if (prfOutput) {
+          await this.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
+        } else {
+          await this.walletStorage.delete(ethereumAddress);
+        }
 
         // Update current user with new address
         this.currentUser = {
@@ -1924,14 +1920,13 @@ export class Web3Passkey {
           ethereumAddress,
         };
 
-        // Start a new session with the restored wallet.
-        // No fresh assertion (and thus no PRF output) is in scope here, so
-        // the session is in-memory only; the next login() persists it.
         await this.sessionManager.startSession(
           mnemonic,
           credential.id,
           ethereumAddress,
-          undefined,
+          prfOutput
+            ? await derivePrfSessionKey(prfOutput, this.sessionManager.storesSessionKey)
+            : undefined,
           'STANDARD' // Default security mode
         );
 
@@ -2010,7 +2005,8 @@ export class Web3Passkey {
         username: passkeyResult.username ?? ethereumAddress,
       },
       mnemonic,
-      ethereumAddress
+      ethereumAddress,
+      passkeyResult.prfOutput
     );
 
     return { mnemonic, ethereumAddress };
@@ -2031,7 +2027,7 @@ export class Web3Passkey {
     const stored = await new CredentialStorage().getCredentialById(credential.id);
     const publicKey = stored?.publicKey ?? credential.publicKey;
 
-    const { mnemonic, ethereumAddress } = await new DeviceSyncManager().importFromSync(
+    const { mnemonic, ethereumAddress, walletPrfOutput } = await new DeviceSyncManager().importFromSync(
       backupFile,
       publicKey
     );
@@ -2045,7 +2041,8 @@ export class Web3Passkey {
         username: backupFile.username ?? ethereumAddress,
       },
       mnemonic,
-      ethereumAddress
+      ethereumAddress,
+      walletPrfOutput
     );
 
     return { mnemonic, ethereumAddress };
@@ -2054,12 +2051,14 @@ export class Web3Passkey {
   /**
    * Set this device up for a passkey and a synced wallet: saves the
    * passkey's metadata (or points it at the wallet), stores the wallet
-   * under the passkey-derived key and starts a session
+   * under the key derived from `prfOutput` and starts a session. Without
+   * `prfOutput`, the wallet and the session stay in memory only.
    */
   private async bootstrapCredential(
     credential: { id: string; publicKey: string; username: string },
     mnemonic: string,
-    ethereumAddress: string
+    ethereumAddress: string,
+    prfOutput?: ArrayBuffer
   ): Promise<void> {
     const storage = new CredentialStorage();
     const stored = await storage.getCredentialById(credential.id);
@@ -2078,18 +2077,11 @@ export class Web3Passkey {
       await storage.updateCredentialAddress(credential.id, ethereumAddress);
     }
 
-    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
-      credential.id,
-      credential.publicKey
-    );
-    const encryptedMnemonic = await encryptData(mnemonic, encryptionKey);
-
-    await this.walletStorage.store({
-      ethereumAddress,
-      encryptedMnemonic,
-      credentialId: credential.id,
-      createdAt: new Date().toISOString(),
-    });
+    if (prfOutput) {
+      await this.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
+    } else {
+      await this.walletStorage.delete(ethereumAddress);
+    }
 
     this.currentUser = {
       username: stored?.username ?? credential.username,
@@ -2097,13 +2089,13 @@ export class Web3Passkey {
       credentialId: credential.id,
     };
 
-    // No PRF output is in scope here, so the session is in-memory only;
-    // the next login() persists it
     await this.sessionManager.startSession(
       mnemonic,
       credential.id,
       ethereumAddress,
-      undefined,
+      prfOutput
+        ? await derivePrfSessionKey(prfOutput, this.sessionManager.storesSessionKey)
+        : undefined,
       'STANDARD'
     );
 
