@@ -24,15 +24,3 @@ export interface SyncStatus {
   lastSyncTime?: string;
   platform: string;
 }
-
-export interface SyncResult {
-  success: boolean;
-  steps: SyncStep[];
-}
-
-export interface SyncStep {
-  title: string;
-  action: string;
-  educational: string;
-  status: 'waiting' | 'in-progress' | 'completed' | 'failed';
-}
