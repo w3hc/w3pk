@@ -30,6 +30,7 @@ export interface PrfExtensionResults {
     enabled?: boolean;
     results?: {
       first?: ArrayBuffer;
+      second?: ArrayBuffer;
     };
   };
 }
