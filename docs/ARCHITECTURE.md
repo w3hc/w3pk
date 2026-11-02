@@ -167,6 +167,26 @@ async function deriveWalletKey(prfOutput: BufferSource): Promise<CryptoKey> {
 - **Separate**: the persistent-session key comes from the same PRF output under another HKDF info, so neither key reveals the other
 - **PRF only**: authenticators without the PRF extension keep no wallet on the device; the session stays in memory and the wallet comes back from a backup
 
+### 4. Source Layout
+
+`Web3Passkey` (`src/core/sdk.ts`) holds auth, session and wallet core: register, login, sessions, wallet derivation and signing. Its other public methods keep their signatures and JSDoc there and delegate to one file per feature:
+
+```
+src/core/
+├── sdk.ts               # Web3Passkey: auth, session, wallet core
+├── context.ts           # SdkContext: the internals the feature files use
+├── backup-sync.ts       # Backup files and status, restore, cross-device sync
+├── social-recovery.ts   # Guardian shares: setup, invites, recovery
+├── eip1193.ts           # getEIP1193Provider()
+├── mlkem.ts             # ML-KEM key derivation, encryption, decryption
+├── session.ts           # SessionManager
+├── persistent-session.ts
+├── config.ts
+└── errors.ts
+```
+
+A feature function takes the `Pick<SdkContext, ...>` it needs: `Web3Passkey` builds one `SdkContext` whose members read its private state when they run. The EIP-1193 provider uses only public methods, so it takes the `Web3Passkey` instance. The lower-level modules stay in `src/backup/`, `src/sync/`, `src/recovery/` and `src/crypto/`, loaded with `import()` on first use.
+
 ---
 
 ## Data Flow Diagrams

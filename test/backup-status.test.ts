@@ -7,6 +7,7 @@
 import { Wallet } from "ethers";
 import { Web3Passkey } from "../src/index";
 import { BackupManager } from "../src/backup/manager";
+import { recordBackup } from "../src/core/backup-sync";
 import {
   startTestSuite,
   endTestSuite,
@@ -170,7 +171,7 @@ async function runTests() {
     await sdk.createBackupFile("TestStrongPass123!NotReal");
     assertEqual((await sdk.getBackupStatus()).recommendedMode, "prf", "password backup: prf");
 
-    await (sdk as any).recordBackup("prf");
+    await recordBackup((sdk as any).ctx, "prf");
     assertEqual((await sdk.getBackupStatus()).recommendedMode, undefined, "both: none");
     passTest("password, prf, then none");
   });
@@ -178,7 +179,7 @@ async function runTests() {
   await runTest("A PRF backup alone doesn't count as a backup", async () => {
     localStorage.clear();
     const sdk = loggedInSdk();
-    await (sdk as any).recordBackup("prf");
+    await recordBackup((sdk as any).ctx, "prf");
     const status = await sdk.getBackupStatus();
 
     assertEqual(status.methods.join(","), "prf", "method is prf");

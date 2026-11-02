@@ -18,7 +18,7 @@
  */
 
 import { register } from "../auth/register";
-import { login, verifyAssertionSignature } from "../auth/authenticate";
+import { login } from "../auth/authenticate";
 import { LocalStorageWalletStorage } from "../wallet/storage";
 import {
   generateBIP39Wallet,
@@ -57,7 +57,7 @@ import type {
 } from "../zk/prove";
 // ZK module imported dynamically to avoid bundling dependencies
 import type { Web3PasskeyConfig, InternalConfig } from "./config";
-import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
+import type { BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
 import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
@@ -65,23 +65,35 @@ import {
   AuthenticationError,
   CryptoError,
   PrfUnsupportedError,
-  SyncBootstrapError,
   WalletError,
   WalletMissingError,
 } from "./errors";
 import { getEndpoints } from "../chainlist";
-import { MLKEM_DEFAULT_CONTEXT, type EncryptedPayload } from "../crypto/mlkem";
+import type { EncryptedPayload } from "../crypto/mlkem";
 import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
 import { supportsEIP7702, type EIP1193Provider } from "../eip7702";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
-
-/** EIP-1193 provider returned by `Web3Passkey.getEIP1193Provider()` */
-export interface EIP1193ProviderInterface {
-  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
-  on(event: string, handler: (...args: any[]) => void): void;
-  removeListener(event: string, handler: (...args: any[]) => void): void;
-}
+import { createEIP1193Provider, type EIP1193ProviderInterface } from "./eip1193";
+import type { SdkContext } from "./context";
+import { deriveMLKemPublicKey, mlkemDecrypt, mlkemEncrypt } from "./mlkem";
+import {
+  generateGuardianInvite,
+  recoverFromGuardians,
+  setupSocialRecovery,
+} from "./social-recovery";
+import {
+  confirmRecoveryPhraseBackup,
+  createBackupFile,
+  detectSyncCapabilities,
+  exportForSync,
+  getBackupStatus,
+  getSyncStatus,
+  importFromSync,
+  registerWithBackupFile,
+  restoreFromBackupFile,
+  syncWalletWithPasskey,
+} from "./backup-sync";
 
 /** ZKProofModule methods as exposed by `Web3Passkey.zk`, each returning a Promise */
 export type ZKMethods = {
@@ -91,18 +103,6 @@ export type ZKMethods = {
     ? (...args: A) => Promise<Awaited<R>>
     : never;
 };
-
-/** Returns true if a string looks like a 0x-prefixed hex value */
-function isHex(value: string): boolean {
-  return typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value);
-}
-
-/** Decode a hex-encoded UTF-8 string (used for personal_sign / eth_sign data) */
-function hexToUtf8(hex: string): string {
-  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-  const bytes = new Uint8Array(clean.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-  return new TextDecoder().decode(bytes);
-}
 
 export class Web3Passkey {
   private config: InternalConfig;
@@ -114,6 +114,7 @@ export class Web3Passkey {
 
   public stealth?: StealthAddressModule;
   private zkModule?: ZKProofModule;
+  private readonly ctx: SdkContext = this.createContext();
 
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
@@ -135,6 +136,39 @@ export class Web3Passkey {
         (requireAuth?: boolean) => this.getMnemonicFromSession(requireAuth)
       );
     }
+  }
+
+  /** The internals the feature modules work on, read when they run */
+  private createContext(): SdkContext {
+    const sdk = this;
+    return {
+      get currentUser() {
+        return sdk.currentUser;
+      },
+      set currentUser(user) {
+        sdk.currentUser = user;
+      },
+      get currentWallet() {
+        return sdk.currentWallet;
+      },
+      set currentWallet(wallet) {
+        sdk.currentWallet = wallet;
+      },
+      get config() {
+        return sdk.config;
+      },
+      get walletStorage() {
+        return sdk.walletStorage;
+      },
+      get sessionManager() {
+        return sdk.sessionManager;
+      },
+      getMnemonicFromSession: (forceAuth, securityMode) =>
+        sdk.getMnemonicFromSession(forceAuth, securityMode),
+      storeWallet: (...args) => sdk.storeWallet(...args),
+      requestPersistentStorage: () => sdk.requestPersistentStorage(),
+      register: (options) => sdk.register(options),
+    };
   }
 
   /**
@@ -1342,158 +1376,7 @@ export class Web3Passkey {
     chainId?: number;
     rpcUrl?: string;
   }): EIP1193ProviderInterface {
-    let activeChainId = options?.chainId ?? 1;
-    const sdk = this;
-
-    // Minimal EventEmitter (subset needed by EIP-1193)
-    const listeners: Record<string, Array<(...args: any[]) => void>> = {};
-
-    const emit = (event: string, ...args: any[]) => {
-      (listeners[event] ?? []).forEach(fn => fn(...args));
-    };
-
-    const provider: EIP1193ProviderInterface = {
-      async request({ method, params: rawParams }: { method: string; params?: unknown[] }): Promise<unknown> {
-        const params = rawParams as any[] | undefined;
-        switch (method) {
-          // ── Account discovery ──────────────────────────────────────────
-          case 'eth_accounts':
-          case 'eth_requestAccounts': {
-            const address = await sdk.getAddress(
-              options?.mode ?? 'STANDARD',
-              options?.tag ?? 'MAIN'
-            );
-            return [address];
-          }
-
-          // ── Chain ──────────────────────────────────────────────────────
-          case 'eth_chainId': {
-            return '0x' + activeChainId.toString(16);
-          }
-
-          // ── Transaction ────────────────────────────────────────────────
-          case 'eth_sendTransaction': {
-            const txParam = (params ?? [])[0] ?? {};
-            if (!txParam.chainId && !activeChainId) {
-              throw new WalletError('eth_sendTransaction: chainId is required');
-            }
-            const chainId = txParam.chainId
-              ? parseInt(txParam.chainId, 16)
-              : activeChainId;
-
-            const result = await sdk.sendTransaction(
-              {
-                to: txParam.to,
-                value: txParam.value !== undefined
-                  ? BigInt(txParam.value)
-                  : undefined,
-                data: txParam.data ?? '0x',
-                chainId,
-                gasLimit: txParam.gas !== undefined
-                  ? BigInt(txParam.gas)
-                  : undefined,
-                maxFeePerGas: txParam.maxFeePerGas !== undefined
-                  ? BigInt(txParam.maxFeePerGas)
-                  : undefined,
-                maxPriorityFeePerGas: txParam.maxPriorityFeePerGas !== undefined
-                  ? BigInt(txParam.maxPriorityFeePerGas)
-                  : undefined,
-                nonce: txParam.nonce !== undefined
-                  ? parseInt(txParam.nonce, 16)
-                  : undefined,
-              },
-              {
-                mode: options?.mode,
-                tag: options?.tag,
-                rpcUrl: options?.rpcUrl,
-              }
-            );
-            return result.hash;
-          }
-
-          // ── Message signing ────────────────────────────────────────────
-          // personal_sign(data, address) — params are reversed vs eth_sign
-          case 'personal_sign': {
-            const [data] = params ?? [];
-            const message = isHex(data)
-              ? hexToUtf8(data)
-              : data;
-            const result = await sdk.signMessage(message, {
-              mode: options?.mode,
-              tag: options?.tag,
-              signingMethod: 'EIP191',
-            });
-            return result.signature;
-          }
-
-          // eth_sign(address, data) — legacy, same signing as personal_sign
-          case 'eth_sign': {
-            const [, data] = params ?? [];
-            const message = isHex(data)
-              ? hexToUtf8(data)
-              : data;
-            const result = await sdk.signMessage(message, {
-              mode: options?.mode,
-              tag: options?.tag,
-              signingMethod: 'EIP191',
-            });
-            return result.signature;
-          }
-
-          // EIP-712 typed data signing
-          case 'eth_signTypedData_v4': {
-            const [, typedDataJson] = params ?? [];
-            const typedData = typeof typedDataJson === 'string'
-              ? JSON.parse(typedDataJson)
-              : typedDataJson;
-
-            const { domain, types, message: typedMessage, primaryType } = typedData;
-
-            // Remove EIP-712 meta-type if present (ethers doesn't want it)
-            const filteredTypes = { ...types };
-            delete filteredTypes['EIP712Domain'];
-
-            const result = await sdk.signMessage(
-              JSON.stringify(typedMessage),
-              {
-                mode: options?.mode,
-                tag: options?.tag,
-                signingMethod: 'EIP712',
-                eip712Domain: domain,
-                eip712Types: filteredTypes,
-                eip712PrimaryType: primaryType,
-              }
-            );
-            return result.signature;
-          }
-
-          // ── Chain switching ────────────────────────────────────────────
-          case 'wallet_switchEthereumChain': {
-            const newChainId = parseInt((params ?? [])[0]?.chainId ?? '0x1', 16);
-            activeChainId = newChainId;
-            emit('chainChanged', '0x' + newChainId.toString(16));
-            return null;
-          }
-
-          default:
-            throw new WalletError(
-              `w3pk EIP-1193: unsupported method "${method}"`
-            );
-        }
-      },
-
-      on(event: string, handler: (...args: any[]) => void) {
-        if (!listeners[event]) listeners[event] = [];
-        listeners[event].push(handler);
-      },
-
-      removeListener(event: string, handler: (...args: any[]) => void) {
-        if (!listeners[event]) return;
-        listeners[event] = listeners[event].filter(fn => fn !== handler);
-      },
-    };
-
-    return provider;
+    return createEIP1193Provider(this, options);
   }
 
   /**
@@ -1602,13 +1485,7 @@ export class Web3Passkey {
    * Get backup status
    */
   async getBackupStatus(): Promise<BackupStatus> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to check backup status");
-    }
-
-    const { BackupManager } = await import("../backup/manager");
-    const backupManager = new BackupManager();
-    return backupManager.getBackupStatus(this.currentUser.ethereumAddress);
+    return getBackupStatus(this.ctx);
   }
 
   /**
@@ -1616,17 +1493,7 @@ export class Web3Passkey {
    * Call it once the user confirms, so getBackupStatus() reports a backup
    */
   async confirmRecoveryPhraseBackup(): Promise<void> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to confirm a backup");
-    }
-
-    const { BackupManager } = await import("../backup/manager");
-    const { deriveAddressChecksum } = await import("../backup/encryption");
-    const { ethereumAddress } = this.currentUser;
-    await new BackupManager().confirmRecoveryPhraseBackup(
-      ethereumAddress,
-      await deriveAddressChecksum(ethereumAddress)
-    );
+    return confirmRecoveryPhraseBackup(this.ctx);
   }
 
   /**
@@ -1648,49 +1515,7 @@ export class Web3Passkey {
         "createBackupFile() takes only the password: createBackupFile(password)"
       );
     }
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to create backup");
-    }
-    if (!password) {
-      throw new WalletError("Password required for password-based backup");
-    }
-
-    const mnemonic = await this.getMnemonicFromSession(true);
-
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const manager = new BackupFileManager();
-    const { backupFile } = await manager.createPasswordBackup(
-      mnemonic,
-      password,
-      await this.backupCredential()
-    );
-
-    await this.recordBackup('file');
-
-    return manager.createDownloadableBackup(backupFile);
-  }
-
-  /** Store backup metadata for the backup status and security score */
-  private async recordBackup(method: 'file' | 'prf'): Promise<void> {
-    const { BackupStorage } = await import("../backup/storage");
-    const { deriveAddressChecksum } = await import("../backup/encryption");
-    const { ethereumAddress } = this.currentUser!;
-    await new BackupStorage().storeBackupMetadata({
-      id: crypto.randomUUID(),
-      ethereumAddress,
-      method,
-      createdAt: new Date().toISOString(),
-      addressChecksum: await deriveAddressChecksum(ethereumAddress),
-    });
-  }
-
-  private async backupCredential(): Promise<BackupCredential | undefined> {
-    const credential = await new CredentialStorage().getCredentialById(
-      this.currentUser!.credentialId
-    );
-    return credential
-      ? { id: credential.id, publicKey: credential.publicKey }
-      : undefined;
+    return createBackupFile(this.ctx, password);
   }
 
   /**
@@ -1709,38 +1534,7 @@ export class Web3Passkey {
     guardianShares: GuardianShare[];
     setupComplete: boolean;
   }> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to set up social recovery");
-    }
-
-    if (!password) {
-      throw new WalletError("Password required for social recovery");
-    }
-
-    const mnemonic = await this.getMnemonicFromSession(true);
-
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const { backupFile } = await new BackupFileManager().createPasswordBackup(
-      mnemonic,
-      password,
-      await this.backupCredential()
-    );
-
-    // Split backup among guardians
-    const { SocialRecovery } = await import("../recovery/backup-based-recovery");
-    const recovery = new SocialRecovery();
-
-    const setup = await recovery.splitAmongGuardians(
-      backupFile,
-      guardians,
-      threshold,
-      this.currentUser.ethereumAddress
-    );
-
-    return {
-      guardianShares: setup.guardianShares,
-      setupComplete: true,
-    };
+    return setupSocialRecovery(this.ctx, guardians, threshold, password);
   }
 
   /**
@@ -1758,18 +1552,7 @@ export class Web3Passkey {
     downloadBlob: Blob;
     filename: string;
   }> {
-    const { SocialRecovery } = await import("../recovery/backup-based-recovery");
-    const recovery = new SocialRecovery();
-
-    const invitation = await recovery.createGuardianInvitation(guardianShare, message);
-    const download = recovery.createShareDownload(guardianShare);
-
-    return {
-      qrCodeDataURL: invitation.qrCodeDataURL,
-      shareDocument: invitation.shareDocument,
-      downloadBlob: download.blob,
-      filename: download.filename,
-    };
+    return generateGuardianInvite(guardianShare, message);
   }
 
   /**
@@ -1783,42 +1566,7 @@ export class Web3Passkey {
     shares: Array<string | GuardianShare>,
     password: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { SocialRecovery } = await import("../recovery/backup-based-recovery");
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup/manager");
-
-    const recovery = new SocialRecovery();
-    const backupFileManager = new BackupFileManager();
-    const backupManager = new BackupManager();
-
-    // Parse shares if they're strings
-    const parsedShares = shares.map(share =>
-      typeof share === 'string' ? recovery.parseGuardianShare(share) : share
-    );
-
-    // Combine shares to recover backup file
-    const backupFile = await recovery.recoverFromShares(parsedShares);
-
-    // Decrypt backup file
-    let result;
-    if (backupFile.encryptionMethod === 'password') {
-      if (!password) {
-        throw new WalletError('Password required to decrypt password-protected backup');
-      }
-      result = await backupFileManager.restoreWithPassword(backupFile, password);
-    } else {
-      throw new WalletError(
-        'PRF backups are not supported for guardian recovery. Use password-protected backups.'
-      );
-    }
-    if (result.ethereumAddress.toLowerCase() !== parsedShares[0].walletAddress.toLowerCase()) {
-      throw new WalletError("Recovered wallet doesn't match the guardian shares' address");
-    }
-
-    // Mark backup as verified (successful guardian recovery proves the backup works)
-    backupManager.markBackupVerified(result.ethereumAddress);
-
-    return result;
+    return recoverFromGuardians(shares, password);
   }
 
   /**
@@ -1839,93 +1587,7 @@ export class Web3Passkey {
     backupData: string | Blob,
     password?: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup/manager");
-    const manager = new BackupFileManager();
-    const backupManager = new BackupManager();
-
-    const backupFile = await manager.parseBackupFile(backupData);
-
-    if (backupFile.encryptionMethod === 'prf') {
-      if (this.currentUser && this.currentUser.credentialId !== backupFile.credential!.id) {
-        throw new SyncBootstrapError("CREDENTIAL_MISMATCH", this.currentUser.credentialId);
-      }
-      return this.restorePrfBackup(backupFile);
-    }
-
-    if (!password) {
-      throw new WalletError("Password required to restore password-encrypted backup");
-    }
-    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
-
-    // Mark backup as verified (successful restore proves the backup works)
-    backupManager.markBackupVerified(ethereumAddress);
-
-    // Set the current wallet with the restored mnemonic
-    // This allows the user to subsequently call register() to create a new passkey
-    this.currentWallet = {
-      address: ethereumAddress,
-      mnemonic,
-    };
-
-    // Persist the restored wallet to storage if user is logged in
-    if (this.currentUser) {
-      // Get credential for encryption
-      const storage = new CredentialStorage();
-      const credentials = await storage.getAllCredentials();
-      const credential = credentials.find(c =>
-        c.ethereumAddress.toLowerCase() === this.currentUser!.ethereumAddress.toLowerCase()
-      );
-
-      if (credential) {
-        const oldAddress = this.currentUser.ethereumAddress;
-
-        // Delete the old wallet if the address is different
-        if (oldAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
-          await this.walletStorage.delete(oldAddress);
-        }
-
-        // Update credential with new address
-        await storage.updateCredentialAddress(credential.id, ethereumAddress);
-
-        // One assertion releases the PRF output the wallet key comes from;
-        // without PRF, the restored wallet stays in memory only
-        let prfOutput: ArrayBuffer | undefined;
-        try {
-          prfOutput = (await evaluatePrf(PRF_INPUT, credential.id)).output;
-        } catch (error) {
-          if (!(error instanceof PrfUnsupportedError)) throw error;
-        }
-
-        if (prfOutput) {
-          await this.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
-        } else {
-          await this.walletStorage.delete(ethereumAddress);
-        }
-
-        // Update current user with new address
-        this.currentUser = {
-          ...this.currentUser,
-          ethereumAddress,
-        };
-
-        await this.sessionManager.startSession(
-          mnemonic,
-          credential.id,
-          ethereumAddress,
-          prfOutput
-            ? await derivePrfSessionKey(prfOutput, this.sessionManager.storesSessionKey)
-            : undefined,
-          'STANDARD' // Default security mode
-        );
-
-        // Notify app of auth state change with updated user
-        void this.requestPersistentStorage();
-        this.config.onAuthStateChanged?.(true, this.currentUser);
-      }
-    }
-
-    return { mnemonic, ethereumAddress };
+    return restoreFromBackupFile(this.ctx, backupData, password);
   }
 
   /**
@@ -1948,148 +1610,7 @@ export class Web3Passkey {
     backupData: string | Blob,
     password?: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup/manager");
-    const { promptPasskeySelection } = await import("../auth/sync-auth");
-
-    const manager = new BackupFileManager();
-    const backupManager = new BackupManager();
-
-    const backupFile = await manager.parseBackupFile(backupData);
-
-    if (backupFile.encryptionMethod === 'prf') {
-      return this.restorePrfBackup(backupFile);
-    }
-
-    const passkeyResult = await promptPasskeySelection();
-    const credentialId = passkeyResult.credentialId;
-
-    // A fresh device has no metadata for the passkey: its public key comes
-    // from the password backup that names it
-    let publicKey = passkeyResult.publicKey;
-    if (!publicKey) {
-      if (!backupFile.credential) {
-        throw new SyncBootstrapError("NO_CREDENTIAL", credentialId);
-      }
-      if (backupFile.credential.id !== credentialId) {
-        throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
-      }
-      publicKey = backupFile.credential.publicKey;
-      if (!(await verifyAssertionSignature(passkeyResult.assertion, publicKey))) {
-        throw new SyncBootstrapError("PUBLIC_KEY_MISMATCH", credentialId);
-      }
-    }
-
-    if (!password) {
-      throw new WalletError("Password required to restore password-encrypted backup");
-    }
-    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
-
-    backupManager.markBackupVerified(ethereumAddress);
-
-    await this.bootstrapCredential(
-      {
-        id: credentialId,
-        publicKey,
-        username: passkeyResult.username ?? ethereumAddress,
-      },
-      mnemonic,
-      ethereumAddress,
-      passkeyResult.prfOutput
-    );
-
-    return { mnemonic, ethereumAddress };
-  }
-
-  /**
-   * Restore a PRF backup with its passkey and set this device up for it.
-   * The public key is this device's when it has the passkey's metadata,
-   * else the backup's, checked against the assertion's signature.
-   */
-  private async restorePrfBackup(
-    backupFile: BackupFile
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    const { DeviceSyncManager } = await import("../sync/backup-sync");
-    const { BackupManager } = await import("../backup/manager");
-
-    const credential = backupFile.credential!;
-    const stored = await new CredentialStorage().getCredentialById(credential.id);
-    const publicKey = stored?.publicKey ?? credential.publicKey;
-
-    const { mnemonic, ethereumAddress, walletPrfOutput } = await new DeviceSyncManager().importFromSync(
-      backupFile,
-      publicKey
-    );
-
-    new BackupManager().markBackupVerified(ethereumAddress);
-
-    await this.bootstrapCredential(
-      {
-        id: credential.id,
-        publicKey,
-        username: backupFile.username ?? ethereumAddress,
-      },
-      mnemonic,
-      ethereumAddress,
-      walletPrfOutput
-    );
-
-    return { mnemonic, ethereumAddress };
-  }
-
-  /**
-   * Set this device up for a passkey and a synced wallet: saves the
-   * passkey's metadata (or points it at the wallet), stores the wallet
-   * under the key derived from `prfOutput` and starts a session. Without
-   * `prfOutput`, the wallet and the session stay in memory only.
-   */
-  private async bootstrapCredential(
-    credential: { id: string; publicKey: string; username: string },
-    mnemonic: string,
-    ethereumAddress: string,
-    prfOutput?: ArrayBuffer
-  ): Promise<void> {
-    const storage = new CredentialStorage();
-    const stored = await storage.getCredentialById(credential.id);
-
-    if (!stored) {
-      const now = new Date().toISOString();
-      await storage.saveCredential({
-        id: credential.id,
-        publicKey: credential.publicKey,
-        username: credential.username,
-        ethereumAddress,
-        createdAt: now,
-        lastUsed: now,
-      });
-    } else if (stored.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
-      await storage.updateCredentialAddress(credential.id, ethereumAddress);
-    }
-
-    if (prfOutput) {
-      await this.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
-    } else {
-      await this.walletStorage.delete(ethereumAddress);
-    }
-
-    this.currentUser = {
-      username: stored?.username ?? credential.username,
-      ethereumAddress,
-      credentialId: credential.id,
-    };
-
-    await this.sessionManager.startSession(
-      mnemonic,
-      credential.id,
-      ethereumAddress,
-      prfOutput
-        ? await derivePrfSessionKey(prfOutput, this.sessionManager.storesSessionKey)
-        : undefined,
-      'STANDARD'
-    );
-
-    void this.requestPersistentStorage();
-    this.config.onAuthStateChanged?.(true, this.currentUser);
+    return syncWalletWithPasskey(this.ctx, backupData, password);
   }
 
   /**
@@ -2107,54 +1628,14 @@ export class Web3Passkey {
     password: string,
     username: string
   ): Promise<{ address: string; username: string }> {
-    const { BackupFileManager } = await import("../backup/backup-file");
-    const { BackupManager } = await import("../backup/manager");
-    const manager = new BackupFileManager();
-    const backupManager = new BackupManager();
-
-    // Parse and restore the backup
-    const backupFile = await manager.parseBackupFile(backupData);
-
-    if (backupFile.encryptionMethod !== 'password') {
-      throw new WalletError(
-        "Can only register with password-encrypted backups. Use syncWalletWithPasskey() or importFromSync() for PRF backups."
-      );
-    }
-
-    const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(
-      backupFile,
-      password
-    );
-
-    // Verify the mnemonic produces the expected address
-    const { Wallet } = await import("ethers");
-    const wallet = Wallet.fromPhrase(mnemonic);
-
-    if (wallet.address.toLowerCase() !== ethereumAddress.toLowerCase()) {
-      throw new WalletError("Backup verification failed: address mismatch");
-    }
-
-    // Mark backup as verified (successful restore proves the backup works)
-    backupManager.markBackupVerified(ethereumAddress);
-
-    // Set the current wallet
-    this.currentWallet = {
-      address: ethereumAddress,
-      mnemonic,
-    };
-
-    // Now register with the restored wallet
-    return this.register({ username });
+    return registerWithBackupFile(this.ctx, backupData, password, username);
   }
 
   /**
    * Get cross-device sync status
    */
   async getSyncStatus(): Promise<DeviceSyncInfo | null> {
-    const { DeviceSyncManager } = await import("../sync/backup-sync");
-    const syncManager = new DeviceSyncManager();
-
-    return syncManager.getSyncInfo();
+    return getSyncStatus();
   }
 
   /**
@@ -2171,51 +1652,7 @@ export class Web3Passkey {
   async exportForSync(
     password?: string
   ): Promise<{ blob: Blob; filename: string; qrCode?: string }> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to export for sync");
-    }
-
-    // The PRF assertion below is the fresh user verification, so a cached
-    // session doesn't cost a second prompt
-    const mnemonic = await this.getMnemonicFromSession();
-
-    const walletData = await this.walletStorage.retrieve(
-      this.currentUser.ethereumAddress
-    );
-    if (!walletData) {
-      throw new WalletError("No wallet data found");
-    }
-
-    const storage = new CredentialStorage();
-    const credential = await storage.getCredentialById(walletData.credentialId);
-    if (!credential) {
-      throw new WalletError("Credential not found");
-    }
-
-    const { DeviceSyncManager } = await import("../sync/backup-sync");
-    const syncManager = new DeviceSyncManager();
-
-    const { backupFile, blob } = await syncManager.exportForSync(
-      mnemonic,
-      { id: credential.id, publicKey: credential.publicKey },
-      this.currentUser.username,
-      password
-    );
-
-    await this.recordBackup(backupFile.encryptionMethod === 'prf' ? 'prf' : 'file');
-
-    const filename = `w3pk-sync-${new Date().toISOString().split('T')[0]}.json`;
-
-    // Optionally generate QR code
-    let qrCode: string | undefined;
-    try {
-      qrCode = await syncManager.generateSyncQR(backupFile);
-    } catch (error) {
-      // QR code generation is optional
-      console.warn('QR code generation failed:', error);
-    }
-
-    return { blob, filename, qrCode };
+    return exportForSync(this.ctx, password);
   }
 
   /**
@@ -2232,35 +1669,14 @@ export class Web3Passkey {
   async importFromSync(
     syncData: string | Blob
   ): Promise<{ ethereumAddress: string; success: boolean }> {
-    const { BackupFileManager } = await import("../backup/backup-file");
-
-    const backupFile = await new BackupFileManager().parseBackupFile(syncData);
-
-    if (backupFile.encryptionMethod !== 'prf') {
-      throw new WalletError(
-        "importFromSync() takes PRF backups from exportForSync(). Use syncWalletWithPasskey() for other backups."
-      );
-    }
-    if (this.currentUser && this.currentUser.credentialId !== backupFile.credential!.id) {
-      throw new SyncBootstrapError("CREDENTIAL_MISMATCH", this.currentUser.credentialId);
-    }
-
-    const { ethereumAddress } = await this.restorePrfBackup(backupFile);
-
-    return {
-      ethereumAddress,
-      success: true,
-    };
+    return importFromSync(this.ctx, syncData);
   }
 
   /**
    * Detect platform sync capabilities
    */
   async detectSyncCapabilities(): Promise<SyncCapabilities> {
-    const { PlatformDetector } = await import("../sync/platform-detect");
-    const detector = new PlatformDetector();
-
-    return detector.detectSyncCapabilities();
+    return detectSyncCapabilities();
   }
 
   hasActiveSession(): boolean {
@@ -2471,52 +1887,7 @@ export class Web3Passkey {
     tag?: string;
     requireAuth?: boolean;
   }): Promise<string> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to derive ML-KEM public key");
-    }
-
-    const { deriveMLKemKeypair } = await import("../crypto/mlkem");
-    const { Wallet } = await import("ethers");
-
-    const effectiveMode = options?.mode || 'STANDARD';
-    const effectiveTag = options?.tag || DEFAULT_TAG;
-    const origin = getCurrentOrigin();
-    const context = options?.context || MLKEM_DEFAULT_CONTEXT;
-    const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
-
-    // PRIMARY mode uses P-256 WebAuthn keys, not Ethereum keys
-    // ML-KEM derivation requires an Ethereum private key
-    if (effectiveMode === 'PRIMARY') {
-      throw new WalletError(
-        "ML-KEM encryption is not supported in PRIMARY mode. " +
-        "PRIMARY mode uses P-256 WebAuthn keys which cannot derive ML-KEM keypairs. " +
-        "Use STANDARD, STRICT, or YOLO mode instead."
-      );
-    }
-
-    const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
-    const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
-
-    let privateKey: string;
-    if (derived.privateKey) {
-      // YOLO mode: private key is directly available
-      privateKey = derived.privateKey;
-    } else {
-      // STANDARD/STRICT modes: derive from mnemonic
-      const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-      const wallet = deriveWalletFromMnemonic(mnemonic, derived.index);
-      privateKey = wallet.privateKey;
-    }
-
-    const keypair = await deriveMLKemKeypair(privateKey, context);
-
-    // Convert to base64 for easy sharing
-    if (typeof Buffer !== 'undefined') {
-      return Buffer.from(keypair.publicKey).toString('base64');
-    } else {
-      // Browser fallback
-      return btoa(String.fromCharCode(...Array.from(keypair.publicKey)));
-    }
+    return deriveMLKemPublicKey(this.ctx, options);
   }
 
   /**
@@ -2562,45 +1933,7 @@ export class Web3Passkey {
       requireAuth?: boolean;
     }
   ): Promise<EncryptedPayload> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to encrypt data");
-    }
-
-    const { mlkemEncryptWithKey } = await import("../crypto/mlkem");
-
-    const effectiveMode = options?.mode || 'STANDARD';
-    const effectiveTag = options?.tag || DEFAULT_TAG;
-    const origin = getCurrentOrigin();
-    const context = options?.context || MLKEM_DEFAULT_CONTEXT;
-    const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
-
-    if (effectiveMode === 'PRIMARY') {
-      throw new WalletError(
-        "ML-KEM encryption is not supported in PRIMARY mode. " +
-        "Use STANDARD, STRICT, or YOLO mode instead."
-      );
-    }
-
-    const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
-    const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
-
-    let privateKey: string;
-    if (derived.privateKey) {
-      // YOLO mode: private key is directly available
-      privateKey = derived.privateKey;
-    } else {
-      // STANDARD/STRICT modes: derive from mnemonic
-      const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-      const wallet = deriveWalletFromMnemonic(mnemonic, derived.index);
-      privateKey = wallet.privateKey;
-    }
-
-    return await mlkemEncryptWithKey(
-      plaintext,
-      privateKey,
-      recipientPublicKeys,
-      context
-    );
+    return mlkemEncrypt(this.ctx, plaintext, recipientPublicKeys, options);
   }
 
   /**
@@ -2638,39 +1971,6 @@ export class Web3Passkey {
       requireAuth?: boolean;
     }
   ): Promise<string> {
-    if (!this.currentUser) {
-      throw new WalletError("Must be authenticated to decrypt data");
-    }
-
-    const { mlkemDecryptWithKey } = await import("../crypto/mlkem");
-
-    const effectiveMode = options?.mode || 'STANDARD';
-    const effectiveTag = options?.tag || DEFAULT_TAG;
-    const origin = getCurrentOrigin();
-    const context = options?.context || MLKEM_DEFAULT_CONTEXT;
-    const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
-
-    if (effectiveMode === 'PRIMARY') {
-      throw new WalletError(
-        "ML-KEM encryption is not supported in PRIMARY mode. " +
-        "Use STANDARD, STRICT, or YOLO mode instead."
-      );
-    }
-
-    const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
-    const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
-
-    let privateKey: string;
-    if (derived.privateKey) {
-      // YOLO mode: private key is directly available
-      privateKey = derived.privateKey;
-    } else {
-      // STANDARD/STRICT modes: derive from mnemonic
-      const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-      const wallet = deriveWalletFromMnemonic(mnemonic, derived.index);
-      privateKey = wallet.privateKey;
-    }
-
-    return await mlkemDecryptWithKey(payload, privateKey, context);
+    return mlkemDecrypt(this.ctx, payload, options);
   }
 }

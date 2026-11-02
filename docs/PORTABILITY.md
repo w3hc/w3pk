@@ -391,7 +391,7 @@ try {
 }
 ```
 
-See [src/core/sdk.ts](../src/core/sdk.ts) for implementation details of `createBackupFile()` and `restoreFromBackupFile()`.
+See [src/core/backup-sync.ts](../src/core/backup-sync.ts) for implementation details of `createBackupFile()` and `restoreFromBackupFile()`.
 
 ---
 
