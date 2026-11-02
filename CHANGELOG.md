@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `VaultSync`, `DeviceManager` and the `DeviceInfo`, `SyncStatus`, `SyncResult` and `SyncStep` types
   - `ApiClient`, `ApiResponse`, `WebAuthnError`, the empty `wallet/signing` module and `BackupManager.simulateRecoveryScenario()` (`Web3Passkey.simulateRecoveryScenario()` uses `RecoverySimulator`)
   - The `src/sync` and `src/backup` barrels
+- **BREAKING: deprecated public API** ([#183](https://github.com/w3hc/w3pk/issues/183)), each a duplicate of an existing one:
+  - `Web3Passkey.hasExistingCredential()` and `getExistingCredentialCount()`: use `listExistingCredentials()` and its `length`
+  - `UserInfo.id` and `UserInfo.displayName`, which nothing set: use `ethereumAddress` and `username`
+  - The `WalletInfo` type: `GeneratedWallet` and `DerivedWallet` are now exported from `w3pk`
 
 ## [0.11.0] - 2026-11-02
 
