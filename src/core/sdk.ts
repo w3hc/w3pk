@@ -132,14 +132,13 @@ export class Web3Passkey {
     }
 
     try {
-      const dynamicImport = new Function("path", "return import(path)");
-      const { ZKProofModule } = await dynamicImport("w3pk/zk");
+      const { ZKProofModule } = await import("w3pk/zk");
       const zkConfig = (this.config as any).zkProofs || {};
       this.zkModule = new ZKProofModule(zkConfig);
       return this.zkModule;
     } catch (error) {
       throw new Error(
-        "ZK module not available. Install dependencies: npm install snarkjs circomlibjs"
+        "ZK module not available. Install the optional dependencies snarkjs and circomlibjs"
       );
     }
   }

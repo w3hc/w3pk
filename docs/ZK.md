@@ -65,6 +65,10 @@ npm install snarkjs circomlibjs
 
 For `zkProve()` derivations, also `poseidon-lite`; for Semaphore identities, `@semaphore-protocol/identity`.
 
+**Content Security Policy**
+
+w3pk loads `w3pk/zk` with a plain `import()`, so it needs no `'unsafe-eval'`. snarkjs and circomlibjs compile WebAssembly, which needs `'wasm-unsafe-eval'`: `script-src 'self' 'wasm-unsafe-eval'`. Without it, zk calls fail with a `CompileError` from `WebAssembly.compile()`.
+
 ---
 
 ## Core Utilities

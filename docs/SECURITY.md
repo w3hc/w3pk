@@ -2269,6 +2269,7 @@ Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{RANDOM}';
 
 **Best practices:**
 - ❌ Avoid `unsafe-inline` and `unsafe-eval`
+- ✅ For zk features, allow WebAssembly with `'wasm-unsafe-eval'` rather than `'unsafe-eval'` (see [ZK.md](./ZK.md#installation))
 - ✅ Use nonces for inline scripts
 - ✅ Whitelist only trusted domains
 - ✅ Use `strict-dynamic` for modern browsers
