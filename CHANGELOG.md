@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING: the `options.origin` override** ([#181](https://github.com/w3hc/w3pk/issues/181)) from `deriveWallet()`, `getAddress()` (which no longer takes `options`), `signMessage()` (`SignMessageOptions.origin`), `sendTransaction()`, `deriveMLKemPublicKey()`, `mlkemEncrypt()` and `mlkemDecrypt()`. Any app could pass another site's origin and, in YOLO mode, get that origin's private key. Every derivation uses `getCurrentOrigin()`; `DerivedWallet.origin` stays as a return field
 - `deriveEncryptionKeyFromWebAuthn()` and the deprecated `deriveEncryptionKey()`
 - `VaultSync.createSyncPackage()`, `VaultSync.restoreFromSync()` and the `SyncVault` type, which used the same key. PRF backups (`exportForSync()`) replace them
+- **BREAKING: dead modules** ([#182](https://github.com/w3hc/w3pk/issues/182)) no public entry point reached:
+  - The QR backup (`QRBackupCreator`, `BackupManager.createQRBackup()`/`restoreFromQR()`, `QRBackupOptions`), with its plaintext mode and the PBKDF2 iteration count it read from the QR. The PBKDF2 helpers only it used (`encryptWithPassword()`, `decryptWithPassword()`, `deriveKeyFromPassword()`) and `getDeviceFingerprint()` go too
+  - `VaultSync`, `DeviceManager` and the `DeviceInfo`, `SyncStatus`, `SyncResult` and `SyncStep` types
+  - `ApiClient`, `ApiResponse`, `WebAuthnError`, the empty `wallet/signing` module and `BackupManager.simulateRecoveryScenario()` (`Web3Passkey.simulateRecoveryScenario()` uses `RecoverySimulator`)
+  - The `src/sync` and `src/backup` barrels
 
 ## [0.11.0] - 2026-11-02
 
