@@ -67,7 +67,6 @@ export interface SignMessageOptions {
   mode?: SecurityMode;
   tag?: string;
   requireAuth?: boolean;
-  origin?: string;
   signingMethod?: SigningMethod;
   // EIP-712 specific options (only used when signingMethod === 'EIP712')
   eip712Domain?: Record<string, any>;
