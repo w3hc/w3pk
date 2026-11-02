@@ -53,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `sign-authorization.test.ts` signs with an explicit `privateKey` and checks the recovered signer, so it runs in Node without WebAuthn
   - `security-validation.test.ts` is gone: it imported `vitest`, which isn't a dependency, and only asserted on constants it defined without calling the SDK
 - **Test files exit non-zero when a test fails**: `console.assert` is replaced by `node:assert` and `.catch(console.error)` by an exit code. This surfaced tests that had been failing silently in `origin-derivation`, `derive-wallet-unified` and `security-restrictions` (tags passed as the security mode, a renamed index function, a check of the removed `exportMnemonic()`), now fixed
+- **zk features load under a Content Security Policy without `'unsafe-eval'`** ([#188](https://github.com/w3hc/w3pk/issues/188)): `loadZKModule()` imports `w3pk/zk` with a literal `import()` instead of `new Function`, which such a policy blocks. Bundlers now resolve `w3pk/zk` into a lazy chunk, so `w3pk.zk` also works in Vite and Next.js builds, where the old bare runtime import could not resolve. snarkjs and circomlibjs still need `'wasm-unsafe-eval'` to compile WebAssembly
+  - A build that resolves `w3pk` now needs `circomlibjs` installed, as it already needed `snarkjs`; both are optional dependencies installed by default
+  - The error when `w3pk/zk` can't load says to install the optional dependencies snarkjs and circomlibjs, without naming a package manager
 
 ## [0.11.0] - 2026-11-02
 
