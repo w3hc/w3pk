@@ -1467,14 +1467,22 @@ export class Web3Passkey {
   /**
    * Lazily loaded ZKProofModule (from `w3pk/zk`): each member loads the
    * module on first call and returns a Promise; a property such as
-   * `isAvailable` resolves to its value
+   * `isAvailable` resolves to its value, and `isAvailable()` resolves to
+   * false when the module can't load
    */
   get zk(): ZKMethods {
     return new Proxy({} as ZKMethods, {
       get: (_target, prop) => {
         if (typeof prop === "symbol" || prop === "then") return undefined;
         return async (...args: unknown[]) => {
-          const zkModule = await this.loadZKModule();
+          const zkModule =
+            prop === "isAvailable"
+              ? await this.loadZKModule().catch(() => null)
+              : await this.loadZKModule();
+          if (!zkModule) return false;
+          if (!(prop in zkModule) || prop in Object.prototype) {
+            throw new TypeError(`w3pk.zk.${prop} is not a function`);
+          }
           const member: unknown = zkModule[prop as keyof ZKProofModule];
           return typeof member === "function"
             ? member.apply(zkModule, args)
