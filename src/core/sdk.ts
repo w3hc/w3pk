@@ -48,6 +48,7 @@ import {
   type PrfSecret,
 } from "../auth/prf";
 import type { SemaphoreIdentity } from "../zk/semaphore";
+import type { ZKProofModule } from "../zk/index";
 import type {
   ZkInputs,
   ZkProveArtifacts,
@@ -59,7 +60,7 @@ import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
-import type { UserInfo, GeneratedWallet, DerivedWallet, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
+import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
   AuthenticationError,
   CryptoError,
@@ -69,14 +70,27 @@ import {
   WalletMissingError,
 } from "./errors";
 import { getEndpoints } from "../chainlist";
-import { supportsEIP7702 } from "../eip7702";
+import { MLKEM_DEFAULT_CONTEXT, type EncryptedPayload } from "../crypto/mlkem";
+import type { DeviceSyncInfo } from "../sync/backup-sync";
+import type { SyncCapabilities } from "../sync/types";
+import { supportsEIP7702, type EIP1193Provider } from "../eip7702";
+import type { GuardianShare } from "../recovery/backup-based-recovery";
 
-/** Minimal EIP-1193 provider interface (matches the existing EIP1193Provider shape) */
-interface EIP1193ProviderInterface {
-  request(args: { method: string; params?: any[] }): Promise<any>;
+/** EIP-1193 provider returned by `Web3Passkey.getEIP1193Provider()` */
+export interface EIP1193ProviderInterface {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
   on(event: string, handler: (...args: any[]) => void): void;
   removeListener(event: string, handler: (...args: any[]) => void): void;
 }
+
+/** ZKProofModule methods as exposed by `Web3Passkey.zk`, each returning a Promise */
+export type ZKMethods = {
+  [K in keyof ZKProofModule as ZKProofModule[K] extends (...args: never[]) => unknown
+    ? K
+    : never]: ZKProofModule[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : never;
+};
 
 /** Returns true if a string looks like a 0x-prefixed hex value */
 function isHex(value: string): boolean {
@@ -99,7 +113,7 @@ export class Web3Passkey {
   private sessionManager: SessionManager;
 
   public stealth?: StealthAddressModule;
-  private zkModule?: any;
+  private zkModule?: ZKProofModule;
 
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
@@ -126,14 +140,14 @@ export class Web3Passkey {
   /**
    * Lazy-load ZK module to prevent bundling unless accessed
    */
-  private async loadZKModule() {
+  private async loadZKModule(): Promise<ZKProofModule> {
     if (this.zkModule) {
       return this.zkModule;
     }
 
     try {
       const { ZKProofModule } = await import("w3pk/zk");
-      const zkConfig = (this.config as any).zkProofs || {};
+      const zkConfig = this.config.zkProofs || {};
       this.zkModule = new ZKProofModule(zkConfig);
       return this.zkModule;
     } catch (error) {
@@ -228,14 +242,7 @@ export class Web3Passkey {
    * Register new user with WebAuthn
    * Automatically generates wallet if none exists and associates with passkey
    */
-  async register(options: {
-    username: string;
-  }): Promise<{
-    address: string;
-    username: string;
-    hasBackup: boolean;
-    evictionRisk: boolean;
-  }> {
+  async register(options: { username: string }): Promise<RegisterResult> {
     try {
       if (!this.currentWallet?.address) {
         await this.generateWallet();
@@ -1346,7 +1353,8 @@ export class Web3Passkey {
     };
 
     const provider: EIP1193ProviderInterface = {
-      async request({ method, params }: { method: string; params?: any[] }): Promise<any> {
+      async request({ method, params: rawParams }: { method: string; params?: unknown[] }): Promise<unknown> {
+        const params = rawParams as any[] | undefined;
         switch (method) {
           // ── Account discovery ──────────────────────────────────────────
           case 'eth_accounts':
@@ -1530,7 +1538,7 @@ export class Web3Passkey {
    * ```
    */
   async requestExternalWalletDelegation(params?: {
-    provider?: any;
+    provider?: EIP1193Provider;
     chainId?: number;
     nonce?: bigint;
     accountIndex?: number;
@@ -1572,18 +1580,22 @@ export class Web3Passkey {
     });
   }
 
-  get zk(): any {
-    return new Proxy(
-      {},
-      {
-        get: (_target, prop) => {
-          return async (...args: any[]) => {
-            const zkModule = await this.loadZKModule();
-            return zkModule[prop](...args);
-          };
-        },
-      }
-    );
+  /**
+   * Lazily loaded ZKProofModule (from `w3pk/zk`): each method loads the
+   * module on first call and returns a Promise
+   */
+  get zk(): ZKMethods {
+    return new Proxy({} as ZKMethods, {
+      get: (_target, prop) => {
+        return async (...args: unknown[]) => {
+          const zkModule = await this.loadZKModule();
+          const method = zkModule[prop as keyof ZKProofModule] as unknown as (
+            ...args: unknown[]
+          ) => unknown;
+          return method.apply(zkModule, args);
+        };
+      },
+    });
   }
 
   /**
@@ -1694,7 +1706,7 @@ export class Web3Passkey {
     threshold: number,
     password: string
   ): Promise<{
-    guardianShares: any[];
+    guardianShares: GuardianShare[];
     setupComplete: boolean;
   }> {
     if (!this.currentUser) {
@@ -1738,7 +1750,7 @@ export class Web3Passkey {
    * @param message - Optional custom message for the guardian
    */
   async generateGuardianInvite(
-    guardianShare: any,
+    guardianShare: GuardianShare,
     message?: string
   ): Promise<{
     qrCodeDataURL?: string;
@@ -1768,7 +1780,7 @@ export class Web3Passkey {
    * @param password - Password of the backup the shares rebuild
    */
   async recoverFromGuardians(
-    shares: Array<string | any>,
+    shares: Array<string | GuardianShare>,
     password: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { SocialRecovery } = await import("../recovery/backup-based-recovery");
@@ -2138,7 +2150,7 @@ export class Web3Passkey {
   /**
    * Get cross-device sync status
    */
-  async getSyncStatus(): Promise<any> {
+  async getSyncStatus(): Promise<DeviceSyncInfo | null> {
     const { DeviceSyncManager } = await import("../sync/backup-sync");
     const syncManager = new DeviceSyncManager();
 
@@ -2244,7 +2256,7 @@ export class Web3Passkey {
   /**
    * Detect platform sync capabilities
    */
-  async detectSyncCapabilities(): Promise<any> {
+  async detectSyncCapabilities(): Promise<SyncCapabilities> {
     const { PlatformDetector } = await import("../sync/platform-detect");
     const detector = new PlatformDetector();
 
@@ -2438,7 +2450,7 @@ export class Web3Passkey {
    * The hybrid keypair is derived deterministically from the wallet's private key.
    *
    * @param options - Optional configuration
-   * @param options.context - Context string for domain separation (default: 'mlkem-v1')
+   * @param options.context - Context string for domain separation (default: MLKEM_DEFAULT_CONTEXT)
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
    * @param options.tag - Tag for address derivation (default: 'MAIN')
    * @param options.requireAuth - Force WebAuthn re-authentication
@@ -2469,7 +2481,7 @@ export class Web3Passkey {
     const effectiveMode = options?.mode || 'STANDARD';
     const effectiveTag = options?.tag || DEFAULT_TAG;
     const origin = getCurrentOrigin();
-    const context = options?.context || 'mlkem-v1';
+    const context = options?.context || MLKEM_DEFAULT_CONTEXT;
     const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
     // PRIMARY mode uses P-256 WebAuthn keys, not Ethereum keys
@@ -2516,7 +2528,7 @@ export class Web3Passkey {
    * @param plaintext - The data to encrypt
    * @param recipientPublicKeys - Array of recipient hybrid public keys (base64 strings or Uint8Arrays, 1600 bytes)
    * @param options - Optional configuration
-   * @param options.context - Context string for key derivation (default: 'mlkem-v1')
+   * @param options.context - Context string for key derivation (default: MLKEM_DEFAULT_CONTEXT)
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
    * @param options.tag - Tag for address derivation (default: 'MAIN')
    * @param options.requireAuth - Force WebAuthn re-authentication
@@ -2549,7 +2561,7 @@ export class Web3Passkey {
       tag?: string;
       requireAuth?: boolean;
     }
-  ): Promise<any> {
+  ): Promise<EncryptedPayload> {
     if (!this.currentUser) {
       throw new WalletError("Must be authenticated to encrypt data");
     }
@@ -2559,7 +2571,7 @@ export class Web3Passkey {
     const effectiveMode = options?.mode || 'STANDARD';
     const effectiveTag = options?.tag || DEFAULT_TAG;
     const origin = getCurrentOrigin();
-    const context = options?.context || 'mlkem-v1';
+    const context = options?.context || MLKEM_DEFAULT_CONTEXT;
     const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
     if (effectiveMode === 'PRIMARY') {
@@ -2599,7 +2611,7 @@ export class Web3Passkey {
    *
    * @param payload - The encrypted payload (from mlkemEncrypt)
    * @param options - Optional configuration
-   * @param options.context - Context string for key derivation (default: 'mlkem-v1', must match encryption)
+   * @param options.context - Context string for key derivation (default: MLKEM_DEFAULT_CONTEXT, must match encryption)
    * @param options.mode - Security mode (default: 'YOLO' to access private key)
    * @param options.tag - Tag for address derivation (default: 'MAIN')
    * @param options.requireAuth - Force WebAuthn re-authentication
@@ -2618,7 +2630,7 @@ export class Web3Passkey {
    * ```
    */
   async mlkemDecrypt(
-    payload: any,
+    payload: EncryptedPayload,
     options?: {
       context?: string;
       mode?: SecurityMode;
@@ -2635,7 +2647,7 @@ export class Web3Passkey {
     const effectiveMode = options?.mode || 'STANDARD';
     const effectiveTag = options?.tag || DEFAULT_TAG;
     const origin = getCurrentOrigin();
-    const context = options?.context || 'mlkem-v1';
+    const context = options?.context || MLKEM_DEFAULT_CONTEXT;
     const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
     if (effectiveMode === 'PRIMARY') {

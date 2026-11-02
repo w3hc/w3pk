@@ -71,6 +71,16 @@ export interface SignMessageOptions {
 }
 
 /**
+ * Result of register()
+ */
+export interface RegisterResult {
+  address: string;
+  username: string;
+  hasBackup: boolean;
+  evictionRisk: boolean;
+}
+
+/**
  * Generated wallet with mnemonic (from generateWallet)
  */
 export interface GeneratedWallet {

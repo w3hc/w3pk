@@ -183,7 +183,7 @@ export function assertFalsy(value: unknown, message?: string): void {
  * Assert that a function throws an error
  */
 export async function assertThrows(
-  fn: () => Promise<void> | void,
+  fn: () => unknown,
   message?: string
 ): Promise<void> {
   let threw = false;

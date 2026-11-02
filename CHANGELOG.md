@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `login()`, `getMnemonic()` and `importMnemonic()` take the key from their assertion's PRF output
   - `syncWalletWithPasskey()`, `importFromSync()` and `restoreFromBackupFile()` evaluate the wallet's PRF input in the assertion they already run (`prf.eval.second` for PRF backups), and now start a persistent session too; `restoreFromBackupFile()` with a password backup while logged in adds one assertion
 
+### Added
+
+- **Types used in public signatures exported from `w3pk`** ([#189](https://github.com/w3hc/w3pk/issues/189)): `RegisterResult` (new, returned by `register()`), `SecurityMode`, `SigningMethod`, `SignMessageOptions`, `PersistentSessionConfig`, `ZKProofConfig`, `ZKMethods`, `EIP1193ProviderInterface`, `DeviceSyncInfo`, `GuardianShare`, `Announcement`, `ParseAnnouncementResult`, `Chain`, `ChainlistOptions`, and the ZK proof types (`ProofType`, `ZKProof`, `VerificationResult`, `CircuitArtifacts` and the five `*ProofInput` types)
+- `getSyncStatus()` is documented again in `docs/API_REFERENCE.md`
+
 ### Changed
 
 - **Authenticators without PRF keep no wallet on the device**: the wallet stays in memory for the session and comes back from a backup on the next visit. This includes unverified assertions with `userVerification: 'preferred'`, where `login()` throws `WalletMissingError`
@@ -24,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `build:zk` and `html` run with `pnpm` (`pnpm run`, `pnpm dlx serve`) instead of `npm` and `npx`, and `compile:circuits` falls back to `pnpm exec snarkjs`
   - `pnpm.overrides` keeps one entry per package: `minimatch@>=5.0.0 <5.1.8` and `jsonpath@<=1.2.1`
   - The four `tsup.config.ts` entries spread a shared `base` of format, sourcemap, minify, splitting, platform and target options
+- **`Web3Passkey` types** ([#189](https://github.com/w3hc/w3pk/issues/189)): no `Web3Passkey` public signature uses `any`, except the `on`/`removeListener` listeners of the EIP-1193 provider
+  - `getSyncStatus()` returns `DeviceSyncInfo | null`, `detectSyncCapabilities()` returns `SyncCapabilities`, `mlkemEncrypt()` returns `EncryptedPayload` and `mlkemDecrypt()` takes one
+  - `w3pk.zk` is typed `ZKMethods`: the `ZKProofModule` methods, each returning a Promise. `isAvailable` is not on it, since the getter only exposes methods
+  - `ZKProofConfig` is the one from `w3pk/zk`: `customCircuits` takes `CircuitArtifacts` values
+  - The EIP-1193 provider's `request()` takes `params?: unknown[]` and returns `Promise<unknown>`
+  - `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` use `GuardianShare`; `requestExternalWalletDelegation()` takes an `EIP1193Provider`
+  - `MLKEM_DEFAULT_CONTEXT` (`'mlkem-v1'`) replaces the six defaults of the ML-KEM context
 
 ### Removed
 
