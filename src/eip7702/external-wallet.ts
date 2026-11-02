@@ -24,9 +24,7 @@ import type { EIP7702Authorization } from "../wallet/types";
  * EIP-1193 Provider interface (MetaMask, Rabby, etc.)
  */
 export interface EIP1193Provider {
-  request(args: { method: string; params?: any[] }): Promise<any>;
-  on?(event: string, handler: (...args: any[]) => void): void;
-  removeListener?(event: string, handler: (...args: any[]) => void): void;
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
 }
 
 /**
