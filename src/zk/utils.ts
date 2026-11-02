@@ -189,14 +189,7 @@ export async function buildMerkleTree(leaves: string[]): Promise<{
 
       for (let i = 0; i < currentLevel.length; i += 2) {
         if (i + 1 < currentLevel.length) {
-          const hashResult = poseidon([currentLevel[i], currentLevel[i + 1]]);
-          
-          // Convert Uint8Array result to BigInt if needed
-          const hash = hashResult instanceof Uint8Array 
-            ? bufferToBigInt(hashResult) 
-            : hashResult;
-            
-          nextLevel.push(hash);
+          nextLevel.push(poseidon.F.toObject(poseidon([currentLevel[i], currentLevel[i + 1]])));
         } else {
           nextLevel.push(currentLevel[i]);
         }
@@ -342,14 +335,7 @@ export async function buildNFTHoldersMerkleTree(
     const holderLeaves = holderAddresses.map((address) => {
       const cleanAddress = address.startsWith('0x') ? address : '0x' + address;
       const addressHash = BigInt(cleanAddress);
-      const hashResult = poseidon([addressHash, contractHash]);
-      
-      // Convert Uint8Array result to BigInt if needed
-      if (hashResult instanceof Uint8Array) {
-        return bufferToBigInt(hashResult).toString();
-      }
-      
-      return hashResult.toString();
+      return poseidon.F.toObject(poseidon([addressHash, contractHash])).toString();
     });
 
     // Build merkle tree from the leaves

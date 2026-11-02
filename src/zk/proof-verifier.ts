@@ -4,7 +4,6 @@
  */
 
 import { CryptoError } from "../core/errors";
-import { bufferToBigInt } from "./utils";
 import type {
   ProofType,
   ZKProof,
@@ -206,12 +205,7 @@ export class ZKProofVerifier {
       const circomlibjs = await import("circomlibjs");
       const poseidon = await circomlibjs.buildPoseidon();
       const cleanContract = expectedContract.startsWith('0x') ? expectedContract : '0x' + expectedContract;
-      const hashResult = poseidon([BigInt(cleanContract)]);
-      
-      // Convert Uint8Array result to BigInt if needed
-      const expectedContractHash = hashResult instanceof Uint8Array 
-        ? bufferToBigInt(hashResult) 
-        : hashResult;
+      const expectedContractHash = poseidon.F.toObject(poseidon([BigInt(cleanContract)]));
 
       return (
         result.valid &&
