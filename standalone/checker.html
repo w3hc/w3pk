@@ -242,7 +242,6 @@
         <div class="button-grid">
           <button onclick="testSetupSocialRecovery()">Setup Social Recovery (3-of-5)</button>
           <button onclick="testGenerateGuardianInvite()">Generate Guardian Invite</button>
-          <button onclick="testGetSocialRecoveryConfig()">View Social Recovery Config</button>
           <button onclick="testRecoverFromGuardians()">Recover from Guardians</button>
         </div>
       </div>
@@ -984,23 +983,20 @@ Resources:
 
           window.showResult('Setting up social recovery (this will require authentication)...', null);
 
-          const result = await window.w3pk.setupSocialRecovery(guardians, 3, password);
-          console.log('Social recovery setup:', result);
+          const { guardianShares } = await window.w3pk.setupSocialRecovery(guardians, 3, password);
+          console.log('Social recovery setup:', guardianShares);
 
           window.showResult('Social Recovery Setup Complete', {
-            totalGuardians: result.length,
+            totalGuardians: guardianShares.length,
             threshold: 3,
-            guardians: result.map(g => ({
-              id: g.id,
-              name: g.name,
-              status: g.status
+            guardians: guardianShares.map(s => ({
+              name: s.guardianName,
+              shareIndex: s.shareIndex
             }))
           }, 'success');
 
-          // Store first guardian ID for testing
-          if (result.length > 0) {
-            window.testGuardianId = result[0].id;
-          }
+          // Keep the shares in memory for testing invites and recovery
+          window.testGuardianShares = guardianShares;
         } catch (error) {
           window.handleError(error);
         }
@@ -1008,71 +1004,31 @@ Resources:
 
       window.testGenerateGuardianInvite = async function() {
         try {
-          if (!window.testGuardianId) {
+          if (!window.testGuardianShares || window.testGuardianShares.length === 0) {
             window.showResult('Please set up social recovery first', null, 'error');
             return;
           }
 
-          const invite = await window.w3pk.generateGuardianInvite(window.testGuardianId);
+          const invite = await window.w3pk.generateGuardianInvite(window.testGuardianShares[0]);
           console.log('Guardian invite:', invite);
 
-          // Display QR code and explainer
-          const img = new Image();
-          img.src = invite.qrCode;
-          img.style.maxWidth = '300px';
-          img.style.border = '2px solid #8c1c84';
-          img.style.borderRadius = '8px';
-
+          const shareJson = await invite.downloadBlob.text();
           const div = document.createElement('div');
           div.className = 'result success';
           div.innerHTML = `
             <strong>Guardian Invitation Generated</strong>
-            <p>Guardian ID: ${invite.guardianId}</p>
-            <div>${img.outerHTML}</div>
+            <p>File: ${invite.filename}</p>
+            ${invite.qrCodeDataURL ? `<div><img src="${invite.qrCodeDataURL}" style="max-width: 300px; border: 2px solid #8c1c84; border-radius: 8px;"></div>` : ''}
             <details style="margin-top: 10px;">
-              <summary>View Guardian Instructions</summary>
-              <pre>${invite.explainer}</pre>
+              <summary>View Guardian Document</summary>
+              <pre>${invite.shareDocument}</pre>
             </details>
             <details style="margin-top: 10px;">
-              <summary>View Share Code (JSON)</summary>
-              <pre>${invite.shareCode}</pre>
+              <summary>View Share File (JSON)</summary>
+              <pre>${shareJson}</pre>
             </details>
           `;
           document.getElementById('results').insertBefore(div, document.getElementById('results').firstChild);
-        } catch (error) {
-          window.handleError(error);
-        }
-      };
-
-      window.testGetSocialRecoveryConfig = async function() {
-        try {
-          // Import SocialRecoveryManager
-          const { SocialRecoveryManager } = await import('./dist/index.mjs');
-          const socialRecovery = new SocialRecoveryManager();
-
-          const config = socialRecovery.getSocialRecoveryConfig();
-
-          if (!config) {
-            window.showResult('Social recovery not configured yet', null, 'empty');
-            return;
-          }
-
-          console.log('Social recovery config:', config);
-          window.showResult('Social Recovery Configuration', {
-            threshold: config.threshold,
-            totalGuardians: config.totalGuardians,
-            ethereumAddress: config.ethereumAddress,
-            createdAt: new Date(config.createdAt).toISOString(),
-            guardians: config.guardians.map(g => ({
-              name: g.name,
-              email: g.email,
-              status: g.status,
-              addedAt: new Date(g.addedAt).toISOString()
-            }))
-          }, 'success');
-
-          // Store guardian shares for testing recovery
-          window.testGuardianShares = config.guardians.map(g => g.share);
         } catch (error) {
           window.handleError(error);
         }
