@@ -6,7 +6,6 @@
 import type {
   BackupStatus,
   SecurityScore,
-  BackupMetadata,
   EncryptedBackupInfo,
   SocialRecoveryStatus,
 } from './types';
