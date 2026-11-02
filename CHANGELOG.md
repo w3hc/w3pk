@@ -94,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `computeMerkleRoot()` returns a decimal string and matches `buildMerkleTree()`
   - `buildMerkleTree()`, `buildNFTHoldersMerkleTree()`, the NFT ownership proof inputs and `verifyNFTOwnership()` used `bufferToBigInt()` on those bytes, which gave a different number than the circuit; their roots, leaves and hashes change
   - Commitments, roots and NFT hashes stored before this release don't match the new values and must be recomputed
+- **No dead links in `docs/EIP-7951.md`** ([#213](https://github.com/w3hc/w3pk/issues/213)): the Examples section, whose three files never existed, is gone, and the API reference link points to the `signMessageWithPasskey()` heading
 
 ## [0.11.0] - 2026-11-02
 
