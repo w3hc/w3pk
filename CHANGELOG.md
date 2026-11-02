@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Types used in public signatures exported from `w3pk`** ([#189](https://github.com/w3hc/w3pk/issues/189)): `RegisterResult` (new, returned by `register()`), `SecurityMode`, `SigningMethod`, `SignMessageOptions`, `PersistentSessionConfig`, `ZKProofConfig`, `ZKMethods`, `EIP1193ProviderInterface`, `DeviceSyncInfo`, `GuardianShare`, `Announcement`, `ParseAnnouncementResult`, `Chain`, `ChainlistOptions`, and the ZK proof types (`ProofType`, `ZKProof`, `VerificationResult`, `CircuitArtifacts` and the five `*ProofInput` types)
 - `getSyncStatus()` is documented again in `docs/API_REFERENCE.md`
+- **EIP-1193 event types** ([#210](https://github.com/w3hc/w3pk/issues/210)): `ProviderConnectInfo`, `ProviderRpcError` and `ProviderMessage`, exported from `w3pk`
 
 ### Changed
 
@@ -29,13 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `build:zk` and `html` run with `pnpm` (`pnpm run`, `pnpm dlx serve`) instead of `npm` and `npx`, and `compile:circuits` falls back to `pnpm exec snarkjs`
   - `pnpm.overrides` keeps one entry per package: `minimatch@>=5.0.0 <5.1.8` and `jsonpath@<=1.2.1`
   - The four `tsup.config.ts` entries spread a shared `base` of format, sourcemap, minify, splitting, platform and target options
-- **`Web3Passkey` types** ([#189](https://github.com/w3hc/w3pk/issues/189)): no `Web3Passkey` public signature uses `any`, except the `on`/`removeListener` listeners of the EIP-1193 provider
+- **`Web3Passkey` types** ([#189](https://github.com/w3hc/w3pk/issues/189)): typed return values, parameters and module types
   - `getSyncStatus()` returns `DeviceSyncInfo | null`, `detectSyncCapabilities()` returns `SyncCapabilities`, `mlkemEncrypt()` returns `EncryptedPayload` and `mlkemDecrypt()` takes one
   - `w3pk.zk` is typed `ZKMethods`: the `ZKProofModule` methods, each returning a Promise, and `isAvailable()` returning `Promise<boolean>`
   - `ZKProofConfig` is the one from `w3pk/zk`: `customCircuits` takes `CircuitArtifacts` values
   - The EIP-1193 provider's `request()` takes `params?: unknown[]` and returns `Promise<unknown>`
   - `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` use `GuardianShare`; `requestExternalWalletDelegation()` takes an `EIP1193Provider`
   - `MLKEM_DEFAULT_CONTEXT` (`'mlkem-v1'`) replaces the six defaults of the ML-KEM context
+- **No `any` in `Web3Passkey` public signatures** ([#210](https://github.com/w3hc/w3pk/issues/210)), nor in the types they reference
+  - The EIP-1193 provider's `on()` and `removeListener()` have one overload per EIP-1193 event: `accountsChanged` (`string[]`), `chainChanged` (`string`), `connect` (`ProviderConnectInfo`), `disconnect` (`ProviderRpcError`) and `message` (`ProviderMessage`). Other event names no longer compile
+  - `SignMessageOptions.eip712Domain` is ethers' `TypedDataDomain`
+  - `EIP1193Provider` (taken by `requestExternalWalletDelegation()`) has `request()` with `params?: unknown[]` returning `Promise<unknown>`, and no `on`/`removeListener`, which w3pk never called
+  - `CircuitArtifacts.verificationKey` is `unknown` and `VerificationResult.publicSignals` is `Record<string, string>`
 - **`src/core/sdk.ts` split by feature** ([#190](https://github.com/w3hc/w3pk/issues/190)): the public API and behavior are unchanged
   - Backup and sync, social recovery, the EIP-1193 provider and ML-KEM move to `src/core/backup-sync.ts`, `social-recovery.ts`, `eip1193.ts` and `mlkem.ts`; `sdk.ts` keeps auth, session and wallet core
   - `Web3Passkey` keeps each public method's signature and JSDoc and delegates to those files, which take the internals they need through `SdkContext` (`src/core/context.ts`)
