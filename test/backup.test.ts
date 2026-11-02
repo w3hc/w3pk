@@ -69,7 +69,7 @@ async function runTests() {
     assert(typeof status.securityScore.total === 'number', 'Score should be number');
     assertTruthy(status.securityScore.level, 'Should have security level');
 
-    passTest(`Backup status: ${status.securityScore.total}/100 (${status.securityScore.level})`);
+    passTest(`Backup status: ${status.securityScore.total}/70 (${status.securityScore.level})`);
   });
 
   // Test 4: Security Score Calculation
@@ -80,7 +80,7 @@ async function runTests() {
     const status = await backupManager.getBackupStatus(testAddress);
 
     assert(status.securityScore.total >= 0, 'Score should be >= 0');
-    assert(status.securityScore.total <= 100, 'Score should be <= 100');
+    assert(status.securityScore.total <= 70, 'Score should be <= 70');
     assertTruthy(status.securityScore.breakdown, 'Should have score breakdown');
     assertTruthy(status.securityScore.nextMilestone, 'Should have next milestone');
 

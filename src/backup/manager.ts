@@ -7,7 +7,6 @@ import type {
   BackupStatus,
   SecurityScore,
   EncryptedBackupInfo,
-  SocialRecoveryStatus,
 } from './types';
 import { PASSKEY_INDEPENDENT_METHODS } from './types';
 import { BackupStorage } from './storage';
@@ -75,7 +74,6 @@ export class BackupManager {
       securityScore: this.calculateSecurityScore(
         passkeySync,
         encryptedBackups,
-        undefined,
         verificationStatus,
         hasBackup
       ),
@@ -227,22 +225,9 @@ export class BackupManager {
   private calculateSecurityScore(
     passkeySync: any,
     encryptedBackups: EncryptedBackupInfo[],
-    socialRecoveryStatus?: SocialRecoveryStatus,
     verificationStatus?: { verified: boolean; count: number },
     restoresWithoutPasskey = false
   ): SecurityScore {
-    // Calculate social recovery score
-    let socialRecoveryScore = 0;
-    if (socialRecoveryStatus?.enabled) {
-      // Base score for having social recovery setup
-      socialRecoveryScore = 20;
-
-      // Bonus for verified guardians
-      if (socialRecoveryStatus.verifiedGuardians >= socialRecoveryStatus.threshold) {
-        socialRecoveryScore += 10; // +10 if enough guardians are verified
-      }
-    }
-
     // Calculate verification score
     let verificationScore = 0;
     if (verificationStatus?.verified) {
@@ -256,13 +241,23 @@ export class BackupManager {
       passkeyMultiDevice: passkeySync.deviceCount > 1 ? 10 : 0,
       phraseVerified: verificationScore,
       encryptedBackup: encryptedBackups.length > 0 ? 20 : 0,
-      socialRecovery: socialRecoveryScore,
     };
 
     const sum = Object.values(breakdown).reduce((acc, val) => acc + val, 0);
     // Without a backup that restores without a passkey, losing this device
     // (or its storage) with no synced passkey loses the wallet for good
     const total = restoresWithoutPasskey ? sum : Math.min(sum, 20);
+
+    const steps = [
+      !breakdown.passkeyActive && 'enable passkey sync',
+      !breakdown.passkeyMultiDevice && 'sync your passkey to another device',
+      !breakdown.encryptedBackup && 'create an encrypted backup',
+      breakdown.phraseVerified < 20 &&
+        (breakdown.phraseVerified ? 'verify your backup again' : 'verify your backup'),
+    ]
+      .filter(Boolean)
+      .join(', ');
+    const toReach = (target: string) => `Reach ${target}: ${steps}`;
 
     let level: SecurityScore['level'];
     let nextMilestone: string;
@@ -273,16 +268,16 @@ export class BackupManager {
         'Create a password backup file or confirm your recovery phrase: without a backup that restores without a passkey, losing this device can lose the wallet';
     } else if (total <= 20) {
       level = 'vulnerable';
-      nextMilestone = 'Create encrypted backup to reach "protected" (40+ pts)';
-    } else if (total <= 50) {
+      nextMilestone = toReach('"protected" (21+ pts)');
+    } else if (total <= 40) {
       level = 'protected';
-      nextMilestone = 'Set up social recovery to reach "secured" (70+ pts)';
-    } else if (total <= 80) {
+      nextMilestone = toReach('"secured" (41+ pts)');
+    } else if (total <= 60) {
       level = 'secured';
-      nextMilestone = 'Enable all methods to reach "fort-knox" (100 pts)';
+      nextMilestone = toReach('"fort-knox" (61+ pts)');
     } else {
       level = 'fort-knox';
-      nextMilestone = 'Maximum security achieved!';
+      nextMilestone = total < 70 ? toReach('the maximum (70 pts)') : 'Maximum security achieved!';
     }
 
     return {

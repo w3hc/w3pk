@@ -16,7 +16,7 @@ export type BackupMethod = 'file' | 'qr' | 'phrase' | 'prf';
 export const PASSKEY_INDEPENDENT_METHODS: readonly BackupMethod[] = ['file', 'qr', 'phrase'];
 
 export interface BackupStatus {
-  /** A backup that restores without a passkey exists (file, QR, phrase or social recovery) */
+  /** A backup that restores without a passkey exists (file, QR or phrase) */
   hasBackup: boolean;
   /**
    * Next backup to make: `password` while no backup restores without a
@@ -29,7 +29,6 @@ export interface BackupStatus {
   methods: BackupMethod[];
   passkeySync: PasskeySyncStatus;
   recoveryPhrase: RecoveryPhraseStatus;
-  socialRecovery?: SocialRecoveryStatus;
   securityScore: SecurityScore;
 }
 
@@ -55,33 +54,13 @@ export interface EncryptedBackupInfo {
   deviceFingerprint?: string;
 }
 
-export interface SocialRecoveryStatus {
-  enabled: boolean;
-  guardians: Guardian[];
-  threshold: number;
-  sharesDistributed: number;
-  verifiedGuardians: number;
-}
-
-export interface Guardian {
-  id: string;
-  name: string;
-  email?: string;
-  publicKey?: string;
-  shareEncrypted: string;
-  status: 'pending' | 'active' | 'revoked';
-  addedAt: string;
-  lastVerified?: string;
-}
-
 export interface SecurityScore {
-  total: number; // 0-100
+  total: number; // 0-70
   breakdown: {
     passkeyActive: number;
     passkeyMultiDevice: number;
     phraseVerified: number;
     encryptedBackup: number;
-    socialRecovery: number;
   };
   level: 'vulnerable' | 'protected' | 'secured' | 'fort-knox';
   nextMilestone: string;

@@ -2402,14 +2402,13 @@ Get comprehensive backup status showing what protects the wallet.
 type BackupMethod = 'file' | 'qr' | 'phrase' | 'prf';
 
 interface BackupStatus {
-  hasBackup: boolean;        // a backup that restores without a passkey exists: file, QR code, confirmed phrase or social recovery
+  hasBackup: boolean;        // a backup that restores without a passkey exists: file, QR code or confirmed phrase
   recommendedMode?: 'password' | 'prf'; // next backup to make; undefined once both exist
   evictionRisk: boolean;     // the browser may wipe the wallet: WebKit outside a home-screen app, storage not persisted
   lastBackupAt?: string;     // ISO 8601 time of the latest backup
   methods: BackupMethod[];
   passkeySync: PasskeySyncStatus;
   recoveryPhrase: RecoveryPhraseStatus;
-  socialRecovery?: SocialRecoveryStatus;
   securityScore: SecurityScore;
 }
 ```
@@ -2429,10 +2428,9 @@ if (!status.hasBackup && status.evictionRisk) {
 } else if (!status.hasBackup) {
   showBackupWarning()
 }
-console.log('Security Score:', status.securityScore.total) // 0-100
+console.log('Security Score:', status.securityScore.total) // 0-70
 console.log('Level:', status.securityScore.level)
 console.log('Backup methods:', status.methods)
-console.log('Social recovery:', status.socialRecovery?.enabled)
 ```
 
 ---

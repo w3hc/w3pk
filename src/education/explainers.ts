@@ -358,11 +358,11 @@ WHAT IS IT?
 
 Think of it like a health score for your wallet:
 - 0-20 pts: Vulnerable (❌ At risk!)
-- 21-50 pts: Protected (🟡 Basic security)
-- 51-80 pts: Secured (🟢 Strong protection)
-- 81-100 pts: Fort Knox (🏆 Maximum security)
+- 21-40 pts: Protected (🟡 Basic security)
+- 41-60 pts: Secured (🟢 Strong protection)
+- 61-70 pts: Fort Knox (🏆 Maximum security)
 
-HOW IT'S CALCULATED (Max 100 Points):
+HOW IT'S CALCULATED (Max 70 Points):
 ------------------------------------
 
 🔑 Passkey Active (20 pts)
@@ -386,44 +386,37 @@ HOW IT'S CALCULATED (Max 100 Points):
    - Password-protected
    - Works anywhere
 
-👥 Social Recovery (20-30 pts)
-   - Guardians can help you
-   - 20 pts for setup
-   - +10 pts bonus if guardians verified
-   - Ultimate safety net
-
 REAL EXAMPLE:
 ------------
 
 Sarah's wallet evolution:
 
 Day 1: Just created wallet
-Score: 20/100 (Vulnerable)
+Score: 20/70 (Vulnerable)
 - Passkey only
 - No backup
 - One device failure = total loss
 
 Day 2: Created encrypted backup
-Score: 40/100 (Protected)
+Score: 40/70 (Protected)
 - Passkey + backup
 - Can recover if device lost
 - Still risky if both fail
 
 Day 5: Tested backup restore
-Score: 50/100 (Protected)
+Score: 50/70 (Secured)
 - Verified backup works!
 - Proven recovery path
 - More confident
 
-Week 2: Set up social recovery
-Score: 70/100 (Secured)
-- 5 trusted guardians
-- Need 3 to recover
-- Multiple safety nets
+Week 2: Synced passkey to her laptop
+Score: 60/70 (Secured)
+- Passkey on 2 devices
+- Survives losing either one
 
-Week 3: Guardians verified
-Score: 80/100 (Secured)
-- All guardians confirmed
+Week 3: Tested the backup again
+Score: 61/70 (Fort Knox)
+- Each extra test adds a point, up to 70
 - Strong multi-layer protection
 - Can survive almost any disaster
 
@@ -453,8 +446,6 @@ AUTOMATIC TRACKING:
 Your score updates automatically when you:
 ✓ Create a backup file
 ✓ Restore from backup
-✓ Set up social recovery
-✓ Verify guardians
 ✓ Sync across devices
 
 No manual tracking needed!
@@ -470,24 +461,20 @@ From 40 → 50 pts:
 2. Test your backup (5 minutes)
    + 10 points
 
-From 50 → 70 pts:
-3. Set up social recovery (30 minutes)
-   + 20 points
-
-From 70 → 80 pts:
-4. Verify your guardians
+From 50 → 60 pts:
+3. Sync passkey to another device
    + 10 points
 
-From 80 → 90 pts:
-5. Sync passkey to another device
-   + 10 points
+From 60 → 70 pts:
+4. Test your backup again
+   + 1 point per test, up to 10
 
 TARGET SCORE:
 ------------
 
-Minimum: 50 pts (at least verified backup)
-Good: 70 pts (backup + social recovery)
-Excellent: 80+ pts (all layers enabled)
+Minimum: 41 pts (backup + one more layer)
+Good: 50 pts (verified backup)
+Excellent: 61+ pts (all layers enabled)
 
 Remember: Higher score = Lower chance of loss!
 `,

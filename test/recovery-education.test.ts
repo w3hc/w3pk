@@ -31,21 +31,13 @@ const mockBackupStatus: BackupStatus = {
       }
     ]
   },
-  socialRecovery: {
-    enabled: true,
-    guardians: [],
-    threshold: 3,
-    sharesDistributed: 5,
-    verifiedGuardians: 5
-  },
   securityScore: {
-    total: 80,
+    total: 50,
     breakdown: {
       passkeyActive: 20,
       passkeyMultiDevice: 10,
       phraseVerified: 0,
-      encryptedBackup: 20,
-      socialRecovery: 30
+      encryptedBackup: 20
     },
     level: 'secured',
     nextMilestone: 'Verify phrase to reach fort-knox'
@@ -121,12 +113,7 @@ console.log('\nTest 4: Simulate Lost Both Scenario');
     mockBackupStatus
   );
 
-  // Should depend on sync and social recovery
-  assert(typeof result.success === 'boolean', 'Should have success status');
-
-  if (mockBackupStatus.socialRecovery?.enabled) {
-    assert(result.success, 'Should recover with social recovery');
-  }
+  assert(result.success, 'Should recover with passkey sync');
 
   console.log('✅ Lost both simulation working');
 }
@@ -147,10 +134,8 @@ console.log('\nTest 5: Simulate Switch Platform Scenario');
   );
   assert(!hasPasskeySync, 'Passkey sync should not work cross-platform');
 
-  // Should have universal methods (backup, social recovery)
   const hasUniversalMethod = result.availableMethods.some(m =>
-    m.method.toLowerCase().includes('backup') ||
-    m.method.toLowerCase().includes('social')
+    m.method.toLowerCase().includes('backup')
   );
   assert(hasUniversalMethod, 'Should have universal recovery methods');
 
@@ -197,8 +182,7 @@ console.log('\nTest 7: Test with Vulnerable Status');
         passkeyActive: 20,
         passkeyMultiDevice: 0,
         phraseVerified: 0,
-        encryptedBackup: 0,
-        socialRecovery: 0
+        encryptedBackup: 0
       },
       level: 'vulnerable',
       nextMilestone: 'Create backup'

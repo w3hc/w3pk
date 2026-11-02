@@ -358,7 +358,7 @@ if (!isStrongPassword(password)) {
 
 // Get backup status
 const status = await w3pk.getBackupStatus()
-console.log('Security Score:', status.securityScore.total) // 0-100
+console.log('Security Score:', status.securityScore.total) // 0-70
 console.log('Next backup:', status.recommendedMode) // 'password', then 'prf'
 
 // Create encrypted backup file (BackupFile v3: Argon2id, no address in the file)
