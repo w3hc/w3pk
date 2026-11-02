@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `register()` uses the PRF output from creation, or runs one assertion when the platform doesn't return it
   - `login()`, `getMnemonic()` and `importMnemonic()` take the key from their assertion's PRF output
   - `syncWalletWithPasskey()`, `importFromSync()` and `restoreFromBackupFile()` evaluate the wallet's PRF input in the assertion they already run (`prf.eval.second` for PRF backups), and now start a persistent session too; `restoreFromBackupFile()` with a password backup while logged in adds one assertion
+- **The signature counter is persisted, so cloned authenticators are rejected** ([#212](https://github.com/w3hc/w3pk/issues/212)). `CredentialStorage` dropped `signCount` on save, so `login()` always compared against 0 and accepted a replayed or lower counter; `test/authenticate.test.ts` (`pnpm test:auth`) covers the counter and RP ID hash checks
 
 ### Added
 

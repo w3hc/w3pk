@@ -31,6 +31,7 @@ export interface EncryptedCredential {
   publicKeyFingerprint: string; // SHA-256 hash for verification
   createdAt: string;
   lastUsed: string;
+  signCount?: number;
 }
 
 /**
@@ -101,6 +102,7 @@ export class CredentialStorage {
         publicKeyFingerprint: await hashPublicKey(credential.publicKey),
         createdAt: credential.createdAt,
         lastUsed: credential.lastUsed,
+        signCount: credential.signCount,
       };
 
       const key = `${STORAGE_KEY_PREFIX}${hashedId}`;
@@ -136,6 +138,7 @@ export class CredentialStorage {
         ),
         createdAt: encrypted.createdAt,
         lastUsed: encrypted.lastUsed,
+        signCount: encrypted.signCount,
       };
     } catch (error) {
       throw new StorageError("Failed to retrieve credential", error);
