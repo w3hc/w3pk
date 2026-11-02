@@ -73,7 +73,8 @@ import { getEndpoints } from "../chainlist";
 import { MLKEM_DEFAULT_CONTEXT, type EncryptedPayload } from "../crypto/mlkem";
 import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
-import { supportsEIP7702 } from "../eip7702";
+import { supportsEIP7702, type EIP1193Provider } from "../eip7702";
+import type { GuardianShare } from "../recovery/backup-based-recovery";
 
 /** Minimal EIP-1193 provider interface (matches the existing EIP1193Provider shape) */
 interface EIP1193ProviderInterface {
@@ -1543,7 +1544,7 @@ export class Web3Passkey {
    * ```
    */
   async requestExternalWalletDelegation(params?: {
-    provider?: any;
+    provider?: EIP1193Provider;
     chainId?: number;
     nonce?: bigint;
     accountIndex?: number;
@@ -1711,7 +1712,7 @@ export class Web3Passkey {
     threshold: number,
     password: string
   ): Promise<{
-    guardianShares: any[];
+    guardianShares: GuardianShare[];
     setupComplete: boolean;
   }> {
     if (!this.currentUser) {
@@ -1755,7 +1756,7 @@ export class Web3Passkey {
    * @param message - Optional custom message for the guardian
    */
   async generateGuardianInvite(
-    guardianShare: any,
+    guardianShare: GuardianShare,
     message?: string
   ): Promise<{
     qrCodeDataURL?: string;
@@ -1785,7 +1786,7 @@ export class Web3Passkey {
    * @param password - Password of the backup the shares rebuild
    */
   async recoverFromGuardians(
-    shares: Array<string | any>,
+    shares: Array<string | GuardianShare>,
     password: string
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
     const { SocialRecovery } = await import("../recovery/backup-based-recovery");

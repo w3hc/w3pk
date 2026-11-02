@@ -137,6 +137,7 @@ export type {
   EncryptedBackupInfo,
 } from "./backup/types";
 
+export type { GuardianShare } from "./recovery/backup-based-recovery";
 export type { SyncCapabilities } from "./sync/types";
 export type { DeviceSyncInfo } from "./sync/backup-sync";
 
