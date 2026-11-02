@@ -17,7 +17,10 @@
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
     "types": ["node"],
-    "ignoreDeprecations": "6.0"
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "w3pk/zk": ["./src/zk/index.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

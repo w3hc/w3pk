@@ -75,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **zk features load under a Content Security Policy without `'unsafe-eval'`** ([#188](https://github.com/w3hc/w3pk/issues/188)): `loadZKModule()` imports `w3pk/zk` with a literal `import()` instead of `new Function`, which such a policy blocks. Bundlers now resolve `w3pk/zk` into a lazy chunk, so `w3pk.zk` also works in Vite and Next.js builds, where the old bare runtime import could not resolve. snarkjs and circomlibjs still need `'wasm-unsafe-eval'` to compile WebAssembly
   - A build that resolves `w3pk` now needs `circomlibjs` installed, as it already needed `snarkjs`; both are optional dependencies installed by default
   - The error when `w3pk/zk` can't load says to install the optional dependencies snarkjs and circomlibjs, without naming a package manager
+- **`pnpm build` passes when `dist/` holds a previous build** ([#206](https://github.com/w3hc/w3pk/issues/206)): `w3pk/zk` resolved through the package's own `exports` to `dist/zk/index.d.ts`, so the type build failed with TS5055. `tsconfig.json` now maps `w3pk/zk` to `src/zk/index.ts`, replacing its ambient declaration; the build output is unchanged
 
 ## [0.11.0] - 2026-11-02
 
