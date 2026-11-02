@@ -2,6 +2,8 @@
  * Shared types used across the SDK
  */
 
+import type { TypedDataDomain } from "ethers";
+
 export interface UserInfo {
   username: string;
   ethereumAddress: string;
@@ -65,7 +67,7 @@ export interface SignMessageOptions {
   requireAuth?: boolean;
   signingMethod?: SigningMethod;
   // EIP-712 specific options (only used when signingMethod === 'EIP712')
-  eip712Domain?: Record<string, any>;
+  eip712Domain?: TypedDataDomain;
   eip712Types?: Record<string, Array<{ name: string; type: string }>>;
   eip712PrimaryType?: string;
 }
