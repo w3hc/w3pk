@@ -120,9 +120,6 @@ async function runTests() {
 }
 
 runTests().catch((error) => {
-
   console.error(error);
-
   process.exit(1);
-
 });

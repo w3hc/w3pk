@@ -248,9 +248,6 @@ async function runSecurityTests() {
 }
 
 runSecurityTests().catch((error) => {
-
   console.error(error);
-
   process.exit(1);
-
 });
