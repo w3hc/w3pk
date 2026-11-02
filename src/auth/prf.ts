@@ -19,6 +19,8 @@ import { generateChallenge } from "../wallet/crypto";
 export interface PrfEvaluation {
   /** 32-byte PRF output for `input` */
   output: ArrayBuffer;
+  /** 32-byte PRF output for `second`, when asked for and returned */
+  secondOutput?: ArrayBuffer;
   /** Credential the authenticator used */
   credentialId: string;
   assertion: AuthenticationCredential;
@@ -30,12 +32,15 @@ export interface PrfEvaluation {
  * @param input - PRF input, evaluated as `prf.eval.first`
  * @param credentialId - Restrict the assertion to this credential;
  *   without it, the user picks any discoverable passkey for this RP
+ * @param second - Optional second PRF input, evaluated as `prf.eval.second`
+ *   in the same assertion
  * @throws PrfUnsupportedError when the authenticator returns no PRF output
  * @throws AuthenticationError when the assertion fails or is cancelled
  */
 export async function evaluatePrf(
   input: BufferSource,
-  credentialId?: string
+  credentialId?: string,
+  second?: BufferSource
 ): Promise<PrfEvaluation> {
   let assertion: AuthenticationCredential;
   try {
@@ -46,7 +51,7 @@ export async function evaluatePrf(
       userVerification: "required",
       timeout: 60000,
       extensions: {
-        prf: { eval: { first: input } },
+        prf: { eval: second ? { first: input, second } : { first: input } },
       } as AuthenticationExtensionsClientInputs,
     };
 
@@ -80,20 +85,22 @@ export async function evaluatePrf(
     );
   }
 
-  const first = assertion.getClientExtensionResults?.().prf?.results?.first;
-  if (!first) {
+  const results = assertion.getClientExtensionResults?.().prf?.results;
+  const output = copyPrfResult(results?.first);
+  if (!output) {
     throw new PrfUnsupportedError(assertion.id);
   }
+  const secondOutput = second ? copyPrfResult(results?.second) : undefined;
 
-  const output = ArrayBuffer.isView(first)
-    ? new Uint8Array(first.buffer, first.byteOffset, first.byteLength).slice().buffer
-    : first.slice(0);
+  return { output, secondOutput, credentialId: assertion.id, assertion };
+}
 
-  if (output.byteLength !== 32) {
-    throw new PrfUnsupportedError(assertion.id);
-  }
-
-  return { output, credentialId: assertion.id, assertion };
+function copyPrfResult(result: BufferSource | undefined): ArrayBuffer | undefined {
+  if (!result) return undefined;
+  const copy = ArrayBuffer.isView(result)
+    ? new Uint8Array(result.buffer, result.byteOffset, result.byteLength).slice().buffer
+    : result.slice(0);
+  return copy.byteLength === 32 ? copy : undefined;
 }
 
 export interface PrfSecret {

@@ -144,7 +144,6 @@ export type {
 } from "./recovery/types";
 
 export type {
-  SyncVault,
   DeviceInfo,
   SyncCapabilities,
   SyncStatus,

@@ -4,6 +4,7 @@
  *
  * Mocks navigator.credentials.get with a real P-256 signed assertion, so a
  * login() after the sync runs the SDK's signature verification unchanged.
+ * The mock returns a fixed PRF output, or none when `authenticator.prf` is off.
  *
  * NOTE: the mnemonic is the standard BIP39 test vector, not a real secret
  */
@@ -15,9 +16,11 @@ import {
   RemovedBackupMethodError,
   UnsupportedBackupVersionError,
   WalletError,
+  WalletMissingError,
   Web3PasskeyError,
 } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
+import { LocalStorageWalletStorage } from "../src/wallet/storage";
 import { BackupFileManager } from "../src/backup/backup-file";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
@@ -57,6 +60,11 @@ const MNEMONIC =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 const ADDRESS = Wallet.fromPhrase(MNEMONIC).address;
 
+const authenticator = {
+  prf: true,
+  prfOutput: crypto.getRandomValues(new Uint8Array(32)).buffer,
+};
+
 const localStorage = new MemoryStorage();
 (globalThis as any).localStorage = localStorage;
 (globalThis as any).window = {
@@ -91,7 +99,7 @@ async function setupAuthenticator() {
     value: {
       userAgent: "node",
       credentials: {
-        get: async () => {
+        get: async ({ publicKey }: { publicKey: PublicKeyCredentialRequestOptions }) => {
           signCount++;
           const rpIdHash = new Uint8Array(
             await crypto.subtle.digest(
@@ -132,7 +140,10 @@ async function setupAuthenticator() {
               signature: rawToDer(raw).buffer,
               userHandle: new TextEncoder().encode(USERNAME).buffer,
             },
-            getClientExtensionResults: () => ({}),
+            getClientExtensionResults: () =>
+              authenticator.prf && (publicKey.extensions as any)?.prf?.eval?.first
+                ? { prf: { results: { first: authenticator.prfOutput } } }
+                : {},
           };
         },
       },
@@ -256,6 +267,28 @@ async function runTests() {
     const { sdk, authEvents } = freshSdk();
     await sdk.syncWalletWithPasskey(json, PASSWORD);
     await assertSyncedAndLogsIn(sdk, authEvents, publicKey);
+  }
+  console.log("");
+
+  console.log("Test 3b: without PRF, the synced wallet stays in memory only");
+  {
+    const json = await passwordBackupFromDeviceA(publicKey);
+    authenticator.prf = false;
+    try {
+      const { sdk } = freshSdk();
+      await sdk.syncWalletWithPasskey(json, PASSWORD);
+      assert(sdk.isAuthenticated, "user is logged in");
+      assert(
+        (await new LocalStorageWalletStorage(localStorage as unknown as Storage).retrieve(ADDRESS)) === null,
+        "no wallet is stored on the device"
+      );
+      const next = freshSdk();
+      const loginError = await capture(() => next.sdk.login());
+      assert(loginError instanceof WalletMissingError, "a later login() throws WalletMissingError");
+      assert(!next.sdk.isAuthenticated, "a later login() leaves the user logged out");
+    } finally {
+      authenticator.prf = true;
+    }
   }
   console.log("");
 

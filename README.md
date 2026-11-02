@@ -256,7 +256,7 @@ await w3pk.clearSession()
 
 **Note:** STRICT mode never allows persistent sessions.
 
-**PRF-keyed persistence:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension (an authenticator-held secret, released only during a biometric/PIN-verified assertion) and re-keyed at every real login. Authenticators without PRF support get in-memory sessions only — there is no weaker at-rest fallback. See [Security Architecture](./docs/SECURITY.md) for details.
+**PRF-keyed storage:** the wallet stored on the device and persistent sessions are encrypted under keys derived from the WebAuthn PRF extension (an authenticator-held secret, released only during a biometric/PIN-verified assertion), so storage alone can't decrypt them. Authenticators without PRF support keep no wallet on the device and get in-memory sessions only: the wallet comes back from a backup on the next visit. There is no weaker at-rest fallback. See [Security Architecture](./docs/SECURITY.md) for details.
 
 ### RPC Endpoints
 

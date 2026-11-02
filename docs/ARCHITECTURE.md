@@ -148,33 +148,24 @@ m/44'/60'/0'/0/2  ← Third address
 
 **Purpose**: Link WebAuthn authentication to wallet encryption
 
-**Implementation**: [src/wallet/crypto.ts:21-66](src/wallet/crypto.ts#L21-L66)
+**Implementation**: [src/wallet/crypto.ts](src/wallet/crypto.ts) (`deriveWalletKey`)
 
 **Process**:
 ```typescript
-function deriveEncryptionKeyFromWebAuthn(
-  credentialId: string,
-  publicKey: string
-): CryptoKey {
-  // Step 1: Combine inputs
-  const keyMaterial = `w3pk-v4:${credentialId}:${publicKey}`;
+async function deriveWalletKey(prfOutput: BufferSource): Promise<CryptoKey> {
+  // prfOutput = HMAC(credential secret, PRF_INPUT), released by the
+  // authenticator only on a user-verified assertion
 
-  // Step 2: Hash with SHA-256
-  const hash = SHA256(keyMaterial);
-
-  // Step 3: PBKDF2 key derivation (210,000 iterations)
-  const encryptionKey = PBKDF2(hash, salt, 210000);
-
-  // Result: AES-256-GCM key (NEVER STORED)
-  return encryptionKey;
+  // HKDF-SHA256, info "w3pk-prf-wallet-key-v1" → AES-256-GCM key
+  // (non-extractable, never stored)
 }
 ```
 
 **Properties**:
-- **Deterministic**: Same inputs → Same output
-- **Secure**: 210,000 PBKDF2 iterations (OWASP 2023)
-- **Stateless**: No key storage required
-- **Authentication-gated**: Requires biometric/PIN to access inputs
+- **Deterministic**: the fixed `PRF_INPUT` gives the same PRF output, so the same key, at every assertion with the passkey
+- **Authenticator-held**: the PRF output can't be computed from anything stored on the device
+- **Separate**: the persistent-session key comes from the same PRF output under another HKDF info, so neither key reveals the other
+- **PRF only**: authenticators without the PRF extension keep no wallet on the device; the session stays in memory and the wallet comes back from a backup
 
 ---
 
@@ -217,15 +208,16 @@ STEP 2: Create WebAuthn Credential (INDEPENDENT)
 
 STEP 3: Derive Encryption Key
 ┌──────────────────────────────────────┐
-│  deriveEncryptionKeyFromWebAuthn()   │
+│  deriveWalletKey()                   │
 │                                      │
-│  Input: credentialId + publicKey     │
+│  Input: PRF output at PRF_INPUT      │
+│  (from creation, or one assertion)   │
 │       ↓                              │
-│  SHA-256 hash                        │
-│       ↓                              │
-│  PBKDF2 (210,000 iterations)         │
+│  HKDF-SHA256                         │
 │       ↓                              │
 │  AES-256-GCM Key (NOT STORED!)       │
+│                                      │
+│  No PRF → wallet kept in memory only │
 └──────────────────────────────────────┘
                  ↓
 
@@ -279,13 +271,10 @@ STEP 2: Fetch Stored Data
 
 STEP 3: Re-derive Encryption Key (DETERMINISTIC!)
 ┌──────────────────────────────────────┐
-│  Same inputs as registration:        │
-│  - credentialId: "abc123"            │
-│  - publicKey: "04A1B2C3D4..."        │
+│  PRF output from STEP 1's assertion  │
+│  (same PRF_INPUT as registration)    │
 │       ↓                              │
-│  Same SHA-256 hash                   │
-│       ↓                              │
-│  Same PBKDF2 (210,000 iterations)    │
+│  Same HKDF-SHA256                    │
 │       ↓                              │
 │  SAME AES-256-GCM Key!               │
 └──────────────────────────────────────┘
@@ -482,60 +471,35 @@ const signedTx = await wallet.signTransaction(tx);
 
 **Critical**: You **cannot** use a P-256 key to sign Ethereum transactions, and you **cannot** use a secp256k1 key for WebAuthn authentication. They are mathematically incompatible.
 
-### Encryption Key Derivation (PBKDF2)
+### Encryption Key Derivation (PRF + HKDF)
 
-**Implementation**: [src/wallet/crypto.ts:21-66](src/wallet/crypto.ts#L21-L66)
+**Implementation**: [src/wallet/crypto.ts](src/wallet/crypto.ts)
 
 ```javascript
-async function deriveEncryptionKeyFromWebAuthn(
-  credentialId: string,
-  publicKey: string
-): Promise<CryptoKey> {
-  // 1. Combine inputs into key material
-  const keyMaterial = `w3pk-v4:${credentialId}:${publicKey}`;
+// PRF_INPUT = "w3pk-prf-input-v1"; the browser sends the authenticator
+// SHA-256("WebAuthn PRF" || 0x00 || PRF_INPUT)
+const prfOutput = assertion.getClientExtensionResults().prf.results.first;
 
-  // 2. SHA-256 hash
-  const keyMaterialHash = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(keyMaterial)
-  );
-
-  // 3. Import as PBKDF2 base key
-  const importedKey = await crypto.subtle.importKey(
-    "raw",
-    keyMaterialHash,
-    { name: "PBKDF2" },
-    false,
-    ["deriveKey"]
-  );
-
-  // 4. Generate deterministic salt
-  const salt = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode("w3pk-salt-v4")
-  );
-
-  // 5. Derive AES-256-GCM key
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: new Uint8Array(salt),
-      iterations: 210000,  // OWASP 2023 recommendation
-      hash: "SHA-256",
-    },
-    importedKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
+const keyMaterial = await crypto.subtle.importKey("raw", prfOutput, "HKDF", false, ["deriveKey"]);
+const walletKey = await crypto.subtle.deriveKey(
+  {
+    name: "HKDF",
+    hash: "SHA-256",
+    salt: new Uint8Array(32),
+    info: new TextEncoder().encode("w3pk-prf-wallet-key-v1"),
+  },
+  keyMaterial,
+  { name: "AES-GCM", length: 256 },
+  false,
+  ["encrypt", "decrypt"]
+);
 ```
 
 **Properties**:
-- **Deterministic**: Same inputs always produce same output
-- **Secure**: 210,000 iterations make brute-force impractical
+- **Deterministic**: same passkey and input always give the same key
+- **Not derivable from storage**: the PRF output only leaves the authenticator on a user-verified assertion
 - **Stateless**: No need to store the encryption key
-- **Fast enough**: ~100-200ms on modern devices
+- **No stretching needed**: the PRF output is 32 bytes of full-entropy key material
 
 ---
 
@@ -555,7 +519,7 @@ Layer 1: WebAuthn Authentication
 
 Layer 2: Encryption Key Derivation
 ┌─────────────────────────────────────┐
-│  ✅ PBKDF2 (210,000 iterations)     │
+│  ✅ WebAuthn PRF + HKDF-SHA256      │
 │  ✅ Deterministic (no storage)      │
 │  ✅ Requires WebAuthn success       │
 └─────────────────────────────────────┘
@@ -752,7 +716,7 @@ Passkey (Face ID) → Decrypt mnemonic → Use wallet
 | **Purpose** | Authentication | Transactions | Encryption |
 | **Storage** | Secure Enclave | localStorage | None (derived) |
 | **Backup** | iCloud/Google | 12-word phrase | N/A |
-| **Standards** | FIDO2, W3C | BIP32/39/44 | PBKDF2, AES-GCM |
+| **Standards** | FIDO2, W3C | BIP32/39/44 | WebAuthn PRF, HKDF, AES-GCM |
 | **Managed By** | OS | App | App |
 | **Can Sign ETH TX** | ❌ No | ✅ Yes | ❌ No |
 | **Can Authenticate** | ✅ Yes | ❌ No | ❌ No |
@@ -823,11 +787,8 @@ Scenarios:
 ### Key Derivation Formula
 
 ```
-encryptionKey = PBKDF2(
-  SHA256("w3pk-v4:" + credentialId + ":" + publicKey),
-  SHA256("w3pk-salt-v4"),
-  210000 iterations
-)
+prfOutput     = HMAC(credential secret, SHA256("WebAuthn PRF" || 0x00 || "w3pk-prf-input-v1"))
+encryptionKey = HKDF-SHA256(prfOutput, salt = 0^32, info = "w3pk-prf-wallet-key-v1")
 ```
 
 ---
@@ -845,4 +806,4 @@ encryptionKey = PBKDF2(
 
 ## Summary
 
-**w3pk combines WebAuthn (P-256 authentication) and Crypto Wallets (secp256k1 transactions) through a PBKDF2-derived encryption bridge. They are completely separate cryptographic systems that work together to provide biometric-protected Web3 access with multiple recovery options.**
+**w3pk combines WebAuthn (P-256 authentication) and Crypto Wallets (secp256k1 transactions) through an encryption bridge keyed by the passkey's PRF output. They are completely separate cryptographic systems that work together to provide biometric-protected Web3 access with multiple recovery options.**

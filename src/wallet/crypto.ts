@@ -2,9 +2,8 @@
  * Cryptographic utilities for wallet encryption
  *
  * SECURITY:
- * - Encryption keys derived from WebAuthn credentials
- * - Requires biometric/PIN authentication
- * - Hardware-backed security
+ * - Encryption keys derived from the passkey's WebAuthn PRF output
+ * - Released only on a user-verified assertion
  */
 
 import { CryptoError } from "../core/errors";
@@ -28,6 +27,35 @@ export const PRF_INPUT = new TextEncoder().encode("w3pk-prf-input-v1");
 
 const PRF_HKDF_INFO = new TextEncoder().encode("w3pk-prf-session-key-v1");
 
+const PRF_WALLET_HKDF_INFO = new TextEncoder().encode("w3pk-prf-wallet-key-v1");
+
+async function derivePrfAesKey(
+  prfOutput: BufferSource,
+  info: Uint8Array<ArrayBuffer>,
+  extractable: boolean
+): Promise<CryptoKey> {
+  const byteLength = prfOutput.byteLength;
+  if (byteLength !== 32) {
+    throw new Error(`PRF output must be 32 bytes, got ${byteLength}`);
+  }
+
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    prfOutput,
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    extractable,
+    ["encrypt", "decrypt"]
+  );
+}
+
 /**
  * Derive the persistent-session encryption key from a WebAuthn PRF output.
  *
@@ -44,34 +72,22 @@ export async function derivePrfSessionKey(
   extractable = false
 ): Promise<CryptoKey> {
   try {
-    const byteLength =
-      prfOutput instanceof ArrayBuffer ? prfOutput.byteLength : prfOutput.byteLength;
-    if (byteLength !== 32) {
-      throw new Error(`PRF output must be 32 bytes, got ${byteLength}`);
-    }
-
-    const keyMaterial = await crypto.subtle.importKey(
-      "raw",
-      prfOutput,
-      "HKDF",
-      false,
-      ["deriveKey"]
-    );
-
-    return crypto.subtle.deriveKey(
-      {
-        name: "HKDF",
-        hash: "SHA-256",
-        salt: new Uint8Array(32),
-        info: PRF_HKDF_INFO,
-      },
-      keyMaterial,
-      { name: "AES-GCM", length: 256 },
-      extractable,
-      ["encrypt", "decrypt"]
-    );
+    return await derivePrfAesKey(prfOutput, PRF_HKDF_INFO, extractable);
   } catch (error: any) {
     throw new CryptoError("Failed to derive session key from PRF output", error);
+  }
+}
+
+/**
+ * Derive the key that encrypts the wallet stored on the device from the PRF
+ * output at `PRF_INPUT`. Same PRF output as the session key, separate HKDF
+ * info, so neither key reveals the other. Never extractable.
+ */
+export async function deriveWalletKey(prfOutput: BufferSource): Promise<CryptoKey> {
+  try {
+    return await derivePrfAesKey(prfOutput, PRF_WALLET_HKDF_INFO, false);
+  } catch (error: any) {
+    throw new CryptoError("Failed to derive wallet key from PRF output", error);
   }
 }
 
@@ -100,109 +116,6 @@ export async function importSessionKey(rawKey: string): Promise<CryptoKey> {
     );
   } catch (error: any) {
     throw new CryptoError("Failed to import session key", error);
-  }
-}
-
-/**
- * Derive encryption key from WebAuthn credential
- *
- * SECURITY:
- * - Authentication-gated encryption via biometric/PIN
- * - Uses PBKDF2 with 210,000 iterations (OWASP 2023)
- * - Session caching prevents repeated prompts
- */
-export async function deriveEncryptionKeyFromWebAuthn(
-  credentialId: string,
-  publicKey?: string
-): Promise<CryptoKey> {
-  try {
-    const keyMaterial = publicKey
-      ? `w3pk-v4:${credentialId}:${publicKey}`
-      : `w3pk-v4:${credentialId}`;
-
-    const keyMaterialHash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(keyMaterial)
-    );
-
-    const importedKey = await crypto.subtle.importKey(
-      "raw",
-      keyMaterialHash,
-      { name: "PBKDF2" },
-      false,
-      ["deriveKey"]
-    );
-
-    const salt = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode("w3pk-salt-v4")
-    );
-
-    return crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: new Uint8Array(salt),
-        iterations: 210000,
-        hash: "SHA-256",
-      },
-      importedKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt", "decrypt"]
-    );
-  } catch (error: any) {
-    throw new CryptoError(
-      "Failed to derive encryption key from WebAuthn",
-      error
-    );
-  }
-}
-
-/**
- * Derive encryption key from credential ID (fallback)
- * @deprecated Use deriveEncryptionKeyFromWebAuthn
- */
-export async function deriveEncryptionKey(
-  credentialId: string,
-  publicKey?: string
-): Promise<CryptoKey> {
-  try {
-    const keyMaterial = publicKey
-      ? `w3pk-v2:${credentialId}:${publicKey}`
-      : `w3pk-v2:${credentialId}`;
-
-    const keyMaterialHash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(keyMaterial)
-    );
-
-    const importedKey = await crypto.subtle.importKey(
-      "raw",
-      keyMaterialHash,
-      { name: "PBKDF2" },
-      false,
-      ["deriveKey"]
-    );
-
-    const salt = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode("w3pk-salt-v2")
-    );
-
-    return crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: new Uint8Array(salt),
-        iterations: 210000,
-        hash: "SHA-256",
-      },
-      importedKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt", "decrypt"]
-    );
-  } catch (error) {
-    throw new CryptoError("Failed to derive encryption key", error);
   }
 }
 

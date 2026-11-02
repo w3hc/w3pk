@@ -10,7 +10,7 @@ import {
   deriveWalletFromMnemonic,
 } from "../src/wallet/generate";
 import {
-  deriveEncryptionKeyFromWebAuthn,
+  deriveWalletKey,
   encryptData,
   decryptData,
 } from "../src/wallet/crypto";
@@ -67,14 +67,12 @@ async function runTests() {
     logDetail(`Index 1: ${derived1.address}`);
   });
 
-  // Test 4: Encryption/Decryption with WebAuthn-Based Keys
+  // Test 4: Encryption/Decryption with the PRF-derived wallet key
   await runTest("Data Encryption/Decryption", async () => {
     const testData = "secret mnemonic phrase here";
-    const credentialId = "test-credential-id";
-    const publicKey = "test-public-key";
+    const prfOutput = crypto.getRandomValues(new Uint8Array(32));
 
-    // Derive key from WebAuthn credential metadata (secure method)
-    const key = await deriveEncryptionKeyFromWebAuthn(credentialId, publicKey);
+    const key = await deriveWalletKey(prfOutput);
     const encrypted = await encryptData(testData, key);
     const decrypted = await decryptData(encrypted, key);
 
@@ -82,8 +80,7 @@ async function runTests() {
     passTest("Encryption/decryption successful");
     logDetail(`Original length: ${testData.length}`);
     logDetail(`Encrypted length: ${encrypted.length}`);
-    logDetail("Security: Key derived from WebAuthn credential");
-    logDetail("Method: Authentication-gated encryption");
+    logDetail("Security: Key derived from the passkey's PRF output");
   });
 
   // Test 5: Encrypted Credential Storage (v0.7.5 fix)

@@ -10,38 +10,38 @@ w3pk provides **multiple layers of security** to protect user wallets:
 2. **Application isolation** - Apps cannot access master mnemonic through the SDK API
 3. **Origin-specific derivation** - Each website gets unique isolated addresses
 4. **Mode-based access control** - STANDARD/STRICT modes are view-only, YOLO mode provides full access
-5. **Encrypted storage** - AES-256-GCM at rest, under a key derived from *public* credential metadata (see the honest boundary below)
+5. **Encrypted storage** - AES-256-GCM at rest, under a key derived from the passkey's WebAuthn PRF output, which the authenticator releases only on a user-verified assertion
 6. **Secure sessions** - In-memory and optional persistent sessions (disabled in STRICT mode)
 
-> **Before you rely on any of this for a threat model, read [At-Rest Encryption: What It Protects, and What It Doesn't](#at-rest-encryption-what-it-protects-and-what-it-doesnt) immediately below.** The biometric prompt gates the *SDK*, not the *ciphertext*: an attacker who can read this origin's browser storage can decrypt the seed offline without any prompt. The at-rest encryption is not a defense against that. This is a deliberate design; the section explains exactly what is and isn't protected.
+> **Before you rely on any of this for a threat model, read [At-Rest Encryption: What It Protects, and What It Doesn't](#at-rest-encryption-what-it-protects-and-what-it-doesnt) immediately below.** Since [#179](https://github.com/w3hc/w3pk/issues/179), the wallet on disk can't be decrypted from storage alone: the key needs the passkey. What is still exposed is the live session, and a silent "Remember Me" session whose key is stored.
 
 ## At-Rest Encryption: What It Protects, and What It Doesn't
 
-The short version: **treat the encrypted wallet on disk as decryptable by anyone who can read this origin's browser storage.** The real security boundaries are WebAuthn's origin binding, your application's code integrity, and device security — not the at-rest ciphertext.
+The short version: **the wallet on disk can only be decrypted with the passkey.** An attacker who reads this origin's browser storage gets ciphertext and no key. The real exposures are the live session, a silent "Remember Me" session (its key is stored), and code running as your origin.
 
-### How the at-rest key is derived (and why that matters)
+### How the at-rest key is derived
 
-The AES-256-GCM key that encrypts the wallet mnemonic is derived from **public credential metadata**, not from a secret held by the authenticator:
+The AES-256-GCM key that encrypts the wallet mnemonic is derived from the **WebAuthn PRF extension output**, a per-credential secret held by the authenticator:
 
 ```
-key = PBKDF2( SHA-256("w3pk-v4:" + credentialId + ":" + publicKey),
-              salt = SHA-256("w3pk-salt-v4"),   // fixed constant, present in the source
-              210_000 iterations, SHA-256 )
+prfOutput = HMAC(credential secret, SHA-256("WebAuthn PRF" || 0x00 || "w3pk-prf-input-v1"))
+key       = HKDF-SHA256(prfOutput, salt = 0^32, info = "w3pk-prf-wallet-key-v1")
 ```
 
-Every input to that key lives in the browser profile:
+- The authenticator releases `prfOutput` only during a **user-verified** (biometric/PIN) assertion. Nothing stored on the device can recompute it.
+- The input is fixed, so the output, and the key, are the same at every login with the passkey.
+- The persistent-session key comes from the same PRF output under another HKDF `info`, so neither key reveals the other.
+- The key is a non-extractable `CryptoKey`, never stored.
 
-- `credentialId` — stored next to the ciphertext in **localStorage**
-- `publicKey` — stored in **plaintext in localStorage** (it's needed for key derivation)
-- `salt` — a **constant string** in the open-source code
+A malicious browser extension, a one-shot XSS that exfiltrates storage, a disk image or a profile backup gets `credentialId`, `publicKey` and the ciphertext, none of which yields the key. Before [#179](https://github.com/w3hc/w3pk/issues/179) the key was derived from `credentialId` and `publicKey` alone, and such an attacker could decrypt the seed offline.
 
-So an attacker who can read this origin's localStorage — a malicious browser extension, a one-shot XSS that exfiltrates storage, a disk image of an unlocked device, or a Time Machine / cloud backup of the browser profile — can recompute the key and decrypt the seed **offline, with no biometric/PIN prompt and without ever calling the SDK.** The prompt gates SDK control flow (a UX and anti-casual-misuse boundary), not the cryptography at rest.
+**No PRF support** (older authenticators, some browser/OS combinations, unverified assertions with `userVerification: 'preferred'`): the wallet is **not stored on the device**. It lives in memory for the session and comes back from a backup on the next visit. There is deliberately no weaker fallback.
 
-**What at-rest encryption does buy you:** protection against a wallet record that leaks *in isolation* (e.g. only the `w3pk_wallet_<address>` entry, without the credential record's public key) and against casual inspection. It is **not** a defense against read access to the full browser profile. The [Threat Model](#threat-model) section has the per-scenario matrix.
+**Wallets stored before #179** are under the old key. `login()` re-encrypts one from a PRF persistent session when one exists; otherwise it throws `WalletMissingError` and the wallet is restored from a backup.
 
 ### "Remember Me" (persistent sessions): PRF-keyed, renewed at every real login
 
-`persistentSession.enabled: true` stores the encrypted mnemonic in localStorage so the user isn't prompted on every page refresh. Unlike wallet storage, the persistent-session blob is **not** encrypted under a public-data-derived key. It is encrypted under a key derived (HKDF-SHA256) from the **WebAuthn PRF extension output** — a per-credential secret the authenticator releases only during a user-verified (biometric/PIN) assertion. Nothing stored on disk can recompute it. Every real login re-evaluates the PRF (with a fixed input, so the output is deterministic per credential) and re-keys the blob; the session expiry *is* the renewal boundary.
+`persistentSession.enabled: true` stores the encrypted mnemonic in localStorage so the user isn't prompted on every page refresh. Like wallet storage, the persistent-session blob is encrypted under a key derived (HKDF-SHA256) from the **WebAuthn PRF extension output** — a per-credential secret the authenticator releases only during a user-verified (biometric/PIN) assertion. Nothing stored on disk can recompute it. Every real login re-evaluates the PRF (with a fixed input, so the output is deterministic per credential) and re-keys the blob; the session expiry *is* the renewal boundary.
 
 The at-rest guarantee then depends on `requireReauth`:
 
@@ -395,18 +395,17 @@ console.assert(
 
 1. **Cross-origin / cross-site access** - Another origin cannot read this origin's storage or use its passkey (browser-enforced)
 2. **Phishing** - Passkey is bound to the exact hostname; a look-alike domain cannot use it
-3. **Partial storage leak** - A wallet blob leaked *without* the localStorage public key is not directly decryptable
-4. **Remote network attacks** - No secret is transmitted; decryption needs local file access
+3. **Browser-storage read access** - The stored wallet's key needs the passkey's PRF output; storage alone doesn't decrypt it (except a silent "Remember Me" session, whose key is stored)
+4. **Remote network attacks** - No secret is transmitted; decryption needs the authenticator
 5. **Signature replay** - Fresh WebAuthn challenge each time
 
 ### ⚠️ NOT Protected Against
 
-1. **Full browser-profile read access** - An attacker who can read this origin's localStorage derives the key and decrypts the seed offline, with no prompt (see [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt))
-2. **Malicious extension / XSS exfil / disk image / profile backup** - All are forms of the above storage-read attack
-3. **Compromised origin code** - XSS, a malicious dependency, or a compromised CDN runs *as* your origin and can use an active or persistent session
-4. **Physical coercion** - Forcing the user to authenticate
-5. **Compromised authenticator** - If the hardware is backdoored
-6. **Unlocked-device / active-session theft** - Wallet reachable while a session is live
+1. **Silent "Remember Me" sessions** - With `requireReauth: false`, the session key is stored next to the blob, so storage read access decrypts it (see [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt))
+2. **Compromised origin code** - XSS, a malicious dependency, or a compromised CDN runs *as* your origin and can use an active or persistent session
+3. **Physical coercion** - Forcing the user to authenticate
+4. **Compromised authenticator** - If the hardware is backdoored
+5. **Unlocked-device / active-session theft** - Wallet reachable while a session is live
 
 ## Threat Model
 
@@ -433,45 +432,37 @@ Understanding w3pk's security boundaries is critical for proper deployment. The 
 - User must verify domain in prompt (many users don't)
 - Doesn't protect against session hijacking after authentication
 
-#### 2. Deterministic Encryption (Strong Protection) ⚠️
+#### 2. PRF-Keyed Encryption (Strong Protection) ✅
 
 **What it protects:**
-- Casual file system access (encrypted at rest)
-- Database theft without credential metadata
-- Quick opportunistic attacks
+- File system and browser-storage access (encrypted at rest)
+- Copied browser profiles, disk images and backups
+- Storage exfiltration by an extension or a one-shot XSS, when no session is live
 
 **How it works:**
 - Wallet encrypted with AES-256-GCM
-- Key derived from credential ID + public key (PBKDF2, 210k iterations)
-- Requires both the credential record and the wallet record from localStorage
+- Key derived (HKDF-SHA256) from the passkey's PRF output, released only on a user-verified assertion
+- Authenticators without PRF keep no wallet on the device
 
 **Limitations:**
-- **Key is deterministic** - same metadata = same key
-- An attacker with read access to localStorage can decrypt offline
-- Does NOT require fresh authentication to derive the key
-- Protection is authentication-gating by SDK, not cryptographic impossibility
+- Doesn't protect the mnemonic while a session holds it in memory
+- A silent "Remember Me" session (`requireReauth: false`) stores its own key; storage read access decrypts that blob
+- An attacker who can make the user authenticate (XSS prompting a login) gets a fresh PRF output
 
 **Honest assessment:**
 ```typescript
-// What an attacker with file access CAN do:
-const key = deriveEncryptionKeyFromWebAuthn(stolenCredentialId, stolenPublicKey)
-const mnemonic = decryptData(stolenEncryptedWallet, key)
-// ✅ SUCCESS - Attacker now has the mnemonic
+// What an attacker with file access CAN'T do:
+const key = deriveWalletKey(???)   // ❌ the PRF output never leaves the authenticator unprompted
+// The stored credentialId and publicKey don't help
 
-// What they CANNOT do (without further attacks):
-await w3pk.login()  // ❌ Requires WebAuthn authentication
-await w3pk.signTransaction(...)  // ❌ Requires WebAuthn authentication
-
-// What they CAN do (outside w3pk):
-// Import mnemonic into MetaMask, Ledger Live, etc.
-// ✅ Full wallet access if they have the mnemonic
+// What they CAN do (with code running in the origin):
+await w3pk.login()  // ⚠️ Prompts the user, who may accept
 ```
 
-**This is why device security is critical:**
+**Device security still matters:**
 - Use device encryption (FileVault, BitLocker)
 - Use strong device passwords
 - Don't leave device unlocked
-- Browser storage is NOT enough protection alone
 
 #### 3. Session Management (Moderate Protection) ⚠️
 
@@ -546,11 +537,11 @@ const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
 
 | Threat | Layer 1 (WebAuthn) | Layer 2 (Encryption) | Layer 3 (Session) | Layer 4 (requireAuth) | Overall |
 |--------|-------------------|---------------------|------------------|----------------------|---------|
-| **File system access** | ✅ Blocks SDK use | ⚠️ Can decrypt offline | N/A | N/A | ⚠️ Mnemonic exposed |
-| **Malware (no session)** | ✅ Blocks SDK | ⚠️ Can decrypt offline | ✅ No cache | N/A | ⚠️ Mnemonic exposed |
-| **Malware (active session)** | ✅ Blocks new auth | ⚠️ Can decrypt offline | ❌ Cache accessible | ❌ Bypassable | ❌ Full access |
-| **XSS (no session)** | ⚠️ Phishable | ⚠️ Can decrypt offline | ✅ No cache | N/A | ⚠️ Needs auth prompt |
-| **XSS (active session)** | ⚠️ Phishable | ⚠️ Can decrypt offline | ❌ Cache accessible | ❌ Bypassable | ❌ Full access |
+| **File system access** | ✅ Blocks SDK use | ✅ Needs the passkey | N/A | N/A | ✅ Protected (⚠️ silent "Remember Me") |
+| **Malware (no session)** | ✅ Blocks SDK | ✅ Needs the passkey | ✅ No cache | N/A | ✅ Protected (⚠️ silent "Remember Me") |
+| **Malware (active session)** | ✅ Blocks new auth | ✅ Needs the passkey | ❌ Cache accessible | ❌ Bypassable | ❌ Full access |
+| **XSS (no session)** | ⚠️ Phishable | ✅ Needs the passkey | ✅ No cache | N/A | ⚠️ Needs auth prompt |
+| **XSS (active session)** | ⚠️ Phishable | ✅ Needs the passkey | ❌ Cache accessible | ❌ Bypassable | ❌ Full access |
 | **Phishing attack** | ✅ Domain isolation | ✅ Different RP ID | N/A | N/A | ✅ Protected |
 | **Database theft only** | ✅ No metadata | ✅ Need metadata | N/A | N/A | ✅ Protected |
 | **Credential theft only** | ✅ Need encrypted wallet | ✅ No wallet | N/A | N/A | ✅ Protected |
@@ -564,12 +555,12 @@ const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
 **What w3pk IS:**
 - ✅ Protection against remote attacks without device access
 - ✅ Protection against credential theft from other domains (phishing)
-- ✅ Protection against accidental leaks (encryption at rest)
+- ✅ Protection against storage theft (encryption at rest, keyed by the passkey)
 - ✅ Protection against keyloggers (no password needed)
 - ✅ Better than password-based wallets for online threats
 
 **What w3pk IS NOT:**
-- ❌ Protection against offline mnemonic extraction (if attacker has storage files)
+- ❌ Protection against storage theft with a silent "Remember Me" session (its key is stored)
 - ❌ Protection against code injection with active session (XSS during session)
 - ❌ Protection against physical device compromise (need device encryption + strong password)
 - ❌ Immune to social engineering (user can be tricked into authenticating)
@@ -579,7 +570,7 @@ const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
 | Security Model | w3pk | MetaMask | Hardware Wallet |
 |---------------|------|----------|-----------------|
 | Remote attack protection | ✅ Strong | ⚠️ Password-dependent | ✅ Strong |
-| Local file access | ⚠️ Can decrypt | ⚠️ Can decrypt | ✅ Cannot decrypt |
+| Local file access | ✅ Cannot decrypt (PRF) | ⚠️ Password-dependent | ✅ Cannot decrypt |
 | Active session compromise | ❌ Vulnerable | ❌ Vulnerable | ⚠️ Per-tx approval |
 | Physical theft (locked) | ✅ Protected | ⚠️ Password-dependent | ✅ Protected |
 | User experience | ✅ Biometric | ⚠️ Password typing | ⚠️ Hardware required |
@@ -1169,7 +1160,19 @@ Signature:   ${authorization.r.substring(0, 10)}...
 
 This section tracks major security-related changes to w3pk's implementation.
 
-### v0.7.0+ (Current)
+### Unreleased - PRF-keyed wallet storage ([#179](https://github.com/w3hc/w3pk/issues/179))
+
+**Impact:** Fixes offline decryption of the wallet stored on the device
+
+**What changed:**
+- The stored wallet is encrypted under `deriveWalletKey(prfOutput)`: HKDF-SHA256 of the passkey's PRF output, info `w3pk-prf-wallet-key-v1`
+- `deriveEncryptionKeyFromWebAuthn()` (key from `credentialId` and `publicKey`) and the deprecated `deriveEncryptionKey()` are removed
+- Authenticators without PRF keep no wallet on the device: in-memory sessions only
+- Restore flows evaluate the wallet's PRF input in the assertion they already run
+- `VaultSync.createSyncPackage()` / `restoreFromSync()` and the `SyncVault` type are removed: they used the same weak key
+- No compatibility layer: an old record is re-encrypted from a PRF persistent session at login, or restored from a backup
+
+### v0.7.0+
 
 #### PRF-based Encryption (Optional Enhancement)
 **Impact:** Security improvement when available
@@ -1199,8 +1202,8 @@ const key = await deriveEncryptionKeyAuto(
 
 **Status:**
 - ✅ PRF support added for Chrome 108+, Safari 17+
-- ⚠️ **Legacy fallback active**: Uses credentialId/publicKey when PRF unavailable
-- ⚠️ **Known vulnerability**: Legacy encryption vulnerable to offline decryption attacks
+- ⚠️ **Legacy fallback active**: Uses credentialId/publicKey when PRF unavailable (removed in [#179](https://github.com/w3hc/w3pk/issues/179))
+- ⚠️ **Known vulnerability**: Legacy encryption vulnerable to offline decryption attacks (fixed in [#179](https://github.com/w3hc/w3pk/issues/179))
 - 🔴 **Firefox not supported**: Firefox does not implement PRF extension yet
 - 📖 See [BROWSER_COMPATIBILITY.md](BROWSER_COMPATIBILITY.md) for details
 
@@ -1240,12 +1243,11 @@ const w3pk = createWeb3Passkey({
 
 ### Backup Encryption Standards
 
-#### Current: PBKDF2 for the wallet, Argon2id for backup files
+#### Current: WebAuthn PRF for the wallet, Argon2id for backup files
 
-**Wallet encryption:** PBKDF2, 210,000 iterations (OWASP 2023)
-- Primary threat: Online attacks (SDK authentication required)
-- PBKDF2 slows down brute force but not primary security boundary
-- 210k iterations balance security and performance
+**Wallet encryption:** HKDF-SHA256 of the passkey's PRF output
+- The PRF output is 32 bytes of full-entropy key material held by the authenticator, so there is nothing to stretch
+- Storage alone can't decrypt the wallet
 
 **Backup file encryption (BackupFile v3):** Argon2id, m=19 MiB, t=2, p=1
 - Primary threat: Offline attacks (backups may be on USB/cloud)
@@ -1253,7 +1255,7 @@ const w3pk = createWeb3Passkey({
 - OWASP's first Argon2id recommendation. It takes about 0.4 s in pure JavaScript (`@noble/hashes`, Node 24, Apple Silicon), so the offline extractor can run it in a browser
 
 **Why different?**
-Different threat models require different protections. Backups may be stored offline and face brute force attacks, while wallets are protected by device security and SDK authentication.
+Different threat models require different protections. Password backups may be stored offline and face brute force attacks, while the wallet on the device is bound to the passkey.
 
 ### Password Validation Enhancement
 
@@ -1280,17 +1282,7 @@ if (!isStrongPassword(userPassword)) {
 
 #### Current Limitations
 
-1. **Deterministic Encryption**
-   - Current: Key derived deterministically from credential metadata
-   - Limitation: Attacker with storage access can decrypt offline
-   - Mitigation: SDK authentication-gating + device encryption
-
-2. **Fixed Salt**
-   - Current: Uses fixed salt `"w3pk-salt-v4"`
-   - Limitation: Not unique per user (though credential ID provides uniqueness)
-   - Trade-off: Simplifies implementation, doesn't significantly weaken security
-
-3. **Session Security**
+1. **Session Security**
    - Current: Mnemonic cached in JavaScript memory during sessions
    - Limitation: XSS during session can access wallet
    - Mitigation: Short sessions, XSS prevention (CSP)
@@ -1302,18 +1294,7 @@ if (!isStrongPassword(userPassword)) {
    - Would isolate mnemonic from page JavaScript context
    - Challenge: WebAuthn API not available in Workers (requires postMessage)
 
-2. **Per-User Salt Generation**
-   - Consider deriving unique salt from credential metadata
-   - Would eliminate fixed salt
-   - Trade-off: Adds complexity, marginal security benefit
-
-3. **Signature-Based Encryption Option**
-   - Consider optional mode that requires fresh signature per operation
-   - Would eliminate deterministic key derivation
-   - Trade-off: No sessions, biometric prompt every operation
-   - Best for ultra-high-security applications
-
-4. **Rate Limiting**
+2. **Rate Limiting**
    - Add built-in rate limiting for authentication attempts
    - Track failed attempts, exponential backoff
    - Protection against brute force via authentication
@@ -1351,84 +1332,53 @@ The acknowledgment timeline above exists to support that: a fast, accurate advis
 
 ### 1. Encryption Key Derivation
 
-**The encryption key is derived deterministically from WebAuthn credential metadata:**
+**The encryption key is derived from the passkey's WebAuthn PRF output:**
 
 ```typescript
-// During registration, a WebAuthn credential is created
+// Registration asks the authenticator to evaluate the PRF at a fixed input
 const credential = await navigator.credentials.create({
   publicKey: {
-    challenge: crypto.getRandomValues(new Uint8Array(32)),
-    rpId: window.location.hostname,
-    userVerification: "required" // Force biometric/PIN
+    // ...
+    extensions: { prf: { eval: { first: PRF_INPUT } } }
   }
 })
 
-// Store credential metadata (public information)
-const credentialId = credential.id
-const publicKey = credential.response.getPublicKey()
+// Platforms that don't evaluate the PRF at creation get one assertion instead
+const prfOutput =
+  credential.getClientExtensionResults().prf?.results?.first ??
+  (await evaluatePrf(PRF_INPUT, credential.id)).output
 
-// Derive encryption key from credential metadata (deterministic)
-const key = await deriveEncryptionKeyFromWebAuthn(
-  credentialId,  // Unique identifier for this credential
-  publicKey      // Public key (safe to store)
-)
-
-// Encrypt wallet with derived key
+// HKDF-SHA256, info "w3pk-prf-wallet-key-v1" → non-extractable AES-256-GCM key
+const key = await deriveWalletKey(prfOutput)
 const encryptedWallet = await encryptData(mnemonic, key)
 ```
 
-**How the key derivation works:**
+At `login()`, the same assertion that authenticates evaluates the PRF at the same input, so it releases the same output and the same key.
 
-```typescript
-// PBKDF2 key derivation
-const keyMaterial = credentialId + publicKey  // Concatenate metadata
-const salt = "w3pk-salt-v4"                   // Fixed salt (version identifier)
-const iterations = 210000                      // OWASP 2023 recommendation
+**Important security properties:**
 
-const encryptionKey = await crypto.subtle.deriveKey(
-  {
-    name: "PBKDF2",
-    salt: new TextEncoder().encode(salt),
-    iterations: iterations,
-    hash: "SHA-256"
-  },
-  keyMaterial,
-  { name: "AES-GCM", length: 256 },
-  false,
-  ["encrypt", "decrypt"]
-)
-```
+- The key is **deterministic per passkey** - the fixed input gives the same PRF output at every assertion.
+- Its only input is the PRF output, which the authenticator releases **only during a user-verified assertion**. `credentialId` and `publicKey` in localStorage don't help derive it.
+- The prompt is now a **cryptographic** boundary for the wallet at rest, not only an SDK control-flow gate.
+- Without PRF support, the wallet is never stored on the device.
 
-**Important security properties (read honestly):**
-
-- The encryption key is **deterministic** - the same credential metadata always produces the same key.
-- Both key inputs live in the browser profile: `credentialId` next to the ciphertext and `publicKey` in plaintext, both in localStorage, and the salt is a constant in the source. **An attacker who can read this origin's storage can derive the key and decrypt the seed offline.**
-- The biometric/PIN prompt is an **SDK control-flow gate**, not a cryptographic barrier. It stops someone from driving *your SDK* without authenticating; it does **not** stop someone who bypasses the SDK and decrypts the files directly.
-- This is **not** signature-based or PRF-based encryption — the key is not bound to any authenticator-held secret.
-
-**What an attacker with storage read access can actually do:**
+**What an attacker with storage read access can do:**
 
 ```typescript
 // Attacker has copied this origin's localStorage
-const stolenCredentialId  = "..."   // from w3pk_wallet_<address> (next to the ciphertext)
-const stolenPublicKey     = "..."   // from w3pk_credential_<id> (plaintext)
+const stolenCredentialId  = "..."   // from w3pk_wallet_<address>
+const stolenPublicKey     = "..."   // from w3pk_credential_<id>
 const stolenEncryptedSeed = "..."   // from w3pk_wallet_<address>
 
-// Recompute the key from public metadata — no authenticator, no prompt
-const key = deriveEncryptionKeyFromWebAuthn(stolenCredentialId, stolenPublicKey)
-const mnemonic = decryptData(stolenEncryptedSeed, key)   // ✅ seed recovered offline
-
-// The SDK's login() gate is irrelevant — they already have the mnemonic and
-// can import it into MetaMask, Ledger Live, or any other wallet.
+// No key can be derived from these: the PRF output stays in the authenticator
+// ❌ seed not recoverable offline
 ```
 
-The only thing PBKDF2's 210k iterations add here is a mild slowdown; since the inputs are known exactly (not guessed), there is nothing to brute-force. **Treat the encrypted-at-rest seed as recoverable by anyone with read access to the browser profile for your origin.** The genuine boundaries are documented in [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt) and the [Threat Model](#threat-model).
-
-**Trade-off: usability.** After a successful `login()`, the SDK caches the decrypted mnemonic in memory (and, if persistent sessions are enabled, on disk) so operations don't re-prompt. That convenience is the reason **wallet storage** accepts the at-rest weakness above rather than binding the key to a per-operation authenticator secret. **Persistent sessions do not share this weakness**: since v0.10.2 their blob is encrypted under a key derived from the WebAuthn PRF extension — an authenticator-held secret that cannot be recomputed from stored data (see [At-Rest Encryption → "Remember Me"](#at-rest-encryption-what-it-protects-and-what-it-doesnt)).
+**Trade-off: usability.** After a successful `login()`, the SDK caches the decrypted mnemonic in memory (and, if persistent sessions are enabled, in a PRF-keyed blob on disk) so operations don't re-prompt. A silent "Remember Me" session (`requireReauth: false`) stores its key next to the blob, which brings back storage-read exposure for that blob (see [At-Rest Encryption → "Remember Me"](#at-rest-encryption-what-it-protects-and-what-it-doesnt)).
 
 ### 2. What's Stored
 
-> ⚠️ The values below are individually "public," but **together they are sufficient to decrypt the wallet** (see the key derivation above). "No secrets stored" does **not** mean "safe to leak the whole profile."
+> None of the values below decrypts the wallet: its key needs the passkey's PRF output (see the key derivation above). A silent "Remember Me" session is the exception: its stored key decrypts its own blob.
 
 #### LocalStorage (Credentials)
 ```json
@@ -1613,9 +1563,9 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │  │   "createdAt": 1234567890              // PUBLIC        │ │
 │  │ }                                                        │ │
 │  │                                                          │ │
-│  │ ⚠️  Encrypted mnemonic requires decryption key          │ │
-│  │ ⚠️  Key can be derived from localStorage metadata       │ │
-│  │ ⚠️  Both records needed for offline decryption          │ │
+│  │ ✅  Encrypted mnemonic requires decryption key          │ │
+│  │ ✅  Key needs the passkey's PRF output                  │ │
+│  │ ✅  Nothing in storage derives it                       │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
@@ -1723,8 +1673,8 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 4. Secure Enclave generates key pair
 5. Browser returns: credentialId, publicKey
 6. SDK generates mnemonic
-7. SDK derives encryption key from credentialId + publicKey
-8. SDK encrypts mnemonic with AES-256-GCM
+7. SDK derives encryption key from the PRF output (creation, or one assertion)
+8. SDK encrypts mnemonic with AES-256-GCM (no PRF: nothing is stored)
 9. SDK stores:
    - localStorage: credentialId, publicKey, address (plaintext)
    - localStorage: encryptedMnemonic (ciphertext)
@@ -1739,7 +1689,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 4. Secure Enclave signs challenge with privateKey
 5. Browser returns: signature
 6. SDK verifies signature matches publicKey
-7. SDK derives encryption key from credentialId + publicKey
+7. SDK derives encryption key from the assertion's PRF output
 8. SDK decrypts wallet from localStorage
 9. SDK stores plaintext mnemonic in memory (session)
 10. Session expires after configured duration
@@ -1832,7 +1782,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 
 ### 4. Attack Scenario Analysis
 
-#### ⚠️ Attack: Copy files and decrypt offline (Partial Success)
+#### ❌ Attack: Copy files and decrypt offline
 
 ```javascript
 // Attacker steals browser storage
@@ -1842,34 +1792,16 @@ const stolen = {
   publicKey: "MFkw...EwYH...AQAB"
 }
 
-// Derive the encryption key (deterministic)
-const key = deriveEncryptionKeyFromWebAuthn(credentialId, publicKey)
-//          ✅ SUCCESS - Key derivation works offline
-
-// Decrypt the wallet
-const mnemonic = await decryptData(stolen.encryptedMnemonic, key)
-//               ✅ SUCCESS - Wallet is now decrypted
+// The key is HKDF(PRF output): the PRF output never left the authenticator
+const key = deriveWalletKey(???)
+//          ❌ BLOCKED - nothing stolen derives the key
 ```
 
-**Result:** ⚠️ **Attack partially succeeds** - Attacker can decrypt the wallet offline
+**Result:** ❌ **Attack fails** - the wallet at rest is bound to the passkey
 
-**However, to actually USE the wallet via w3pk SDK:**
+**Exception:** a silent "Remember Me" session (`requireReauth: false`) stores its key next to its blob. Copying storage then decrypts that blob, for as long as the session lasts.
 
-```javascript
-// Attacker tries to use the stolen mnemonic via SDK
-const w3pk = new Web3Passkey()
-await w3pk.login()
-//         ^^^^^^
-//         ❌ BLOCKED: Requires WebAuthn authentication
-//         Browser shows authentication prompt
-//         Attacker cannot provide user's biometric/PIN
-```
-
-**Key point:** The encryption protects data at rest, but the real security boundary is **SDK-enforced authentication**. An attacker who steals files can decrypt the mnemonic offline, but:
-1. They still need to authenticate to use the SDK
-2. Or they could import the mnemonic into another wallet (which is why users should protect their devices)
-
-**Mitigation:** Use device encryption (FileVault, BitLocker) and strong device passwords as an additional layer.
+**Mitigation:** Leave `requireReauth: true` (the default), and use device encryption (FileVault, BitLocker) and strong device passwords as an additional layer.
 
 #### ❌ Attack: JavaScript injection to read wallet
 
@@ -1919,9 +1851,7 @@ const stolenCredentialId = "..."
 const stolenPublicKey = "..."
 const stolenEncryptedWallet = "..."
 
-// Attacker can derive key and decrypt on their own server
-const key = deriveEncryptionKeyFromWebAuthn(stolenCredentialId, stolenPublicKey)
-const mnemonic = decryptData(stolenEncryptedWallet, key)
+// Attacker can't derive the key: it needs the passkey's PRF output
 
 // BUT: To use via WebAuthn, attacker tries to authenticate on examp1e.com
 await navigator.credentials.get({
@@ -1946,12 +1876,11 @@ await navigator.credentials.get({
 ### Wallet Encryption (At Rest)
 
 **Key Derivation:**
-- **Algorithm:** PBKDF2-SHA256
-- **Iterations:** 210,000 (OWASP 2023 recommendation)
-- **Hash:** SHA-256
-- **Salt:** Fixed value `"w3pk-salt-v4"` (version identifier)
-- **Key Material:** Credential ID (32+ bytes) + Public Key (65-91 bytes)
-- **Output:** 256-bit AES key
+- **Algorithm:** HKDF-SHA256
+- **Key Material:** WebAuthn PRF output at the fixed input `w3pk-prf-input-v1` (32 bytes, held by the authenticator)
+- **Salt:** 32 zero bytes (the key material is uniformly random, so no salt is needed)
+- **Info:** `w3pk-prf-wallet-key-v1`
+- **Output:** 256-bit AES key, non-extractable
 
 **Encryption:**
 - **Algorithm:** AES-256-GCM
@@ -1961,16 +1890,8 @@ await navigator.credentials.get({
 - **Additional Authenticated Data:** none — integrity comes from the GCM authentication tag above; no AAD is bound to the ciphertext
 
 **Entropy Analysis:**
-- Credential IDs are cryptographically random (256+ bits of entropy)
-- Public keys are derived from private keys (256 bits of entropy)
-- Combined key material: ~512 bits of entropy
-- PBKDF2 with 210k iterations provides protection against brute force
-
-**Note on Fixed Salt:**
-The salt is a fixed constant (`"w3pk-salt-v4"`) rather than random per user, and it is present in the open-source code. Be clear about what this does and doesn't matter for:
-- It provides **no** per-user precomputation resistance — the same code path and salt are used for everyone. A random per-ciphertext salt (stored alongside the ciphertext) would be the correct construction.
-- In this design it changes little in practice, because the key inputs (`credentialId` + `publicKey`) are **not secret** — an attacker with storage access has them exactly, so there is nothing to precompute or brute-force in the first place. The fixed salt is a symptom of the same root issue: the key is derived from public data.
-- This is **not** adequate if the key material were ever a low-entropy secret (e.g. a user password); such a KDF must use a random per-ciphertext salt.
+- The PRF output is HMAC-SHA256 under a credential secret: 256 bits, never exposed outside a user-verified assertion
+- No stretching: there is no low-entropy secret to brute-force
 
 ### Backup Encryption (User-Controlled)
 
@@ -3172,7 +3093,7 @@ w3pk implements a **three-layer backup and recovery system** that balances secur
 
 **Security properties:**
 - ✅ **Encrypted in transit** - Platform handles E2E encryption
-- ✅ **Hardware-backed *passkey*** - The WebAuthn credential's private key is protected by the Secure Enclave/TPM. Note this hardware backing protects the *passkey (authentication/signing)*, **not** the wallet's at-rest encryption key — that key is derived from public metadata (see [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt)). The seed is not hardware-protected at rest.
+- ✅ **Hardware-backed *passkey*** - The WebAuthn credential's private key is protected by the Secure Enclave/TPM. The wallet's at-rest key derives from the passkey's PRF output, so the seed at rest is bound to the passkey too (see [At-Rest Encryption](#at-rest-encryption-what-it-protects-and-what-it-doesnt)).
 - ✅ **Automatic** - No user action required
 - ⚠️ **Platform trust** - Relies on Apple/Google/Microsoft security
 - ⚠️ **Ecosystem lock-in** - Cannot cross platforms (Apple → Android)
@@ -3601,22 +3522,22 @@ console.log('Write this down:', mnemonic)
 | Password required | ❌ No | ✅ Yes | ❌ No (PIN on device) |
 | Biometric auth | ✅ Yes | ❌ No | ❌ No |
 | Seed phrase backup | ✅ Required | ✅ Required | ✅ Required |
-| File access = theft? | ⚠️ **Partial*** | ⚠️ **Partial*** | ❌ No |
+| File access = theft? | ❌ **No*** | ⚠️ **Partial*** | ❌ No |
 | Keylogger risk | ❌ **No** | ✅ **Yes** | ❌ No |
 | XSS risk (active session) | ⚠️ **Yes** | ⚠️ **Yes** | ⚠️ Limited (per-tx) |
 | Remote attack protection | ✅ Strong | ⚠️ Password-dependent | ✅ Strong |
-| Offline brute force | ⚠️ Possible† | ⚠️ Possible† | ❌ Not possible |
+| Offline brute force | ❌ Not possible† | ⚠️ Possible† | ❌ Not possible |
 | Hardware required | ❌ No | ❌ No | ✅ Yes |
 | Cost | Free | Free | $50-200 |
 | Best for | Convenience + Security | General use | High-value holdings |
 
 **\*File access = theft?**
-- **w3pk:** Can decrypt mnemonic with localStorage. Requires device encryption for full protection.
+- **w3pk:** The stored wallet's key needs the passkey's PRF output; localStorage alone doesn't decrypt it. A silent "Remember Me" session is the exception while it lasts.
 - **MetaMask:** Can decrypt vault with password. Weak passwords are vulnerable to brute force.
 - **Hardware Wallet:** Private keys never leave device. File access doesn't help attacker.
 
 **†Offline brute force:**
-- **w3pk:** Attacker needs actual credential metadata (32+ byte random ID). Not guessable, but if stolen with encrypted wallet, can decrypt offline.
+- **w3pk:** The key is HKDF of a 256-bit PRF output held by the authenticator. There is no password or stored secret to brute-force.
 - **MetaMask:** Attacker needs password. Weak passwords can be brute-forced. Strong passwords with vault encryption are resistant.
 - **Hardware Wallet:** Private keys in secure element. Cannot be extracted even with physical access (except advanced hardware attacks).
 
@@ -3651,11 +3572,11 @@ w3pk's security model combines **WebAuthn authentication** with **deterministic 
    - No keylogger risk (biometric, not password)
    - Better than password-based wallets for online threats
 
-2. **Encryption At Rest (with caveats)**
+2. **Encryption At Rest**
    - Wallet encrypted with AES-256-GCM
-   - Key derived from credential metadata (deterministic)
-   - **Important:** An attacker with file system access CAN decrypt offline
-   - Real protection comes from SDK authentication-gating, not cryptographic impossibility
+   - Key derived from the passkey's PRF output (deterministic per passkey)
+   - An attacker with file system access can't decrypt it without the passkey
+   - Exception: a silent "Remember Me" session stores its own key
 
 3. **Defense in Depth Required**
    - Use device encryption (FileVault, BitLocker, etc.)

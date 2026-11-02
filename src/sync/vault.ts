@@ -1,110 +1,11 @@
 /**
- * Encrypted Sync Vault
- * Manages encrypted wallet data for cross-device sync
+ * Sync Vault
+ * Educational guide to cross-device sync
  */
 
-import type { SyncVault, SyncResult, SyncStep } from './types';
-import { getDeviceFingerprint } from '../backup/encryption';
+import type { SyncResult, SyncStep } from './types';
 
 export class VaultSync {
-  /**
-   * Create encrypted sync package
-   * Uses passkey + device fingerprint for encryption
-   */
-  async createSyncPackage(
-    mnemonic: string,
-    credentialId: string,
-    publicKey: string
-  ): Promise<SyncVault> {
-    // Get device fingerprint
-    const deviceFingerprint = await getDeviceFingerprint();
-
-    // Encrypt mnemonic (using same method as wallet storage)
-    const { deriveEncryptionKeyFromWebAuthn, encryptData } = await import(
-      '../wallet/crypto'
-    );
-
-    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
-      credentialId,
-      publicKey
-    );
-
-    const encryptedData = await encryptData(mnemonic, encryptionKey);
-
-    // Detect sync method
-    const syncMethod = this.detectSyncMethod();
-
-    return {
-      id: crypto.randomUUID(),
-      encryptedData,
-      deviceFingerprints: [deviceFingerprint],
-      syncMethod,
-      version: 1,
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  /**
-   * Detect available sync method
-   */
-  private detectSyncMethod():
-    | 'icloud'
-    | 'google'
-    | 'microsoft'
-    | 'custom' {
-    const userAgent = navigator.userAgent.toLowerCase();
-
-    if (
-      userAgent.includes('mac') ||
-      userAgent.includes('iphone') ||
-      userAgent.includes('ipad')
-    ) {
-      return 'icloud';
-    }
-
-    if (userAgent.includes('android') || userAgent.includes('chrome')) {
-      return 'google';
-    }
-
-    if (userAgent.includes('windows')) {
-      return 'microsoft';
-    }
-
-    return 'custom';
-  }
-
-  /**
-   * Restore from sync vault
-   * Interactive guide for multi-device setup
-   */
-  async restoreFromSync(
-    vault: SyncVault,
-    credentialId: string,
-    publicKey: string
-  ): Promise<string> {
-    // Derive decryption key
-    const { deriveEncryptionKeyFromWebAuthn, decryptData } = await import(
-      '../wallet/crypto'
-    );
-
-    const encryptionKey = await deriveEncryptionKeyFromWebAuthn(
-      credentialId,
-      publicKey
-    );
-
-    // Decrypt mnemonic
-    const mnemonic = await decryptData(vault.encryptedData, encryptionKey);
-
-    // Add current device fingerprint
-    const deviceFingerprint = await getDeviceFingerprint();
-    if (!vault.deviceFingerprints.includes(deviceFingerprint)) {
-      vault.deviceFingerprints.push(deviceFingerprint);
-      vault.updatedAt = new Date().toISOString();
-    }
-
-    return mnemonic;
-  }
-
   /**
    * Get setup flow for new device
    * Educational flow with step-by-step instructions
