@@ -3,6 +3,7 @@
  * Tests for EIP-4361 compliant message construction and validation
  */
 
+import assert from "node:assert";
 import {
   generateSiweNonce,
   createSiweMessage,
@@ -21,15 +22,15 @@ async function runTests() {
   {
     const nonce = generateSiweNonce();
 
-    console.assert(nonce.length === 11, "Default nonce should be 11 characters");
-    console.assert(/^[a-zA-Z0-9]+$/.test(nonce), "Nonce should be alphanumeric");
+    assert(nonce.length === 11, "Default nonce should be 11 characters");
+    assert(/^[a-zA-Z0-9]+$/.test(nonce), "Nonce should be alphanumeric");
 
     const nonce20 = generateSiweNonce(20);
-    console.assert(nonce20.length === 20, "Custom length nonce should match");
+    assert(nonce20.length === 20, "Custom length nonce should match");
 
     // Test uniqueness
     const nonce2 = generateSiweNonce();
-    console.assert(nonce !== nonce2, "Nonces should be unique");
+    assert(nonce !== nonce2, "Nonces should be unique");
 
     console.log(`  ✓ Generated nonce: ${nonce}`);
     console.log(`  ✓ Custom length nonce (20): ${nonce20}`);
@@ -51,13 +52,13 @@ async function runTests() {
 
     const message = createSiweMessage(params);
 
-    console.assert(message.includes("example.com wants you to sign in"), "Should include domain");
-    console.assert(message.includes(params.address), "Should include address");
-    console.assert(message.includes("URI: https://example.com/login"), "Should include URI");
-    console.assert(message.includes("Version: 1"), "Should include version");
-    console.assert(message.includes("Chain ID: 1"), "Should include chain ID");
-    console.assert(message.includes(`Nonce: ${params.nonce}`), "Should include nonce");
-    console.assert(message.includes("Issued At: 2021-09-30T16:25:24Z"), "Should include issued at");
+    assert(message.includes("example.com wants you to sign in"), "Should include domain");
+    assert(message.includes(params.address), "Should include address");
+    assert(message.includes("URI: https://example.com/login"), "Should include URI");
+    assert(message.includes("Version: 1"), "Should include version");
+    assert(message.includes("Chain ID: 1"), "Should include chain ID");
+    assert(message.includes(`Nonce: ${params.nonce}`), "Should include nonce");
+    assert(message.includes("Issued At: 2021-09-30T16:25:24Z"), "Should include issued at");
 
     console.log("  ✓ Message includes all required fields");
     console.log("✅ Basic SIWE message creation works");
@@ -86,13 +87,13 @@ async function runTests() {
 
     const message = createSiweMessage(params);
 
-    console.assert(message.includes("Sign in to Example App"), "Should include statement");
-    console.assert(message.includes("Expiration Time: 2024-01-01T13:00:00Z"), "Should include expiration");
-    console.assert(message.includes("Not Before: 2024-01-01T11:55:00Z"), "Should include not-before");
-    console.assert(message.includes("Request ID: req-12345"), "Should include request ID");
-    console.assert(message.includes("Resources:"), "Should include resources header");
-    console.assert(message.includes("- https://example.com/terms"), "Should include resource 1");
-    console.assert(message.includes("- https://example.com/privacy"), "Should include resource 2");
+    assert(message.includes("Sign in to Example App"), "Should include statement");
+    assert(message.includes("Expiration Time: 2024-01-01T13:00:00Z"), "Should include expiration");
+    assert(message.includes("Not Before: 2024-01-01T11:55:00Z"), "Should include not-before");
+    assert(message.includes("Request ID: req-12345"), "Should include request ID");
+    assert(message.includes("Resources:"), "Should include resources header");
+    assert(message.includes("- https://example.com/terms"), "Should include resource 1");
+    assert(message.includes("- https://example.com/privacy"), "Should include resource 2");
 
     console.log("  ✓ Message includes all optional fields");
     console.log("✅ Full SIWE message creation works");
@@ -117,15 +118,15 @@ async function runTests() {
     const message = createSiweMessage(originalParams);
     const parsed = parseSiweMessage(message);
 
-    console.assert(parsed.domain === originalParams.domain, "Domain should match");
-    console.assert(parsed.address === originalParams.address, "Address should match");
-    console.assert(parsed.statement === originalParams.statement, "Statement should match");
-    console.assert(parsed.uri === originalParams.uri, "URI should match");
-    console.assert(parsed.version === originalParams.version, "Version should match");
-    console.assert(parsed.chainId === originalParams.chainId, "Chain ID should match");
-    console.assert(parsed.nonce === originalParams.nonce, "Nonce should match");
-    console.assert(parsed.issuedAt === originalParams.issuedAt, "Issued at should match");
-    console.assert(parsed.expirationTime === originalParams.expirationTime, "Expiration should match");
+    assert(parsed.domain === originalParams.domain, "Domain should match");
+    assert(parsed.address === originalParams.address, "Address should match");
+    assert(parsed.statement === originalParams.statement, "Statement should match");
+    assert(parsed.uri === originalParams.uri, "URI should match");
+    assert(parsed.version === originalParams.version, "Version should match");
+    assert(parsed.chainId === originalParams.chainId, "Chain ID should match");
+    assert(parsed.nonce === originalParams.nonce, "Nonce should match");
+    assert(parsed.issuedAt === originalParams.issuedAt, "Issued at should match");
+    assert(parsed.expirationTime === originalParams.expirationTime, "Expiration should match");
 
     console.log("  ✓ All fields parsed correctly");
     console.log("✅ SIWE message parsing works");
@@ -152,8 +153,8 @@ async function runTests() {
       checkExpiration: true,
     });
 
-    console.assert(validation.valid === true, "Valid message should pass validation");
-    console.assert(validation.errors.length === 0, "Should have no errors");
+    assert(validation.valid === true, "Valid message should pass validation");
+    assert(validation.errors.length === 0, "Should have no errors");
 
     console.log("  ✓ Valid message passes validation");
     console.log("✅ SIWE message validation works");
@@ -178,8 +179,8 @@ async function runTests() {
       checkExpiration: true,
     });
 
-    console.assert(validation.valid === false, "Expired message should fail validation");
-    console.assert(validation.errors.some(e => e.includes("expired")), "Should have expiration error");
+    assert(validation.valid === false, "Expired message should fail validation");
+    assert(validation.errors.some(e => e.includes("expired")), "Should have expiration error");
 
     console.log("  ✓ Expired message fails validation");
     console.log("✅ Expiration check works");
@@ -203,8 +204,8 @@ async function runTests() {
       domain: "different.com", // Different domain
     });
 
-    console.assert(validation.valid === false, "Mismatched domain should fail");
-    console.assert(validation.errors.some(e => e.includes("Domain mismatch")), "Should have domain error");
+    assert(validation.valid === false, "Mismatched domain should fail");
+    assert(validation.errors.some(e => e.includes("Domain mismatch")), "Should have domain error");
 
     console.log("  ✓ Domain mismatch detected");
     console.log("✅ Domain validation works");
@@ -238,8 +239,8 @@ async function runTests() {
     // Verify the signature
     const verification = await verifySiweSignature(message, signature);
 
-    console.assert(verification.valid === true, "Signature should be valid");
-    console.assert(verification.address?.toLowerCase() === address.toLowerCase(), "Address should match");
+    assert(verification.valid === true, "Signature should be valid");
+    assert(verification.address?.toLowerCase() === address.toLowerCase(), "Address should match");
 
     console.log(`  ✓ Message signed by: ${address}`);
     console.log(`  ✓ Signature verified: ${signature.slice(0, 20)}...`);
@@ -272,8 +273,8 @@ async function runTests() {
     // Try to verify with wallet2's address (should fail)
     const verification = await verifySiweSignature(message, signature, wallet2.address);
 
-    console.assert(verification.valid === false, "Wrong address should fail verification");
-    console.assert(verification.error !== undefined, "Should have error message");
+    assert(verification.valid === false, "Wrong address should fail verification");
+    assert(verification.error !== undefined, "Should have error message");
 
     console.log("  ✓ Invalid signature detected");
     console.log("✅ Signature validation works");
@@ -300,7 +301,7 @@ async function runTests() {
     const parsed = parseSiweMessage(message1);
     const message2 = createSiweMessage(parsed);
 
-    console.assert(message1 === message2, "Roundtrip should produce identical message");
+    assert(message1 === message2, "Roundtrip should produce identical message");
 
     console.log("  ✓ Original and roundtrip messages match");
     console.log("✅ Roundtrip consistency works");

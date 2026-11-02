@@ -3,6 +3,7 @@
  * Tests for mode-based message signing
  */
 
+import assert from "node:assert";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { verifyMessage } from "ethers";
 import type { SecurityMode } from "../src/types";
@@ -31,7 +32,7 @@ async function runTests() {
     const signature = await signer.signMessage(message);
     const recovered = verifyMessage(message, signature);
 
-    console.assert(
+    assert(
       recovered.toLowerCase() === wallet.address.toLowerCase(),
       "Recovered address should match wallet address"
     );
@@ -55,7 +56,7 @@ async function runTests() {
     const signature = await signer.signMessage(message);
     const recovered = verifyMessage(message, signature);
 
-    console.assert(
+    assert(
       recovered.toLowerCase() === wallet.address.toLowerCase(),
       "Recovered address should match wallet address"
     );
@@ -71,7 +72,7 @@ async function runTests() {
   {
     const wallet = await getOriginSpecificAddress(testMnemonic, origin, 'YOLO');
 
-    console.assert(
+    assert(
       wallet.privateKey !== undefined,
       "YOLO mode should expose private key"
     );
@@ -82,7 +83,7 @@ async function runTests() {
     const signature = await signer.signMessage(message);
     const recovered = verifyMessage(message, signature);
 
-    console.assert(
+    assert(
       recovered.toLowerCase() === wallet.address.toLowerCase(),
       "Recovered address should match wallet address"
     );
@@ -118,14 +119,14 @@ async function runTests() {
 
     // All addresses should be different
     const uniqueAddresses = new Set(addresses.values());
-    console.assert(
+    assert(
       uniqueAddresses.size === modes.length,
       "Each mode should produce a unique address"
     );
 
     // All signatures should be different (since addresses are different)
     const uniqueSignatures = new Set(signatures.values());
-    console.assert(
+    assert(
       uniqueSignatures.size === modes.length,
       "Each mode should produce a unique signature"
     );
@@ -140,7 +141,7 @@ async function runTests() {
     const wallet1 = await getOriginSpecificAddress(testMnemonic, origin, mode);
     const wallet2 = await getOriginSpecificAddress(testMnemonic, origin, mode);
 
-    console.assert(
+    assert(
       wallet1.address === wallet2.address,
       "Same mode should produce same address"
     );
@@ -152,7 +153,7 @@ async function runTests() {
     const signature1 = await signer1.signMessage(message);
     const signature2 = await signer2.signMessage(message);
 
-    console.assert(
+    assert(
       signature1 === signature2,
       "Same mode should produce same signature"
     );
@@ -185,14 +186,14 @@ async function runTests() {
 
     // All addresses should be different
     const uniqueAddresses = new Set(addresses.values());
-    console.assert(
+    assert(
       uniqueAddresses.size === tags.length,
       "Each tag should produce a unique address"
     );
 
     // All signatures should be different (since addresses are different)
     const uniqueSignatures = new Set(signatures.values());
-    console.assert(
+    assert(
       uniqueSignatures.size === tags.length,
       "Each tag should produce a unique signature"
     );
@@ -224,7 +225,7 @@ Issued At: 2021-09-30T16:25:24Z`;
     const signature = await signer.signMessage(siweMessage);
     const recovered = verifyMessage(siweMessage, signature);
 
-    console.assert(
+    assert(
       recovered.toLowerCase() === wallet.address.toLowerCase(),
       "Recovered address should match wallet address"
     );
@@ -261,7 +262,7 @@ Issued At: 2021-09-30T16:25:24Z`;
     const { recoverAddress } = await import("ethers");
     const recovered = recoverAddress(hash, signature);
 
-    console.assert(
+    assert(
       recovered.toLowerCase() === wallet.address.toLowerCase(),
       "Recovered address should match wallet address"
     );
@@ -288,7 +289,7 @@ Issued At: 2021-09-30T16:25:24Z`;
       }
 
       const isValid = hashToCheck.length === 64;
-      console.assert(
+      assert(
         !isValid,
         `Hash with length ${hashToCheck.length} should be invalid`
       );
@@ -302,7 +303,7 @@ Issued At: 2021-09-30T16:25:24Z`;
     }
 
     const isValid = validHashCheck.length === 64;
-    console.assert(
+    assert(
       isValid,
       `Hash with length ${validHashCheck.length} should be valid`
     );
@@ -330,7 +331,7 @@ Issued At: 2021-09-30T16:25:24Z`;
     const rawSignature = signingKey.sign(hash);
 
     // These should be different because EIP-191 adds a prefix
-    console.assert(
+    assert(
       eip191Signature !== rawSignature.serialized,
       "EIP-191 and raw hash signatures should be different"
     );
@@ -379,7 +380,7 @@ Issued At: 2021-09-30T16:25:24Z`;
     const { recoverAddress } = await import("ethers");
     const recovered = recoverAddress(hash, signature);
 
-    console.assert(
+    assert(
       recovered.toLowerCase() === wallet.address.toLowerCase(),
       "Recovered address should match wallet address"
     );
