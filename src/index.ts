@@ -10,7 +10,8 @@ export type {
   StealthAddressConfig,
   ZKProofConfig,
 } from "./core/config";
-export type { EIP1193ProviderInterface, ZKMethods } from "./core/sdk";
+export type { ZKMethods } from "./core/sdk";
+export type { EIP1193ProviderInterface } from "./core/eip1193";
 export type {
   UserInfo,
   GeneratedWallet,
