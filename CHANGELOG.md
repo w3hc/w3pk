@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING: dead modules** ([#182](https://github.com/w3hc/w3pk/issues/182)) no public entry point reached:
   - The QR backup (`QRBackupCreator`, `BackupManager.createQRBackup()`/`restoreFromQR()`, `QRBackupOptions`), with its plaintext mode and the PBKDF2 iteration count it read from the QR. The PBKDF2 helpers only it used (`encryptWithPassword()`, `decryptWithPassword()`, `deriveKeyFromPassword()`) and `getDeviceFingerprint()` go too
   - `VaultSync`, `DeviceManager` and the `DeviceInfo`, `SyncStatus`, `SyncResult` and `SyncStep` types
-  - `ApiClient`, `ApiResponse`, `WebAuthnError`, the empty `wallet/signing` module and `BackupManager.simulateRecoveryScenario()` (`Web3Passkey.simulateRecoveryScenario()` uses `RecoverySimulator`)
+  - `ApiClient`, `ApiResponse`, `WebAuthnError`, the empty `wallet/signing` module and `BackupManager.simulateRecoveryScenario()` (use `RecoverySimulator`)
   - The `src/sync` and `src/backup` barrels
 - **BREAKING: deprecated public API** ([#183](https://github.com/w3hc/w3pk/issues/183)), each a duplicate of an existing one:
   - `Web3Passkey.hasExistingCredential()` and `getExistingCredentialCount()`: use `listExistingCredentials()` and its `length`
@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING: `SocialRecoveryManager`** ([#184](https://github.com/w3hc/w3pk/issues/184)), a second guardian-recovery stack the SDK didn't use, which kept every Shamir share together in localStorage (`w3pk_social_recovery`): whoever could read the site's storage held enough shares to rebuild the backup. Use `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()`, which store no share on the device
   - The `Guardian`, `GuardianInvite`, `SocialRecoveryConfig`, `RecoveryShare` and `RecoveryProgress` types, and the `src/recovery` barrel
   - `getBackupStatus()` no longer reads `w3pk_social_recovery`, so its `socialRecovery` field stays unset. Apps that used `SocialRecoveryManager` can remove that key from localStorage
+- **BREAKING: education wrappers on `Web3Passkey`** ([#185](https://github.com/w3hc/w3pk/issues/185)), which only added an auth check to standalone exports and returned `any`:
+  - `getEducation(topic)`: use `getExplainer(topic)`, which returns `null` for an unknown topic instead of throwing
+  - `simulateRecoveryScenario(scenario)` and `runRecoveryTest()`: use `new RecoverySimulator().simulateScenario(scenario, status)` and `runInteractiveTest(status)` with `status = await w3pk.getBackupStatus()`
 
 ## [0.11.0] - 2026-11-02
 
