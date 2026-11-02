@@ -3,17 +3,54 @@
  */
 
 import { mockLocalStorage } from "./setup";
-import { createWeb3Passkey } from "../src/index";
+import { Signature, Wallet, recoverAddress } from "ethers";
+import {
+  createWeb3Passkey,
+  deriveWalletFromMnemonic,
+  generateBIP39Wallet,
+} from "../src/index";
+import {
+  hashEIP7702AuthorizationMessage,
+  verifyEIP7702Authorization,
+} from "../src/eip7702/utils";
 import {
   startTestSuite,
   endTestSuite,
   runTest,
   passTest,
   logDetail,
-  logInfo,
-  skipTest,
   assert,
+  assertThrows,
 } from "./test-utils";
+
+const CONTRACT = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1";
+
+/** An SDK with a signed-in user, without going through WebAuthn */
+function authenticatedSdk() {
+  const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+  (sdk as any).currentUser = {
+    username: "eip7702",
+    ethereumAddress: Wallet.createRandom().address,
+    credentialId: "test-credential",
+  };
+  return sdk;
+}
+
+function recoverSigner(authorization: {
+  chainId: bigint;
+  address: string;
+  nonce: bigint;
+  yParity: number;
+  r: string;
+  s: string;
+}): string {
+  const hash = hashEIP7702AuthorizationMessage(
+    authorization.chainId,
+    authorization.address,
+    authorization.nonce
+  );
+  return recoverAddress(hash, Signature.from(authorization));
+}
 
 async function runTests() {
   startTestSuite("EIP-7702 signAuthorization Tests");
@@ -37,251 +74,131 @@ async function runTests() {
       debug: false,
     });
 
+    let rejected: any;
     try {
       await sdk.signAuthorization({
-        contractAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+        contractAddress: CONTRACT,
         chainId: 11155111,
+        privateKey: Wallet.createRandom().privateKey,
       });
-      throw new Error("Should have thrown an error");
     } catch (error) {
-      const errMsg = (error as Error).message;
-      const causeMsg = (error as any).cause?.message || "";
-      logDetail(`Error: ${errMsg}`);
-      if (causeMsg) {
-        logDetail(`Cause: ${causeMsg}`);
-      }
-
-      // Check if error relates to authentication (could be wrapped)
-      const fullError = errMsg + " " + causeMsg;
-      assert(
-        fullError.includes("authenticated") ||
-        fullError.includes("Must be authenticated") ||
-        errMsg.includes("Failed to sign authorization"),
-        `Should require authentication or fail appropriately, got: ${errMsg}`
-      );
-      passTest("Correctly requires authentication before signing");
+      rejected = error;
     }
+
+    assert(rejected, "Should have thrown an error");
+    const cause = rejected.originalError?.message ?? "";
+    logDetail(`Error: ${rejected.message} (${cause})`);
+    assert(
+      cause.includes("Must be authenticated"),
+      `Should require authentication, got: ${rejected.message} (${cause})`
+    );
+    passTest("Correctly requires authentication before signing");
   });
 
   await runTest("signAuthorization returns correct structure", async () => {
-    const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
-      debug: false,
+    const signer = Wallet.createRandom();
+    const authorization = await authenticatedSdk().signAuthorization({
+      contractAddress: CONTRACT,
+      chainId: 11155111,
+      nonce: 0n,
+      privateKey: signer.privateKey,
     });
 
-    try {
-      // Try to register (will fail in Node.js but that's okay)
-      await sdk.register({ username: "test-eip7702" });
-    } catch (error) {
-      const errMsg = (error as Error).message;
-      if (errMsg.includes("WebAuthn")) {
-        skipTest("WebAuthn requires browser environment");
-        logInfo("Structure validation requires browser environment");
-        return;
-      }
-      throw error;
-    }
+    assert(typeof authorization.chainId === "bigint", "chainId should be bigint");
+    assert(typeof authorization.nonce === "bigint", "nonce should be bigint");
+    assert(authorization.chainId === 11155111n, "chainId should match input");
+    assert(authorization.nonce === 0n, "nonce should match input");
+    assert(
+      authorization.address === CONTRACT.toLowerCase(),
+      "address should be the delegated contract, not the signer"
+    );
+    assert(/^0x[0-9a-f]{64}$/.test(authorization.r), "r should be 32-byte hex");
+    assert(/^0x[0-9a-f]{64}$/.test(authorization.s), "s should be 32-byte hex");
+    assert(
+      authorization.yParity === 0 || authorization.yParity === 1,
+      "yParity should be 0 or 1"
+    );
 
-    // If we get here (browser environment), test the signature
-    try {
-      const authorization = await sdk.signAuthorization({
-        contractAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-        chainId: 11155111,
-        nonce: 0n,
-      });
-
-      // Verify structure
-      assert(typeof authorization === "object", "Should return an object");
-      assert(typeof authorization.chainId === "bigint", "chainId should be bigint");
-      assert(typeof authorization.address === "string", "address should be string");
-      assert(typeof authorization.nonce === "bigint", "nonce should be bigint");
-      assert(typeof authorization.yParity === "number", "yParity should be number");
-      assert(typeof authorization.r === "string", "r should be string");
-      assert(typeof authorization.s === "string", "s should be string");
-
-      // Verify values
-      assert(authorization.chainId === 11155111n, "chainId should match input");
-      assert(authorization.nonce === 0n, "nonce should match input");
-      assert(authorization.address.startsWith("0x"), "address should be hex");
-      assert(authorization.r.startsWith("0x"), "r should be hex");
-      assert(authorization.s.startsWith("0x"), "s should be hex");
-      assert(
-        authorization.yParity === 0 || authorization.yParity === 1,
-        "yParity should be 0 or 1"
-      );
-
-      passTest("Authorization signature has correct structure");
-      logDetail(`Chain ID: ${authorization.chainId}`);
-      logDetail(`Address: ${authorization.address}`);
-      logDetail(`Nonce: ${authorization.nonce}`);
-      logDetail(`yParity: ${authorization.yParity}`);
-      logDetail(`r: ${authorization.r.substring(0, 20)}...`);
-      logDetail(`s: ${authorization.s.substring(0, 20)}...`);
-    } catch (error) {
-      const errMsg = (error as Error).message;
-      if (errMsg.includes("session")) {
-        skipTest("Session management requires WebAuthn");
-        logInfo("Full signature test requires browser environment");
-      } else {
-        throw error;
-      }
-    }
+    passTest("Authorization signature has correct structure");
+    logDetail(`r: ${authorization.r.substring(0, 20)}...`);
   });
 
   await runTest("signAuthorization with default parameters", async () => {
-    const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
-      debug: false,
+    const authorization = await authenticatedSdk().signAuthorization({
+      contractAddress: CONTRACT,
+      privateKey: Wallet.createRandom().privateKey,
     });
 
-    try {
-      await sdk.register({ username: "test-defaults" });
-    } catch (error) {
-      const errMsg = (error as Error).message;
-      if (errMsg.includes("WebAuthn")) {
-        skipTest("WebAuthn requires browser environment");
-        logInfo("Default parameters test requires browser environment");
-        return;
-      }
-      throw error;
-    }
+    assert(authorization.chainId === 1n, "Should default to mainnet (chainId 1)");
+    assert(authorization.nonce === 0n, "Should default to nonce 0");
+    passTest("Default parameters applied correctly");
+  });
 
-    try {
-      // Test with minimal parameters (should use defaults)
+  await runTest("signAuthorization with different chain IDs and nonces", async () => {
+    const sdk = authenticatedSdk();
+    const signer = Wallet.createRandom();
+
+    for (const [chainId, nonce] of [[1, 0n], [11155111, 1n], [8453, 7n], [42161, 2n ** 40n]] as const) {
       const authorization = await sdk.signAuthorization({
-        contractAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+        contractAddress: CONTRACT,
+        chainId,
+        nonce,
+        privateKey: signer.privateKey,
       });
 
-      // Should default to chainId 1 (mainnet) and nonce 0
-      assert(authorization.chainId === 1n, "Should default to mainnet (chainId 1)");
-      assert(authorization.nonce === 0n, "Should default to nonce 0");
-
-      passTest("Default parameters applied correctly");
-      logDetail(`Default chain ID: ${authorization.chainId}`);
-      logDetail(`Default nonce: ${authorization.nonce}`);
-    } catch (error) {
-      const errMsg = (error as Error).message;
-      if (errMsg.includes("session")) {
-        skipTest("Session management requires WebAuthn");
-        logInfo("Default parameters test requires browser environment");
-      } else {
-        throw error;
-      }
-    }
-  });
-
-  await runTest("signAuthorization with different chain IDs", async () => {
-    const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
-      debug: false,
-    });
-
-    try {
-      await sdk.register({ username: "test-chains" });
-    } catch (error) {
-      const errMsg = (error as Error).message;
-      if (errMsg.includes("WebAuthn")) {
-        skipTest("WebAuthn requires browser environment");
-        logInfo("Multi-chain test requires browser environment");
-        return;
-      }
-      throw error;
-    }
-
-    try {
-      const testChains = [
-        { id: 1, name: "Ethereum Mainnet" },
-        { id: 11155111, name: "Sepolia" },
-        { id: 8453, name: "Base" },
-        { id: 42161, name: "Arbitrum One" },
-      ];
-
-      for (const { id, name } of testChains) {
-        const authorization = await sdk.signAuthorization({
-          contractAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-          chainId: id,
-        });
-
-        assert(
-          authorization.chainId === BigInt(id),
-          `Chain ID should match for ${name}`
-        );
-        logDetail(`✓ ${name} (${id}): ${authorization.chainId}`);
-      }
-
-      passTest("Multiple chain IDs handled correctly");
-    } catch (error) {
-      const errMsg = (error as Error).message;
-      if (errMsg.includes("session")) {
-        skipTest("Session management requires WebAuthn");
-        logInfo("Multi-chain test requires browser environment");
-      } else {
-        throw error;
-      }
-    }
-  });
-
-  await runTest("signAuthorization with privateKey parameter", async () => {
-    const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
-      debug: false,
-    });
-
-    try {
-      await sdk.register({ username: "test-private-key" });
-    } catch (error) {
-      const errMsg = (error as Error).message;
-      if (errMsg.includes("WebAuthn")) {
-        skipTest("WebAuthn requires browser environment");
-        logInfo("privateKey test requires browser environment");
-        return;
-      }
-      throw error;
-    }
-
-    try {
-      // Derive a wallet to get a private key
-      const { deriveWalletFromMnemonic, generateBIP39Wallet } = await import("../src/index");
-      const { mnemonic } = generateBIP39Wallet();
-
-      // Get private key at index 5
-      const derived = deriveWalletFromMnemonic(mnemonic, 5);
-
-      // Test with default address (should use index 0)
-      const auth0 = await sdk.signAuthorization({
-        contractAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-        chainId: 11155111,
-      });
-
-      logDetail(`Default address: ${auth0.address}`);
-
-      // Test with specific privateKey (from derived address or stealth address)
-      const auth1 = await sdk.signAuthorization({
-        contractAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-        chainId: 11155111,
-        privateKey: derived.privateKey, // Use derived private key
-      });
-
+      assert(authorization.chainId === BigInt(chainId), `chainId should be ${chainId}`);
+      assert(authorization.nonce === nonce, `nonce should be ${nonce}`);
       assert(
-        auth1.address.toLowerCase() === derived.address.toLowerCase(),
-        "Should use address derived from provided private key"
+        recoverSigner(authorization) === signer.address,
+        `Signature for chain ${chainId} should recover to the signer`
       );
-
-      passTest("privateKey parameter works correctly");
-      logDetail(`Derived address: ${auth1.address}`);
-    } catch (error) {
-      const errMsg = (error as Error).message;
-      if (errMsg.includes("session")) {
-        skipTest("Session management requires WebAuthn");
-        logInfo("privateKey test requires browser environment with proper wallet setup");
-      } else {
-        throw error;
-      }
+      logDetail(`✓ chain ${chainId}, nonce ${nonce}`);
     }
+
+    passTest("Each chain ID and nonce is part of the signed message");
   });
 
-  logInfo("Note: Full WebAuthn-based tests require a browser environment");
-  logInfo("Run tests in browser using a test runner like Vitest or Playwright");
+  await runTest("signAuthorization signs with the given privateKey", async () => {
+    const { mnemonic } = generateBIP39Wallet();
+    const derived = deriveWalletFromMnemonic(mnemonic, 5);
+
+    const authorization = await authenticatedSdk().signAuthorization({
+      contractAddress: CONTRACT,
+      chainId: 11155111,
+      privateKey: derived.privateKey,
+    });
+
+    assert(
+      recoverSigner(authorization) === derived.address,
+      "Signature should recover to the address of the given private key"
+    );
+    assert(
+      verifyEIP7702Authorization(
+        authorization.chainId,
+        CONTRACT,
+        authorization.nonce,
+        authorization,
+        derived.address
+      ),
+      "verifyEIP7702Authorization should accept the signature"
+    );
+
+    passTest("privateKey parameter selects the signing key");
+    logDetail(`Signer: ${derived.address}`);
+  });
+
+  await runTest("signAuthorization rejects an invalid privateKey", async () => {
+    await assertThrows(
+      () =>
+        authenticatedSdk().signAuthorization({
+          contractAddress: CONTRACT,
+          privateKey: "0x1234",
+        }),
+      "Should reject a malformed private key"
+    );
+    passTest("Invalid private key rejected");
+  });
+
   endTestSuite();
 }
 
