@@ -19,7 +19,7 @@
     "types": ["node"],
     "ignoreDeprecations": "6.0",
     "paths": {
-      "w3pk/zk": ["./src/zk/external.d.ts"]
+      "w3pk/zk": ["./src/zk/index.ts"]
     }
   },
   "include": ["src/**/*"],
