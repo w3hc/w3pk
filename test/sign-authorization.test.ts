@@ -27,16 +27,18 @@ import {
 const CONTRACT = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1";
 const MNEMONIC = "test test test test test test test test test test test junk";
 
-/** An authenticated SDK with an active session, recording each mnemonic fetch's forceAuth */
+/** An authenticated SDK with an active session, recording each mnemonic fetch's forceAuth and mode */
 async function sessionSdk() {
   const sdk = authenticatedSdk();
   await (sdk as any).sessionManager.startSession(MNEMONIC, "test-credential");
   const forceAuthCalls: boolean[] = [];
-  (sdk as any).getMnemonicFromSession = async (forceAuth: boolean = false) => {
+  const modeCalls: string[] = [];
+  (sdk as any).getMnemonicFromSession = async (forceAuth: boolean = false, mode: string = "STANDARD") => {
     forceAuthCalls.push(forceAuth);
+    modeCalls.push(mode);
     return MNEMONIC;
   };
-  return { sdk, forceAuthCalls };
+  return { sdk, forceAuthCalls, modeCalls };
 }
 
 /** An SDK with a signed-in user, without going through WebAuthn */
@@ -247,7 +249,7 @@ async function runTests() {
   });
 
   await runTest("signAuthorization requires a fresh assertion even with an active session", async () => {
-    const { sdk, forceAuthCalls } = await sessionSdk();
+    const { sdk, forceAuthCalls, modeCalls } = await sessionSdk();
     assert((sdk as any).sessionManager.getMnemonic() === MNEMONIC, "Session should be active");
 
     await sdk.signAuthorization({ contractAddress: CONTRACT });
@@ -257,6 +259,10 @@ async function runTests() {
     assert(
       forceAuthCalls.every((forceAuth) => forceAuth === true),
       "Each call should bypass the session cache"
+    );
+    assert(
+      modeCalls[0] === "STANDARD" && modeCalls[1] === "YOLO",
+      "Each call should authenticate under its own mode"
     );
     passTest("Every signature needs a fresh passkey assertion");
   });
