@@ -68,6 +68,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`stealth.parseAnnouncement()` and `stealth.scanAnnouncements()` no longer return stealth private keys** ([#244](https://github.com/w3hc/w3pk/issues/244)). A stealth private key minus the shared-secret hash, which the viewing key computes, is the spending key, so any script on the page could recover it and spend every stealth payment
   - `ParseAnnouncementResult` and `ParseResult` drop `stealthPrivateKey`; results carry `isForUser` and `stealthAddress`
   - New `stealth.signTransaction(announcement, tx)` signs an EIP-1559 transaction from the stealth address inside the SDK after a fresh passkey assertion, even with an active session, and returns the serialized signed transaction. It doesn't send it: the app broadcasts it with its own RPC. `tx` (`StealthTransaction`, exported from `w3pk`) must be fully populated: `to`, `chainId`, `nonce`, `gasLimit`, `maxFeePerGas`, `maxPriorityFeePerGas`, with optional `value` and `data`
+- **`register()` checks the attestation's client data, RP ID hash and user presence before storing the credential** ([#248](https://github.com/w3hc/w3pk/issues/248)). It stored any credential the browser returned, whatever its `clientDataJSON` held. Now, as WebAuthn L3 §7.1 requires, it throws `RegistrationError` unless the type is `webauthn.create`, the challenge is the one sent, the origin is exactly `window.location.origin`, the authenticator data's RP ID hash is SHA-256 of `window.location.hostname`, and the UP flag is set
+  - `verifyClientData(clientDataJSON, challenge, type)` and `verifyRpIdHash(authData)` are exported from `src/auth/authenticate.ts` and shared with `login()`
+  - `test/register-client-data.test.ts` covers each check
 
 ### Added
 
