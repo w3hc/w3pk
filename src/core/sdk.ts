@@ -62,6 +62,7 @@ import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
+import { SIWE_HEADER } from "../siwe";
 import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
   AuthenticationError,
@@ -865,16 +866,14 @@ export class Web3Passkey {
 
       const origin = getCurrentOrigin();
 
-      // EIP-4361: reject a SIWE message whose domain isn't this page's
-      if (signingMethod === 'SIWE') {
-        const { parseSiweMessage } = await import("../siwe");
-        const { domain } = parseSiweMessage(message as string);
-        const host = new URL(origin).host;
-        if (domain !== host) {
-          throw new WalletError(
-            `SIWE message domain "${domain}" does not match the current origin "${host}"`
-          );
-        }
+      // EIP-4361: reject a SIWE message whose domain isn't this page's, also
+      // when it comes as a plain EIP-191 message, which signs the same bytes
+      if (
+        signingMethod === 'SIWE' ||
+        (signingMethod === 'EIP191' && typeof message === 'string' && message.includes(SIWE_HEADER))
+      ) {
+        const { assertSiweDomain } = await import("../siwe");
+        assertSiweDomain(message as string, origin);
       }
 
       if (!this.currentUser) {
@@ -1006,14 +1005,14 @@ export class Web3Passkey {
 
       const { extractRS } = await import("../utils/crypto");
       const { base64UrlDecode } = await import("../utils/base64");
-      const { hexlify } = await import("ethers");
+      const { bytesToHex } = await import("@noble/hashes/utils.js");
 
       // Hash the message
       const messageHash = await crypto.subtle.digest(
         'SHA-256',
         new TextEncoder().encode(message)
       );
-      const h = hexlify(new Uint8Array(messageHash));
+      const h = '0x' + bytesToHex(new Uint8Array(messageHash));
 
       // Generate challenge from message hash
       const challengeBytes = new Uint8Array(messageHash);
@@ -1061,7 +1060,7 @@ export class Web3Passkey {
 
       // Hash the concatenation to get what was actually signed
       const actualMessageHash = await crypto.subtle.digest('SHA-256', signedData.buffer);
-      const actualH = hexlify(new Uint8Array(actualMessageHash));
+      const actualH = '0x' + bytesToHex(new Uint8Array(actualMessageHash));
 
       // Extract r and s from the DER-encoded signature
       const signature = new Uint8Array(response.signature);
@@ -1100,8 +1099,8 @@ export class Web3Passkey {
       }
 
       // Convert base64url x and y to hex (each is 32 bytes for P-256)
-      const qx = hexlify(new Uint8Array(base64UrlToArrayBuffer(jwk.x)));
-      const qy = hexlify(new Uint8Array(base64UrlToArrayBuffer(jwk.y)));
+      const qx = '0x' + bytesToHex(new Uint8Array(base64UrlToArrayBuffer(jwk.x)));
+      const qy = '0x' + bytesToHex(new Uint8Array(base64UrlToArrayBuffer(jwk.y)));
 
       // Derive address from public key
       const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
