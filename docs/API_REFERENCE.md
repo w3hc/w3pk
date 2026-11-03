@@ -686,22 +686,28 @@ console.log('BACKUP THIS:', mnemonicBackup)
 
 ### `importMnemonic(mnemonic: string): Promise<void>`
 
-Import a mnemonic phrase and encrypt it for current user.
+Import a mnemonic phrase as the logged-in passkey's wallet, replacing the stored one.
 
 **Parameters:**
-- `mnemonic: string` - Valid BIP39 mnemonic (12 or 24 words)
+- `mnemonic: string` - Valid BIP39 mnemonic (12 to 24 words, checksum checked)
 
-**Security:**
-- Requires fresh WebAuthn authentication
-- Will overwrite existing wallet
-- Irreversible operation
+**Behavior:**
+- One passkey assertion with the logged-in passkey releases the key the wallet is stored under
+- The imported wallet is stored under its own address; the passkey, `user` and the session then point at that address, and the previous wallet is deleted last
+- `onAuthStateChanged(true, user)` fires with the new address
+- Replacing the wallet needs no `allowAddressChange`: importing is an explicit replace, so the app confirms it with the user before calling
+- Make sure the previous wallet's recovery phrase or a backup is saved first: its encrypted mnemonic is deleted from this device
+
+**Throws:**
+- `WalletError` if not logged in, or the phrase isn't a valid BIP39 mnemonic (before any prompt), or another passkey answers the prompt
+- `AuthenticationError` if the prompt is cancelled, `PrfUnsupportedError` if the authenticator returns no PRF output: the stored wallet and the passkey stay as they were
 
 **Example:**
 
 ```typescript
 const recoveredMnemonic = 'witch collapse practice feed shame open despair creek road again ice least'
 await w3pk.importMnemonic(recoveredMnemonic)
-console.log('Wallet restored')
+console.log(w3pk.user?.ethereumAddress) // the imported wallet's address
 ```
 
 ---
@@ -2618,7 +2624,7 @@ A `prf` backup takes one assertion with its passkey and no password, then sets t
 After restoring a password backup, the wallet is automatically associated with the current logged-in user. One passkey assertion releases the key the wallet is stored under: the stored wallet and the passkey's address change only once it succeeds, so a cancelled prompt or an authenticator without PRF leaves this device as it was. A backup of another address than the logged-in one replaces that wallet, so it throws `AddressChangeError` before any prompt unless the app confirms the replacement with the user and passes `{ allowAddressChange: true }`. The same applies to a `prf` backup, where the address is known only after the assertion.
 
 If not logged in, you can either:
-- Call `importMnemonic()` to associate with current user
+- Log in, then call `importMnemonic()` to store it under that passkey
 - Call `registerWithBackupFile()` to create new passkey for this wallet
 
 **Parameters:**

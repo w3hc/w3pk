@@ -251,7 +251,7 @@ async function restorePrfBackup(
  * @throws AddressChangeError if the passkey has another wallet on this device and `allowAddressChange` is false
  * @throws PrfUnsupportedError if it has another wallet and there is no `prfOutput` to store the new one with
  */
-async function bootstrapCredential(
+export async function bootstrapCredential(
   ctx: SdkContext,
   credential: { id: string; publicKey: string; username: string },
   mnemonic: string,
