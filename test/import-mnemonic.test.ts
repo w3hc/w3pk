@@ -264,6 +264,10 @@ async function runTests() {
       (await credentials().getCredentialById(CREDENTIAL_ID))?.ethereumAddress === ADDRESS_B,
       "the credential points at wallet B"
     );
+    assert(
+      ((await credentials().getCredentialById(CREDENTIAL_ID))?.signCount ?? 0) > 0,
+      "the assertion's signature counter is saved"
+    );
     assert(sdk.user?.ethereumAddress === ADDRESS_B, "the user has wallet B's address");
     assert((sdk as any).currentWallet?.address === ADDRESS_B, "the wallet in memory has B's address");
     assert((sdk as any).currentWallet?.mnemonic === MNEMONIC_B, "the wallet in memory holds B's phrase");
@@ -271,8 +275,10 @@ async function runTests() {
 
     const storeB = log.indexOf(`set w3pk_wallet_${ADDRESS_B}`);
     const deleteA = log.indexOf(`remove w3pk_wallet_${ADDRESS_A}`);
-    const updateCredential = log.findIndex((e) => e.startsWith("set w3pk_credential_") && !e.endsWith("index"));
-    assert(storeB !== -1 && updateCredential > storeB, "the credential is updated after wallet B is stored");
+    const updateCredential = log.findIndex(
+      (e, i) => i > storeB && e.startsWith("set w3pk_credential_") && !e.endsWith("index")
+    );
+    assert(storeB !== -1 && updateCredential !== -1, "the credential is updated after wallet B is stored");
     assert(deleteA > updateCredential, "wallet A is deleted last");
   }
   console.log("");
@@ -326,7 +332,18 @@ async function runTests() {
   }
   console.log("");
 
-  console.log("Test 6: logged out throws");
+  console.log("Test 6: another passkey's assertion keeps wallet A");
+  {
+    const sdk = await loggedInWith(publicKey, MNEMONIC_A);
+    (sdk as any).currentUser.credentialId = "another-credential";
+    const error = await capture(() => sdk.importMnemonic(MNEMONIC_B));
+    (sdk as any).currentUser.credentialId = CREDENTIAL_ID;
+    assert(error instanceof WalletError, "throws WalletError");
+    await assertKeepsWalletA(sdk);
+  }
+  console.log("");
+
+  console.log("Test 7: logged out throws");
   {
     const error = await capture(() => new Web3Passkey().importMnemonic(MNEMONIC_B));
     assert(error instanceof WalletError, "throws WalletError");
