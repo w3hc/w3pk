@@ -810,7 +810,7 @@ export class Web3Passkey {
    * By default, signs with STANDARD mode + MAIN tag (origin-centric address).
    * You can specify a different mode and tag to sign from a specific derived address.
    *
-   * @param message - Message to sign
+   * @param message - Message to sign; bytes are signed as-is, and only with EIP191
    * @param options.mode - Security mode for derivation (default: "STANDARD")
    * @param options.tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
@@ -837,7 +837,7 @@ export class Web3Passkey {
    * })
    */
   async signMessage(
-    message: string,
+    message: string | Uint8Array,
     options?: SignMessageOptions
   ): Promise<{
     signature: string;
@@ -849,6 +849,10 @@ export class Web3Passkey {
     try {
       const effectiveMode = options?.mode || DEFAULT_MODE;
       const signingMethod = options?.signingMethod || 'EIP191';
+
+      if (typeof message !== 'string' && signingMethod !== 'EIP191') {
+        throw new WalletError(`${signingMethod} signing requires a string message`);
+      }
 
       // PRIMARY addresses come from the passkey's P-256 key, which cannot produce
       // an EIP-191 signature that recovers to them
@@ -926,7 +930,7 @@ export class Web3Passkey {
           const { SigningKey } = await import("ethers");
 
           // Validate that the message is a 32-byte hash
-          let hashToSign = message;
+          let hashToSign = message as string;
           if (hashToSign.startsWith('0x')) {
             hashToSign = hashToSign.slice(2);
           }
