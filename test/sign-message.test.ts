@@ -468,6 +468,57 @@ Issued At: 2021-09-30T16:25:24Z`;
     console.log("✅ SIWE domain check works");
   }
 
+  // Test 14: rawHash signing requires a fresh assertion, even for an EIP-7702 digest
+  console.log("\nTest 14: rawHash signing requires a fresh assertion");
+  {
+    const { Wallet, recoverAddress } = await import("ethers");
+    const { hashEIP7702AuthorizationMessage } = await import("../src/eip7702/utils");
+    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    (sdk as any).currentUser = {
+      username: "rawhash",
+      ethereumAddress: Wallet.createRandom().address,
+      credentialId: "test-credential",
+    };
+    await (sdk as any).sessionManager.startSession(testMnemonic, "test-credential");
+    const forceAuthCalls: boolean[] = [];
+    (sdk as any).getMnemonicFromSession = async (forceAuth: boolean = false) => {
+      forceAuthCalls.push(forceAuth);
+      return testMnemonic;
+    };
+
+    const digest = hashEIP7702AuthorizationMessage(
+      1n,
+      "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+      0n
+    );
+
+    for (const mode of ["STANDARD", "YOLO"] as const) {
+      const result = await sdk.signMessage(digest, { mode, signingMethod: "rawHash" });
+      assert(
+        recoverAddress(digest, result.signature) === result.address,
+        `${mode}: signature should recover to the signing address`
+      );
+    }
+
+    await sdk.signMessage(message);
+
+    for (const invalid of ["0x1234", "0x" + "ab".repeat(33), "0x" + "zz".repeat(32)]) {
+      await assert.rejects(
+        sdk.signMessage(invalid, { signingMethod: "rawHash" }),
+        (error: any) => (error.originalError?.message ?? "").includes("requires a 32-byte hash")
+      );
+    }
+
+    assert.deepStrictEqual(
+      forceAuthCalls,
+      [true, true, false],
+      "rawHash should bypass the session cache, EIP-191 should not, and an invalid hash should not prompt"
+    );
+
+    console.log(`  ✓ rawHash bypasses the active session`);
+    console.log("✅ rawHash fresh assertion works");
+  }
+
   console.log("\n✅ All Sign Message Tests Passed!\n");
   console.log("📋 Summary:");
   console.log("  • STANDARD mode: Can sign messages (address-only derivation)");
@@ -478,6 +529,7 @@ Issued At: 2021-09-30T16:25:24Z`;
   console.log("  • Deterministic: Same mode+tag always produces same signature");
   console.log("  • SIWE: Can sign EIP-4361 compliant messages");
   console.log("  • rawHash: Can sign raw 32-byte hashes without EIP-191 prefix");
+  console.log("  • rawHash: Always requires a fresh passkey assertion");
   console.log("  • EIP-712: Can sign structured typed data");
   console.log("  • Validation: rawHash requires exactly 32 bytes");
   console.log("  • Comparison: EIP-191 and rawHash produce different signatures");

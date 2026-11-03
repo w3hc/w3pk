@@ -4,11 +4,7 @@
 
 import { mockLocalStorage } from "./setup";
 import { Signature, Wallet, recoverAddress } from "ethers";
-import {
-  createWeb3Passkey,
-  deriveWalletFromMnemonic,
-  generateBIP39Wallet,
-} from "../src/index";
+import { createWeb3Passkey } from "../src/index";
 import {
   hashEIP7702AuthorizationMessage,
   verifyEIP7702Authorization,
@@ -21,7 +17,6 @@ import {
   passTest,
   logDetail,
   assert,
-  assertThrows,
 } from "./test-utils";
 
 const CONTRACT = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1";
@@ -95,7 +90,6 @@ async function runTests() {
       await sdk.signAuthorization({
         contractAddress: CONTRACT,
         chainId: 11155111,
-        privateKey: Wallet.createRandom().privateKey,
       });
     } catch (error) {
       rejected = error;
@@ -112,12 +106,11 @@ async function runTests() {
   });
 
   await runTest("signAuthorization returns correct structure", async () => {
-    const signer = Wallet.createRandom();
-    const authorization = await authenticatedSdk().signAuthorization({
+    const { sdk } = await sessionSdk();
+    const authorization = await sdk.signAuthorization({
       contractAddress: CONTRACT,
       chainId: 11155111,
       nonce: 0n,
-      privateKey: signer.privateKey,
     });
 
     assert(typeof authorization.chainId === "bigint", "chainId should be bigint");
@@ -140,10 +133,8 @@ async function runTests() {
   });
 
   await runTest("signAuthorization with default parameters", async () => {
-    const authorization = await authenticatedSdk().signAuthorization({
-      contractAddress: CONTRACT,
-      privateKey: Wallet.createRandom().privateKey,
-    });
+    const { sdk } = await sessionSdk();
+    const authorization = await sdk.signAuthorization({ contractAddress: CONTRACT });
 
     assert(authorization.chainId === 1n, "Should default to mainnet (chainId 1)");
     assert(authorization.nonce === 0n, "Should default to nonce 0");
@@ -151,15 +142,14 @@ async function runTests() {
   });
 
   await runTest("signAuthorization with different chain IDs and nonces", async () => {
-    const sdk = authenticatedSdk();
-    const signer = Wallet.createRandom();
+    const { sdk } = await sessionSdk();
+    const signer = await getOriginSpecificAddress(MNEMONIC, window.location.origin, "STANDARD", "MAIN");
 
     for (const [chainId, nonce] of [[1, 0n], [11155111, 1n], [8453, 7n], [42161, 2n ** 40n]] as const) {
       const authorization = await sdk.signAuthorization({
         contractAddress: CONTRACT,
         chainId,
         nonce,
-        privateKey: signer.privateKey,
       });
 
       assert(authorization.chainId === BigInt(chainId), `chainId should be ${chainId}`);
@@ -168,51 +158,40 @@ async function runTests() {
         recoverSigner(authorization) === signer.address,
         `Signature for chain ${chainId} should recover to the signer`
       );
+      assert(
+        verifyEIP7702Authorization(
+          authorization.chainId,
+          CONTRACT,
+          authorization.nonce,
+          authorization,
+          signer.address
+        ),
+        "verifyEIP7702Authorization should accept the signature"
+      );
       logDetail(`✓ chain ${chainId}, nonce ${nonce}`);
     }
 
     passTest("Each chain ID and nonce is part of the signed message");
   });
 
-  await runTest("signAuthorization signs with the given privateKey", async () => {
-    const { mnemonic } = generateBIP39Wallet();
-    const derived = deriveWalletFromMnemonic(mnemonic, 5);
+  await runTest("signAuthorization rejects a caller-supplied privateKey", async () => {
+    const { sdk, forceAuthCalls } = await sessionSdk();
 
-    const authorization = await authenticatedSdk().signAuthorization({
-      contractAddress: CONTRACT,
-      chainId: 11155111,
-      privateKey: derived.privateKey,
-    });
+    let rejected: any;
+    try {
+      await sdk.signAuthorization({
+        contractAddress: CONTRACT,
+        privateKey: Wallet.createRandom().privateKey,
+      } as any);
+    } catch (error) {
+      rejected = error;
+    }
 
-    assert(
-      recoverSigner(authorization) === derived.address,
-      "Signature should recover to the address of the given private key"
-    );
-    assert(
-      verifyEIP7702Authorization(
-        authorization.chainId,
-        CONTRACT,
-        authorization.nonce,
-        authorization,
-        derived.address
-      ),
-      "verifyEIP7702Authorization should accept the signature"
-    );
-
-    passTest("privateKey parameter selects the signing key");
-    logDetail(`Signer: ${derived.address}`);
-  });
-
-  await runTest("signAuthorization rejects an invalid privateKey", async () => {
-    await assertThrows(
-      () =>
-        authenticatedSdk().signAuthorization({
-          contractAddress: CONTRACT,
-          privateKey: "0x1234",
-        }),
-      "Should reject a malformed private key"
-    );
-    passTest("Invalid private key rejected");
+    assert(rejected, "Should have thrown an error");
+    const cause = rejected.originalError?.message ?? "";
+    assert(cause.includes("takes no privateKey"), `Should name privateKey, got: ${cause}`);
+    assert(forceAuthCalls.length === 0, "Should refuse before prompting for a passkey");
+    passTest("No key bypasses the passkey prompt");
   });
 
   await runTest("signAuthorization signs with the origin-derived key, not the master key", async () => {

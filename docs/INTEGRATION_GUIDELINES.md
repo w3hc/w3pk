@@ -70,13 +70,11 @@ const auth = await w3pk.signAuthorization({
   nonce: 0n
 })
 
-// ✅ Works with derived addresses too
-const derived = await w3pk.deriveWallet('YOLO', 'GAMING')
+// ✅ Works with other modes and tags too (prompts for the passkey each time)
 const auth2 = await w3pk.signAuthorization({
   contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
-  chainId: 1,
-  privateKey: derived.privateKey  // Sign from derived address
-})
+  chainId: 1
+}, { mode: 'YOLO', tag: 'GAMING' })
 ```
 
 ### Public API Surface
@@ -302,11 +300,13 @@ import { TypedDataEncoder } from 'ethers'
 // Compute hash manually (if needed for custom schemes)
 const hash = TypedDataEncoder.hash(domain, types, message)
 
-// Sign the raw hash
+// Sign the raw hash (always prompts for the passkey)
 const result = await w3pk.signMessage(hash, {
   signingMethod: 'rawHash'
 })
 ```
+
+A bare hash could be an EIP-7702 authorization digest, so rawHash never signs from the session cache.
 
 **Use for:**
 - Safe multisig transactions

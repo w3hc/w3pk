@@ -781,10 +781,11 @@ interface SignatureResult {
 - Useful for pre-computed EIP-712 hashes or Safe transactions
 - Throws error if message is not exactly 32 bytes
 - Use when you need manual control over hash computation
+- Always prompts for a fresh user-verified passkey assertion, even during an active session: the hash could be an EIP-7702 authorization digest
 
 **What happens:**
 1. Derives wallet based on mode and tag
-2. Checks for active session (unless STRICT mode forces auth)
+2. Checks for active session (unless STRICT mode or rawHash forces auth)
 3. If no session - prompts for biometric authentication
 4. Signs message using specified signing method
 5. Returns signature with metadata
@@ -922,7 +923,6 @@ params: {
   contractAddress: string;  // Contract to delegate to
   chainId?: number;         // Chain ID (default: 1)
   nonce?: bigint;           // Nonce (default: 0n)
-  privateKey?: string;      // Optional: private key for derived/stealth addresses
 }
 
 options?: {
@@ -958,7 +958,9 @@ EIP-7702 allows EOAs (Externally Owned Accounts) to **permanently delegate** cod
 3. All future transactions use the delegated contract code (no new authorization needed)
 4. Sponsor pays gas costs for all transactions
 
-**Security:** Without `privateKey`, every call prompts for a fresh user-verified passkey assertion, even during an active session, and signs with the origin-specific derived key for `mode` and `tag` (the same address `sendTransaction()` uses), never the master key at `m/44'/60'/0'/0/0`. `PRIMARY` mode is refused: its P-256 passkey address has no secp256k1 key.
+**Security:** Every call prompts for a fresh user-verified passkey assertion, even during an active session, and signs with the origin-specific derived key for `mode` and `tag` (the same address `sendTransaction()` uses), never the master key at `m/44'/60'/0'/0/0`. It takes no private key. `PRIMARY` mode is refused: its P-256 passkey address has no secp256k1 key.
+
+YOLO keys are exposed by design: `deriveWallet('YOLO', tag)` returns the private key, so any script holding it can sign a delegation for that address without w3pk.
 
 **Example (Origin-Derived Address):**
 
@@ -987,56 +989,6 @@ const hash2 = await walletClient.sendTransaction({
   data: voteData
   // No authorizationList - delegation persists!
 })
-```
-
-**Example (Derived Address):**
-
-```typescript
-import { deriveWalletFromMnemonic } from 'w3pk'
-
-// Get mnemonic from session
-const mnemonic = await w3pk.exportMnemonic()
-
-// Derive wallet at index 5
-const { address, privateKey } = deriveWalletFromMnemonic(mnemonic, 5)
-
-// Sign from derived address
-const authorization = await w3pk.signAuthorization({
-  contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
-  chainId: 1,
-  privateKey  // Use derived private key
-})
-
-console.log('Signed from:', address)
-// Output: derived address at index 5
-```
-
-**Example (Stealth Address):**
-
-```typescript
-import { computeStealthPrivateKey, deriveStealthKeys } from 'w3pk'
-
-// Get stealth keys
-const mnemonic = await w3pk.exportMnemonic()
-const { viewingKey, spendingKey } = deriveStealthKeys(mnemonic)
-
-// Get ephemeral key from ERC-5564 announcement
-const ephemeralPubKey = '0x...'  // From blockchain event
-
-// Compute stealth private key
-const stealthPrivateKey = computeStealthPrivateKey(
-  viewingKey,
-  spendingKey,
-  ephemeralPubKey
-)
-
-// Sign from stealth address
-const authorization = await w3pk.signAuthorization({
-  contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
-  chainId: 1,
-  privateKey: stealthPrivateKey
-})
-
 ```
 
 **Example (Mode and Tag):**

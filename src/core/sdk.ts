@@ -816,6 +816,8 @@ export class Web3Passkey {
    * @param options.mode - Security mode for derivation (default: "STANDARD")
    * @param options.tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
+   * @param options.signingMethod - EIP191 (default), SIWE, EIP712 or rawHash;
+   *   rawHash always requires a fresh user-verified passkey assertion
    * @returns Signature result with address, mode, and tag information
    *
    * @example
@@ -876,6 +878,11 @@ export class Web3Passkey {
         assertSiweDomain(message as string, origin);
       }
 
+      // Checked before the passkey prompt that rawHash always triggers
+      if (signingMethod === 'rawHash' && !/^(0x)?[0-9a-fA-F]{64}$/.test(message as string)) {
+        throw new WalletError("rawHash signing method requires a 32-byte hash (64 hex characters)");
+      }
+
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to sign message");
       }
@@ -883,7 +890,10 @@ export class Web3Passkey {
       const effectiveTag = options?.tag || DEFAULT_TAG;
 
       // STRICT mode: always require authentication (no persistent sessions)
-      const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+      // rawHash: a bare hash may be an EIP-7702 authorization digest, which
+      // can't be told apart, so it gets the same fresh assertion as signAuthorization
+      const requireAuth =
+        effectiveMode === 'STRICT' || signingMethod === 'rawHash' || (options?.requireAuth || false);
 
       const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
 
@@ -942,14 +952,9 @@ export class Web3Passkey {
           // Useful for signing pre-computed EIP-712 hashes (e.g., Safe transactions)
           const { SigningKey } = await import("ethers");
 
-          // Validate that the message is a 32-byte hash
           let hashToSign = message as string;
           if (hashToSign.startsWith('0x')) {
             hashToSign = hashToSign.slice(2);
-          }
-
-          if (hashToSign.length !== 64) {
-            throw new WalletError("rawHash signing method requires a 32-byte hash (64 hex characters)");
           }
 
           // Get the private key from the wallet
@@ -1257,19 +1262,17 @@ export class Web3Passkey {
    * @param params.contractAddress - Contract address to authorize
    * @param params.chainId - Chain ID (default: 1)
    * @param params.nonce - Nonce (default: 0)
-   * @param params.privateKey - Private key for derived/stealth addresses
    * @param options.mode - Security mode of the signing wallet (default: STANDARD, PRIMARY is refused)
    * @param options.tag - Wallet tag (default: MAIN)
    *
-   * Without `params.privateKey`, signs with the origin-specific derived key
-   * (never the master key) after a fresh user-verified passkey assertion.
+   * Signs with the origin-specific derived key (never the master key) after a
+   * fresh user-verified passkey assertion.
    */
   async signAuthorization(
     params: {
       contractAddress: string;
       chainId?: number;
       nonce?: bigint;
-      privateKey?: string;
     },
     options?: { mode?: SecurityMode; tag?: string }
   ): Promise<{
@@ -1285,35 +1288,36 @@ export class Web3Passkey {
         throw new WalletError("Must be authenticated to sign authorization");
       }
 
+      if ('privateKey' in params) {
+        throw new WalletError(
+          "signAuthorization() takes no privateKey: it signs with the origin-derived key for options.mode and options.tag"
+        );
+      }
+
       const { Wallet, Signature } = await import("ethers");
       const { hashEIP7702AuthorizationMessage, verifyEIP7702Authorization } = await import("../eip7702/utils");
 
+      const effectiveMode = options?.mode || DEFAULT_MODE;
+      const effectiveTag = options?.tag || DEFAULT_TAG;
+
+      if (effectiveMode === 'PRIMARY') {
+        throw new WalletError(
+          "PRIMARY mode cannot sign EIP-7702 authorizations: its P-256 passkey address has no secp256k1 key. " +
+          "Use STANDARD, STRICT or YOLO mode."
+        );
+      }
+
+      const origin = getCurrentOrigin();
+      const mnemonic = await this.getMnemonicFromSession(true, effectiveMode);
+      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+
       let wallet: any;
-
-      if (params.privateKey) {
-        wallet = new Wallet(params.privateKey);
+      if (derived.privateKey) {
+        wallet = new Wallet(derived.privateKey);
       } else {
-        const effectiveMode = options?.mode || DEFAULT_MODE;
-        const effectiveTag = options?.tag || DEFAULT_TAG;
-
-        if (effectiveMode === 'PRIMARY') {
-          throw new WalletError(
-            "PRIMARY mode cannot sign EIP-7702 authorizations: its P-256 passkey address has no secp256k1 key. " +
-            "Use STANDARD, STRICT or YOLO mode."
-          );
-        }
-
-        const origin = getCurrentOrigin();
-        const mnemonic = await this.getMnemonicFromSession(true, effectiveMode);
-        const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
-
-        if (derived.privateKey) {
-          wallet = new Wallet(derived.privateKey);
-        } else {
-          const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-          const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
-          wallet = new Wallet(privateKey);
-        }
+        const { deriveWalletFromMnemonic } = await import("../wallet/generate");
+        const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
+        wallet = new Wallet(privateKey);
       }
 
       const chainId = BigInt(params.chainId || 1);

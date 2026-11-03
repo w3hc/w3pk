@@ -54,6 +54,8 @@ export type SecurityMode = 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO';
  * - Sign raw 32-byte hashes without EIP-191 prefix
  * - Useful for pre-computed EIP-712 hashes or Safe transactions
  * - Message must be a 32-byte hex string (with or without 0x prefix)
+ * - Always requires a fresh user-verified passkey assertion: the hash could be
+ *   an EIP-7702 authorization digest
  */
 export type SigningMethod = 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash';
 
