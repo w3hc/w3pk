@@ -132,6 +132,24 @@ export class PrfUnsupportedError extends Web3PasskeyError {
 }
 
 /**
+ * The backup holds another wallet than the one this passkey opens on this
+ * device. Restoring it replaces that wallet, so the app must confirm it
+ * with the user and pass `allowAddressChange: true`.
+ */
+export class AddressChangeError extends Web3PasskeyError {
+  constructor(
+    public currentAddress: string,
+    public newAddress: string
+  ) {
+    super(
+      `This backup holds wallet ${newAddress}, not ${currentAddress}. Restoring it replaces the wallet on this device.`,
+      "ADDRESS_CHANGE_NOT_ALLOWED"
+    );
+    this.name = "AddressChangeError";
+  }
+}
+
+/**
  * The backup uses the removed `passkey` or `hybrid` method, whose key came
  * from public data rather than from the passkey. It can't be restored.
  */

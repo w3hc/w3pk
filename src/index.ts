@@ -51,6 +51,7 @@ export {
   WalletMissingError,
   SyncBootstrapError,
   PrfUnsupportedError,
+  AddressChangeError,
   RemovedBackupMethodError,
   UnsupportedBackupVersionError,
   ZkArtifactMismatchError,

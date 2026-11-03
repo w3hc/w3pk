@@ -381,7 +381,8 @@ const { downloadBlob, filename, shareDocument } = await w3pk.generateGuardianInv
 // Recover from guardian share files - rebuilds and decrypts the backup
 const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians([share1, share2], password)
 
-// Restore from backup file
+// Restore from backup file (another wallet than the logged-in one needs
+// the user's confirmation: { allowAddressChange: true })
 await w3pk.restoreFromBackupFile(encryptedData, password)
 
 // Simulate recovery scenarios

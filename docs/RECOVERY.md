@@ -195,7 +195,9 @@ await sdk.registerWithBackupFile(backupFile, 'MySecurePassword123!', 'myusername
 const sdk = createWeb3Passkey();
 await sdk.login(); // Login with existing passkey first
 
-// Restore and decrypt the backup
+// Restore and decrypt the backup. A backup of another wallet than the
+// logged-in one throws AddressChangeError unless the user confirmed the
+// replacement and the app passes { allowAddressChange: true }
 const { mnemonic } = await sdk.restoreFromBackupFile(backupFile, 'MySecurePassword123!');
 
 // Import to current logged-in user
