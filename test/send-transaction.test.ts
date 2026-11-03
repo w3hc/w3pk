@@ -503,6 +503,14 @@ async function runTests() {
         JSON.stringify(["https://app.example", "https://chainlist.example"]),
         "getEndpoints lists app endpoints first"
       );
+
+      globalThis.fetch = (async () => { throw new Error("offline"); }) as typeof fetch;
+      clearCache();
+      assertEqual(
+        JSON.stringify(await sdk.getEndpoints(1)),
+        JSON.stringify(["https://app.example"]),
+        "getEndpoints keeps app endpoints when chainid.network is unreachable"
+      );
     } finally {
       proto._send = originalSend;
       globalThis.fetch = originalFetch;

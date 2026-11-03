@@ -1349,11 +1349,15 @@ export class Web3Passkey {
 
   /**
    * RPC endpoints for a chain: those set in `rpcUrls` first, then the HTTPS
-   * chainid.network endpoints that need no API key
+   * chainid.network endpoints that need no API key (skipped if chainid.network
+   * can't be reached and the app set endpoints for the chain)
    */
   async getEndpoints(chainId: number): Promise<string[]> {
     const appEndpoints = this.config.rpcUrls?.[chainId] ?? [];
-    return [...new Set([...appEndpoints, ...(await getEndpoints(chainId))])];
+    const chainlist = appEndpoints.length > 0
+      ? await getEndpoints(chainId).catch(() => [])
+      : await getEndpoints(chainId);
+    return [...new Set([...appEndpoints, ...chainlist])];
   }
 
   async supportsEIP7702(
