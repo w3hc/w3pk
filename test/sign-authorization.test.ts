@@ -174,17 +174,23 @@ async function runTests() {
     passTest("Each chain ID and nonce is part of the signed message");
   });
 
-  await runTest("signAuthorization ignores a caller-supplied privateKey", async () => {
+  await runTest("signAuthorization rejects a caller-supplied privateKey", async () => {
     const { sdk, forceAuthCalls } = await sessionSdk();
-    const other = Wallet.createRandom();
-    const authorization = await sdk.signAuthorization({
-      contractAddress: CONTRACT,
-      privateKey: other.privateKey,
-    } as any);
-    const standard = await getOriginSpecificAddress(MNEMONIC, window.location.origin, "STANDARD", "MAIN");
 
-    assert(recoverSigner(authorization) === standard.address, "Should sign with the origin-derived key");
-    assert(forceAuthCalls[0] === true, "Should still require a fresh assertion");
+    let rejected: any;
+    try {
+      await sdk.signAuthorization({
+        contractAddress: CONTRACT,
+        privateKey: Wallet.createRandom().privateKey,
+      } as any);
+    } catch (error) {
+      rejected = error;
+    }
+
+    assert(rejected, "Should have thrown an error");
+    const cause = rejected.originalError?.message ?? "";
+    assert(cause.includes("takes no privateKey"), `Should name privateKey, got: ${cause}`);
+    assert(forceAuthCalls.length === 0, "Should refuse before prompting for a passkey");
     passTest("No key bypasses the passkey prompt");
   });
 
