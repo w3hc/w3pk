@@ -7,7 +7,7 @@
  * - eth_chainId (default and custom)
  * - wallet_switchEthereumChain + chainChanged event
  * - eth_sendTransaction param mapping (hex → bigint)
- * - personal_sign / eth_sign (plain text and hex-encoded)
+ * - personal_sign / eth_sign (plain text, and hex signed as bytes)
  * - eth_signTypedData_v4 (EIP-712 typed data)
  * - Unsupported method throws
  * - Multiple independent provider instances are isolated
@@ -18,7 +18,8 @@
 import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
-import { verifyMessage, recoverAddress, TypedDataEncoder } from "ethers";
+import { createEIP1193Provider } from "../src/core/eip1193";
+import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify } from "ethers";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import {
@@ -37,6 +38,19 @@ import {
 const TEST_MNEMONIC =
   "test test test test test test test test test test test junk";
 const TEST_ORIGIN = "https://example.com";
+
+function stubSdk() {
+  const calls: { message: string | Uint8Array; options: any }[] = [];
+  const sdk = {
+    getAddress: async () => "0x0000000000000000000000000000000000000001",
+    sendTransaction: async () => ({ hash: "0x" }),
+    signMessage: async (message: string | Uint8Array, options?: any) => {
+      calls.push({ message, options });
+      return { signature: "0xsig" };
+    },
+  } as any;
+  return { sdk, calls };
+}
 
 async function runTests() {
   startTestSuite("EIP-1193 Provider Tests");
@@ -312,23 +326,22 @@ async function runTests() {
   });
 
   // ------------------------------------------------------------------
-  // 15. isHex / hexToUtf8 helper logic (inline verification)
-  //     personal_sign receives hex-encoded message in real dApp calls
+  // 15. personal_sign / eth_sign sign hex data as raw bytes
   // ------------------------------------------------------------------
-  await runTest("Hex-encoded personal_sign data is decoded correctly", async () => {
-    // Simulate the hex encoding that MetaMask/viem does for personal_sign
-    const original = "Hello, Web3!";
-    const encoded = "0x" + Buffer.from(original, "utf8").toString("hex");
+  await runTest("Hex-encoded personal_sign data is signed as bytes", async () => {
+    const { sdk, calls } = stubSdk();
+    const provider = createEIP1193Provider(sdk);
+    const invalidUtf8 = "0xff00fe80";
 
-    // Reconstruct what hexToUtf8 would do
-    const clean = encoded.slice(2);
-    const bytes = new Uint8Array(
-      clean.match(/.{1,2}/g)!.map((b: string) => parseInt(b, 16))
-    );
-    const decoded = new TextDecoder().decode(bytes);
+    await provider.request({ method: "personal_sign", params: [invalidUtf8, "0x0"] });
+    await provider.request({ method: "eth_sign", params: ["0x0", invalidUtf8] });
+    await provider.request({ method: "personal_sign", params: ["Hello", "0x0"] });
 
-    assertEqual(decoded, original, "hexToUtf8 should recover the original string");
-    passTest(`Hex "${encoded.slice(0, 20)}..." → "${decoded}"`);
+    assert(calls[0].message instanceof Uint8Array, "personal_sign hex should be bytes");
+    assertEqual(hexlify(calls[0].message as Uint8Array), invalidUtf8, "personal_sign bytes");
+    assertEqual(hexlify(calls[1].message as Uint8Array), invalidUtf8, "eth_sign bytes");
+    assertEqual(calls[2].message, "Hello", "plain text passes through");
+    passTest("Hex data is signed as its bytes, not lossy UTF-8 text");
   });
 
   // ------------------------------------------------------------------

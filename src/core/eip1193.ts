@@ -1,3 +1,4 @@
+import { getBytes } from "ethers";
 import type { SecurityMode } from "../types";
 import { WalletError } from "./errors";
 import type { Web3Passkey } from "./sdk";
@@ -49,13 +50,6 @@ export interface EIP1193ProviderInterface {
 /** Returns true if a string looks like a 0x-prefixed hex value */
 function isHex(value: string): boolean {
   return typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value);
-}
-
-/** Decode a hex-encoded UTF-8 string (used for personal_sign / eth_sign data) */
-function hexToUtf8(hex: string): string {
-  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-  const bytes = new Uint8Array(clean.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-  return new TextDecoder().decode(bytes);
 }
 
 /** Build the EIP-1193 provider returned by `Web3Passkey.getEIP1193Provider()` */
@@ -141,7 +135,7 @@ export function createEIP1193Provider(
         case 'personal_sign': {
           const [data] = params ?? [];
           const message = isHex(data)
-            ? hexToUtf8(data)
+            ? getBytes(data)
             : data;
           const result = await sdk.signMessage(message, {
             mode: options?.mode,
@@ -155,7 +149,7 @@ export function createEIP1193Provider(
         case 'eth_sign': {
           const [, data] = params ?? [];
           const message = isHex(data)
-            ? hexToUtf8(data)
+            ? getBytes(data)
             : data;
           const result = await sdk.signMessage(message, {
             mode: options?.mode,
