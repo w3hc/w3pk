@@ -197,8 +197,6 @@ export async function syncWalletWithPasskey(
   }
   const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
 
-  backupManager.markBackupVerified(ethereumAddress);
-
   await bootstrapCredential(ctx, 
     {
       id: credentialId,
@@ -210,6 +208,8 @@ export async function syncWalletWithPasskey(
     passkeyResult.prfOutput,
     allowAddressChange
   );
+
+  backupManager.markBackupVerified(ethereumAddress);
 
   return { ethereumAddress };
 }
