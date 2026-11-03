@@ -264,6 +264,8 @@ await sdk.importFromSync(syncData); // or sdk.syncWalletWithPasskey(syncData)
 
 No `login()` first: on a device without the wallet, `login()` throws `SyncRequiredError` or `WalletMissingError`.
 
+If this device already stores another wallet for the passkey, the file would replace it: `importFromSync()` and `syncWalletWithPasskey()` throw `AddressChangeError` after the prompt, with nothing stored changed, unless the user confirmed the replacement and the app passes `{ allowAddressChange: true }`.
+
 **How it works**: the file (`encryptionMethod: 'prf'`) is encrypted with a key derived from the passkey's [WebAuthn PRF](https://w3c.github.io/webauthn/#prf-extension) output: HKDF-SHA256 over the PRF output at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, with a random `prfSalt` per file, then AES-256-GCM. The PRF secret syncs with the passkey but never leaves the authenticator, and the authenticator releases the output only on a user-verified assertion. So the file or its QR code alone decrypts nothing: it also takes the synced passkey and a biometric. An altered ciphertext or `prfSalt` is rejected. `restoreFromBackupFile(syncData)` restores a PRF file the same way.
 
 The file also names its passkey (`credential: { id, publicKey }`) and carries the username. The public key is not a secret and doesn't decrypt the file. A fresh device needs it for `login()` and for the wallet key, and checks it against the assertion's signature first (`SyncBootstrapError` with `reason: 'PUBLIC_KEY_MISMATCH'` if it doesn't match).
@@ -547,6 +549,8 @@ const { blob, qrCode } = await w3pk.exportForSync();
 const fallback = await w3pk.exportForSync('MyS3cure!Backup@2042');
 
 // Import on Device B where the passkey synced (no login needed, no password)
+// If the passkey has another wallet on Device B, this throws AddressChangeError:
+// pass { allowAddressChange: true } once the user confirms the replacement
 await w3pk.importFromSync(syncData);
 
 // Sync with a password backup (no prior session needed)

@@ -275,7 +275,7 @@ const { blob, filename, qrCode } = await sdk.exportForSync()
 const { ethereumAddress } = await sdk.importFromSync(syncData)
 ```
 
-`syncWalletWithPasskey(syncData)` restores the same files and also takes password backups.
+`syncWalletWithPasskey(syncData)` restores the same files and also takes password backups. If the passkey already has another wallet on the device, both throw `AddressChangeError` unless the app passes `{ allowAddressChange: true }` once the user confirms the replacement.
 
 **Password fallback**: PRF works in Chrome 108+ and Safari 17+ / iOS 17+, not in Firefox. Without it, `exportForSync()` throws `PrfUnsupportedError`. Pass a password to fall back to a password backup, which the new device restores with `syncWalletWithPasskey(syncData, password)`:
 
