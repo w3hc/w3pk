@@ -217,30 +217,13 @@ w3pk.clearSession()
 
 ### Wallet Methods
 
-#### `generateWallet()`
-Generate a new BIP39 wallet (no authentication required).
+#### `deriveWallet(mode?, tag?, options?)`
+Derive the origin-specific wallet for a security mode and tag (requires authentication).
 ```typescript
-const { mnemonic } = await w3pk.generateWallet()
-// Returns: { mnemonic: string }
-// Note: Wallet is stored in memory until register() is called
-```
-
-#### `deriveWallet(index, options?)`
-Derive HD wallet at specific index (requires authentication).
-```typescript
-const wallet = await w3pk.deriveWallet(0, {
+const wallet = await w3pk.deriveWallet('STANDARD', 'MAIN', {
   requireAuth?: boolean  // Force fresh biometric (default: false)
 })
-// Returns: { address: string, privateKey: string }
-```
-
-#### `exportMnemonic(options?)`
-Export mnemonic phrase (requires authentication).
-```typescript
-const mnemonic = await w3pk.exportMnemonic({
-  requireAuth?: boolean  // Force fresh biometric (default: false)
-})
-// Returns: string (12-24 words)
+// Returns: { address, index, origin, mode, tag } (privateKey only in YOLO mode)
 ```
 
 #### `importMnemonic(mnemonic)`
@@ -367,18 +350,18 @@ const invite = await w3pk.generateGuardianInvite(guardianShares[0])
 #### `recoverFromGuardians(shares, password)`
 Recover wallet from guardian shares.
 ```typescript
-const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(
+const { ethereumAddress } = await w3pk.recoverFromGuardians(
   [share1, share2, share3],
   password
 )
 ```
 
-#### `restoreFromBackup(backupData, password)`
-Restore from encrypted backup.
+#### `restoreFromBackupFile(backupData, password?, options?)`
+Restore from a backup file.
 ```typescript
-const { mnemonic, metadata } = await w3pk.restoreFromBackup(
-  encryptedData,
-  'password'
+const { ethereumAddress } = await w3pk.restoreFromBackupFile(
+  backupFile,
+  password
 )
 ```
 
@@ -601,8 +584,6 @@ git push
 # 6. Publish to npm
 pnpm publish
 ```
-
-See [.github/RELEASE_WORKFLOW.md](./.github/RELEASE_WORKFLOW.md) for complete release documentation.
 
 ## Common Tasks
 

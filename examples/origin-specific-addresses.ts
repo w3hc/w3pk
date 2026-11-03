@@ -58,7 +58,7 @@ async function main() {
   }
 
   console.log('\n✅ Benefits:');
-  console.log('   • Simple API: deriveWallet() or deriveWallet("TAG")');
+  console.log('   • Simple API: deriveWallet() or deriveWallet("STANDARD", "TAG")');
   console.log('   • Privacy: Each origin gets unique addresses');
   console.log('   • Deterministic: Same origin + tag = same address');
   console.log('   • Flexible: Use tags for compartmentalization\n');

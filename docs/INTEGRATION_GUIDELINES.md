@@ -1040,15 +1040,11 @@ const wallet2 = await w3pk.deriveWallet()
 ### Never Expose Master Mnemonic
 
 ```typescript
-// ❌ This will throw an error - master mnemonic is never exposed
-try {
-  await w3pk.exportMnemonic()
-} catch (error) {
-  console.error('Cannot export master mnemonic') // Expected
-}
+// ❌ No method returns the master mnemonic
+console.log('exportMnemonic' in w3pk) // false
 
 // ✅ Use derived wallets instead
-const wallet = await w3pk.deriveWallet('GAMING') // Safe, tagged wallet
+const wallet = await w3pk.deriveWallet('STANDARD', 'GAMING') // Safe, tagged wallet
 ```
 
 ---
