@@ -1173,7 +1173,7 @@ async function promptBackupOptions() {
   const userChoice = await showBackupModal()
 
   if (userChoice === 'download') {
-    const { blob, filename } = await w3pk.createBackupFile('user-password')
+    const { blob, filename } = await w3pk.createBackupFile('User-Chosen-Backup-1!')
     downloadFile(blob, filename)
   } else if (userChoice === 'social-recovery') {
     await setupSocialRecoveryFlow()

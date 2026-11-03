@@ -105,9 +105,9 @@ interface BackupFile {
   passwordEncryption?: {          // password
     kdf: 'argon2id';
     salt: string;                 // base64, 16 random bytes
-    memoryKiB: number;            // 19456
-    passes: number;               // 2
-    parallelism: number;          // 1
+    memoryKiB: number;            // 65536 (19456 before v0.11.1)
+    passes: number;               // 3 (2 before v0.11.1)
+    parallelism: number;          // 4 (1 before v0.11.1)
   };
   credential?: { id: string; publicKey: string }; // passkey that owns the wallet
   prfSalt?: string;               // prf
@@ -128,9 +128,9 @@ The file holds no address, in clear or hashed: it doesn't say whose wallet it is
   "passwordEncryption": {
     "kdf": "argon2id",
     "salt": "KUA/RBWL8N1Y648K6IkHIQ==",
-    "memoryKiB": 19456,
-    "passes": 2,
-    "parallelism": 1
+    "memoryKiB": 65536,
+    "passes": 3,
+    "parallelism": 4
   },
   "credential": { "id": "…", "publicKey": "…" }
 }
@@ -146,11 +146,12 @@ w3pk restores v3 files only, with no compatibility layer. A v2 file (no `version
 
 ### Password-based (the backup that must exist)
 - **Use case**: Disaster recovery, social recovery, new device setup
-- **Security**: Argon2id (RFC 9106; 19 MiB, 2 passes, 1 lane; random 16-byte salt) + AES-256-GCM. The password is NFC-normalized.
+- **Security**: Argon2id (RFC 9106; 64 MiB, 3 passes, 4 lanes; random 16-byte salt) + AES-256-GCM. The password is NFC-normalized.
+- **Password**: 12+ characters with an uppercase letter, a lowercase letter, a number and a special character, and no common password (the rules of `isStrongPassword()`). A weak one throws `WeakPasswordError`, whose `feedback` lists what's missing; social recovery and the `exportForSync(password)` fallback apply the same rules.
 - **Pros**: Platform-agnostic, restores without a passkey, memory-hard against GPU guessing
 - **Cons**: Must remember password
 
-The Argon2id parameters are OWASP's first recommendation. They take about 0.4 s in pure JavaScript (`@noble/hashes`), so the offline tool runs them too. Restores read the parameters from the file, up to 64 MiB and 3 passes, so a crafted file can't freeze the page.
+The Argon2id parameters are RFC 9106's second recommendation. They take about 1 to 2 s in pure JavaScript (`@noble/hashes`), so the offline tool runs them too. Restores read the parameters from the file, up to 64 MiB, 3 passes and 4 lanes, so a crafted file can't freeze the page, and backups made before v0.11.1 (19 MiB, 2 passes, 1 lane) still restore.
 
 ### PRF-based (convenient sync)
 - **Use case**: Cross-device sync (when passkey is synced), from `exportForSync()`
@@ -175,7 +176,7 @@ const sdk = createWeb3Passkey();
 await sdk.login();
 
 // Password-protected backup (recommended)
-const { blob, filename } = await sdk.createBackupFile('MySecurePassword123!');
+const { blob, filename } = await sdk.createBackupFile('MyS3cure!Backup@2042');
 // Downloads: w3pk-backup-2026-11-01.json
 ```
 
@@ -186,7 +187,7 @@ const { blob, filename } = await sdk.createBackupFile('MySecurePassword123!');
 const sdk = createWeb3Passkey();
 
 // Register new passkey with wallet from backup
-await sdk.registerWithBackupFile(backupFile, 'MySecurePassword123!', 'myusername');
+await sdk.registerWithBackupFile(backupFile, 'MyS3cure!Backup@2042', 'myusername');
 // Now logged in with new passkey, credentials stored locally ✅
 ```
 
@@ -198,11 +199,11 @@ await sdk.login(); // Login with existing passkey first
 // Restore and decrypt the backup. A backup of another wallet than the
 // logged-in one throws AddressChangeError unless the user confirmed the
 // replacement and the app passes { allowAddressChange: true }
-await sdk.restoreFromBackupFile(backupFile, 'MySecurePassword123!');
+await sdk.restoreFromBackupFile(backupFile, 'MyS3cure!Backup@2042');
 // The wallet is now stored under the logged-in passkey ✅
 ```
 
-**Encryption**: Password → Argon2id (19 MiB, 2 passes) → AES-256-GCM
+**Encryption**: Password → Argon2id (64 MiB, 3 passes) → AES-256-GCM
 
 **Use Cases:**
 1. **First backup after wallet creation** - Essential safety net
@@ -277,7 +278,7 @@ Use this when PRF is unavailable, or when you only have a password backup. This 
 const sdk = createWeb3Passkey();
 
 const backupData = '...'; // JSON string or Blob from your password backup file
-const { mnemonic, ethereumAddress } = await sdk.syncWalletWithPasskey(backupData, 'MyPassword123!');
+const { mnemonic, ethereumAddress } = await sdk.syncWalletWithPasskey(backupData, 'MyS3cure!Backup@2042');
 // 1. SDK prompts you to select your synced passkey
 // 2. Decrypts the backup
 // 3. Saves the passkey's metadata on this device if it's missing
@@ -322,7 +323,7 @@ const sdk = createWeb3Passkey();
 await sdk.login();
 
 // Step 1: Encrypt the wallet with a password and split it among guardians
-const password = 'MySecurePassword123!'; // User must remember this
+const password = 'MyS3cure!Backup@2042'; // User must remember this
 const guardians = [
   { name: 'Alice', email: 'alice@example.com' },
   { name: 'Bob', email: 'bob@example.com' },
@@ -544,13 +545,13 @@ await w3pk.restoreFromBackupFile(backupData, password);
 // Export for sync (Device A - requires active session): PRF-encrypted, no password
 const { blob, qrCode } = await w3pk.exportForSync();
 // Or with a password fallback where PRF is unavailable
-const fallback = await w3pk.exportForSync('MyPassword123!');
+const fallback = await w3pk.exportForSync('MyS3cure!Backup@2042');
 
 // Import on Device B where the passkey synced (no login needed, no password)
 await w3pk.importFromSync(syncData);
 
 // Sync with a password backup (no prior session needed)
-const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!');
+const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupData, 'MyS3cure!Backup@2042');
 ```
 
 ### Social Recovery
@@ -564,7 +565,7 @@ const { guardianShares } = await w3pk.setupSocialRecovery(
     { name: 'Charlie', email: 'charlie@example.com' }
   ],
   2, // threshold
-  'MyPassword123!'
+  'MyS3cure!Backup@2042'
 );
 
 // Generate invitations for guardians
@@ -575,7 +576,7 @@ for (const share of guardianShares) {
 
 // Recover - Collect share files, rebuild the backup and decrypt it
 const shares = [aliceShareFile, bobShareFile]; // JSON strings from guardians
-const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares, 'MyPassword123!');
+const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares, 'MyS3cure!Backup@2042');
 ```
 
 ---

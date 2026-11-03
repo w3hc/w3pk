@@ -2468,7 +2468,7 @@ This backup can be used to:
 - Split among guardians for social recovery
 
 **Parameters:**
-- `password: string` - Encrypts the backup through Argon2id (m=19 MiB, t=2, p=1, random 16-byte salt; NFC-normalized) and AES-256-GCM
+- `password: string` - Encrypts the backup through Argon2id (m=64 MiB, t=3, p=4, random 16-byte salt; NFC-normalized) and AES-256-GCM. It must have 12+ characters with an uppercase letter, a lowercase letter, a number and a special character, and no common password (the rules of `isStrongPassword()`), or `WeakPasswordError` is thrown before the passkey prompt
 
 The file holds no address. The default filename is `w3pk-backup-<date>.json`. Passing a second argument (the removed `encryptionType`) throws `WalletError`.
 
@@ -2503,7 +2503,7 @@ Restoring a file that isn't v3 throws `UnsupportedBackupVersionError` (`code: 'B
 **Example:**
 
 ```typescript
-const { blob, filename } = await w3pk.createBackupFile('MySecurePassword123!')
+const { blob, filename } = await w3pk.createBackupFile('MyS3cure!Backup@2042')
 
 // Download the backup
 const url = URL.createObjectURL(blob)
@@ -2526,7 +2526,7 @@ Encrypt the logged-in wallet into a password backup file and split it among guar
 **Parameters:**
 - `guardians` - Guardian names (and optional emails)
 - `threshold: number` - Number of guardians required to recover (M in M-of-N, at least 2)
-- `password: string` - Encrypts the backup the shares rebuild
+- `password: string` - Encrypts the backup the shares rebuild. Same rules as `createBackupFile()`: a weak password throws `WeakPasswordError`
 
 **Returns:**
 
@@ -2562,7 +2562,7 @@ const { guardianShares } = await w3pk.setupSocialRecovery(
     { name: 'Eve', email: 'eve@example.com' }
   ],
   3, // Need 3 guardians to recover
-  'MySecurePassword123!'
+  'MyS3cure!Backup@2042'
 );
 ```
 
@@ -2606,7 +2606,7 @@ const shares = [aliceShareFile, bobShareFile, charlieShareFile]; // JSON strings
 
 const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(
   shares,
-  'MySecurePassword123!'
+  'MyS3cure!Backup@2042'
 );
 console.log('Wallet recovered:', ethereumAddress);
 ```
@@ -2651,7 +2651,7 @@ await w3pk.login()
 const backupData = '...' // From file upload or QR scanner
 
 // Password-encrypted backup
-const result = await w3pk.restoreFromBackupFile(backupData, 'MyPassword123!')
+const result = await w3pk.restoreFromBackupFile(backupData, 'MyS3cure!Backup@2042')
 console.log('Wallet restored:', result.ethereumAddress)
 // Wallet is automatically associated with current user
 
@@ -2703,7 +2703,7 @@ const backupData = '...' // From file upload
 // Create new passkey from backup
 const { address, username } = await w3pk.registerWithBackupFile(
   backupData,
-  'MyPassword123!',
+  'MyS3cure!Backup@2042',
   'alice'
 )
 
@@ -2785,7 +2785,7 @@ Runs a fresh assertion restricted to the current passkey and encrypts the mnemon
 **Use case:** User wants to sync wallet to another device that has the same passkey.
 
 **Parameters:**
-- `password?: string` - Fallback when the authenticator has no PRF support: the file is then a password backup that names its passkey, to restore with `syncWalletWithPasskey(syncData, password)`
+- `password?: string` - Fallback when the authenticator has no PRF support: the file is then a password backup that names its passkey, to restore with `syncWalletWithPasskey(syncData, password)`. A weak password throws `WeakPasswordError` before the prompt, as in `createBackupFile()`
 
 **Returns:**
 
@@ -2826,6 +2826,7 @@ if (qrCode) {
 **Throws:**
 - `WalletError` if not logged in
 - `PrfUnsupportedError` if the authenticator returns no PRF output and no `password` was given
+- `WeakPasswordError` if `password` is given and too weak
 - `AuthenticationError` if the assertion fails or is cancelled
 
 ---
@@ -2886,7 +2887,7 @@ A PRF sync file from `exportForSync()` takes no password: it's restored as `impo
 **Example:**
 
 ```typescript
-const result = await w3pk.syncWalletWithPasskey(backupData, 'MyPassword123!')
+const result = await w3pk.syncWalletWithPasskey(backupData, 'MyS3cure!Backup@2042')
 console.log('Synced wallet address:', result.ethereumAddress)
 ```
 
@@ -3187,7 +3188,7 @@ console.log('Valid mnemonic:', valid) // true
 
 #### `isStrongPassword(password: string): boolean`
 
-Validate password strength for backups.
+Validate password strength for backups. `createBackupFile()`, `setupSocialRecovery()` and `exportForSync(password)` apply the same rules and throw `WeakPasswordError` when they fail.
 
 **Requirements:**
 - 12+ characters
@@ -3198,7 +3199,7 @@ Validate password strength for backups.
 - Not a common password
 
 ```typescript
-const password = 'MyS3cur3!Password@2042'
+const password = 'MyS3cur3!Backup@2042'
 const strong = isStrongPassword(password)
 console.log('Strong password:', strong) // true
 ```
@@ -3860,7 +3861,8 @@ import {
   PrfUnsupportedError,
   AddressChangeError,
   RemovedBackupMethodError,
-  UnsupportedBackupVersionError
+  UnsupportedBackupVersionError,
+  WeakPasswordError
 } from 'w3pk'
 ```
 
@@ -3880,6 +3882,7 @@ import {
   - `AddressChangeError` - `restoreFromBackupFile()`: the backup would replace the logged-in wallet with another address and `allowAddressChange` isn't set (`currentAddress`, `newAddress`)
   - `RemovedBackupMethodError` - `syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, `recoverFromGuardians()`: the backup uses the removed `passkey` or `hybrid` method (`method`); create a new `password` or `prf` backup
   - `UnsupportedBackupVersionError` - the same methods and `registerWithBackupFile()`: the file isn't BackupFile v3 (`version`; `backupFileJson` when rebuilt from guardian shares); decrypt a v2 password file with the v0.10.6 offline tool
+  - `WeakPasswordError` - `createBackupFile()`, `setupSocialRecovery()`, `exportForSync(password)`: the password fails `isStrongPassword()` (`code: 'WEAK_PASSWORD'`, `feedback: string[]` lists what's missing)
 
 ### Error Handling
 

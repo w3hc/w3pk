@@ -287,7 +287,7 @@ const sdk = new W3PK({
 });
 
 // Create encrypted backup
-const password = 'user-provided-strong-password';
+const password = 'User-Provided-Backup-1!';
 const backupData = await sdk.createBackupFile(password);
 
 // Save to file
@@ -311,7 +311,7 @@ const file = fileInput.files[0];
 const backupData = JSON.parse(await file.text());
 
 // Restore wallet
-const password = 'user-provided-password';
+const password = 'User-Provided-Backup-1!';
 await sdk.restoreFromBackupFile(backupData, password);
 
 // Wallet is now restored and ready to use
