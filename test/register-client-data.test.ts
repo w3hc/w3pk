@@ -108,10 +108,10 @@ async function attemptRegister(overrides: Overrides) {
   return { error, stored };
 }
 
-function rejected(overrides: Overrides, what: string) {
+function rejected(overrides: Overrides, what: string, message: string) {
   return async () => {
     const { error, stored } = await attemptRegister(overrides);
-    assert(error !== undefined, `registration should reject ${what}`);
+    assert(error?.message === message, `registration should reject ${what} with "${message}", got "${error?.message}"`);
     assert(!stored, `${what} should not store the credential`);
   };
 }
@@ -128,37 +128,39 @@ setup().then(() =>
     },
     {
       name: "clientDataJSON type webauthn.get is rejected",
-      fn: rejected({ type: "webauthn.get" }, "a webauthn.get type"),
+      fn: rejected({ type: "webauthn.get" }, "a webauthn.get type", "Invalid client data"),
     },
     {
       name: "another challenge is rejected",
       fn: rejected(
         { challenge: arrayBufferToBase64Url(crypto.getRandomValues(new Uint8Array(32)).buffer) },
-        "another challenge"
+        "another challenge",
+        "Invalid client data"
       ),
     },
     {
       name: "another origin is rejected",
-      fn: rejected({ origin: "https://evil.example" }, "another origin"),
+      fn: rejected({ origin: "https://evil.example" }, "another origin", "Invalid client data"),
     },
     {
       name: "origin with another port is rejected",
-      fn: rejected({ origin: `${window.location.origin}:3000` }, "another port"),
+      fn: rejected({ origin: `${window.location.origin}:3000` }, "another port", "Invalid client data"),
     },
     {
       name: "malformed clientDataJSON is rejected",
       fn: rejected(
         { clientDataJSON: new TextEncoder().encode("not json").buffer },
-        "malformed client data"
+        "malformed client data",
+        "Invalid client data"
       ),
     },
     {
       name: "another RP ID hash is rejected",
-      fn: rejected({ rpId: "evil.example" }, "another RP ID hash"),
+      fn: rejected({ rpId: "evil.example" }, "another RP ID hash", "RP ID hash mismatch"),
     },
     {
       name: "missing user-presence flag is rejected",
-      fn: rejected({ flags: UV }, "an attestation without UP"),
+      fn: rejected({ flags: UV }, "an attestation without UP", "User presence flag not set"),
     },
   ])
 );
