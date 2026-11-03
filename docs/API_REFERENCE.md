@@ -1639,7 +1639,7 @@ const w3pk = createWeb3Passkey({
 
 All stealth address methods are accessed via `w3pk.stealth.*`
 
-Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, so it can see every stealth payment to the user. w3pk never returns the spending private key or a stealth private key (a stealth private key plus the viewing key would give back the spending key); it signs from stealth addresses itself with `signTransaction()`. An app with stealth addresses enabled can have w3pk sign from any stealth address found for the user during an active session, so only enable them in apps you trust with stealth funds.
+Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, so it can see every stealth payment to the user. w3pk never returns the spending private key or a stealth private key (a stealth private key plus the viewing key would give back the spending key); it signs from stealth addresses itself with `signTransaction()`. Each `signTransaction()` call runs a fresh passkey assertion, even with an active session. Still, only enable stealth addresses in apps you trust with stealth funds: the user approves a prompt, not the transaction the app asks w3pk to sign.
 
 > **🔒 Security Note:** The ERC-5564 implementation properly reduces all scalars modulo the secp256k1 curve order to prevent unspendable funds. The same reduced scalar is used consistently in both public-key operations (`s_h × G`) and private-key operations (`spendingKey + s_h`) to ensure the derived stealth address always matches the derived private key.
 
@@ -1752,14 +1752,13 @@ myPayments.forEach(payment => {
 
 ---
 
-### `stealth.signTransaction(announcement: Announcement, tx: StealthTransaction, options?: { requireAuth?: boolean }): Promise<string>`
+### `stealth.signTransaction(announcement: Announcement, tx: StealthTransaction): Promise<string>`
 
-Sign an EIP-1559 transaction from a stealth address found for the current user. The stealth private key is derived and used inside w3pk, never returned. The transaction is signed, not sent: broadcast it with your own RPC (`eth_sendRawTransaction`).
+Sign an EIP-1559 transaction from a stealth address found for the current user. The stealth private key is derived and used inside w3pk, never returned. Every call runs a fresh passkey assertion, even with an active session. The transaction is signed, not sent: broadcast it with your own RPC (`eth_sendRawTransaction`).
 
 **Parameters:**
 - `announcement: Announcement` - The announcement of the stealth address to sign from
 - `tx: StealthTransaction` - Fully populated transaction; nothing is fetched from an RPC
-- `options.requireAuth?: boolean` - Force fresh authentication
 
 ```typescript
 interface StealthTransaction {
@@ -1784,15 +1783,14 @@ interface StealthTransaction {
 import { JsonRpcProvider } from 'ethers'
 
 const provider = new JsonRpcProvider('https://...')
-const [payment] = await w3pk.stealth.scanAnnouncements(announcements)
-const announcement = announcements.find(a => a.stealthAddress === payment.stealthAddress)
+const announcement = { stealthAddress: '0x...', ephemeralPublicKey: '0x02...', viewTag: '0xa4' }
 const fees = await provider.getFeeData()
 
 const signedTx = await w3pk.stealth.signTransaction(announcement, {
   to: '0x...',
   value: 1000000000000000n,
   chainId: 11155111,
-  nonce: await provider.getTransactionCount(payment.stealthAddress),
+  nonce: await provider.getTransactionCount(announcement.stealthAddress),
   gasLimit: 21000n,
   maxFeePerGas: fees.maxFeePerGas,
   maxPriorityFeePerGas: fees.maxPriorityFeePerGas
