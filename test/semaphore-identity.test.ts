@@ -48,7 +48,7 @@ class MemoryStorage {
 
 const RP_ID = "localhost";
 const USERNAME = "alice";
-const PASSWORD = "correct horse battery staple";
+const PASSWORD = "TestStrongPass123!NotReal";
 const MNEMONIC =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 const ADDRESS = Wallet.fromPhrase(MNEMONIC).address;

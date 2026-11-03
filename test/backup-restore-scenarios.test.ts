@@ -38,7 +38,7 @@ async function testDeviceLossRecovery() {
 
   // Device A: Create account and backup
   const { mnemonic, address } = createTestWallet();
-  const password = 'StrongPassword123!';
+  const password = 'StrongPass123!Test';
 
   console.log('  Device A: Creating backup...');
   const { backupFile, blob } = await manager.createPasswordBackup(
@@ -182,8 +182,8 @@ async function testWrongPassword() {
 
   const manager = new BackupFileManager();
   const { mnemonic, address } = createTestWallet();
-  const correctPassword = 'CorrectPassword123!';
-  const wrongPassword = 'WrongPassword456!';
+  const correctPassword = 'CorrectPass123!Test';
+  const wrongPassword = 'WrongPass456!Test';
 
   // Create backup
   const { backupFile } = await manager.createPasswordBackup(
@@ -256,18 +256,18 @@ async function testMultipleBackups() {
 
   const backup1 = await manager.createPasswordBackup(
     wallet1.mnemonic,
-    'Password1!'
+    'FirstBackup1!Test'
   );
 
   const backup2 = await manager.createPasswordBackup(
     wallet2.mnemonic,
-    'Password2!'
+    'SecondBackup2!Test'
   );
 
   console.log('  ✓ Created 2 different backups');
 
   // Restore first backup
-  const restored1 = await manager.restoreWithPassword(backup1.backupFile, 'Password1!');
+  const restored1 = await manager.restoreWithPassword(backup1.backupFile, 'FirstBackup1!Test');
 
   if (restored1.ethereumAddress.toLowerCase() !== wallet1.address.toLowerCase()) {
     throw new Error('Failed to restore first backup');
@@ -276,7 +276,7 @@ async function testMultipleBackups() {
   console.log('  ✓ Restored first backup correctly');
 
   // Restore second backup
-  const restored2 = await manager.restoreWithPassword(backup2.backupFile, 'Password2!');
+  const restored2 = await manager.restoreWithPassword(backup2.backupFile, 'SecondBackup2!Test');
 
   if (restored2.ethereumAddress.toLowerCase() !== wallet2.address.toLowerCase()) {
     throw new Error('Failed to restore second backup');
@@ -301,7 +301,7 @@ async function testIdempotentRestore() {
 
   const manager = new BackupFileManager();
   const { mnemonic, address } = createTestWallet();
-  const password = 'IdempotentPass!';
+  const password = 'IdempotentPass1!';
 
   // Create backup
   const { backupFile } = await manager.createPasswordBackup(
@@ -413,7 +413,7 @@ async function testCompleteDeviceLoss() {
   // Device A: Create account
   console.log('  Device A: Creating account...');
   const { mnemonic, address, wallet } = createTestWallet();
-  const password = 'DeviceLossTest!';
+  const password = 'DeviceLossTest1!';
 
   console.log(`  ✓ Account created: ${address.substring(0, 10)}...`);
 

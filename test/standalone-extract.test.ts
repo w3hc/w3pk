@@ -12,7 +12,7 @@ import { BackupFileManager } from '../src/backup/backup-file';
 import { startTestSuite, endTestSuite, runTest, passTest, assert, assertEqual } from './test-utils';
 
 const html = readFileSync(join(__dirname, '..', 'standalone', 'extract-mnemonic.html'), 'utf8');
-const PASSWORD = 'café-TestPassword123!NotReal';
+const PASSWORD = 'café-TestStrongPass123!NotReal';
 
 function inlineScript(id: string): string {
   const match = html.match(new RegExp(`<script id="${id}">([\\s\\S]*?)</script>`));

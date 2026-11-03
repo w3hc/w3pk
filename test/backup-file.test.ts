@@ -17,7 +17,7 @@ import type { BackupFile } from '../src/backup/types';
 import { startTestSuite, endTestSuite, runTest, passTest, assert, assertEqual } from './test-utils';
 
 const manager = new BackupFileManager();
-const PASSWORD = 'TestPassword123!NotReal';
+const PASSWORD = 'TestStrongPass123!NotReal';
 
 function newWallet() {
   const wallet = Wallet.createRandom();

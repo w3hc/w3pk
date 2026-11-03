@@ -52,7 +52,7 @@ class MemoryStorage {
 
 const RP_ID = "localhost";
 const USERNAME = "alice";
-const PASSWORD = "correct horse battery staple";
+const PASSWORD = "TestStrongPass123!NotReal";
 const CREDENTIAL_ID = arrayBufferToBase64Url(
   crypto.getRandomValues(new Uint8Array(16)).buffer
 );
