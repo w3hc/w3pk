@@ -743,7 +743,7 @@ const auth = await w3pk.signAuthorization(
 const rawTx = await w3pk.stealth.signTransaction(announcement, tx)
 
 // BAD: Store private keys long-term (e.g. a YOLO key)
-localStorage.setItem('privateKey', privateKey)  // ❌ NEVER DO THIS
+localStorage.setItem('privateKey', yoloWallet.privateKey)  // ❌ NEVER DO THIS
 ```
 
 #### 5. User Education
@@ -3020,7 +3020,7 @@ console.log('Can recover?', test2.success)
 // These operations trigger biometric prompt
 await w3pk.createBackupFile(password)       // ✅ Auth required
 await w3pk.setupSocialRecovery(...)         // ✅ Auth required
-await w3pk.exportForSync()                  // ✅ Auth required
+await w3pk.exportForSync(password)          // ✅ Auth required
 
 // Read-only operations don't require auth
 await w3pk.getBackupStatus()                // ✅ No auth needed
@@ -3030,7 +3030,6 @@ await w3pk.getBackupStatus()                // ✅ No auth needed
 ⚠️ **Important:** Password strength is checked in the browser. A determined attacker with code execution could bypass validation and create backups with weak passwords.
 
 **Mitigation:**
-- Backup creation always prompts for the passkey, even during a session
 - Short session durations
 - XSS/injection protection (CSP, input sanitization)
 - Educate users on password strength
