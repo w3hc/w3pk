@@ -74,6 +74,8 @@ const authenticator = {
   available: true,
   secret: crypto.getRandomValues(new Uint8Array(32)),
   calls: 0,
+  signCount: 0,
+  forgedKey: null as CryptoKey | null,
 };
 
 function rawToDer(raw: Uint8Array): Uint8Array {
@@ -117,7 +119,6 @@ async function setupAuthenticator(): Promise<string> {
     ["sign", "verify"]
   );
   const spki = await crypto.subtle.exportKey("spki", keyPair.publicKey);
-  let signCount = 0;
 
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
@@ -130,14 +131,14 @@ async function setupAuthenticator(): Promise<string> {
             throw Object.assign(new Error("Cancelled"), { name: "NotAllowedError" });
           }
 
-          signCount++;
+          authenticator.signCount++;
           const rpIdHash = new Uint8Array(
             await crypto.subtle.digest("SHA-256", new TextEncoder().encode(RP_ID))
           );
           const authenticatorData = new Uint8Array(37);
           authenticatorData.set(rpIdHash, 0);
           authenticatorData[32] = 0x05;
-          new DataView(authenticatorData.buffer).setUint32(33, signCount);
+          new DataView(authenticatorData.buffer).setUint32(33, authenticator.signCount);
 
           const clientDataJSON = new TextEncoder().encode(
             JSON.stringify({
@@ -152,7 +153,7 @@ async function setupAuthenticator(): Promise<string> {
           const raw = new Uint8Array(
             await crypto.subtle.sign(
               { name: "ECDSA", hash: "SHA-256" },
-              keyPair.privateKey,
+              authenticator.forgedKey ?? keyPair.privateKey,
               new Uint8Array([...authenticatorData, ...clientDataHash])
             )
           );
@@ -331,6 +332,10 @@ async function runTests() {
     const result = await sdk.restoreFromBackupFile(backupB, PASSWORD, { allowAddressChange: true });
     assert(result.ethereumAddress === ADDRESS_B, "returns wallet B's address");
     assert(authenticator.calls === 1, "one passkey prompt");
+    assert(
+      (await credentials().getCredentialById(CREDENTIAL_ID))?.signCount === authenticator.signCount,
+      "the signature counter is saved"
+    );
     await assertReplacedByB(sdk);
   }
   console.log("");
@@ -355,6 +360,39 @@ async function runTests() {
     const replaced = await loggedInWith(publicKey, MNEMONIC_A);
     await replaced.restoreFromBackupFile(prfBackupB, undefined, { allowAddressChange: true });
     await assertReplacedByB(replaced);
+  }
+  console.log("");
+
+  console.log("Test 6b: a cloned authenticator whose counter is behind keeps wallet A");
+  {
+    const sdk = await loggedInWith(publicKey, MNEMONIC_A);
+    const storedCount = authenticator.signCount + 10;
+    await credentials().updateSignatureCounter(CREDENTIAL_ID, storedCount);
+    const error = await capture(() =>
+      sdk.restoreFromBackupFile(backupB, PASSWORD, { allowAddressChange: true })
+    );
+    assert(error instanceof AuthenticationError, "throws AuthenticationError");
+    assert(authenticator.calls === 1, "the prompt was shown");
+    assert(
+      (await credentials().getCredentialById(CREDENTIAL_ID))?.signCount === storedCount,
+      "the stored counter is unchanged"
+    );
+    await assertKeepsWalletA(sdk);
+  }
+  console.log("");
+
+  console.log("Test 6c: an assertion signed by another key keeps wallet A");
+  {
+    const sdk = await loggedInWith(publicKey, MNEMONIC_A);
+    authenticator.forgedKey = (
+      await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"])
+    ).privateKey;
+    const error = await capture(() =>
+      sdk.restoreFromBackupFile(backupB, PASSWORD, { allowAddressChange: true })
+    );
+    authenticator.forgedKey = null;
+    assert(error instanceof AuthenticationError, "throws AuthenticationError");
+    await assertKeepsWalletA(sdk);
   }
   console.log("");
 
