@@ -4,6 +4,7 @@ import { CredentialStorage } from "../auth/storage";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
 import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
+import { validateUsername } from "../utils/validation";
 import { derivePrfSessionKey, PRF_INPUT } from "../wallet/crypto";
 import { AddressChangeError, AuthenticationError, PrfUnsupportedError, SyncBootstrapError, WalletError } from "./errors";
 import type { SdkContext } from "./context";
@@ -208,7 +209,7 @@ export async function syncWalletWithPasskey(
     {
       id: credentialId,
       publicKey,
-      username: passkeyResult.username ?? ethereumAddress,
+      username: passkeyResult.username ?? backupUsername(backupFile) ?? ethereumAddress,
     },
     mnemonic,
     ethereumAddress,
@@ -219,6 +220,12 @@ export async function syncWalletWithPasskey(
   backupManager.markBackupVerified(ethereumAddress);
 
   return { ethereumAddress };
+}
+
+/** The backup's username, unless it isn't one register() would accept */
+function backupUsername(backupFile: BackupFile): string | undefined {
+  const { username } = backupFile;
+  return typeof username === 'string' && validateUsername(username) ? username : undefined;
 }
 
 /**
