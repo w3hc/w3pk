@@ -1202,7 +1202,8 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │  │                                                          │ │
 │  │ ⚠️  Plaintext mnemonic in JavaScript memory             │ │
 │  │ ⚠️  Accessible to all JavaScript in same context        │ │
-│  │ ⚠️  Cleared on logout, browser close, or expiration     │ │
+│  │ ⚠️  Dropped on logout or expiration (not zeroed: JS     │ │
+│  │     strings are immutable, so it stays until GC)       │ │
 │  │ ⚠️  Never written to disk (unless OS swap/hibernate)    │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
@@ -1593,6 +1594,8 @@ w3pk supports **two types of sessions** (v0.8.2+):
 - ✅ Cleared on page refresh
 - ✅ Cleared on logout
 - ✅ Cleared when browser tab closes
+
+**Logout drops the session, it doesn't wipe memory.** The mnemonic is a JavaScript string, and strings are immutable: `clearSession()` overwrites the session's field, which only drops that reference. The original string stays in the heap until the garbage collector reclaims it, along with any copy derived from it (ethers wallet objects, the app's own variables). JavaScript gives no way to zero it, so a heap dump or a memory-reading exploit taken shortly after logout can still find the mnemonic. Closing the tab ends the process's copy.
 
 **Persistent Session (opt-in — "Remember Me"):**
 - Mnemonic encrypted in localStorage under a **WebAuthn-PRF-derived key** (HKDF-SHA256 of the authenticator's per-credential PRF secret); survives page refresh for the configured duration

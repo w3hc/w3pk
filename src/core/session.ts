@@ -356,10 +356,15 @@ export class SessionManager {
    * storage fails — in that case a StorageError is thrown so callers know
    * a persistent session may still exist on the device
    *
+   * JS strings are immutable: overwriting `session.mnemonic` only drops this
+   * object's reference. The original string stays in the heap until the
+   * garbage collector reclaims it, and any copy made elsewhere (by the SDK,
+   * ethers or the app) is untouched, so logout doesn't wipe the mnemonic
+   * from memory.
+   *
    * @throws {StorageError} if persistent sessions could not be cleared
    */
   async clearSession(): Promise<void> {
-    // Overwrite mnemonic in memory before clearing
     if (this.session) {
       this.session.mnemonic = "0".repeat(this.session.mnemonic.length);
     }
