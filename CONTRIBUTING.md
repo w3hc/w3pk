@@ -116,19 +116,8 @@ const w3pk = createWeb3Passkey({
 
 ```typescript
 // Register (auto-generates wallet and stores it securely)
-const { mnemonic } = await w3pk.register({ username: 'alice' })
-// Returns: { mnemonic: string } - IMPORTANT: User must save this!
-```
-
-**Advanced flow** (if you want to pre-generate wallet):
-
-```typescript
-// 1. Generate wallet first (optional)
-const { mnemonic } = await w3pk.generateWallet()
-// Returns: { mnemonic: string }
-
-// 2. Register (uses pre-generated wallet and stores it securely)
-const { mnemonic } = await w3pk.register({ username: 'alice' })
+const { address } = await w3pk.register({ username: 'alice' })
+// Then offer a backup: createBackupFile(password) or setupSocialRecovery()
 ```
 
 For returning users:
@@ -140,10 +129,10 @@ await w3pk.login()
 #### `register(options)`
 Register a new user with WebAuthn passkey. Auto-generates wallet if none exists.
 ```typescript
-const { mnemonic } = await w3pk.register({
+const result = await w3pk.register({
   username: string
 })
-// Returns: { mnemonic: string } - User must save this recovery phrase!
+// Returns: { address, username, hasBackup, evictionRisk } (the mnemonic is never returned)
 ```
 
 #### `login()`
@@ -235,10 +224,10 @@ await w3pk.importMnemonic('word1 word2 ... word12')
 #### `signMessage(message, options?)`
 Sign a message (requires authentication).
 ```typescript
-const signature = await w3pk.signMessage('Hello World', {
+const { signature, address } = await w3pk.signMessage('Hello World', {
   requireAuth?: boolean  // Force fresh biometric (default: false)
 })
-// Returns: string (0x... signature)
+// Returns: { signature, address, mode, tag, origin }
 ```
 
 ### Network Methods
