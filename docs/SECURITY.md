@@ -92,7 +92,7 @@ A backup file is portable and independent of any device. What an attacker who ob
 
 | Backup type | Decrypts with | Is the file alone enough? |
 |---|---|---|
-| `password` | User password (Argon2id, 19 MiB, 2 passes, random per-file salt) | ❌ Needs the password |
+| `password` | User password (Argon2id, 64 MiB, 3 passes, random per-file salt) | ❌ Needs the password |
 | `prf` | Key derived (HKDF) from the passkey's WebAuthn PRF output, random per-file salt | ❌ Needs a fresh assertion with the passkey |
 
 A backup file on its own is not decryptable in either variant. **For a backup that leaves the device (cloud, USB, guardians), `password` is the one that restores without the passkey.**
@@ -1237,10 +1237,10 @@ const w3pk = createWeb3Passkey({
 - The PRF output is 32 bytes of full-entropy key material held by the authenticator, so there is nothing to stretch
 - Storage alone can't decrypt the wallet
 
-**Backup file encryption (BackupFile v3):** Argon2id, m=19 MiB, t=2, p=1
+**Backup file encryption (BackupFile v3):** Argon2id, m=64 MiB, t=3, p=4
 - Primary threat: Offline attacks (backups may be on USB/cloud)
-- PBKDF2 isn't memory-hard, so GPUs run it massively in parallel. Argon2id makes each guess fill 19 MiB, which caps a GPU's parallelism by its memory rather than its cores
-- OWASP's first Argon2id recommendation. It takes about 0.4 s in pure JavaScript (`@noble/hashes`, Node 24, Apple Silicon), so the offline extractor can run it in a browser
+- PBKDF2 isn't memory-hard, so GPUs run it massively in parallel. Argon2id makes each guess fill 64 MiB, which caps a GPU's parallelism by its memory rather than its cores
+- RFC 9106's second recommendation. It takes about 1 to 2 s in pure JavaScript (`@noble/hashes`, Node 24, Apple Silicon), so the offline extractor can run it in a browser. Each file records its parameters, so backups made before v0.11.1 at OWASP's minimum (19 MiB, t=2, p=1) still restore
 
 **Why different?**
 Different threat models require different protections. Password backups may be stored offline and face brute force attacks, while the wallet on the device is bound to the passkey.
@@ -1885,7 +1885,7 @@ await navigator.credentials.get({
 
 **Key Derivation (BackupFile v3, `password`):**
 - **Algorithm:** Argon2id (RFC 9106), `@noble/hashes` `argon2idAsync`
-- **Parameters:** m=19456 KiB (19 MiB), t=2 passes, p=1 lane (OWASP's first recommendation), stored in the file
+- **Parameters:** m=65536 KiB (64 MiB), t=3 passes, p=4 lanes (RFC 9106's second recommendation), stored in the file. Backups made before v0.11.1 used m=19456 KiB, t=2, p=1 and still restore
 - **Bounds on restore:** at most 64 MiB, 3 passes and 4 lanes, so a crafted file can't freeze the page
 - **Salt:** Random 16 bytes per backup
 - **Key Material:** User-chosen password, NFC-normalized, UTF-8 encoded
@@ -1893,9 +1893,9 @@ await navigator.credentials.get({
 
 | Parameters | Time (pure JS, Node 24, Apple Silicon) |
 |---|---|
-| 19 MiB, t=2, p=1 (chosen) | ~415 ms |
+| 19 MiB, t=2, p=1 (before v0.11.1) | ~415 ms |
 | 46 MiB, t=1, p=1 (OWASP alternative) | ~505 ms |
-| 64 MiB, t=3, p=1 (RFC 9106, the restore bound) | ~2.1 s |
+| 64 MiB, t=3, p=4 (RFC 9106, chosen and the restore bound) | ~1.2 to 2 s |
 
 **Encryption:**
 - **Algorithm:** AES-256-GCM
@@ -1905,7 +1905,7 @@ await navigator.credentials.get({
 - **Additional Authenticated Data:** none — integrity comes from the GCM authentication tag above; no AAD is bound to the ciphertext
 
 **Password Requirements:**
-Enforced by `isStrongPassword()` utility:
+Enforced on every new password backup (`createBackupFile()`, `setupSocialRecovery()`, `exportForSync(password)`), which throws `WeakPasswordError` with the missing rules in `feedback`. `isStrongPassword()` checks the same rules:
 - Minimum 12 characters
 - Must include: uppercase, lowercase, numbers, special characters
 - Not in common password list (password, 123456, qwerty, etc.)
@@ -3100,7 +3100,7 @@ w3pk implements a **three-layer backup and recovery system** that balances secur
 **How it works:**
 - Mnemonic encrypted with user-chosen password
 - Backup format: encrypted backup files
-- Encryption: **AES-256-GCM** with **Argon2id** (19 MiB, 2 passes) for backup files
+- Encryption: **AES-256-GCM** with **Argon2id** (64 MiB, 3 passes) for backup files
 
 **Security properties:**
 - ✅ **Military-grade encryption** - AES-256-GCM
@@ -3113,7 +3113,7 @@ w3pk implements a **three-layer backup and recovery system** that balances secur
 ```typescript
 // Key derivation (BackupFile v3)
 Argon2id
-├─ Memory: 19 MiB, passes: 2, lanes: 1
+├─ Memory: 64 MiB, passes: 3, lanes: 4
 ├─ Salt: 16 bytes (random per backup)
 └─ Output: 256-bit key
 
@@ -3160,7 +3160,7 @@ isStrongPassword('Password123!Foo')     // ❌ false - contains "password"
 | Threat | Protected? | Notes |
 |--------|-----------|-------|
 | Backup file stolen | ✅ Yes | Requires password to decrypt |
-| Weak password | ⚠️ Vulnerable | User responsibility |
+| Weak password | ⚠️ Partly | New backups refuse a password that fails `isStrongPassword()`, but one that passes can still be guessable |
 | Password forgotten | ❌ Unrecoverable | Need Layer 3 (social recovery) |
 | Brute force (strong password) | ✅ Yes | Argon2id makes each guess slow and memory-hungry |
 | Brute force (weak password) | ❌ Vulnerable | Minutes to hours with GPU |
@@ -3171,7 +3171,7 @@ isStrongPassword('Password123!Foo')     // ❌ false - contains "password"
 |--------------|---------|---------------|
 | `password123` (common) | ~20 bits | In every wordlist: falls quickly |
 | `MyPassword123!` (weak) | ~35 bits | Within reach of a GPU rig |
-| `correct horse battery staple` (strong) | ~44 bits from a 7,776-word list, more with 5+ words | Costly with Argon2id |
+| `Correct-Horse-Battery-Staple-7` (strong) | ~44 bits from a 7,776-word list, more with 5+ words | Costly with Argon2id |
 | Truly random 16 chars | ~100 bits | Out of reach |
 
 **Recommendation:** Use password manager to generate strong passwords or use multi-word passphrases (4+ random words).
@@ -3309,8 +3309,8 @@ score = 0
 **1. Use multiple layers:**
 ```typescript
 // ✅ GOOD: Enable all three layers
-await w3pk.setupSocialRecovery([...guardians], 3, 'MyS3cur3!Password@2024')
-await w3pk.createZipBackup('MyS3cur3!Password@2024')
+await w3pk.setupSocialRecovery([...guardians], 3, 'MyS3cur3!Backup@2024')
+await w3pk.createZipBackup('MyS3cur3!Backup@2024')
 // Passkey sync enabled by default on platform
 
 // ❌ BAD: Rely on single layer
@@ -3372,7 +3372,7 @@ console.log('Can recover?', test2.success)
 **5. Use strong passwords:**
 ```typescript
 // ✅ GOOD passwords:
-'correct horse battery staple'  // Multi-word passphrase
+'Correct-Horse-Battery-Staple-7'  // Multi-word passphrase
 'MyS3cur3!Backup@December2024'  // Long with variety
 (password manager generated)     // Truly random
 

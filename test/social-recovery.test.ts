@@ -5,7 +5,7 @@
  */
 
 import { Wallet } from "ethers";
-import { Web3Passkey } from "../src/index";
+import { Web3Passkey, WeakPasswordError } from "../src/index";
 import {
   splitSecret,
   combineShares,
@@ -164,6 +164,30 @@ async function runTests() {
       () => loggedInSdk().setupSocialRecovery(guardians, 1, PASSWORD).then(() => {}),
       "threshold is at least 2"
     );
+    passTest();
+  });
+
+  await runTest("setupSocialRecovery refuses a weak password before the passkey prompt", async () => {
+    const sdk = loggedInSdk();
+    let prompted = false;
+    (sdk as any).getMnemonicFromSession = async () => {
+      prompted = true;
+      return MNEMONIC;
+    };
+
+    let error: unknown;
+    try {
+      await sdk.setupSocialRecovery([{ name: "Alice" }, { name: "Bob" }], 2, "Password1!");
+    } catch (e) {
+      error = e;
+    }
+
+    assert(error instanceof WeakPasswordError, "throws WeakPasswordError");
+    assert(
+      (error as WeakPasswordError).feedback.includes("Password is too common"),
+      "carries the feedback"
+    );
+    assertEqual(prompted, false, "no passkey prompt");
     passTest();
   });
 

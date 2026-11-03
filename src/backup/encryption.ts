@@ -4,6 +4,7 @@
  */
 
 import { argon2idAsync } from "@noble/hashes/argon2.js";
+import { WeakPasswordError } from "../core/errors";
 
 export interface Argon2idParams {
   /** Memory cost in KiB */
@@ -14,18 +15,20 @@ export interface Argon2idParams {
 }
 
 /**
- * Argon2id parameters for new password backups: OWASP's first
- * recommendation (19 MiB, 2 passes, 1 lane), about 0.4 s in pure JS
+ * Argon2id parameters for new password backups: RFC 9106's second
+ * recommendation (64 MiB, 3 passes, 4 lanes), about 1-2 s in pure JS.
+ * Each file records its parameters, so older backups made with OWASP's
+ * minimum (19 MiB, 2 passes, 1 lane) still restore.
  */
 export const ARGON2ID_PARAMS: Readonly<Argon2idParams> = Object.freeze({
-  memoryKiB: 19456,
-  passes: 2,
-  parallelism: 1,
+  memoryKiB: 65536,
+  passes: 3,
+  parallelism: 4,
 });
 
 /**
  * Upper bounds accepted from a backup file, so a file can't stall the page:
- * RFC 9106's second recommendation (64 MiB, 3 passes), about 2 s in pure JS
+ * RFC 9106's second recommendation, the parameters of new backups
  */
 export const ARGON2ID_MAX_PARAMS: Readonly<Argon2idParams> = Object.freeze({
   memoryKiB: 65536,
@@ -148,6 +151,14 @@ export function validatePasswordStrength(password: string): {
     score: Math.min(score, 100),
     feedback,
   };
+}
+
+/**
+ * @throws WeakPasswordError when validatePasswordStrength() refuses the password
+ */
+export function assertStrongPassword(password: string): void {
+  const { valid, feedback } = validatePasswordStrength(typeof password === "string" ? password : "");
+  if (!valid) throw new WeakPasswordError(feedback);
 }
 
 /**

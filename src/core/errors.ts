@@ -186,6 +186,17 @@ export class UnsupportedBackupVersionError extends Web3PasskeyError {
   }
 }
 
+/**
+ * The password for a password backup is too weak to resist an offline
+ * guess: `feedback` lists what it's missing
+ */
+export class WeakPasswordError extends Web3PasskeyError {
+  constructor(public feedback: string[]) {
+    super(`Password is too weak: ${feedback.join("; ")}`, "WEAK_PASSWORD");
+    this.name = "WeakPasswordError";
+  }
+}
+
 export type ZkArtifactName = "wasm" | "zkey";
 
 /**

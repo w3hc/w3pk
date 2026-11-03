@@ -16,6 +16,7 @@ import {
   PrfUnsupportedError,
   SyncBootstrapError,
   WalletError,
+  WeakPasswordError,
 } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
 import { LocalStorageWalletStorage } from "../src/wallet/storage";
@@ -53,7 +54,7 @@ class MemoryStorage {
 
 const RP_ID = "localhost";
 const USERNAME = "alice";
-const PASSWORD = "correct horse battery staple";
+const PASSWORD = "TestStrongPass123!NotReal";
 const CREDENTIAL_ID = arrayBufferToBase64Url(
   crypto.getRandomValues(new Uint8Array(16)).buffer
 );
@@ -471,6 +472,24 @@ async function runTests() {
     const sdk = await loggedInDeviceA(publicKey);
     const error = await capture(() => sdk.exportForSync());
     assert(error instanceof PrfUnsupportedError, "no password: throws PrfUnsupportedError");
+
+    authenticator.calls = [];
+    const weakError = await capture(() => sdk.exportForSync("a"));
+    assert(weakError instanceof WeakPasswordError, "weak password: throws WeakPasswordError");
+    assert((weakError as WeakPasswordError).feedback.length > 0, "weak password: carries the feedback");
+    assert(authenticator.calls.length === 0, "weak password: no passkey prompt");
+
+    authenticator.calls = [];
+    const managerError = await capture(() =>
+      new DeviceSyncManager().exportForSync(
+        MNEMONIC,
+        { id: CREDENTIAL_ID, publicKey },
+        USERNAME,
+        "a"
+      )
+    );
+    assert(managerError instanceof WeakPasswordError, "DeviceSyncManager fallback: throws WeakPasswordError");
+    assert(authenticator.calls.length === 0, "DeviceSyncManager fallback: no passkey prompt");
 
     const fallback = await exportFromDeviceA(publicKey, PASSWORD);
     const file: BackupFile = JSON.parse(fallback.json);

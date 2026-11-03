@@ -278,7 +278,7 @@ Your encrypted backup uses military-grade encryption.
 ENCRYPTION DETAILS:
 ------------------
 
-Password → Argon2id (19 MiB memory, 2 passes)
+Password → Argon2id (64 MiB memory, 3 passes)
          ↓
    256-bit AES Key
          ↓
@@ -290,7 +290,7 @@ WHAT THIS MEANS:
 ---------------
 
 Argon2id:
-- Memory-hard: each guess needs 19 MiB of memory,
+- Memory-hard: each guess needs 64 MiB of memory,
   which limits how many guesses a GPU can run at once
 - Recommended by RFC 9106 and OWASP
 - The file holds no address, so it doesn't say whose wallet it is
@@ -326,7 +326,7 @@ WEAK (❌ Rejected):
 GOOD (✓ Accepted):
 - "MyDog-Loves-Pizza-2025!"
 - "Tr0ub4dor&3-Extra-Secure"
-- "correct-horse-battery-staple-99"
+- "Correct-Horse-Battery-Staple-99"
 
 STRONG (✓✓ Recommended):
 - 16+ characters

@@ -12,12 +12,12 @@ import {
 } from '../src/backup/encryption';
 import { encryptData } from '../src/wallet/crypto';
 import { SocialRecovery } from '../src/recovery/backup-based-recovery';
-import { CryptoError, UnsupportedBackupVersionError } from '../src/core/errors';
+import { CryptoError, UnsupportedBackupVersionError, WeakPasswordError } from '../src/core/errors';
 import type { BackupFile } from '../src/backup/types';
 import { startTestSuite, endTestSuite, runTest, passTest, assert, assertEqual } from './test-utils';
 
 const manager = new BackupFileManager();
-const PASSWORD = 'TestPassword123!NotReal';
+const PASSWORD = 'TestStrongPass123!NotReal';
 
 function newWallet() {
   const wallet = Wallet.createRandom();
@@ -59,16 +59,38 @@ async function runTests() {
     passTest('password file round-trips');
   });
 
+  await runTest('Password backup refuses a weak password with the feedback', async () => {
+    const { mnemonic } = newWallet();
+    for (const weak of ['', 'a', 'TestPassword123!NotReal', 'correct horse battery staple']) {
+      const error = await capture(() => manager.createPasswordBackup(mnemonic, weak));
+      assert(error instanceof WeakPasswordError, `"${weak}": WeakPasswordError`);
+      assertEqual((error as WeakPasswordError).code, 'WEAK_PASSWORD', `"${weak}": code`);
+      assert((error as WeakPasswordError).feedback.length > 0, `"${weak}": carries the feedback`);
+    }
+    const missing = await capture(() => manager.createPasswordBackup(mnemonic, undefined as unknown as string));
+    assert(missing instanceof WeakPasswordError, 'missing password: WeakPasswordError');
+    const short = (await capture(() => manager.createPasswordBackup(mnemonic, 'a'))) as WeakPasswordError;
+    assert(short.feedback.includes('Password must be at least 12 characters'), 'feedback names the length');
+    assert(short.message.includes('at least 12 characters'), 'message carries the feedback');
+    passTest('weak passwords refused');
+  });
+
   await runTest('Password backup uses the documented Argon2id parameters', async () => {
     const { mnemonic } = newWallet();
     const { backupFile } = await manager.createPasswordBackup(mnemonic, PASSWORD);
     const kdf = backupFile.passwordEncryption!;
 
     assertEqual(kdf.kdf, 'argon2id', 'kdf is argon2id');
-    assertEqual(kdf.memoryKiB, 19456, 'memory is 19 MiB');
-    assertEqual(kdf.passes, 2, '2 passes');
-    assertEqual(kdf.parallelism, 1, '1 lane');
-    assertEqual(ARGON2ID_PARAMS.memoryKiB, 19456, 'ARGON2ID_PARAMS.memoryKiB');
+    assertEqual(kdf.memoryKiB, 65536, 'memory is 64 MiB');
+    assertEqual(kdf.passes, 3, '3 passes');
+    assertEqual(kdf.parallelism, 4, '4 lanes');
+    assertEqual(ARGON2ID_PARAMS.memoryKiB, 65536, 'ARGON2ID_PARAMS.memoryKiB');
+    assert(
+      ARGON2ID_PARAMS.memoryKiB <= ARGON2ID_MAX_PARAMS.memoryKiB &&
+        ARGON2ID_PARAMS.passes <= ARGON2ID_MAX_PARAMS.passes &&
+        ARGON2ID_PARAMS.parallelism <= ARGON2ID_MAX_PARAMS.parallelism,
+      'new backups are within the restore bounds'
+    );
     assertEqual(atob(kdf.salt).length, 16, '16-byte salt');
 
     const other = await manager.createPasswordBackup(mnemonic, PASSWORD);
@@ -78,7 +100,26 @@ async function runTests() {
     await deriveKeyFromPasswordArgon2id(PASSWORD, new Uint8Array(16));
     const ms = performance.now() - start;
     assert(ms < 5000, 'derivation finishes in under 5 s');
-    passTest(`Argon2id m=19456 KiB t=2 p=1: ${ms.toFixed(0)} ms`);
+    passTest(`Argon2id m=65536 KiB t=3 p=4: ${ms.toFixed(0)} ms`);
+  });
+
+  await runTest('Backup made with the v0.11.0 parameters still restores', async () => {
+    const { mnemonic, address } = newWallet();
+    const params = { memoryKiB: 19456, passes: 2, parallelism: 1 };
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKeyFromPasswordArgon2id(PASSWORD, salt, params);
+    const json = JSON.stringify({
+      version: 3,
+      createdAt: new Date().toISOString(),
+      encryptedMnemonic: await encryptData(mnemonic, key),
+      encryptionMethod: 'password',
+      passwordEncryption: { kdf: 'argon2id', salt: btoa(String.fromCharCode(...salt)), ...params },
+    });
+
+    const restored = await manager.restoreWithPassword(await manager.parseBackupFile(json), PASSWORD);
+    assertEqual(restored.mnemonic, mnemonic, 'mnemonic restored');
+    assertEqual(restored.ethereumAddress, address, 'address restored');
+    passTest('19 MiB, 2 passes, 1 lane');
   });
 
   await runTest('Restore reads the Argon2id parameters from the file', async () => {

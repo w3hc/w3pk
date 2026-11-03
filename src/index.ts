@@ -54,6 +54,7 @@ export {
   AddressChangeError,
   RemovedBackupMethodError,
   UnsupportedBackupVersionError,
+  WeakPasswordError,
   ZkArtifactMismatchError,
 } from "./core/errors";
 
