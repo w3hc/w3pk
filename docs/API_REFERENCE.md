@@ -18,7 +18,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
 - [Backup & Recovery](#backup--recovery)
 - [Cross-Device Sync](#cross-device-sync)
   - [`getSyncStatus()`](#getsyncstatus-promisedevicesyncinfo--null)
-  - [`syncWalletWithPasskey()`](#syncwalletwithpasskey)
+  - [`syncWalletWithPasskey()`](#syncwalletwithpasskeybackupdata-string--blob-password-string-options--allowaddresschange-boolean--promise-ethereumaddress-string-)
 - [Session Management](#session-management)
 - [Blockchain Utilities](#blockchain-utilities)
 - [Standalone Utilities](#standalone-utilities)
@@ -295,27 +295,6 @@ await w3pk.login() // Will authenticate with selected credential
 ---
 
 ## Wallet Management
-
-### `generateWallet(): Promise<{ mnemonic: string }>`
-
-Generate a new BIP39 wallet (12-word mnemonic).
-
-**Returns:**
-
-```typescript
-{
-  mnemonic: string;  // 12-word BIP39 mnemonic phrase
-}
-```
-
-**Example:**
-
-```typescript
-const { mnemonic } = await w3pk.generateWallet()
-console.log('New wallet:', mnemonic)
-```
-
----
 
 ### `deriveWallet(mode?: SecurityMode, tag?: string, options?: { requireAuth?: boolean }): Promise<DerivedWallet>`
 
@@ -654,33 +633,6 @@ Default derivation tag constant (`'MAIN'`).
 import { DEFAULT_TAG } from 'w3pk'
 
 console.log(DEFAULT_TAG) // 'MAIN'
-```
-
----
-
-### `exportMnemonic(options?: { requireAuth?: boolean }): Promise<string>`
-
-Export the mnemonic phrase.
-
-**Parameters:**
-- `options.requireAuth?: boolean` - Force fresh authentication (default: false)
-
-**Returns:** `string` - The 12-word mnemonic phrase
-
-**Security:**
-- Uses active session or prompts for authentication if session expired
-- For backups, recommended to use `{ requireAuth: true }` to ensure conscious export
-
-**Example:**
-
-```typescript
-// Using session
-const mnemonic = await w3pk.exportMnemonic()
-console.log('Mnemonic:', mnemonic)
-
-// Force fresh authentication for backup
-const mnemonicBackup = await w3pk.exportMnemonic({ requireAuth: true })
-console.log('BACKUP THIS:', mnemonicBackup)
 ```
 
 ---
@@ -2008,7 +1960,7 @@ interface OwnershipProofInput {
 **Example:**
 
 ```typescript
-const wallet = await w3pk.deriveWallet(0)
+const wallet = await w3pk.deriveWallet('YOLO') // only YOLO returns the private key
 const challenge = '0x1234...' // From verifier
 
 const proof = await w3pk.zk.proveOwnership({
@@ -3975,7 +3927,7 @@ test.scenarios.forEach(result => {
 
 - [Quick Start Guide](./QUICK_START.md) - Get started in 5 minutes
 - [Recovery & Backup System](./RECOVERY.md) - Three-layer backup architecture
-- [ERC-5564 Stealth Addresses](./ERC5564_STEALTH_ADDRESSES.md) - Complete guide
+- [ERC-5564 Stealth Addresses](#stealth-addresses-erc-5564) - Stealth address API
 - [Security Architecture](./SECURITY.md) - Integration best practices
 - [Browser Compatibility](./BROWSER_COMPATIBILITY.md) - Supported browsers
 
