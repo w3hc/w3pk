@@ -198,11 +198,8 @@ await sdk.login(); // Login with existing passkey first
 // Restore and decrypt the backup. A backup of another wallet than the
 // logged-in one throws AddressChangeError unless the user confirmed the
 // replacement and the app passes { allowAddressChange: true }
-const { mnemonic } = await sdk.restoreFromBackupFile(backupFile, 'MySecurePassword123!');
-
-// Import to current logged-in user
-await sdk.importMnemonic(mnemonic);
-// Credentials now stored locally under existing passkey ✅
+await sdk.restoreFromBackupFile(backupFile, 'MySecurePassword123!');
+// The wallet is now stored under the logged-in passkey ✅
 ```
 
 **Encryption**: Password → Argon2id (19 MiB, 2 passes) → AES-256-GCM
@@ -534,10 +531,9 @@ const status = await w3pk.getBackupStatus();
 // Option 1: Register new passkey (creates and stores credentials)
 await w3pk.registerWithBackupFile(backupData, password, username);
 
-// Option 2: Import to existing passkey (stores credentials under current user)
+// Option 2: Restore under the existing passkey (stores the wallet for the logged-in user)
 await w3pk.login();
-const { mnemonic } = await w3pk.restoreFromBackupFile(backupData, password);
-await w3pk.importMnemonic(mnemonic);
+await w3pk.restoreFromBackupFile(backupData, password, { allowAddressChange: true });
 ```
 
 ### Cross-Device Sync
