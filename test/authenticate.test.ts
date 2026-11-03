@@ -260,6 +260,18 @@ setup().then(() =>
       },
     },
     {
+      name: "malformed DER signature is rejected",
+      fn: async () => {
+        const assertion = await buildAssertion(1, RP_ID, CHALLENGE);
+        const der = new Uint8Array(assertion.response.signature);
+        der[3] = 0x60;
+        assert(
+          !(await verifyAssertionSignature(assertion, publicKey, CHALLENGE_B64)),
+          "a signature with an out-of-range length should not verify"
+        );
+      },
+    },
+    {
       name: "malformed clientDataJSON is rejected",
       fn: async () => {
         const assertion = await buildAssertion(1, RP_ID, CHALLENGE);
