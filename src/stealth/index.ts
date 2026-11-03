@@ -17,11 +17,13 @@
  * @see https://eips.ethereum.org/EIPS/eip-5564
  */
 
+import { ethers } from "ethers";
 import { Web3PasskeyError } from "../core/errors";
 import {
   deriveStealthKeys,
   generateStealthAddress as generateERC5564StealthAddress,
   checkStealthAddress,
+  computeStealthPrivateKey,
 } from "./crypto";
 import type { StealthKeys } from "./crypto";
 
@@ -61,6 +63,20 @@ export interface ParseAnnouncementResult {
   isForUser: boolean;
   /** The stealth address (only if isForUser is true) */
   stealthAddress?: string;
+}
+
+/**
+ * EIP-1559 transaction to sign from a stealth address
+ */
+export interface StealthTransaction {
+  to: string;
+  value?: bigint;
+  data?: string;
+  chainId: number;
+  nonce: number;
+  gasLimit: bigint;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
 }
 
 /**
@@ -186,6 +202,67 @@ export class StealthAddressModule {
     }
 
     return results;
+  }
+
+  /**
+   * Sign an EIP-1559 transaction from a stealth address found for the user
+   * The stealth private key is derived and used inside the SDK, never returned.
+   * The transaction is signed, not sent: broadcast it with your own RPC
+   * (`eth_sendRawTransaction`).
+   *
+   * @param announcement - The announcement of the stealth address to sign from
+   * @param tx - Fully populated transaction (nonce, gas limit and fees included)
+   * @param options - Optional configuration
+   * @param options.requireAuth - If true, force fresh authentication even if session is active
+   * @returns The serialized signed transaction
+   */
+  async signTransaction(
+    announcement: Announcement,
+    tx: StealthTransaction,
+    options?: { requireAuth?: boolean }
+  ): Promise<string> {
+    try {
+      const mnemonic = await this.getMnemonic(options?.requireAuth);
+
+      const stealthKeys = deriveStealthKeys(mnemonic);
+
+      const parseResult = checkStealthAddress(
+        stealthKeys.viewingKey,
+        stealthKeys.spendingPubKey,
+        announcement.ephemeralPublicKey,
+        announcement.stealthAddress,
+        announcement.viewTag
+      );
+      if (!parseResult.isForUser) {
+        throw new Error("Announcement is not for this user");
+      }
+
+      const wallet = new ethers.Wallet(
+        computeStealthPrivateKey(
+          stealthKeys.viewingKey,
+          stealthKeys.spendingKey,
+          announcement.ephemeralPublicKey
+        )
+      );
+
+      return await wallet.signTransaction({
+        type: 2,
+        to: tx.to,
+        value: tx.value,
+        data: tx.data ?? "0x",
+        chainId: tx.chainId,
+        nonce: tx.nonce,
+        gasLimit: tx.gasLimit,
+        maxFeePerGas: tx.maxFeePerGas,
+        maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+      });
+    } catch (error) {
+      throw new Web3PasskeyError(
+        "Failed to sign stealth transaction",
+        "STEALTH_SIGN_ERROR",
+        error
+      );
+    }
   }
 
   // ========================================
