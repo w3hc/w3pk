@@ -336,11 +336,13 @@ async function runTests() {
     await provider.request({ method: "personal_sign", params: [invalidUtf8, "0x0"] });
     await provider.request({ method: "eth_sign", params: ["0x0", invalidUtf8] });
     await provider.request({ method: "personal_sign", params: ["Hello", "0x0"] });
+    await provider.request({ method: "personal_sign", params: ["0xabc", "0x0"] });
 
     assert(calls[0].message instanceof Uint8Array, "personal_sign hex should be bytes");
     assertEqual(hexlify(calls[0].message as Uint8Array), invalidUtf8, "personal_sign bytes");
     assertEqual(hexlify(calls[1].message as Uint8Array), invalidUtf8, "eth_sign bytes");
     assertEqual(calls[2].message, "Hello", "plain text passes through");
+    assertEqual(calls[3].message, "0xabc", "odd-length hex is signed as text");
     passTest("Hex data is signed as its bytes, not lossy UTF-8 text");
   });
 

@@ -47,9 +47,9 @@ export interface EIP1193ProviderInterface {
   removeListener(event: 'message', handler: (message: ProviderMessage) => void): void;
 }
 
-/** Returns true if a string looks like a 0x-prefixed hex value */
+/** Returns true if a string is 0x-prefixed hex encoding whole bytes */
 function isHex(value: string): boolean {
-  return typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value);
+  return typeof value === 'string' && /^0x(?:[0-9a-fA-F]{2})*$/.test(value);
 }
 
 /** Build the EIP-1193 provider returned by `Web3Passkey.getEIP1193Provider()` */
