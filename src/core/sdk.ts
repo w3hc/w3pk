@@ -1120,7 +1120,9 @@ export class Web3Passkey {
    * @param options.mode - Security mode (default: STANDARD)
    * @param options.tag - Wallet tag (optional)
    * @param options.requireAuth - Force fresh authentication (optional)
-   * @param options.rpcUrl - RPC endpoint override (optional, required for PRIMARY mode)
+   * @param options.rpcUrl - RPC endpoint override (optional, required for PRIMARY mode);
+   *   without it, the first `rpcUrls` endpoint set for the chain is used, then the
+   *   first HTTPS chainid.network endpoint
    * @returns Transaction hash and metadata
    *
    * @example
@@ -1197,10 +1199,12 @@ export class Web3Passkey {
       }
 
       // Resolve RPC endpoint
-      const rpcUrl = options?.rpcUrl ?? (await this.getEndpoints(tx.chainId))[0];
+      const rpcUrl = options?.rpcUrl
+        ?? this.config.rpcUrls?.[tx.chainId]?.[0]
+        ?? (await getEndpoints(tx.chainId))[0];
       if (!rpcUrl) {
         throw new WalletError(
-          `No RPC endpoint found for chainId ${tx.chainId}. Pass options.rpcUrl.`
+          `No RPC endpoint found for chainId ${tx.chainId}. Set rpcUrls in the config or pass options.rpcUrl.`
         );
       }
 
@@ -1343,8 +1347,13 @@ export class Web3Passkey {
     }
   }
 
+  /**
+   * RPC endpoints for a chain: those set in `rpcUrls` first, then the HTTPS
+   * chainid.network endpoints that need no API key
+   */
   async getEndpoints(chainId: number): Promise<string[]> {
-    return getEndpoints(chainId);
+    const appEndpoints = this.config.rpcUrls?.[chainId] ?? [];
+    return [...new Set([...appEndpoints, ...(await getEndpoints(chainId))])];
   }
 
   async supportsEIP7702(

@@ -59,6 +59,16 @@ export interface Web3PasskeyConfig {
    * sign in with one click. PRF-derived secrets always require it.
    */
   userVerification?: 'required' | 'preferred';
+
+  /**
+   * RPC endpoints per chain ID, used before the chainid.network endpoints
+   * by `sendTransaction()`, `getEndpoints()` and `supportsEIP7702()`.
+   * A per-call `rpcUrl` still takes precedence.
+   *
+   * @example
+   * rpcUrls: { 1: ['https://eth.example.com'], 10: ['https://op.example.com'] }
+   */
+  rpcUrls?: Record<number, string[]>;
 }
 
 export interface InternalConfig extends Required<Web3PasskeyConfig> {}
@@ -67,6 +77,7 @@ export const DEFAULT_CONFIG: Partial<InternalConfig> = {
   debug: false,
   sessionDuration: 1,
   userVerification: 'required',
+  rpcUrls: {},
   persistentSession: {
     enabled: false,
     duration: 168, // 7 days in hours

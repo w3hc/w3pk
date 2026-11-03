@@ -8,7 +8,7 @@
  * - PRIMARY mode without rpcUrl (specific error)
  * - Return type structure
  * - Mode / tag / origin isolation (wallet derivation correctness)
- * - RPC resolution: explicit rpcUrl vs chainlist fallback
+ * - RPC resolution: explicit rpcUrl, then app rpcUrls, then HTTPS chainlist
  * - No RPC found error
  * - ethers sendTransaction delegation (provider mock)
  * - STANDARD / STRICT / YOLO mode wiring
@@ -457,6 +457,58 @@ async function runTests() {
     const unique = new Set(addresses);
     assert(unique.size === origins.length, "Each origin must derive a unique address");
     passTest("Origin isolation: each origin maps to a unique sender address");
+  });
+
+  // ------------------------------------------------------------------
+  // 16. RPC selection: per-call rpcUrl, then app rpcUrls, then HTTPS chainlist
+  // ------------------------------------------------------------------
+  await runTest("sendTransaction prefers per-call rpcUrl, then app rpcUrls, then HTTPS chainlist", async () => {
+    const { JsonRpcProvider } = await import("ethers");
+    const { clearCache } = await import("../src/chainlist");
+    const proto = JsonRpcProvider.prototype as any;
+    const originalSend = proto._send;
+    const originalFetch = globalThis.fetch;
+    const urls: string[] = [];
+    proto._send = async function (payload: any) {
+      urls.push(this._getConnection().url);
+      const requests = Array.isArray(payload) ? payload : [payload];
+      if (requests[0].method === "eth_chainId") {
+        return requests.map((r: any) => ({ id: r.id, result: "0x1" }));
+      }
+      throw new Error("stub RPC");
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify([
+      { chainId: 1, rpc: ["http://plain.example", "https://chainlist.example"] },
+    ]))) as typeof fetch;
+    clearCache();
+
+    const send = async (config: object, rpcUrl?: string) => {
+      const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, ...config });
+      (sdk as any).currentUser = { username: "rpc", ethereumAddress: TEST_CONTRACT, credentialId: "rpc" };
+      (sdk as any).getMnemonicFromSession = async () => TEST_MNEMONIC;
+      urls.length = 0;
+      await sdk.sendTransaction({ to: TEST_CONTRACT, chainId: 1 }, { rpcUrl }).catch(() => {});
+      return urls[0];
+    };
+
+    try {
+      const appRpc = { rpcUrls: { 1: ["https://app.example"] } };
+      assertEqual(await send(appRpc, "https://call.example"), "https://call.example", "per-call rpcUrl first");
+      assertEqual(await send(appRpc), "https://app.example", "app rpcUrls before chainlist");
+      assertEqual(await send({}), "https://chainlist.example", "first HTTPS chainlist endpoint");
+
+      const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, ...appRpc });
+      assertEqual(
+        JSON.stringify(await sdk.getEndpoints(1)),
+        JSON.stringify(["https://app.example", "https://chainlist.example"]),
+        "getEndpoints lists app endpoints first"
+      );
+    } finally {
+      proto._send = originalSend;
+      globalThis.fetch = originalFetch;
+      clearCache();
+    }
+    passTest("RPC endpoint order: per-call, app, HTTPS chainlist");
   });
 
   // ------------------------------------------------------------------
