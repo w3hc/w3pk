@@ -12,6 +12,7 @@ import {
   validatePasswordStrength,
   deriveAddressChecksum,
 } from '../src/backup/encryption';
+import { isStrongPassword } from '../src/utils/validation';
 import {
   startTestSuite,
   endTestSuite,
@@ -62,6 +63,10 @@ async function runTests() {
       assert(result.feedback.includes('Password is too common'), `"${common}": feedback names the list`);
     }
     assert(validatePasswordStrength('my passwordpassword is long').valid, 'only a whole match is refused');
+
+    assert(isStrongPassword('correct horse battery staple'), 'isStrongPassword accepts a passphrase');
+    assert(!isStrongPassword('Sh0rt!Passw0rd'), 'isStrongPassword refuses a short password');
+    assert(!isStrongPassword('passwordpassword'), 'isStrongPassword refuses a common password');
 
     passTest('Password validation working correctly');
   });
