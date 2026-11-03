@@ -325,7 +325,11 @@ console.log(`✓ Filter rate: ${expectedFilterRate.toFixed(2)}% (expected ~99%)`
   console.log("\nTesting StealthAddressModule.getKeys()");
   console.log("-".repeat(50));
 
-  const module = new StealthAddressModule({}, async () => testMnemonic);
+  const authCalls: (boolean | undefined)[] = [];
+  const module = new StealthAddressModule({}, async (requireAuth) => {
+    authCalls.push(requireAuth);
+    return testMnemonic;
+  });
   const moduleKeys = await module.getKeys();
   if ("spendingKey" in moduleKeys) {
     throw new Error("getKeys() must not return the spending private key");
@@ -385,24 +389,36 @@ console.log(`✓ Filter rate: ${expectedFilterRate.toFixed(2)}% (expected ~99%)`
   const tx = {
     to: ethers.Wallet.createRandom().address,
     value: 1000n,
+    data: "0x1234",
     chainId: 11155111,
-    nonce: 0,
-    gasLimit: 21000n,
+    nonce: 7,
+    gasLimit: 30000n,
     maxFeePerGas: 2000000000n,
     maxPriorityFeePerGas: 1000000000n,
   };
+  authCalls.length = 0;
   const signed = await module.signTransaction(announcement, tx);
   const decoded = ethers.Transaction.from(signed);
   if (
     decoded.from !== sent.stealthAddress ||
     decoded.to !== tx.to ||
     decoded.value !== tx.value ||
+    decoded.data !== tx.data ||
     decoded.chainId !== BigInt(tx.chainId) ||
+    decoded.nonce !== tx.nonce ||
+    decoded.gasLimit !== tx.gasLimit ||
+    decoded.maxFeePerGas !== tx.maxFeePerGas ||
+    decoded.maxPriorityFeePerGas !== tx.maxPriorityFeePerGas ||
     decoded.type !== 2
   ) {
     throw new Error("signTransaction() should sign the transaction from the stealth address");
   }
   console.log("✓ signTransaction() signs from the stealth address");
+
+  if (authCalls.length !== 1 || authCalls[0] !== true) {
+    throw new Error("signTransaction() should require a fresh passkey assertion");
+  }
+  console.log("✓ signTransaction() requires a fresh passkey assertion");
 
   const other = deriveStealthKeys(
     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
@@ -418,8 +434,10 @@ console.log(`✓ Filter rate: ${expectedFilterRate.toFixed(2)}% (expected ~99%)`
       },
       tx
     );
-  } catch {
-    refused = true;
+  } catch (error: any) {
+    refused =
+      error.code === "STEALTH_SIGN_ERROR" &&
+      error.originalError?.message === "Announcement is not for this user";
   }
   if (!refused) {
     throw new Error("signTransaction() should refuse an announcement that isn't for the user");

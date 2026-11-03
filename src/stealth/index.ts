@@ -87,14 +87,15 @@ export interface StealthTransaction {
  * By using this module, applications will have access to:
  * - Stealth meta-address (safe to share publicly)
  * - Viewing private key (required for scanning announcements)
- * - Transactions signed from stealth addresses with `signTransaction()`
+ * - Transactions signed from stealth addresses with `signTransaction()`, each
+ *   after a fresh passkey assertion
  *
  * The spending key and stealth private keys never leave the SDK: a stealth
  * private key plus the viewing key would give back the spending key (stealth
  * key = spending key + hash of the shared secret). The viewing key lets an app
  * see every stealth payment to the user, and an app with this module enabled
- * can have w3pk sign any transaction from a stealth address found for the
- * user. Stealth keys are derived from separate HD paths (not from main wallet)
+ * can ask w3pk to sign from a stealth address, which prompts for the passkey
+ * every time. Stealth keys are derived from separate HD paths (not from main wallet)
  * and are the same for every origin, so any app that enables this module sees
  * the same viewing key and meta-address; scoping them per origin would change
  * the meta-address and strand funds already sent to it.
@@ -207,22 +208,17 @@ export class StealthAddressModule {
   /**
    * Sign an EIP-1559 transaction from a stealth address found for the user
    * The stealth private key is derived and used inside the SDK, never returned.
+   * Every call runs a fresh passkey assertion, even with an active session.
    * The transaction is signed, not sent: broadcast it with your own RPC
    * (`eth_sendRawTransaction`).
    *
    * @param announcement - The announcement of the stealth address to sign from
    * @param tx - Fully populated transaction (nonce, gas limit and fees included)
-   * @param options - Optional configuration
-   * @param options.requireAuth - If true, force fresh authentication even if session is active
    * @returns The serialized signed transaction
    */
-  async signTransaction(
-    announcement: Announcement,
-    tx: StealthTransaction,
-    options?: { requireAuth?: boolean }
-  ): Promise<string> {
+  async signTransaction(announcement: Announcement, tx: StealthTransaction): Promise<string> {
     try {
-      const mnemonic = await this.getMnemonic(options?.requireAuth);
+      const mnemonic = await this.getMnemonic(true);
 
       const stealthKeys = deriveStealthKeys(mnemonic);
 
