@@ -13,6 +13,7 @@ import {
   hashEIP7702AuthorizationMessage,
   verifyEIP7702Authorization,
 } from "../src/eip7702/utils";
+import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import {
   startTestSuite,
   endTestSuite,
@@ -24,6 +25,21 @@ import {
 } from "./test-utils";
 
 const CONTRACT = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1";
+const MNEMONIC = "test test test test test test test test test test test junk";
+
+/** An authenticated SDK with an active session, recording each mnemonic fetch's forceAuth and mode */
+async function sessionSdk() {
+  const sdk = authenticatedSdk();
+  await (sdk as any).sessionManager.startSession(MNEMONIC, "test-credential");
+  const forceAuthCalls: boolean[] = [];
+  const modeCalls: string[] = [];
+  (sdk as any).getMnemonicFromSession = async (forceAuth: boolean = false, mode: string = "STANDARD") => {
+    forceAuthCalls.push(forceAuth);
+    modeCalls.push(mode);
+    return MNEMONIC;
+  };
+  return { sdk, forceAuthCalls, modeCalls };
+}
 
 /** An SDK with a signed-in user, without going through WebAuthn */
 function authenticatedSdk() {
@@ -197,6 +213,75 @@ async function runTests() {
       "Should reject a malformed private key"
     );
     passTest("Invalid private key rejected");
+  });
+
+  await runTest("signAuthorization signs with the origin-derived key, not the master key", async () => {
+    const master = Wallet.fromPhrase(MNEMONIC).address;
+
+    for (const mode of ["STANDARD", "STRICT", "YOLO"] as const) {
+      const { sdk } = await sessionSdk();
+      const authorization = await sdk.signAuthorization(
+        { contractAddress: CONTRACT, chainId: 11155111 },
+        { mode, tag: "MAIN" }
+      );
+      const expected = await getOriginSpecificAddress(
+        MNEMONIC,
+        window.location.origin,
+        mode,
+        "MAIN"
+      );
+      const signer = recoverSigner(authorization);
+
+      assert(signer === expected.address, `${mode}: should sign with the origin-derived address`);
+      assert(signer !== master, `${mode}: must never sign with m/44'/60'/0'/0/0`);
+      logDetail(`${mode}: ${signer}`);
+    }
+
+    const { sdk } = await sessionSdk();
+    const defaults = await sdk.signAuthorization({ contractAddress: CONTRACT });
+    const standard = await getOriginSpecificAddress(MNEMONIC, window.location.origin, "STANDARD", "MAIN");
+    assert(
+      recoverSigner(defaults) === standard.address,
+      "Should default to the STANDARD MAIN wallet"
+    );
+
+    passTest("Delegations are signed with the origin-derived key");
+  });
+
+  await runTest("signAuthorization requires a fresh assertion even with an active session", async () => {
+    const { sdk, forceAuthCalls, modeCalls } = await sessionSdk();
+    assert((sdk as any).sessionManager.getMnemonic() === MNEMONIC, "Session should be active");
+
+    await sdk.signAuthorization({ contractAddress: CONTRACT });
+    await sdk.signAuthorization({ contractAddress: CONTRACT }, { mode: "YOLO" });
+
+    assert(forceAuthCalls.length === 2, "Each call should fetch the mnemonic");
+    assert(
+      forceAuthCalls.every((forceAuth) => forceAuth === true),
+      "Each call should bypass the session cache"
+    );
+    assert(
+      modeCalls[0] === "STANDARD" && modeCalls[1] === "YOLO",
+      "Each call should authenticate under its own mode"
+    );
+    passTest("Every signature needs a fresh passkey assertion");
+  });
+
+  await runTest("signAuthorization refuses PRIMARY mode", async () => {
+    const { sdk, forceAuthCalls } = await sessionSdk();
+
+    let rejected: any;
+    try {
+      await sdk.signAuthorization({ contractAddress: CONTRACT }, { mode: "PRIMARY" });
+    } catch (error) {
+      rejected = error;
+    }
+
+    assert(rejected, "Should have thrown an error");
+    const cause = rejected.originalError?.message ?? "";
+    assert(cause.includes("PRIMARY mode"), `Should name PRIMARY mode, got: ${cause}`);
+    assert(forceAuthCalls.length === 0, "Should refuse before prompting for a passkey");
+    passTest("PRIMARY mode refused");
   });
 
   endTestSuite();

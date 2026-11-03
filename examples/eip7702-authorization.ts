@@ -29,7 +29,7 @@ async function example() {
   const chainId = 11155111; // Sepolia testnet
 
   try {
-    // Option 1: Sign with default address (index 0)
+    // Option 1: Sign with this origin's STANDARD MAIN address (prompts for the passkey)
     const authorization = await sdk.signAuthorization({
       contractAddress: govContractAddress,
       chainId: chainId,
@@ -50,7 +50,7 @@ async function example() {
     console.log("\nSigning with derived address:");
     const { deriveWalletFromMnemonic } = await import("w3pk");
     const mnemonic = "your mnemonic phrase here"; // Get from secure source
-    const { privateKey: derivedKey } = deriveWalletFromMnemonic(mnemonic, 5);
+    const { address: derivedAddress, privateKey: derivedKey } = deriveWalletFromMnemonic(mnemonic, 5);
 
     const authFromDerived = await sdk.signAuthorization({
       contractAddress: govContractAddress,
@@ -58,7 +58,7 @@ async function example() {
       privateKey: derivedKey, // Use derived private key
     });
 
-    console.log("Authorization from derived address:", authFromDerived.address);
+    console.log("Authorization from derived address:", derivedAddress, "to", authFromDerived.address);
 
     // Option 3: Sign with a stealth address
     console.log("\nSigning with stealth address:");
@@ -79,7 +79,7 @@ async function example() {
       privateKey: stealthPrivKey, // Use computed stealth private key
     });
 
-    console.log("Authorization from stealth address:", authFromStealth.address);
+    console.log("Authorization from stealth address to:", authFromStealth.address);
 
     // Step 3: Use the authorization with ethers.js or viem
     console.log("\nStep 3: Submit Transaction");

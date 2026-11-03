@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A backup of another address than the logged-in one throws `AddressChangeError` (`currentAddress`, `newAddress`) before any prompt unless the app passes `{ allowAddressChange: true }` once the user confirms; for a PRF backup, which carries no address, the check runs after the assertion and before anything is stored
   - The new wallet is stored before the passkey points at it, and the old one is deleted only after; without a PRF output, nothing stored changes and `PrfUnsupportedError` is thrown
   - `test/restore-replace-wallet.test.ts` covers the cancelled prompt, the missing PRF and the address change
+- **`signAuthorization()` signs EIP-7702 delegations with the origin's derived key after a fresh passkey assertion** ([#224](https://github.com/w3hc/w3pk/issues/224)). Without `privateKey`, it signed with the master key at `m/44'/60'/0'/0/0` from the session cache, so any script on the page during an active session could delegate the master account to its own contract without a prompt
+  - Signs with the key of `getOriginSpecificAddress(mnemonic, origin, mode, tag)`, the address `sendTransaction()` uses; new `options.mode` and `options.tag` (default `STANDARD` / `MAIN`); `PRIMARY` mode is refused
+  - Every call runs a fresh passkey assertion, even with an active session; the `requireAuth` option is removed
+  - `params.privateKey` still signs with the given key, without a prompt
 
 ### Added
 

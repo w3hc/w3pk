@@ -902,7 +902,7 @@ console.log('Matches signer:', recovered === rawHashResult.address)
 
 ---
 
-### `signAuthorization(params: SignAuthorizationParams, options?: { requireAuth?: boolean }): Promise<EIP7702Authorization>`
+### `signAuthorization(params: SignAuthorizationParams, options?: { mode?: SecurityMode; tag?: string }): Promise<EIP7702Authorization>`
 
 Sign an EIP-7702 authorization for gasless transactions.
 
@@ -917,7 +917,8 @@ params: {
 }
 
 options?: {
-  requireAuth?: boolean;    // Force fresh authentication (default: false)
+  mode?: SecurityMode;      // Signing wallet's mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD'; 'PRIMARY' is refused)
+  tag?: string;             // Signing wallet's tag (default: 'MAIN')
 }
 ```
 
@@ -926,7 +927,7 @@ options?: {
 ```typescript
 interface EIP7702Authorization {
   chainId: bigint;     // Chain ID
-  address: string;     // Signer's address
+  address: string;     // Delegated contract address (not the signer)
   nonce: bigint;       // Nonce value
   yParity: number;     // Signature y parity (0 or 1)
   r: string;           // Signature r value (hex)
@@ -948,12 +949,12 @@ EIP-7702 allows EOAs (Externally Owned Accounts) to **permanently delegate** cod
 3. All future transactions use the delegated contract code (no new authorization needed)
 4. Sponsor pays gas costs for all transactions
 
-**Security:** Uses active session or prompts for authentication if session expired.
+**Security:** Without `privateKey`, every call prompts for a fresh user-verified passkey assertion, even during an active session, and signs with the origin-specific derived key for `mode` and `tag` (the same address `sendTransaction()` uses), never the master key at `m/44'/60'/0'/0/0`. `PRIMARY` mode is refused: its P-256 passkey address has no secp256k1 key.
 
-**Example (Default Address):**
+**Example (Origin-Derived Address):**
 
 ```typescript
-// Sign with default address (account #0)
+// Sign with this origin's STANDARD MAIN address (prompts for the passkey)
 const authorization = await w3pk.signAuthorization({
   contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
   chainId: 11155111,  // Sepolia
@@ -997,7 +998,7 @@ const authorization = await w3pk.signAuthorization({
   privateKey  // Use derived private key
 })
 
-console.log('Signed from:', authorization.address)
+console.log('Signed from:', address)
 // Output: derived address at index 5
 ```
 
@@ -1027,18 +1028,18 @@ const authorization = await w3pk.signAuthorization({
   privateKey: stealthPrivateKey
 })
 
-console.log('Anonymous authorization from:', authorization.address)
 ```
 
-**Example (Force Authentication):**
+**Example (Mode and Tag):**
 
 ```typescript
-// Force fresh biometric authentication for sensitive operations
+// Sign from this origin's YOLO GAMING address
 const authorization = await w3pk.signAuthorization({
   contractAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1',
   chainId: 1
 }, {
-  requireAuth: true  // Prompt for WebAuthn even if session is active
+  mode: 'YOLO',
+  tag: 'GAMING'
 })
 ```
 

@@ -1249,7 +1249,11 @@ export class Web3Passkey {
    * @param params.chainId - Chain ID (default: 1)
    * @param params.nonce - Nonce (default: 0)
    * @param params.privateKey - Private key for derived/stealth addresses
-   * @param options.requireAuth - Force fresh authentication
+   * @param options.mode - Security mode of the signing wallet (default: STANDARD, PRIMARY is refused)
+   * @param options.tag - Wallet tag (default: MAIN)
+   *
+   * Without `params.privateKey`, signs with the origin-specific derived key
+   * (never the master key) after a fresh user-verified passkey assertion.
    */
   async signAuthorization(
     params: {
@@ -1258,7 +1262,7 @@ export class Web3Passkey {
       nonce?: bigint;
       privateKey?: string;
     },
-    options?: { requireAuth?: boolean }
+    options?: { mode?: SecurityMode; tag?: string }
   ): Promise<{
     chainId: bigint;
     address: string;
@@ -1280,8 +1284,27 @@ export class Web3Passkey {
       if (params.privateKey) {
         wallet = new Wallet(params.privateKey);
       } else {
-        const mnemonic = await this.getMnemonicFromSession(options?.requireAuth);
-        wallet = Wallet.fromPhrase(mnemonic);
+        const effectiveMode = options?.mode || DEFAULT_MODE;
+        const effectiveTag = options?.tag || DEFAULT_TAG;
+
+        if (effectiveMode === 'PRIMARY') {
+          throw new WalletError(
+            "PRIMARY mode cannot sign EIP-7702 authorizations: its P-256 passkey address has no secp256k1 key. " +
+            "Use STANDARD, STRICT or YOLO mode."
+          );
+        }
+
+        const origin = getCurrentOrigin();
+        const mnemonic = await this.getMnemonicFromSession(true, effectiveMode);
+        const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+
+        if (derived.privateKey) {
+          wallet = new Wallet(derived.privateKey);
+        } else {
+          const { deriveWalletFromMnemonic } = await import("../wallet/generate");
+          const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
+          wallet = new Wallet(privateKey);
+        }
       }
 
       const chainId = BigInt(params.chainId || 1);
