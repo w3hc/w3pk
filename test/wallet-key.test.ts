@@ -134,7 +134,13 @@ async function setupAuthenticator(): Promise<void> {
             type: "public-key",
             response: {
               attestationObject: await attestationObject(raw),
-              clientDataJSON: new ArrayBuffer(0),
+              clientDataJSON: new TextEncoder().encode(
+                JSON.stringify({
+                  type: "webauthn.create",
+                  challenge: arrayBufferToBase64Url(publicKey.challenge as ArrayBuffer),
+                  origin: `http://${RP_ID}`,
+                })
+              ).buffer,
             },
             getClientExtensionResults: () =>
               prfResults(authenticator.prfOnCreate, publicKey.extensions),
