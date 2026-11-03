@@ -863,12 +863,25 @@ export class Web3Passkey {
         );
       }
 
+      const origin = getCurrentOrigin();
+
+      // EIP-4361: reject a SIWE message whose domain isn't this page's
+      if (signingMethod === 'SIWE') {
+        const { parseSiweMessage } = await import("../siwe");
+        const { domain } = parseSiweMessage(message as string);
+        const host = new URL(origin).host;
+        if (domain !== host) {
+          throw new WalletError(
+            `SIWE message domain "${domain}" does not match the current origin "${host}"`
+          );
+        }
+      }
+
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to sign message");
       }
 
       const effectiveTag = options?.tag || DEFAULT_TAG;
-      const origin = getCurrentOrigin();
 
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
