@@ -1262,19 +1262,17 @@ export class Web3Passkey {
    * @param params.contractAddress - Contract address to authorize
    * @param params.chainId - Chain ID (default: 1)
    * @param params.nonce - Nonce (default: 0)
-   * @param params.privateKey - Private key for derived/stealth addresses
    * @param options.mode - Security mode of the signing wallet (default: STANDARD, PRIMARY is refused)
    * @param options.tag - Wallet tag (default: MAIN)
    *
-   * Without `params.privateKey`, signs with the origin-specific derived key
-   * (never the master key) after a fresh user-verified passkey assertion.
+   * Signs with the origin-specific derived key (never the master key) after a
+   * fresh user-verified passkey assertion.
    */
   async signAuthorization(
     params: {
       contractAddress: string;
       chainId?: number;
       nonce?: bigint;
-      privateKey?: string;
     },
     options?: { mode?: SecurityMode; tag?: string }
   ): Promise<{
@@ -1293,32 +1291,27 @@ export class Web3Passkey {
       const { Wallet, Signature } = await import("ethers");
       const { hashEIP7702AuthorizationMessage, verifyEIP7702Authorization } = await import("../eip7702/utils");
 
+      const effectiveMode = options?.mode || DEFAULT_MODE;
+      const effectiveTag = options?.tag || DEFAULT_TAG;
+
+      if (effectiveMode === 'PRIMARY') {
+        throw new WalletError(
+          "PRIMARY mode cannot sign EIP-7702 authorizations: its P-256 passkey address has no secp256k1 key. " +
+          "Use STANDARD, STRICT or YOLO mode."
+        );
+      }
+
+      const origin = getCurrentOrigin();
+      const mnemonic = await this.getMnemonicFromSession(true, effectiveMode);
+      const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+
       let wallet: any;
-
-      if (params.privateKey) {
-        wallet = new Wallet(params.privateKey);
+      if (derived.privateKey) {
+        wallet = new Wallet(derived.privateKey);
       } else {
-        const effectiveMode = options?.mode || DEFAULT_MODE;
-        const effectiveTag = options?.tag || DEFAULT_TAG;
-
-        if (effectiveMode === 'PRIMARY') {
-          throw new WalletError(
-            "PRIMARY mode cannot sign EIP-7702 authorizations: its P-256 passkey address has no secp256k1 key. " +
-            "Use STANDARD, STRICT or YOLO mode."
-          );
-        }
-
-        const origin = getCurrentOrigin();
-        const mnemonic = await this.getMnemonicFromSession(true, effectiveMode);
-        const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
-
-        if (derived.privateKey) {
-          wallet = new Wallet(derived.privateKey);
-        } else {
-          const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-          const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
-          wallet = new Wallet(privateKey);
-        }
+        const { deriveWalletFromMnemonic } = await import("../wallet/generate");
+        const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
+        wallet = new Wallet(privateKey);
       }
 
       const chainId = BigInt(params.chainId || 1);
