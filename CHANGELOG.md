@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `login()`, `getMnemonic()` and `importMnemonic()` take the key from their assertion's PRF output
   - `syncWalletWithPasskey()`, `importFromSync()` and `restoreFromBackupFile()` evaluate the wallet's PRF input in the assertion they already run (`prf.eval.second` for PRF backups), and now start a persistent session too; `restoreFromBackupFile()` with a password backup while logged in adds one assertion
 - **The signature counter is persisted, so cloned authenticators are rejected** ([#212](https://github.com/w3hc/w3pk/issues/212)). `CredentialStorage` dropped `signCount` on save, so `login()` always compared against 0 and accepted a replayed or lower counter; `test/authenticate.test.ts` (`pnpm test:auth`) covers the counter and RP ID hash checks
+- **`restoreFromBackupFile()` replaces the stored wallet only after the passkey prompt succeeds** ([#223](https://github.com/w3hc/w3pk/issues/223)). While logged in, it deleted the stored wallet and pointed the credential at the backup's address before the prompt, so a cancelled prompt or an authenticator without PRF left the device with neither wallet, and a crafted backup could swap the receiving address
+  - A backup of another address than the logged-in one throws `AddressChangeError` (`currentAddress`, `newAddress`) before any prompt unless the app passes `{ allowAddressChange: true }` once the user confirms; for a PRF backup, which carries no address, the check runs after the assertion and before anything is stored
+  - The new wallet is stored before the passkey points at it, and the old one is deleted only after; without a PRF output, nothing stored changes and `PrfUnsupportedError` is thrown
+  - `test/restore-replace-wallet.test.ts` covers the cancelled prompt, the missing PRF and the address change
 
 ### Added
 
