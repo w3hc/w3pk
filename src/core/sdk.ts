@@ -1006,16 +1006,17 @@ export class Web3Passkey {
 
       const { extractRS } = await import("../utils/crypto");
       const { base64UrlDecode } = await import("../utils/base64");
+      const { hexlify } = await import("ethers");
 
       // Hash the message
       const messageHash = await crypto.subtle.digest(
         'SHA-256',
         new TextEncoder().encode(message)
       );
-      const h = '0x' + Buffer.from(messageHash).toString('hex');
+      const h = hexlify(new Uint8Array(messageHash));
 
       // Generate challenge from message hash
-      const challengeBytes = new Uint8Array(Buffer.from(h.slice(2), 'hex'));
+      const challengeBytes = new Uint8Array(messageHash);
 
       // Get credential ID from current user
       const credentialId = this.currentUser.credentialId;
@@ -1060,7 +1061,7 @@ export class Web3Passkey {
 
       // Hash the concatenation to get what was actually signed
       const actualMessageHash = await crypto.subtle.digest('SHA-256', signedData.buffer);
-      const actualH = '0x' + Buffer.from(actualMessageHash).toString('hex');
+      const actualH = hexlify(new Uint8Array(actualMessageHash));
 
       // Extract r and s from the DER-encoded signature
       const signature = new Uint8Array(response.signature);
@@ -1099,8 +1100,8 @@ export class Web3Passkey {
       }
 
       // Convert base64url x and y to hex (each is 32 bytes for P-256)
-      const qx = '0x' + Buffer.from(base64UrlToArrayBuffer(jwk.x)).toString('hex');
-      const qy = '0x' + Buffer.from(base64UrlToArrayBuffer(jwk.y)).toString('hex');
+      const qx = hexlify(new Uint8Array(base64UrlToArrayBuffer(jwk.x)));
+      const qy = hexlify(new Uint8Array(base64UrlToArrayBuffer(jwk.y)));
 
       // Derive address from public key
       const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
