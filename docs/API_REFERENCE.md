@@ -713,7 +713,7 @@ console.log(w3pk.user?.ethereumAddress) // the imported wallet's address
 
 ---
 
-### `signMessage(message: string, options?: SignMessageOptions): Promise<SignatureResult>`
+### `signMessage(message: string | Uint8Array, options?: SignMessageOptions): Promise<SignatureResult>`
 
 Sign a message with the wallet using ECDSA with configurable signing methods.
 
@@ -721,7 +721,7 @@ By default, signs with **STANDARD mode + MAIN tag** (origin-centric address) usi
 You can specify a different mode, tag, and signing method to customize the signature.
 
 **Parameters:**
-- `message: string` - Message to sign (or hash for rawHash method, JSON for EIP712)
+- `message: string | Uint8Array` - Message to sign (or hash for rawHash method, JSON for EIP712); bytes are signed as-is and only with EIP191
 - `options.mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
 - `options.tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
@@ -1533,9 +1533,9 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 | `eth_requestAccounts` | `string[]` | Same as `eth_accounts` |
 | `eth_chainId` | `string` (hex) | Active chainId; updated by `wallet_switchEthereumChain` |
 | `eth_sendTransaction` | `string` (tx hash) | Delegates to `sendTransaction()`; hex params auto-converted |
-| `personal_sign` | `string` (sig) | EIP-191; hex-encoded data decoded to UTF-8 automatically |
+| `personal_sign` | `string` (sig) | EIP-191; hex-encoded data signed as raw bytes |
 | `eth_sign` | `string` (sig) | Legacy; same behaviour as `personal_sign` |
-| `eth_signTypedData_v4` | `string` (sig) | EIP-712; `EIP712Domain` stripped automatically |
+| `eth_signTypedData_v4` | `string` (sig) | EIP-712; `EIP712Domain` stripped automatically; refused if the domain `chainId` isn't the active chain |
 | `wallet_switchEthereumChain` | `null` | Updates active chainId and emits `chainChanged` |
 
 **Events:**
@@ -1620,7 +1620,8 @@ await provider.request({
 **Notes:**
 - Each call to `getEIP1193Provider()` returns a **new independent instance** with its own `chainId` state and event listeners.
 - `eth_sendTransaction` hex fields (`value`, `gas`, `maxFeePerGas`, `maxPriorityFeePerGas`, `nonce`) are automatically converted to `bigint` / `number` before passing to `sendTransaction()`.
-- `personal_sign` data that arrives as a `0x`-prefixed hex string is decoded to UTF-8, matching MetaMask's behaviour.
+- `personal_sign` data that arrives as a `0x`-prefixed hex string is signed as the bytes it encodes, matching MetaMask's behaviour.
+- `eth_signTypedData_v4` throws a `WalletError` when the typed data's `domain.chainId` differs from the active chain, as [EIP-712](https://eips.ethereum.org/EIPS/eip-712) requires; switch chains first with `wallet_switchEthereumChain`.
 
 ---
 
