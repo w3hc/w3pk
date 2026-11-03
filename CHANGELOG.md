@@ -42,6 +42,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `rpcUrls: Record<number, string[]>` config option: `sendTransaction()` uses a per-call `rpcUrl`, then `rpcUrls[chainId][0]`, then chainid.network; `w3pk.getEndpoints()` lists the app's endpoints first and keeps them when chainid.network can't be reached
 - **`stealth.getKeys()` no longer returns the spending private key** ([#228](https://github.com/w3hc/w3pk/issues/228)). It returns the meta-address, both public keys and the viewing key. The docs say stealth keys are shared across origins and that the viewing key and any stealth private key from `parseAnnouncement()` are enough to compute the spending key, so only apps trusted with stealth funds should enable stealth addresses
 - **The `zkProve()` circuit trust limit is documented** ([#228](https://github.com/w3hc/w3pk/issues/228)): it only refuses public signals equal to the secret or a random input, and a circuit can output any other function of the secret, the Semaphore secret included, so apps must only prove with circuits they trust
+- **Assertions are checked against the request that asked for them** ([#229](https://github.com/w3hc/w3pk/issues/229)). `verifyAssertionSignature()` ignored `clientDataJSON` and the user-presence flag; it now takes the challenge it answers and rejects a `type` other than `webauthn.get`, another challenge, another origin, or a missing UP flag. `login()`, `syncWalletWithPasskey()` and `importFromSync()` pass their challenge; UV handling is unchanged
+- **SIWE checks** ([#229](https://github.com/w3hc/w3pk/issues/229))
+  - `validateSiweMessage()` always checks `Expiration Time` and `Not Before`, and rejects `Issued At`, `Expiration Time` or `Not Before` that isn't an RFC 3339 date (an invalid date used to pass)
+  - `createSiweMessage()` and `validateSiweMessage()` reject line breaks (CR or LF) in `domain`, `uri`, `statement` and each `resources` entry
+  - `signMessage()` rejects a SIWE message whose `domain` doesn't match the current origin (host and port, and scheme when given), as EIP-4361 requires; the check also runs on `EIP191` messages that contain the SIWE header, `personal_sign` included
+- **The WebAuthn user handle is 32 random bytes** ([#229](https://github.com/w3hc/w3pk/issues/229)). `register()` used the username as `user.id`, which WebAuthn says must hold no personal information. Existing passkeys keep their handle; on a fresh device, `syncWalletWithPasskey()` with a password backup reads the username from a pre-0.11.1 handle, and uses the address for newer passkeys
+- **DER signatures are parsed with length and bounds checks** ([#229](https://github.com/w3hc/w3pk/issues/229)). The parsers in `extractRS()` and assertion verification read lengths without checking them, so malformed input was read out of range; it now throws. `signMessageWithPasskey()` and the ML-KEM helpers no longer use Node's `Buffer`
+- **Documented limits** ([#229](https://github.com/w3hc/w3pk/issues/229))
+  - Origin keys use non-hardened BIP-32 derivation under `m/44'/60'/0'/0`: a leaked child private key plus that node's extended public key reveal every origin's key. w3pk never exposes the extended public key; the path isn't changed because that would move every address
+  - `verifyBuildHash()` and `getCurrentBuildHash()` hash the package on unpkg, not the code running in the page
+  - Logout drops the session's mnemonic but can't wipe it from memory: JS strings are immutable
+- The guardian share document states the actual threshold instead of `${shareIndex}-of-N` ([#229](https://github.com/w3hc/w3pk/issues/229))
 
 ### Added
 
@@ -55,6 +67,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Authenticators without PRF keep no wallet on the device**: the wallet stays in memory for the session and comes back from a backup on the next visit. This includes unverified assertions with `userVerification: 'preferred'`, where `login()` throws `WalletMissingError`
 - **Wallets stored before this release** are re-encrypted at the next `login()` from a PRF persistent session when one exists; otherwise `login()` throws `WalletMissingError` and the wallet is restored from a backup
 - `DeviceSyncManager.importFromSync()` also returns `walletPrfOutput`, the PRF output the wallet key comes from
+- **Restores no longer return the mnemonic** ([#229](https://github.com/w3hc/w3pk/issues/229)): `restoreFromBackupFile()`, `syncWalletWithPasskey()` and `recoverFromGuardians()` return `{ ethereumAddress }`, so the master mnemonic is never exposed to the app
+  - `recoverFromGuardians()` restores the rebuilt backup as `restoreFromBackupFile()` does: logged out, the wallet stays in memory for `register()`; logged in, it replaces the stored wallet after one assertion, with a new `options.allowAddressChange`
+- `validateSiweMessage()` drops the `checkExpiration` and `checkNotBefore` options: both checks always run ([#229](https://github.com/w3hc/w3pk/issues/229))
+- `PasskeySelectionResult` carries the base64url `challenge` its assertion answers ([#229](https://github.com/w3hc/w3pk/issues/229))
 - **Build configuration** ([#187](https://github.com/w3hc/w3pk/issues/187)): the build output is unchanged
   - `build:zk` and `html` run with `pnpm` (`pnpm run`, `pnpm dlx serve`) instead of `npm` and `npx`, and `compile:circuits` falls back to `pnpm exec snarkjs`
   - `pnpm.overrides` keeps one entry per package: `minimatch@>=5.0.0 <5.1.8` and `jsonpath@<=1.2.1`
