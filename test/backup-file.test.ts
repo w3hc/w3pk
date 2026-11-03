@@ -12,7 +12,7 @@ import {
 } from '../src/backup/encryption';
 import { encryptData } from '../src/wallet/crypto';
 import { SocialRecovery } from '../src/recovery/backup-based-recovery';
-import { CryptoError, UnsupportedBackupVersionError } from '../src/core/errors';
+import { CryptoError, UnsupportedBackupVersionError, WeakPasswordError } from '../src/core/errors';
 import type { BackupFile } from '../src/backup/types';
 import { startTestSuite, endTestSuite, runTest, passTest, assert, assertEqual } from './test-utils';
 
@@ -57,6 +57,20 @@ async function runTests() {
     assertEqual(restored.mnemonic, mnemonic, 'mnemonic restored');
     assertEqual(restored.ethereumAddress, address, 'address derived from the mnemonic');
     passTest('password file round-trips');
+  });
+
+  await runTest('Password backup refuses a weak password with the feedback', async () => {
+    const { mnemonic } = newWallet();
+    for (const weak of ['', 'a', 'TestPassword123!NotReal', 'correct horse battery staple']) {
+      const error = await capture(() => manager.createPasswordBackup(mnemonic, weak));
+      assert(error instanceof WeakPasswordError, `"${weak}": WeakPasswordError`);
+      assertEqual((error as WeakPasswordError).code, 'WEAK_PASSWORD', `"${weak}": code`);
+      assert((error as WeakPasswordError).feedback.length > 0, `"${weak}": carries the feedback`);
+    }
+    const short = (await capture(() => manager.createPasswordBackup(mnemonic, 'a'))) as WeakPasswordError;
+    assert(short.feedback.includes('Password must be at least 12 characters'), 'feedback names the length');
+    assert(short.message.includes('at least 12 characters'), 'message carries the feedback');
+    passTest('weak passwords refused');
   });
 
   await runTest('Password backup uses the documented Argon2id parameters', async () => {

@@ -5,7 +5,7 @@
  */
 
 import { Wallet } from "ethers";
-import { Web3Passkey } from "../src/index";
+import { Web3Passkey, WeakPasswordError } from "../src/index";
 import { BackupManager } from "../src/backup/manager";
 import { recordBackup } from "../src/core/backup-sync";
 import {
@@ -148,6 +148,29 @@ async function runTests() {
     const status = await loggedInSdk().getBackupStatus();
     assertEqual(status.hasBackup, false, "hasBackup is false");
     passTest("scoped to the current wallet");
+  });
+
+  await runTest("createBackupFile refuses a weak password before the passkey prompt", async () => {
+    localStorage.clear();
+    const sdk = loggedInSdk();
+    let prompted = false;
+    (sdk as any).getMnemonicFromSession = async () => {
+      prompted = true;
+      return MNEMONIC;
+    };
+
+    let error: unknown;
+    try {
+      await sdk.createBackupFile("a");
+    } catch (e) {
+      error = e;
+    }
+
+    assert(error instanceof WeakPasswordError, "throws WeakPasswordError");
+    assert((error as WeakPasswordError).feedback.length > 0, "carries the feedback");
+    assertEqual(prompted, false, "no passkey prompt");
+    assertEqual((await sdk.getBackupStatus()).hasBackup, false, "no backup recorded");
+    passTest("refused");
   });
 
   await runTest("createBackupFile rejects the removed encryptionType argument", async () => {
