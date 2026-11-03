@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Password backups refuse weak passwords and use stronger Argon2id parameters** ([#227](https://github.com/w3hc/w3pk/issues/227)). `createPasswordBackup()` accepted any non-empty password, and Argon2id ran at OWASP's minimum (19 MiB, 2 passes), so a stolen backup or a set of guardian shares with a weak password could be brute-forced offline
   - `createBackupFile()`, `setupSocialRecovery()` and the `exportForSync(password)` fallback refuse a password that fails `isStrongPassword()` (12+ characters, upper and lower case, a number, a special character, not common) before any passkey prompt, with the new `WeakPasswordError` (`code: 'WEAK_PASSWORD'`, `feedback: string[]`)
   - New password backups use RFC 9106's second recommendation (64 MiB, 3 passes, 4 lanes). Each file records its parameters, so older backups still restore
+- **Credential metadata is stored in plain text and documented as readable by any script on the page** ([#226](https://github.com/w3hc/w3pk/issues/226)). `CredentialStorage` encrypted the username and address under a key from `SHA-256("w3pk-metadata-v1:" + credentialId)`, with `credentialId` stored in clear in `w3pk_credential_index`, so the encryption hid nothing. `login()` reads the account list before any passkey prompt, so no key exists that isn't already on the device
+  - Entries store `id`, `publicKey`, `username`, `ethereumAddress`, `createdAt`, `lastUsed` and `signCount`; `EncryptedCredential` and `hashPublicKey()` are removed
+  - Entries stored encrypted are treated as absent: they aren't listed in `allowCredentials` and don't break `register()` or address lookups
 
 ### Added
 
@@ -40,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Upgrading from v0.11.0 or earlier: restore the wallet from a backup.** Credential metadata stored encrypted is ignored ([#226](https://github.com/w3hc/w3pk/issues/226)), so `login()` with an existing passkey throws `SyncRequiredError` before the re-encryption below can run; restore with `restoreFromBackupFile()` (password or PRF backup), `importFromSync()` or social recovery. No migration is provided
 - **Authenticators without PRF keep no wallet on the device**: the wallet stays in memory for the session and comes back from a backup on the next visit. This includes unverified assertions with `userVerification: 'preferred'`, where `login()` throws `WalletMissingError`
 - **Wallets stored before this release** are re-encrypted at the next `login()` from a PRF persistent session when one exists; otherwise `login()` throws `WalletMissingError` and the wallet is restored from a backup
 - `DeviceSyncManager.importFromSync()` also returns `walletPrfOutput`, the PRF output the wallet key comes from
