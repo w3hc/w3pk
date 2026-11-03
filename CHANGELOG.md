@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Both take `options: { allowAddressChange?: boolean }` (default `false`), as `restoreFromBackupFile()` does: a backup of another address throws `AddressChangeError` (`currentAddress`, `newAddress`) after the assertion and before anything is stored, unless the app passes `{ allowAddressChange: true }` once the user confirms
   - A password backup restored by `syncWalletWithPasskey()` is marked verified only once it is stored
   - `test/restore-replace-wallet.test.ts` covers both methods, logged in and logged out
+- **`restoreFromBackupFile()` with a password backup verifies the passkey assertion before replacing the stored wallet** ([#247](https://github.com/w3hc/w3pk/issues/247)). While logged in, it took the PRF output from an assertion it never checked, so a cloned authenticator or a forged signature could replace the wallet
+  - The assertion runs `login()`'s check (client data, user presence, RP ID hash, signature against the stored public key, signature counter checked and saved) before anything stored changes, and throws `AuthenticationError` on failure; `recoverFromGuardians()` gets the same check
+  - `verifyAssertion()` is exported from `src/auth/authenticate.ts` for that
+  - `test/restore-replace-wallet.test.ts` covers a counter that is behind and a signature from another key
 - **`signAuthorization()` signs EIP-7702 delegations with the origin's derived key after a fresh passkey assertion** ([#224](https://github.com/w3hc/w3pk/issues/224)). Without `privateKey`, it signed with the master key at `m/44'/60'/0'/0/0` from the session cache, so any script on the page during an active session could delegate the master account to its own contract without a prompt
   - Signs with the key of `getOriginSpecificAddress(mnemonic, origin, mode, tag)`, the address `sendTransaction()` uses; new `options.mode` and `options.tag` (default `STANDARD` / `MAIN`); `PRIMARY` mode is refused
   - Every call runs a fresh passkey assertion, even with an active session; the `requireAuth` option is removed
