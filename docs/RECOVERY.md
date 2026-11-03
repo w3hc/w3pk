@@ -278,7 +278,7 @@ Use this when PRF is unavailable, or when you only have a password backup. This 
 const sdk = createWeb3Passkey();
 
 const backupData = '...'; // JSON string or Blob from your password backup file
-const { mnemonic, ethereumAddress } = await sdk.syncWalletWithPasskey(backupData, 'MyS3cure!Backup@2042');
+const { ethereumAddress } = await sdk.syncWalletWithPasskey(backupData, 'MyS3cure!Backup@2042');
 // 1. SDK prompts you to select your synced passkey
 // 2. Decrypts the backup
 // 3. Saves the passkey's metadata on this device if it's missing
@@ -357,11 +357,10 @@ const shares = [aliceShareFile, bobShareFile, charlieShareFile];
 
 // Step 2: Rebuild the backup file from the shares and decrypt it with the password
 const password = prompt('Enter your backup password');
-const { mnemonic, ethereumAddress } = await sdk.recoverFromGuardians(shares, password);
+const { ethereumAddress } = await sdk.recoverFromGuardians(shares, password);
 
-// Step 3: Register a new passkey and import the recovered wallet
+// Step 3: Register a new passkey for the recovered wallet (kept in memory, never returned)
 await sdk.register({ username: 'username' });
-await sdk.importMnemonic(mnemonic);
 ```
 
 **Encryption**:
@@ -551,7 +550,7 @@ const fallback = await w3pk.exportForSync('MyS3cure!Backup@2042');
 await w3pk.importFromSync(syncData);
 
 // Sync with a password backup (no prior session needed)
-const { mnemonic, ethereumAddress } = await w3pk.syncWalletWithPasskey(backupData, 'MyS3cure!Backup@2042');
+const { ethereumAddress } = await w3pk.syncWalletWithPasskey(backupData, 'MyS3cure!Backup@2042');
 ```
 
 ### Social Recovery
@@ -576,7 +575,7 @@ for (const share of guardianShares) {
 
 // Recover - Collect share files, rebuild the backup and decrypt it
 const shares = [aliceShareFile, bobShareFile]; // JSON strings from guardians
-const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares, 'MyS3cure!Backup@2042');
+const { ethereumAddress } = await w3pk.recoverFromGuardians(shares, 'MyS3cure!Backup@2042');
 ```
 
 ---

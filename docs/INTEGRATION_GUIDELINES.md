@@ -931,13 +931,13 @@ async function recoverWallet() {
   if (method === 'encrypted-backup') {
     const file = await getBackupFile()
     const password = await getPasswordFromUser()
-    const { mnemonic, ethereumAddress } = await w3pk.restoreFromBackupFile(file, password)
+    const { ethereumAddress } = await w3pk.restoreFromBackupFile(file, password)
     console.log('✅ Wallet recovered:', ethereumAddress)
 
   } else if (method === 'social-recovery') {
     const shares = await collectGuardianShares()
     const password = await getPasswordFromUser() // if password-protected backup was used
-    const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(shares, password)
+    const { ethereumAddress } = await w3pk.recoverFromGuardians(shares, password)
     console.log('✅ Wallet recovered:', ethereumAddress)
 
   }
