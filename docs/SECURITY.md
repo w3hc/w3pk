@@ -981,10 +981,9 @@ Different threat models require different protections. Password backups may be s
 ### Password Validation Enhancement
 
 **Added:** `isStrongPassword()` utility
-- Minimum 12 characters
-- Requires: uppercase, lowercase, numbers, special characters
-- Checks against common passwords (password, 123456, qwerty, etc.)
-- Score-based validation (≥50/100 required)
+- 15 to 256 characters, counted in Unicode code points after NFC normalization
+- Any characters: spaces, accents and emoji are fine, and no mix of character types is required
+- Not one of the 1,000 most common passwords of that length (whole-password match, any case, ignoring spaces, dots, dashes and underscores), and not a single repeated character
 
 **Location:** `src/utils/validation.ts` (exported from main package)
 
@@ -1545,10 +1544,9 @@ await navigator.credentials.get({
 
 **Password Requirements:**
 Enforced on every new password backup (`createBackupFile()`, `setupSocialRecovery()`, `exportForSync(password)`), which throws `WeakPasswordError` with the missing rules in `feedback`. `isStrongPassword()` checks the same rules:
-- Minimum 12 characters
-- Must include: uppercase, lowercase, numbers, special characters
-- Not in common password list (password, 123456, qwerty, etc.)
-- Strength score ≥ 50/100
+- 15 to 256 characters, counted in Unicode code points after NFC normalization
+- Any characters: spaces, accents and emoji are fine, and no mix of character types is required
+- Not one of the 1,000 most common passwords of that length (whole-password match, any case, ignoring spaces, dots, dashes and underscores), and not a single repeated character
 
 **Why a Memory-Hard KDF for Backups:**
 Backups are designed for offline storage and face different threat models:
@@ -2767,11 +2765,10 @@ AES-256-GCM
 ```
 
 **Password validation:**
-w3pk enforces strong passwords:
-- Minimum 12 characters
-- Uppercase + lowercase + numbers + special chars
-- Not in common password list
-- Strength score ≥50/100 required
+w3pk follows [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) §3.1.1.2 and the [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html):
+- 15 to 256 characters, counted in Unicode code points after NFC normalization
+- Any characters: spaces, accents and emoji are fine, and no mix of character types is required
+- Not one of the 1,000 most common passwords of that length (whole-password match, any case, ignoring spaces, dots, dashes and underscores), and not a single repeated character
 
 **Using `isStrongPassword` utility:**
 ```typescript
@@ -2780,7 +2777,7 @@ import { isStrongPassword } from 'w3pk'
 // Validate before creating backups
 const password = userInput
 if (!isStrongPassword(password)) {
-  throw new Error('Password must be at least 12 characters with uppercase, lowercase, numbers, and special characters')
+  throw new Error('Password must be at least 15 characters and not a common password')
 }
 
 // Now safe to create backup
@@ -2790,11 +2787,10 @@ const blob = await w3pk.createZipBackup(password)
 **Examples:**
 ```typescript
 // Test fixtures - not real passwords!
-isStrongPassword('Test1234!@#$')        // ✅ true
-isStrongPassword('Example1@Correct')    // ✅ true
-isStrongPassword('weak')                // ❌ false - too short
-isStrongPassword('NoNumbersHere!')      // ❌ false - missing numbers
-isStrongPassword('Password123!Foo')     // ❌ false - contains "password"
+isStrongPassword('violet lantern under seven bridges')  // ✅ true
+isStrongPassword('mot de passe très long')        // ✅ true
+isStrongPassword('Test1234!@#$')                  // ❌ false - too short
+isStrongPassword('passwordpassword')              // ❌ false - common password
 ```
 
 **Threat model:**

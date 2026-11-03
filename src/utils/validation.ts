@@ -2,6 +2,8 @@
  * Input validation utilities
  */
 
+import { validatePasswordStrength } from "../backup/encryption";
+
 export function validateEthereumAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
@@ -47,48 +49,8 @@ export function assertMnemonic(mnemonic: string): void {
 }
 
 /**
- * Validates password strength based on security best practices
- * @param password - The password to validate
- * @returns true if password meets strength requirements, false otherwise
- *
- * Requirements:
- * - At least 12 characters long
- * - Contains at least one uppercase letter
- * - Contains at least one lowercase letter
- * - Contains at least one number
- * - Contains at least one special character
- * - Not a common password
+ * The password rules of backups: see validatePasswordStrength()
  */
 export function isStrongPassword(password: string): boolean {
-  // Length check
-  if (password.length < 12) {
-    return false;
-  }
-
-  // Character requirements
-  const hasUppercase = /[A-Z]/.test(password);
-  const hasLowercase = /[a-z]/.test(password);
-  const hasNumber = /[0-9]/.test(password);
-  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
-
-  if (!hasUppercase || !hasLowercase || !hasNumber || !hasSpecialChar) {
-    return false;
-  }
-
-  // Common password check
-  const commonPasswords = [
-    'password',
-    '12345678',
-    'qwerty',
-    'abc123',
-    'password123',
-    'admin',
-    'letmein',
-  ];
-
-  if (commonPasswords.some((common) => password.toLowerCase().includes(common))) {
-    return false;
-  }
-
-  return true;
+  return validatePasswordStrength(password).valid;
 }

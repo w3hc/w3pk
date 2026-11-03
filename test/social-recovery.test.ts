@@ -177,7 +177,7 @@ async function runTests() {
 
     let error: unknown;
     try {
-      await sdk.setupSocialRecovery([{ name: "Alice" }, { name: "Bob" }], 2, "Password1!");
+      await sdk.setupSocialRecovery([{ name: "Alice" }, { name: "Bob" }], 2, "passwordpassword");
     } catch (e) {
       error = e;
     }

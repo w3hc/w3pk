@@ -61,7 +61,7 @@ async function runTests() {
 
   await runTest('Password backup refuses a weak password with the feedback', async () => {
     const { mnemonic } = newWallet();
-    for (const weak of ['', 'a', 'TestPassword123!NotReal', 'correct horse battery staple']) {
+    for (const weak of ['', 'a', 'Sh0rt!Passw0rd', 'PasswordPassword', 'xy'.repeat(128) + 'z']) {
       const error = await capture(() => manager.createPasswordBackup(mnemonic, weak));
       assert(error instanceof WeakPasswordError, `"${weak}": WeakPasswordError`);
       assertEqual((error as WeakPasswordError).code, 'WEAK_PASSWORD', `"${weak}": code`);
@@ -69,9 +69,11 @@ async function runTests() {
     }
     const missing = await capture(() => manager.createPasswordBackup(mnemonic, undefined as unknown as string));
     assert(missing instanceof WeakPasswordError, 'missing password: WeakPasswordError');
+    const notString = await capture(() => manager.createPasswordBackup(mnemonic, 123456789012345678 as unknown as string));
+    assert(notString instanceof WeakPasswordError, 'non-string password: WeakPasswordError');
     const short = (await capture(() => manager.createPasswordBackup(mnemonic, 'a'))) as WeakPasswordError;
-    assert(short.feedback.includes('Password must be at least 12 characters'), 'feedback names the length');
-    assert(short.message.includes('at least 12 characters'), 'message carries the feedback');
+    assert(short.feedback.includes('Password must be at least 15 characters'), 'feedback names the length');
+    assert(short.message.includes('at least 15 characters'), 'message carries the feedback');
     passTest('weak passwords refused');
   });
 
@@ -154,11 +156,14 @@ async function runTests() {
 
   await runTest('Password is NFC-normalized', async () => {
     const { mnemonic } = newWallet();
-    const nfc = 'café-Passw0rd!';
-    const nfd = 'café-Passw0rd!';
+    const nfc = 'un caf\u00e9 bien serr\u00e9';
+    const nfd = 'un cafe\u0301 bien serre\u0301';
     const { backupFile } = await manager.createPasswordBackup(mnemonic, nfc);
     const restored = await manager.restoreWithPassword(backupFile, nfd);
     assertEqual(restored.mnemonic, mnemonic, 'NFD input restores an NFC password');
+    const fromNfd = await manager.createPasswordBackup(mnemonic, nfd);
+    const restoredNfc = await manager.restoreWithPassword(fromNfd.backupFile, nfc);
+    assertEqual(restoredNfc.mnemonic, mnemonic, 'NFC input restores an NFD password');
     passTest('NFC and NFD spellings match');
   });
 
