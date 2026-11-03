@@ -205,8 +205,8 @@ IMPORTANT INSTRUCTIONS:
 -----------------------
 
 1. KEEP THIS SAFE
-   This share is part of a ${share.shareIndex}-of-N social recovery system.
-   Multiple guardians need to combine their shares to recover the wallet.
+   This share is part of a social recovery system: the shares of any
+   ${share.threshold} guardians combined recover the wallet.
 
 2. NEVER SHARE THIS ALONE
    A single share cannot recover the wallet - it's secure to store.
