@@ -1288,6 +1288,12 @@ export class Web3Passkey {
         throw new WalletError("Must be authenticated to sign authorization");
       }
 
+      if ('privateKey' in params) {
+        throw new WalletError(
+          "signAuthorization() takes no privateKey: it signs with the origin-derived key for options.mode and options.tag"
+        );
+      }
+
       const { Wallet, Signature } = await import("ethers");
       const { hashEIP7702AuthorizationMessage, verifyEIP7702Authorization } = await import("../eip7702/utils");
 
