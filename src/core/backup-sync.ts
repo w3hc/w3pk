@@ -82,11 +82,9 @@ export async function restoreFromBackupFile(
   backupData: string | Blob,
   password?: string,
   options: { allowAddressChange?: boolean } = {}
-): Promise<{ mnemonic: string; ethereumAddress: string }> {
+): Promise<{ ethereumAddress: string }> {
   const { BackupFileManager } = await import("../backup/backup-file");
-  const { BackupManager } = await import("../backup/manager");
   const manager = new BackupFileManager();
-  const backupManager = new BackupManager();
   const allowAddressChange = options.allowAddressChange ?? false;
 
   const backupFile = await manager.parseBackupFile(backupData);
@@ -103,16 +101,31 @@ export async function restoreFromBackupFile(
   }
   const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
 
+  return applyRestoredWallet(ctx, mnemonic, ethereumAddress, allowAddressChange);
+}
+
+/**
+ * Put a decrypted wallet in place. Logged out, it stays in memory for
+ * register(). Logged in, it replaces the stored wallet once a passkey
+ * assertion releases the key it's stored under.
+ */
+export async function applyRestoredWallet(
+  ctx: SdkContext,
+  mnemonic: string,
+  ethereumAddress: string,
+  allowAddressChange: boolean
+): Promise<{ ethereumAddress: string }> {
+  const { BackupManager } = await import("../backup/manager");
+  const backupManager = new BackupManager();
+
   const credential = ctx.currentUser
     ? await new CredentialStorage().getCredentialById(ctx.currentUser.credentialId)
     : null;
 
-  // Logged out: the wallet stays in memory, so the user can call
-  // register() or importMnemonic() with it
   if (!ctx.currentUser || !credential) {
     backupManager.markBackupVerified(ethereumAddress);
     ctx.currentWallet = { address: ethereumAddress, mnemonic };
-    return { mnemonic, ethereumAddress };
+    return { ethereumAddress };
   }
 
   const oldAddress = ctx.currentUser.ethereumAddress;
@@ -136,14 +149,14 @@ export async function restoreFromBackupFile(
   backupManager.markBackupVerified(ethereumAddress);
   ctx.currentWallet = { address: ethereumAddress, mnemonic };
 
-  return { mnemonic, ethereumAddress };
+  return { ethereumAddress };
 }
 
 export async function syncWalletWithPasskey(
   ctx: SdkContext,
   backupData: string | Blob,
   password?: string
-): Promise<{ mnemonic: string; ethereumAddress: string }> {
+): Promise<{ ethereumAddress: string }> {
   const { BackupFileManager } = await import("../backup/backup-file");
   const { BackupManager } = await import("../backup/manager");
   const { promptPasskeySelection } = await import("../auth/sync-auth");
@@ -195,7 +208,7 @@ export async function syncWalletWithPasskey(
     true
   );
 
-  return { mnemonic, ethereumAddress };
+  return { ethereumAddress };
 }
 
 /**
@@ -209,7 +222,7 @@ async function restorePrfBackup(
   ctx: SdkContext,
   backupFile: BackupFile,
   allowAddressChange: boolean
-): Promise<{ mnemonic: string; ethereumAddress: string }> {
+): Promise<{ ethereumAddress: string }> {
   const { DeviceSyncManager } = await import("../sync/backup-sync");
   const { BackupManager } = await import("../backup/manager");
 
@@ -236,7 +249,7 @@ async function restorePrfBackup(
 
   new BackupManager().markBackupVerified(ethereumAddress);
 
-  return { mnemonic, ethereumAddress };
+  return { ethereumAddress };
 }
 
 /**
