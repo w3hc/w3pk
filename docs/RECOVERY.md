@@ -894,7 +894,7 @@ Verification proves that your backup actually works, increasing your security sc
 ### Checking Your Score
 
 ```typescript
-const sdk = new W3PK();
+const sdk = createWeb3Passkey();
 const status = await sdk.getBackupStatus();
 
 console.log(status.securityScore);

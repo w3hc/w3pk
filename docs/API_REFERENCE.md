@@ -2795,7 +2795,7 @@ Extend current session by the configured duration.
 ```typescript
 try {
   w3pk.extendSession()
-  console.log('Session extended by', w3pk.sessionDuration, 'hours')
+  console.log('Session remaining:', w3pk.getSessionRemainingTime(), 'seconds')
 } catch (error) {
   console.log('Cannot extend - session expired')
 }
