@@ -479,6 +479,7 @@ async function runTests() {
     assert((weakError as WeakPasswordError).feedback.length > 0, "weak password: carries the feedback");
     assert(authenticator.calls.length === 0, "weak password: no passkey prompt");
 
+    authenticator.calls = [];
     const managerError = await capture(() =>
       new DeviceSyncManager().exportForSync(
         MNEMONIC,
@@ -488,6 +489,7 @@ async function runTests() {
       )
     );
     assert(managerError instanceof WeakPasswordError, "DeviceSyncManager fallback: throws WeakPasswordError");
+    assert(authenticator.calls.length === 0, "DeviceSyncManager fallback: no passkey prompt");
 
     const fallback = await exportFromDeviceA(publicKey, PASSWORD);
     const file: BackupFile = JSON.parse(fallback.json);

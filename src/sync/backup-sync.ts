@@ -99,6 +99,10 @@ export class DeviceSyncManager {
     const { evaluatePrf } = await import('../auth/prf');
     const { PrfUnsupportedError } = await import('../core/errors');
     const manager = new BackupFileManager();
+    if (password) {
+      const { assertStrongPassword } = await import('../backup/encryption');
+      assertStrongPassword(password);
+    }
 
     const prfSalt = generatePrfSalt();
     let output: ArrayBuffer;
