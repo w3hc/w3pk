@@ -24,6 +24,8 @@ export interface PrfEvaluation {
   /** Credential the authenticator used */
   credentialId: string;
   assertion: AuthenticationCredential;
+  /** Base64url challenge the assertion answers */
+  challenge: string;
 }
 
 /**
@@ -43,9 +45,10 @@ export async function evaluatePrf(
   second?: BufferSource
 ): Promise<PrfEvaluation> {
   let assertion: AuthenticationCredential;
+  const challenge = generateChallenge();
   try {
     const options: PublicKeyCredentialRequestOptions = {
-      challenge: base64UrlToArrayBuffer(generateChallenge()),
+      challenge: base64UrlToArrayBuffer(challenge),
       rpId: window.location.hostname,
       // The PRF is only defined for user-verified assertions
       userVerification: "required",
@@ -92,7 +95,7 @@ export async function evaluatePrf(
   }
   const secondOutput = second ? copyPrfResult(results?.second) : undefined;
 
-  return { output, secondOutput, credentialId: assertion.id, assertion };
+  return { output, secondOutput, credentialId: assertion.id, assertion, challenge };
 }
 
 function copyPrfResult(result: BufferSource | undefined): ArrayBuffer | undefined {

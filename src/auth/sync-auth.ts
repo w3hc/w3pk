@@ -20,6 +20,8 @@ export interface PasskeySelectionResult {
   username?: string;
   /** The selection assertion, to verify against a public key from a backup */
   assertion: AuthenticationCredential;
+  /** Base64url challenge the assertion answers */
+  challenge: string;
   /** PRF output at `PRF_INPUT`, the source of the wallet key; absent without PRF */
   prfOutput?: ArrayBuffer;
 }
@@ -103,6 +105,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
         ethereumAddress: undefined,
         username,
         assertion: credential,
+        challenge,
         prfOutput,
       };
     }
@@ -114,6 +117,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
       ethereumAddress: storedCredential.ethereumAddress,
       username: storedCredential.username,
       assertion: credential,
+      challenge,
       prfOutput,
     };
   } catch (error: any) {

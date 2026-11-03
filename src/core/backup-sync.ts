@@ -171,7 +171,7 @@ export async function syncWalletWithPasskey(
       throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
     }
     publicKey = backupFile.credential.publicKey;
-    if (!(await verifyAssertionSignature(passkeyResult.assertion, publicKey))) {
+    if (!(await verifyAssertionSignature(passkeyResult.assertion, publicKey, passkeyResult.challenge))) {
       throw new SyncBootstrapError("PUBLIC_KEY_MISMATCH", credentialId);
     }
   }
