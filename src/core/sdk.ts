@@ -20,7 +20,6 @@
 import { register } from "../auth/register";
 import { login } from "../auth/authenticate";
 import { LocalStorageWalletStorage } from "../wallet/storage";
-import { Mnemonic } from "ethers";
 import {
   createWalletFromMnemonic,
   generateBIP39Wallet,
@@ -778,10 +777,16 @@ export class Web3Passkey {
       }
 
       const phrase = (mnemonic ?? "").trim().split(/\s+/).join(" ");
-      if (!Mnemonic.isValidMnemonic(phrase)) {
-        throw new WalletError("Invalid mnemonic: not a valid BIP39 phrase");
-      }
       const ethereumAddress = createWalletFromMnemonic(phrase).address;
+
+      const authResult = await login(this.config.userVerification);
+      if (authResult.user?.credentialId !== this.currentUser.credentialId) {
+        throw new WalletError("Authenticate with the logged-in passkey to import a mnemonic");
+      }
+      if (!authResult.prfOutput) {
+        throw new PrfUnsupportedError(this.currentUser.credentialId);
+      }
+      const prfOutput = authResult.prfOutput;
 
       const credential = await new CredentialStorage().getCredentialById(
         this.currentUser.credentialId
@@ -789,8 +794,6 @@ export class Web3Passkey {
       if (!credential) {
         throw new WalletError("Credential not found");
       }
-
-      const { output: prfOutput } = await evaluatePrf(PRF_INPUT, credential.id);
 
       await bootstrapCredential(this.ctx, credential, phrase, ethereumAddress, prfOutput, true);
 
@@ -1591,9 +1594,9 @@ export class Web3Passkey {
    * Restore wallet from backup file with existing passkey
    * Use case: User has passkey synced to this device
    *
-   * After restoring a password backup, you can either:
-   * - Use importMnemonic() to associate with current logged-in user
-   * - Use registerWithBackupFile() to create new passkey for this wallet
+   * When logged out, a restored password backup stays in memory: log in
+   * and call importMnemonic(), or call registerWithBackupFile() to create
+   * a new passkey for this wallet.
    *
    * A PRF backup takes one assertion with its passkey, no password, and sets
    * this device up for that passkey (as importFromSync() does).
