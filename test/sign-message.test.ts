@@ -502,10 +502,17 @@ Issued At: 2021-09-30T16:25:24Z`;
 
     await sdk.signMessage(message);
 
+    for (const invalid of ["0x1234", "0x" + "ab".repeat(33), "0x" + "zz".repeat(32)]) {
+      await assert.rejects(
+        sdk.signMessage(invalid, { signingMethod: "rawHash" }),
+        (error: any) => (error.originalError?.message ?? "").includes("requires a 32-byte hash")
+      );
+    }
+
     assert.deepStrictEqual(
       forceAuthCalls,
       [true, true, false],
-      "rawHash should bypass the session cache, EIP-191 should not"
+      "rawHash should bypass the session cache, EIP-191 should not, and an invalid hash should not prompt"
     );
 
     console.log(`  ✓ rawHash bypasses the active session`);
