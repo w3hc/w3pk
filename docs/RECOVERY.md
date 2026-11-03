@@ -287,7 +287,7 @@ const { ethereumAddress } = await sdk.syncWalletWithPasskey(backupData, 'MyS3cur
 // 4. Stores wallet data locally, starts a session and fires onAuthStateChanged(true, user) ✅
 ```
 
-A password backup made while logged in names its passkey (`credential: { id, publicKey }`), which is what lets a fresh device set the passkey up: an assertion doesn't carry the public key, and `login()` and the wallet key both need it. The public key is not a secret, and the fresh device checks it against the assertion's signature.
+A password backup made while logged in names its passkey (`credential: { id, publicKey }`) and carries the username, restored with the passkey on a fresh device (older backups without one fall back to the wallet's address). The credential is what lets a fresh device set the passkey up: an assertion doesn't carry the public key, and `login()` and the wallet key both need it. The public key is not a secret, and the fresh device checks it against the assertion's signature.
 
 **Requirement**: Passkey must be synced to this device (iCloud/Google Password Manager)
 
