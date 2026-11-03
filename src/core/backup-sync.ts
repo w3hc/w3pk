@@ -306,12 +306,18 @@ export async function bootstrapCredential(
     await ctx.walletStorage.delete(ethereumAddress);
   }
 
+  // register() refuses a username already on this device
+  const username =
+    !stored && (await storage.userExists(credential.username))
+      ? ethereumAddress
+      : credential.username;
+
   if (!stored) {
     const now = new Date().toISOString();
     await storage.saveCredential({
       id: credential.id,
       publicKey: credential.publicKey,
-      username: credential.username,
+      username,
       ethereumAddress,
       createdAt: now,
       lastUsed: now,
@@ -322,7 +328,7 @@ export async function bootstrapCredential(
   }
 
   ctx.currentUser = {
-    username: stored?.username ?? credential.username,
+    username: stored?.username ?? username,
     ethereumAddress,
     credentialId: credential.id,
   };
