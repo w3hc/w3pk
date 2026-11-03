@@ -7,7 +7,8 @@ import {
   base64UrlToArrayBuffer,
 } from "../utils/base64";
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
-import { isUserVerified } from "./flags";
+import { isUserPresent, isUserVerified } from "./flags";
+import { verifyClientData, verifyRpIdHash } from "./authenticate";
 
 /**
  * Extract the public key from WebAuthn attestation object
@@ -17,12 +18,8 @@ async function extractPublicKeyFromAttestation(
   attestationObject: ArrayBuffer
 ): Promise<string | null> {
   try {
-    // Decode CBOR attestation object
-    const attestationBuffer = new Uint8Array(attestationObject);
-
-    // Parse CBOR to find authData
-    const authDataOffset = findAuthDataOffset(attestationBuffer);
-    if (authDataOffset === -1) return null;
+    const authData = getAuthData(attestationObject);
+    if (!authData) return null;
 
     // AuthData structure:
     // - 32 bytes: RP ID hash
@@ -30,7 +27,6 @@ async function extractPublicKeyFromAttestation(
     // - 4 bytes: signature counter
     // - variable: attested credential data (if AT flag is set)
 
-    const authData = attestationBuffer.slice(authDataOffset);
     const flags = authData[32];
     const attestedCredentialDataIncluded = (flags & 0x40) !== 0;
 
@@ -63,11 +59,11 @@ async function extractPublicKeyFromAttestation(
   }
 }
 
-function attestationUserVerified(attestationObject: ArrayBuffer): boolean {
+function getAuthData(attestationObject: ArrayBuffer): Uint8Array | null {
   const attestationBuffer = new Uint8Array(attestationObject);
   const authDataOffset = findAuthDataOffset(attestationBuffer);
-  if (authDataOffset === -1) return false;
-  return isUserVerified(attestationBuffer.slice(authDataOffset));
+  if (authDataOffset === -1) return null;
+  return attestationBuffer.slice(authDataOffset);
 }
 
 function findAuthDataOffset(buffer: Uint8Array): number {
@@ -232,8 +228,22 @@ export async function register(
       throw new Error("Failed to create credential");
     }
 
+    const attestationObject = credential.response.attestationObject;
+
+    // WebAuthn L3 §7.1: client data, RP ID hash and user presence
+    if (!verifyClientData(credential.response.clientDataJSON, challenge, "webauthn.create")) {
+      throw new Error("Invalid client data");
+    }
+    const authData = getAuthData(attestationObject);
+    if (!authData || !(await verifyRpIdHash(authData))) {
+      throw new Error("RP ID hash mismatch");
+    }
+    if (!isUserPresent(authData)) {
+      throw new Error("User presence flag not set");
+    }
+
     // Extract public key from attestation object
-    const publicKey = await extractPublicKeyFromAttestation(credential.response.attestationObject);
+    const publicKey = await extractPublicKeyFromAttestation(attestationObject);
 
     if (!publicKey) {
       throw new Error("Public key not returned from authenticator");
@@ -249,9 +259,7 @@ export async function register(
       signCount: 0, // Initialize signature counter
     });
 
-    const attestationObject = credential.response.attestationObject;
-
-    const prfOutput = attestationUserVerified(attestationObject)
+    const prfOutput = isUserVerified(authData)
       ? credential.getClientExtensionResults?.().prf?.results?.first
       : undefined;
 
