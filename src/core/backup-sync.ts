@@ -155,7 +155,8 @@ export async function applyRestoredWallet(
 export async function syncWalletWithPasskey(
   ctx: SdkContext,
   backupData: string | Blob,
-  password?: string
+  password?: string,
+  options: { allowAddressChange?: boolean } = {}
 ): Promise<{ ethereumAddress: string }> {
   const { BackupFileManager } = await import("../backup/backup-file");
   const { BackupManager } = await import("../backup/manager");
@@ -164,10 +165,12 @@ export async function syncWalletWithPasskey(
   const manager = new BackupFileManager();
   const backupManager = new BackupManager();
 
+  const allowAddressChange = options.allowAddressChange ?? false;
+
   const backupFile = await manager.parseBackupFile(backupData);
 
   if (backupFile.encryptionMethod === 'prf') {
-    return restorePrfBackup(ctx, backupFile, true);
+    return restorePrfBackup(ctx, backupFile, allowAddressChange);
   }
 
   const passkeyResult = await promptPasskeySelection();
@@ -205,7 +208,7 @@ export async function syncWalletWithPasskey(
     mnemonic,
     ethereumAddress,
     passkeyResult.prfOutput,
-    true
+    allowAddressChange
   );
 
   return { ethereumAddress };
@@ -434,7 +437,8 @@ export async function exportForSync(
 
 export async function importFromSync(
   ctx: SdkContext,
-  syncData: string | Blob
+  syncData: string | Blob,
+  options: { allowAddressChange?: boolean } = {}
 ): Promise<{ ethereumAddress: string; success: boolean }> {
   const { BackupFileManager } = await import("../backup/backup-file");
 
@@ -449,7 +453,11 @@ export async function importFromSync(
     throw new SyncBootstrapError("CREDENTIAL_MISMATCH", ctx.currentUser.credentialId);
   }
 
-  const { ethereumAddress } = await restorePrfBackup(ctx, backupFile, true);
+  const { ethereumAddress } = await restorePrfBackup(
+    ctx,
+    backupFile,
+    options.allowAddressChange ?? false
+  );
 
   return {
     ethereumAddress,
