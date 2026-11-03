@@ -237,7 +237,7 @@ w3pk supports four signing methods:
 1. **EIP-191 (default)**: Standard Ethereum signed messages
 2. **SIWE (EIP-4361)**: Sign-In with Ethereum (Web3 authentication)
 3. **EIP-712**: Structured typed data (permits, voting, meta-transactions)
-4. **rawHash**: Pre-computed 32-byte hashes (Safe multisig, custom schemes)
+4. **rawHash**: Pre-computed 32-byte hashes (Safe multisig, custom schemes); always prompts for the passkey
 
 ### Default Behavior
 
@@ -615,8 +615,9 @@ EIP-7702 authorizations allow an EOA to **permanently delegate** its code execut
 #### Threat Analysis
 
 **✅ Protected Against:**
-- Silent `signAuthorization()` calls (without `privateKey`, every call needs a fresh passkey assertion; an active session is not enough)
-- Master key delegation (without `privateKey`, signs with the origin-specific derived key, never `m/44'/60'/0'/0/0`)
+- Silent `signAuthorization()` calls (every call needs a fresh passkey assertion; an active session is not enough)
+- Silent `signMessage(hash, { signingMethod: 'rawHash' })` calls on an authorization digest (rawHash always needs a fresh passkey assertion, since a bare hash can't be told apart from `keccak256(0x05 || rlp([chain_id, address, nonce]))`)
+- Master key delegation (signs with the origin-specific derived key, never `m/44'/60'/0'/0/0`)
 - Phishing (authorization bound to specific contract address + chain ID)
 - Replay attacks (nonce-based protection)
 - Cross-chain attacks (chain ID binding)
@@ -631,7 +632,7 @@ EIP-7702 authorizations allow an EOA to **permanently delegate** its code execut
 - Malicious contracts (user must verify contract is trustworthy)
 - Social engineering (user can be tricked into authorizing bad contracts)
 - XSS that tricks the user into approving the passkey prompt for an attacker's contract
-- XSS during an active session signing the authorization digest itself with `signMessage(hash, { signingMethod: 'rawHash' })`, or passing a key it obtained to `signAuthorization({ privateKey })`
+- A script holding a YOLO key: YOLO keys are exposed by design (`deriveWallet('YOLO', tag)` returns the private key), so a delegation for that address can be signed without w3pk
 
 ### Security Best Practices
 
@@ -680,7 +681,7 @@ if (await getUserConfirmation()) {
 
 #### 2. Fresh Authentication and Signing Key
 
-`signAuthorization()` never uses the session cache: without `privateKey`, every call triggers a passkey assertion (user-verified with the default `userVerification: 'required'`), so it cannot be called silently during an active session. A `privateKey` passed by the caller is used as is, with no prompt. It signs with the origin-specific derived key for `mode` and `tag` (default `STANDARD` / `MAIN`, the same address `sendTransaction()` uses), never the master key. `PRIMARY` mode is refused.
+`signAuthorization()` never uses the session cache: every call triggers a passkey assertion (user-verified with the default `userVerification: 'required'`), so it cannot be called silently during an active session. It takes no private key, and `signMessage()` with `signingMethod: 'rawHash'` gets the same fresh assertion. It signs with the origin-specific derived key for `mode` and `tag` (default `STANDARD` / `MAIN`, the same address `sendTransaction()` uses), never the master key. `PRIMARY` mode is refused.
 
 ```typescript
 const authorization = await w3pk.signAuthorization({
