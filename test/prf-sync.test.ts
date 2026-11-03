@@ -140,7 +140,11 @@ async function setupAuthenticator(): Promise<string> {
           new DataView(authenticatorData.buffer).setUint32(33, signCount);
 
           const clientDataJSON = new TextEncoder().encode(
-            JSON.stringify({ type: "webauthn.get", origin: `http://${RP_ID}` })
+            JSON.stringify({
+              type: "webauthn.get",
+              challenge: arrayBufferToBase64Url(publicKey.challenge as ArrayBuffer),
+              origin: `http://${RP_ID}`,
+            })
           );
           const clientDataHash = new Uint8Array(
             await crypto.subtle.digest("SHA-256", clientDataJSON)

@@ -21,6 +21,9 @@ let publicKey: string;
 
 const next = { counter: 0, rpId: RP_ID };
 
+const CHALLENGE = crypto.getRandomValues(new Uint8Array(32)).buffer;
+const CHALLENGE_B64 = arrayBufferToBase64Url(CHALLENGE);
+
 function rawToDer(raw: Uint8Array): Uint8Array {
   const int = (bytes: Uint8Array) => {
     let i = 0;
@@ -34,10 +37,18 @@ function rawToDer(raw: Uint8Array): Uint8Array {
   return Uint8Array.from([0x30, r.length + s.length, ...r, ...s]);
 }
 
+interface ClientDataOverrides {
+  type?: string;
+  challenge?: string;
+  origin?: string;
+  flags?: number;
+}
+
 async function buildAssertion(
   counter: number,
   rpId: string,
-  challenge: ArrayBuffer = crypto.getRandomValues(new Uint8Array(32)).buffer
+  challenge: ArrayBuffer = crypto.getRandomValues(new Uint8Array(32)).buffer,
+  overrides: ClientDataOverrides = {}
 ): Promise<AuthenticationCredential> {
   const authenticatorData = new Uint8Array(37);
   authenticatorData.set(
@@ -46,14 +57,14 @@ async function buildAssertion(
     ),
     0
   );
-  authenticatorData[32] = 0x05;
+  authenticatorData[32] = overrides.flags ?? 0x05;
   new DataView(authenticatorData.buffer).setUint32(33, counter);
 
   const clientDataJSON = new TextEncoder().encode(
     JSON.stringify({
-      type: "webauthn.get",
-      challenge: arrayBufferToBase64Url(challenge),
-      origin: window.location.origin,
+      type: overrides.type ?? "webauthn.get",
+      challenge: overrides.challenge ?? arrayBufferToBase64Url(challenge),
+      origin: overrides.origin ?? window.location.origin,
     })
   );
   const clientDataHash = new Uint8Array(
@@ -194,15 +205,68 @@ setup().then(() =>
     {
       name: "wrong RP ID hash is rejected by verifyAssertionSignature()",
       fn: async () => {
-        const valid = await buildAssertion(1, RP_ID);
+        const valid = await buildAssertion(1, RP_ID, CHALLENGE);
         assert(
-          await verifyAssertionSignature(valid, publicKey),
+          await verifyAssertionSignature(valid, publicKey, CHALLENGE_B64),
           "a correctly signed assertion for this RP ID should verify"
         );
-        const phished = await buildAssertion(1, "evil.example");
+        const phished = await buildAssertion(1, "evil.example", CHALLENGE);
         assert(
-          !(await verifyAssertionSignature(phished, publicKey)),
+          !(await verifyAssertionSignature(phished, publicKey, CHALLENGE_B64)),
           "an assertion for another RP ID should not verify"
+        );
+      },
+    },
+    {
+      name: "clientDataJSON type other than webauthn.get is rejected",
+      fn: async () => {
+        const assertion = await buildAssertion(1, RP_ID, CHALLENGE, { type: "webauthn.create" });
+        assert(
+          !(await verifyAssertionSignature(assertion, publicKey, CHALLENGE_B64)),
+          "a webauthn.create client data should not verify"
+        );
+      },
+    },
+    {
+      name: "challenge other than the one sent is rejected",
+      fn: async () => {
+        const assertion = await buildAssertion(1, RP_ID);
+        assert(
+          !(await verifyAssertionSignature(assertion, publicKey, CHALLENGE_B64)),
+          "an assertion for another challenge should not verify"
+        );
+      },
+    },
+    {
+      name: "origin other than this page's is rejected",
+      fn: async () => {
+        const assertion = await buildAssertion(1, RP_ID, CHALLENGE, {
+          origin: "https://evil.example",
+        });
+        assert(
+          !(await verifyAssertionSignature(assertion, publicKey, CHALLENGE_B64)),
+          "an assertion from another origin should not verify"
+        );
+      },
+    },
+    {
+      name: "missing user-presence flag is rejected",
+      fn: async () => {
+        const assertion = await buildAssertion(1, RP_ID, CHALLENGE, { flags: 0x04 });
+        assert(
+          !(await verifyAssertionSignature(assertion, publicKey, CHALLENGE_B64)),
+          "an assertion without UP should not verify"
+        );
+      },
+    },
+    {
+      name: "malformed clientDataJSON is rejected",
+      fn: async () => {
+        const assertion = await buildAssertion(1, RP_ID, CHALLENGE);
+        assertion.response.clientDataJSON = new TextEncoder().encode("not json").buffer;
+        assert(
+          !(await verifyAssertionSignature(assertion, publicKey, CHALLENGE_B64)),
+          "malformed client data should not verify"
         );
       },
     },
