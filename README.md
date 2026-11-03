@@ -328,6 +328,8 @@ if (result.isForUser) {
 const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
 ```
 
+Stealth keys are shared across origins, and `getKeys()` never returns the spending private key.
+
 ### Post-quantum encryption
 
 ```typescript

@@ -1636,6 +1636,8 @@ const w3pk = createWeb3Passkey({
 
 All stealth address methods are accessed via `w3pk.stealth.*`
 
+Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, and the private key of each stealth payment it finds through `parseAnnouncement()`. The spending private key is never returned.
+
 > **🔒 Security Note:** The ERC-5564 implementation properly reduces all scalars modulo the secp256k1 curve order to prevent unspendable funds. The same reduced scalar is used consistently in both public-key operations (`s_h × G`) and private-key operations (`spendingKey + s_h`) to ensure the derived stealth address always matches the derived private key.
 
 ### `stealth.generateStealthAddress(options?: { requireAuth?: boolean }): Promise<StealthAddressResult>`
@@ -1750,9 +1752,9 @@ myPayments.forEach(payment => {
 
 ---
 
-### `stealth.getKeys(options?: { requireAuth?: boolean }): Promise<StealthKeys>`
+### `stealth.getKeys(options?: { requireAuth?: boolean }): Promise<Omit<StealthKeys, 'spendingKey'>>`
 
-Get ERC-5564 stealth keys (spending and viewing keys).
+Get ERC-5564 stealth keys: the meta-address, both public keys and the viewing key. The spending private key stays inside w3pk; use `parseAnnouncement()` to get the private key of a stealth address.
 
 **Parameters:**
 - `options.requireAuth?: boolean` - Force fresh authentication
@@ -1760,12 +1762,11 @@ Get ERC-5564 stealth keys (spending and viewing keys).
 **Returns:**
 
 ```typescript
-interface StealthKeys {
+{
   stealthMetaAddress: string;   // 66 bytes (spending + viewing pubkeys)
   spendingPubKey: string;       // 33 bytes compressed public key
   viewingPubKey: string;        // 33 bytes compressed public key
   viewingKey: string;           // 32 bytes private viewing key
-  spendingKey: string;          // 32 bytes private spending key
 }
 ```
 
