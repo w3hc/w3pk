@@ -55,7 +55,6 @@ const endpoints = await w3pk.getEndpoints(1)
 - Hybrid post-quantum encryption (HPKE over ML-KEM-1024 + X25519)
 - Chainlist support (2390+ networks)
 - EIP-7702 network detection (329+ networks)
-- External wallet integration (delegate MetaMask/Ledger to w3pk via EIP-7702)
 - EIP-7951 PRIMARY mode (P-256 passkey signing)
 - Build verification (IPFS CID hashing + DAO-maintained onchain registry)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
@@ -288,13 +287,6 @@ const authorization = await w3pk.signAuthorization({
   nonce: 0n
 })
 // Returns: { chainId, address, nonce, yParity, r, s }
-
-// Delegate external wallet (MetaMask, Ledger, etc.) to w3pk account
-const auth = await w3pk.requestExternalWalletDelegation({
-  chainId: 1,
-  nonce: 0n
-})
-// User's external wallet account now controlled by w3pk WebAuthn
 ```
 
 ### EIP-7951 PRIMARY Mode
