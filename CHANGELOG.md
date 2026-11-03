@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The assertion must come from the logged-in passkey; the new wallet is stored before the passkey points at it, and the old one is deleted only after. Importing is an explicit replace, so no `allowAddressChange` is needed; `onAuthStateChanged(true, user)` fires with the new address
   - Without a PRF output, nothing stored changes and `PrfUnsupportedError` is thrown; errors are no longer wrapped in a generic `WalletError`
   - `test/import-mnemonic.test.ts` covers the replacement, the missing PRF, a cancelled prompt, another passkey and invalid phrases
+- **Password backups refuse weak passwords and use stronger Argon2id parameters** ([#227](https://github.com/w3hc/w3pk/issues/227)). `createPasswordBackup()` accepted any non-empty password, and Argon2id ran at OWASP's minimum (19 MiB, 2 passes), so a stolen backup or a set of guardian shares with a weak password could be brute-forced offline
+  - `createBackupFile()`, `setupSocialRecovery()` and the `exportForSync(password)` fallback refuse a password that fails `isStrongPassword()` (12+ characters, upper and lower case, a number, a special character, not common) before any passkey prompt, with the new `WeakPasswordError` (`code: 'WEAK_PASSWORD'`, `feedback: string[]`)
+  - New password backups use RFC 9106's second recommendation (64 MiB, 3 passes, 4 lanes). Each file records its parameters, so older backups still restore
 
 ### Added
 
