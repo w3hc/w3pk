@@ -413,6 +413,42 @@ Issued At: 2021-09-30T16:25:24Z`;
     console.log("✅ PRIMARY mode SIWE rejection works");
   }
 
+  // Test 13: SIWE signing rejects a message for another domain
+  console.log("\nTest 13: SIWE signing checks the message's domain");
+  {
+    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const siweFor = (domain: string) => `${domain} wants you to sign in with your Ethereum account:
+0x1234567890123456789012345678901234567890
+
+URI: https://${domain}
+Version: 1
+Chain ID: 1
+Nonce: 32891756
+Issued At: 2021-09-30T16:25:24Z`;
+
+    const causeOf = async (siweMessage: string) => {
+      try {
+        await sdk.signMessage(siweMessage, { signingMethod: "SIWE" });
+      } catch (error) {
+        return (error as any).originalError?.message ?? (error as Error).message;
+      }
+      return "";
+    };
+
+    const mismatch = await causeOf(siweFor("evil.example"));
+    if (!mismatch.includes("does not match the current origin")) {
+      throw new Error(`Expected SIWE domain rejection, got: "${mismatch}"`);
+    }
+
+    const match = await causeOf(siweFor(new URL(window.location.origin).host));
+    if (!match.includes("Must be authenticated")) {
+      throw new Error(`Expected the matching domain to pass the check, got: "${match}"`);
+    }
+
+    console.log(`  ✓ Rejected: ${mismatch}`);
+    console.log("✅ SIWE domain check works");
+  }
+
   console.log("\n✅ All Sign Message Tests Passed!\n");
   console.log("📋 Summary:");
   console.log("  • STANDARD mode: Can sign messages (address-only derivation)");

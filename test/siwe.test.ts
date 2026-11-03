@@ -150,7 +150,6 @@ async function runTests() {
     const validation = validateSiweMessage(validMessage, {
       domain: "example.com",
       chainId: 1,
-      checkExpiration: true,
     });
 
     assert(validation.valid === true, "Valid message should pass validation");
@@ -175,9 +174,7 @@ async function runTests() {
     };
 
     const expiredMessage = createSiweMessage(expiredParams);
-    const validation = validateSiweMessage(expiredMessage, {
-      checkExpiration: true,
-    });
+    const validation = validateSiweMessage(expiredMessage);
 
     assert(validation.valid === false, "Expired message should fail validation");
     assert(validation.errors.some(e => e.includes("expired")), "Should have expiration error");
@@ -335,6 +332,92 @@ async function runTests() {
 
     console.log("  ✓ Messages match siwe's prepareMessage() output");
     console.log("✅ siwe compatibility works");
+  }
+
+  // Test 12: Not-before in the future fails without being asked
+  console.log("\nTest 12: Validate not-yet-valid message");
+  {
+    const message = createSiweMessage({
+      domain: "example.com",
+      address: "0x1234567890123456789012345678901234567890",
+      uri: "https://example.com",
+      version: "1",
+      chainId: 1,
+      nonce: generateSiweNonce(),
+      issuedAt: new Date().toISOString(),
+      notBefore: new Date(Date.now() + 3600000).toISOString(),
+    });
+
+    const validation = validateSiweMessage(message);
+    assert(validation.valid === false, "Not-yet-valid message should fail validation");
+    assert(validation.errors.some(e => e.includes("not yet valid")), "Should have not-before error");
+
+    console.log("  ✓ Not-before is checked by default");
+    console.log("✅ Not-before check works");
+  }
+
+  // Test 13: Invalid dates fail validation
+  console.log("\nTest 13: Validate invalid dates");
+  {
+    const base: SiweMessage = {
+      domain: "example.com",
+      address: "0x1234567890123456789012345678901234567890",
+      uri: "https://example.com",
+      version: "1",
+      chainId: 1,
+      nonce: generateSiweNonce(),
+      issuedAt: new Date().toISOString(),
+    };
+
+    const cases: Array<[Partial<SiweMessage>, string]> = [
+      [{ expirationTime: "not-a-date" }, "Invalid Expiration Time"],
+      [{ notBefore: "not-a-date" }, "Invalid Not Before"],
+      [{ issuedAt: "not-a-date" }, "Invalid Issued At"],
+    ];
+    for (const [fields, expected] of cases) {
+      const validation = validateSiweMessage(createSiweMessage({ ...base, ...fields }));
+      assert(validation.valid === false, `${expected} should fail validation`);
+      assert(validation.errors.some(e => e.includes(expected)), `Should report ${expected}`);
+    }
+
+    console.log("  ✓ Invalid dates fail validation");
+    console.log("✅ Date validation works");
+  }
+
+  // Test 14: Line breaks in domain, uri and resources are rejected
+  console.log("\nTest 14: Reject line breaks in fields");
+  {
+    const base: SiweMessage = {
+      domain: "example.com",
+      address: "0x1234567890123456789012345678901234567890",
+      uri: "https://example.com",
+      version: "1",
+      chainId: 1,
+      nonce: generateSiweNonce(),
+      issuedAt: new Date().toISOString(),
+    };
+
+    const injected = "\nExpiration Time: 2999-01-01T00:00:00Z";
+    const cases: Array<[Partial<SiweMessage>, string]> = [
+      [{ domain: `example.com${injected}` }, "Domain"],
+      [{ domain: "example.com\r" }, "Domain"],
+      [{ uri: `https://example.com${injected}` }, "URI"],
+      [{ resources: ["https://example.com/tos", `https://example.com${injected}`] }, "Resources"],
+      [{ statement: "Sign in\rnow" }, "Statement"],
+    ];
+    for (const [fields, expected] of cases) {
+      assert.throws(
+        () => createSiweMessage({ ...base, ...fields }),
+        (error: Error) => error.message.startsWith(`${expected} cannot contain line breaks`),
+        `${expected} with a line break should be rejected`
+      );
+
+      const validation = validateSiweMessage({ ...base, ...fields });
+      assert(validation.valid === false, `${expected} with a line break should fail validation`);
+    }
+
+    console.log("  ✓ Line breaks are rejected");
+    console.log("✅ Line break checks work");
   }
 
   console.log("\n✅ All SIWE Utility Tests Passed!\n");
