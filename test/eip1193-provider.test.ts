@@ -42,15 +42,19 @@ const TEST_ORIGIN = "https://example.com";
 
 function stubSdk() {
   const calls: { message: string | Uint8Array; options: any }[] = [];
+  const txs: any[] = [];
   const sdk = {
     getAddress: async () => "0x0000000000000000000000000000000000000001",
-    sendTransaction: async () => ({ hash: "0x" }),
+    sendTransaction: async (tx: any) => {
+      txs.push(tx);
+      return { hash: "0x" };
+    },
     signMessage: async (message: string | Uint8Array, options?: any) => {
       calls.push({ message, options });
       return { signature: "0xsig" };
     },
   } as any;
-  return { sdk, calls };
+  return { sdk, calls, txs };
 }
 
 async function runTests() {
@@ -379,6 +383,27 @@ async function runTests() {
     await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(1)] });
     assertEqual(calls.length, 4, "chainId 1 should be signed after switching to chain 1");
     passTest("Typed data is bound to the active chain");
+  });
+
+  // ------------------------------------------------------------------
+  // 15c. eth_sendTransaction refuses a chainId other than the active chain
+  // ------------------------------------------------------------------
+  await runTest("eth_sendTransaction refuses a chainId other than the active chain", async () => {
+    const { sdk, txs } = stubSdk();
+    const provider = createEIP1193Provider(sdk, { chainId: 10 });
+    const to = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
+
+    await assertThrows(
+      () => provider.request({ method: "eth_sendTransaction", params: [{ to, chainId: "0x1" }] }),
+      "chainId 0x1 should be refused on chain 10"
+    );
+    assertEqual(txs.length, 0, "nothing should be sent");
+
+    await provider.request({ method: "eth_sendTransaction", params: [{ to, chainId: "0xa" }] });
+    await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+    assertEqual(txs.length, 2, "matching or absent chainId should be sent");
+    assert(txs.every((tx) => tx.chainId === 10), "transactions go to the active chain");
+    passTest("Transactions are bound to the active chain");
   });
 
   // ------------------------------------------------------------------

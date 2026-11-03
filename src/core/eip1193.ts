@@ -104,9 +104,12 @@ export function createEIP1193Provider(
           if (!txParam.chainId && !activeChainId) {
             throw new WalletError('eth_sendTransaction: chainId is required');
           }
-          const chainId = txParam.chainId
-            ? parseInt(txParam.chainId, 16)
-            : activeChainId;
+          if (txParam.chainId != null && parseChainId(txParam.chainId) !== BigInt(activeChainId)) {
+            throw new WalletError(
+              `eth_sendTransaction: chainId ${txParam.chainId} does not match the active chain ${activeChainId}`
+            );
+          }
+          const chainId = activeChainId;
 
           const result = await sdk.sendTransaction(
             {

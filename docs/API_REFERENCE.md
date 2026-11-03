@@ -1532,7 +1532,7 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 | `eth_accounts` | `string[]` | Derived address for the configured mode + tag |
 | `eth_requestAccounts` | `string[]` | Same as `eth_accounts` |
 | `eth_chainId` | `string` (hex) | Active chainId; updated by `wallet_switchEthereumChain` |
-| `eth_sendTransaction` | `string` (tx hash) | Delegates to `sendTransaction()`; hex params auto-converted |
+| `eth_sendTransaction` | `string` (tx hash) | Delegates to `sendTransaction()`; hex params auto-converted; refused if `chainId` isn't the active chain |
 | `personal_sign` | `string` (sig) | EIP-191; hex-encoded data signed as raw bytes |
 | `eth_sign` | `string` (sig) | Legacy; same behaviour as `personal_sign` |
 | `eth_signTypedData_v4` | `string` (sig) | EIP-712; `EIP712Domain` stripped automatically; refused if the domain `chainId` isn't the active chain |
