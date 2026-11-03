@@ -79,10 +79,16 @@ async function runTests() {
     const kdf = backupFile.passwordEncryption!;
 
     assertEqual(kdf.kdf, 'argon2id', 'kdf is argon2id');
-    assertEqual(kdf.memoryKiB, 19456, 'memory is 19 MiB');
-    assertEqual(kdf.passes, 2, '2 passes');
-    assertEqual(kdf.parallelism, 1, '1 lane');
-    assertEqual(ARGON2ID_PARAMS.memoryKiB, 19456, 'ARGON2ID_PARAMS.memoryKiB');
+    assertEqual(kdf.memoryKiB, 65536, 'memory is 64 MiB');
+    assertEqual(kdf.passes, 3, '3 passes');
+    assertEqual(kdf.parallelism, 4, '4 lanes');
+    assertEqual(ARGON2ID_PARAMS.memoryKiB, 65536, 'ARGON2ID_PARAMS.memoryKiB');
+    assert(
+      ARGON2ID_PARAMS.memoryKiB <= ARGON2ID_MAX_PARAMS.memoryKiB &&
+        ARGON2ID_PARAMS.passes <= ARGON2ID_MAX_PARAMS.passes &&
+        ARGON2ID_PARAMS.parallelism <= ARGON2ID_MAX_PARAMS.parallelism,
+      'new backups are within the restore bounds'
+    );
     assertEqual(atob(kdf.salt).length, 16, '16-byte salt');
 
     const other = await manager.createPasswordBackup(mnemonic, PASSWORD);
@@ -92,7 +98,26 @@ async function runTests() {
     await deriveKeyFromPasswordArgon2id(PASSWORD, new Uint8Array(16));
     const ms = performance.now() - start;
     assert(ms < 5000, 'derivation finishes in under 5 s');
-    passTest(`Argon2id m=19456 KiB t=2 p=1: ${ms.toFixed(0)} ms`);
+    passTest(`Argon2id m=65536 KiB t=3 p=4: ${ms.toFixed(0)} ms`);
+  });
+
+  await runTest('Backup made with the v0.11.0 parameters still restores', async () => {
+    const { mnemonic, address } = newWallet();
+    const params = { memoryKiB: 19456, passes: 2, parallelism: 1 };
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKeyFromPasswordArgon2id(PASSWORD, salt, params);
+    const json = JSON.stringify({
+      version: 3,
+      createdAt: new Date().toISOString(),
+      encryptedMnemonic: await encryptData(mnemonic, key),
+      encryptionMethod: 'password',
+      passwordEncryption: { kdf: 'argon2id', salt: btoa(String.fromCharCode(...salt)), ...params },
+    });
+
+    const restored = await manager.restoreWithPassword(await manager.parseBackupFile(json), PASSWORD);
+    assertEqual(restored.mnemonic, mnemonic, 'mnemonic restored');
+    assertEqual(restored.ethereumAddress, address, 'address restored');
+    passTest('19 MiB, 2 passes, 1 lane');
   });
 
   await runTest('Restore reads the Argon2id parameters from the file', async () => {
