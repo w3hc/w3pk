@@ -7,9 +7,10 @@
  * - Stealth addresses use SEPARATE derivation paths from the main wallet
  * - Viewing key: m/44'/60'/1'/0/0 (for scanning announcements)
  * - Spending key: m/44'/60'/1'/0/1 (for spending stealth funds)
- * - Applications that opt-in to stealth addresses WILL have access to stealth private keys
- * - This is REQUIRED for ERC-5564 compliance (to parse announcements and spend funds)
+ * - Applications that opt-in to stealth addresses get the viewing key and the
+ *   private key of each stealth address found for the user, never the spending key
  * - Stealth keys are NOT derived from the main wallet's MAIN tag
+ * - Stealth keys are shared across origins: every app gets the same meta-address
  * - This module is OPT-IN only (must explicitly enable in SDK config)
  *
  * @see https://eips.ethereum.org/EIPS/eip-5564
@@ -72,11 +73,13 @@ export interface ParseAnnouncementResult {
  * By using this module, applications will have access to:
  * - Stealth meta-address (safe to share publicly)
  * - Viewing private key (required for scanning announcements)
- * - Spending private key (required for spending stealth funds)
  * - Computed stealth private keys (required for accessing received stealth payments)
  *
- * This is INTENTIONAL and REQUIRED for ERC-5564 stealth address functionality.
- * Stealth keys are derived from separate HD paths (not from main wallet).
+ * The spending private key stays inside w3pk. Stealth keys are derived from
+ * separate HD paths (not from main wallet) and are the same for every origin,
+ * so any app that enables this module sees the same viewing key and
+ * meta-address; scoping them per origin would change the meta-address and
+ * strand funds already sent to it.
  */
 export class StealthAddressModule {
   private getMnemonic: (requireAuth?: boolean) => Promise<string>;
@@ -197,17 +200,21 @@ export class StealthAddressModule {
 
   /**
    * Get ERC-5564 stealth keys
-   * Returns the stealth meta-address and private keys
+   * Returns the stealth meta-address, both public keys and the viewing key;
+   * the spending private key is never returned. The keys are the same for
+   * every origin.
    *
    * @param options - Optional configuration
    * @param options.requireAuth - If true, force fresh authentication even if session is active
    */
-  async getKeys(options?: { requireAuth?: boolean }): Promise<StealthKeys> {
+  async getKeys(options?: { requireAuth?: boolean }): Promise<Omit<StealthKeys, "spendingKey">> {
     try {
       // Get mnemonic from session (or authenticate if needed/forced)
       const mnemonic = await this.getMnemonic(options?.requireAuth);
 
-      return deriveStealthKeys(mnemonic);
+      const { stealthMetaAddress, spendingPubKey, viewingPubKey, viewingKey } =
+        deriveStealthKeys(mnemonic);
+      return { stealthMetaAddress, spendingPubKey, viewingPubKey, viewingKey };
     } catch (error) {
       throw new Web3PasskeyError(
         "Failed to get stealth keys",
