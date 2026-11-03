@@ -43,14 +43,24 @@ export class CredentialStorage {
   }
 
   /**
-   * Retrieves a credential by original ID
+   * Retrieves a credential by original ID. Entries stored encrypted before
+   * v0.11.1 are treated as absent
    */
   async getCredentialById(id: string): Promise<StoredCredential | null> {
     try {
       const hashedId = await hashCredentialId(id);
       const key = `${STORAGE_KEY_PREFIX}${hashedId}`;
       const data = this.storage.getItem(key);
-      return data ? (JSON.parse(data) as StoredCredential) : null;
+      if (!data) return null;
+      const credential = JSON.parse(data) as Partial<StoredCredential>;
+      if (
+        credential.id !== id ||
+        typeof credential.username !== "string" ||
+        typeof credential.ethereumAddress !== "string"
+      ) {
+        return null;
+      }
+      return credential as StoredCredential;
     } catch (error) {
       throw new StorageError("Failed to retrieve credential", error);
     }
