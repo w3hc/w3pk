@@ -1590,15 +1590,21 @@ export class Web3Passkey {
    * A PRF backup (from exportForSync()) takes a single assertion restricted
    * to its passkey and no password.
    *
+   * A backup of another address than the one this device stores for the
+   * passkey needs `allowAddressChange: true`, which the app sets once the
+   * user confirms the replacement.
+   *
    * @param backupData - Backup file (JSON string or Blob) - can be pasted by user
    * @param password - Password to decrypt backup (if password-encrypted)
    * @returns The restored wallet's address (the mnemonic is never returned)
+   * @throws AddressChangeError for a backup of another address than the passkey's, without `allowAddressChange` (nothing stored changes)
    */
   async syncWalletWithPasskey(
     backupData: string | Blob,
-    password?: string
+    password?: string,
+    options?: { allowAddressChange?: boolean }
   ): Promise<{ ethereumAddress: string }> {
-    return syncWalletWithPasskey(this.ctx, backupData, password);
+    return syncWalletWithPasskey(this.ctx, backupData, password, options);
   }
 
   /**
@@ -1653,12 +1659,18 @@ export class Web3Passkey {
    * login. For a password backup (exportForSync()'s fallback), use
    * syncWalletWithPasskey().
    *
+   * A backup of another address than the one this device stores for the
+   * passkey needs `allowAddressChange: true`, which the app sets once the
+   * user confirms the replacement.
+   *
    * @throws SyncBootstrapError ('CREDENTIAL_MISMATCH') when logged in with another passkey
+   * @throws AddressChangeError for a backup of another address than the passkey's, without `allowAddressChange` (nothing stored changes)
    */
   async importFromSync(
-    syncData: string | Blob
+    syncData: string | Blob,
+    options?: { allowAddressChange?: boolean }
   ): Promise<{ ethereumAddress: string; success: boolean }> {
-    return importFromSync(this.ctx, syncData);
+    return importFromSync(this.ctx, syncData, options);
   }
 
   /**

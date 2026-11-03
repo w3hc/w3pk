@@ -2691,14 +2691,17 @@ if (qrCode) {
 
 ---
 
-### `importFromSync(syncData: string | Blob): Promise<{ ethereumAddress: string; success: boolean }>`
+### `importFromSync(syncData: string | Blob, options?: { allowAddressChange?: boolean }): Promise<{ ethereumAddress: string; success: boolean }>`
 
 Import a PRF sync file from `exportForSync()`. No prior `login()` and no password required: one assertion restricted to the file's passkey decrypts it.
 
 **Use case:** User has the passkey on both devices (synced through iCloud Keychain or Google Password Manager) and the wallet on one. Works on a fresh device with no data for the passkey: the SDK checks the file's public key against the assertion's signature, saves the passkey's metadata, stores the wallet, starts a session and fires `onAuthStateChanged(true, user)`.
 
+When this device already stores another wallet for the passkey, the file would replace it: that throws `AddressChangeError` after the assertion and before anything stored changes, unless the app confirms the replacement with the user and passes `{ allowAddressChange: true }`.
+
 **Parameters:**
 - `syncData: string | Blob` - Sync file data
+- `options.allowAddressChange?: boolean` - Allow the file to replace the passkey's stored wallet with another address (default `false`)
 
 **Returns:**
 
@@ -2721,6 +2724,7 @@ console.log('Wallet synced:', result.ethereumAddress)
 **Throws:**
 - `WalletError` if the file isn't a PRF sync file (use `syncWalletWithPasskey()` for other backups, including `exportForSync(password)`'s fallback)
 - `SyncBootstrapError` with `reason: 'CREDENTIAL_MISMATCH'` if logged in with another passkey than the file's
+- `AddressChangeError` (`code: 'ADDRESS_CHANGE_NOT_ALLOWED'`, with `currentAddress` and `newAddress`) if the passkey has another wallet on this device, without `allowAddressChange`
 - `SyncBootstrapError` with `reason: 'PUBLIC_KEY_MISMATCH'` if the file's public key doesn't match the passkey's signature
 - `AuthenticationError` if the passkey isn't on this device or the prompt is cancelled
 - `PrfUnsupportedError` if the authenticator returns no PRF output
@@ -2728,7 +2732,7 @@ console.log('Wallet synced:', result.ethereumAddress)
 
 ---
 
-### `syncWalletWithPasskey(backupData: string | Blob, password?: string): Promise<{ ethereumAddress: string }>`
+### `syncWalletWithPasskey(backupData: string | Blob, password?: string, options?: { allowAddressChange?: boolean }): Promise<{ ethereumAddress: string }>`
 
 Sync wallet to this device using an existing cloud-synced passkey and a backup file. No prior session required.
 
@@ -2736,9 +2740,12 @@ Sync wallet to this device using an existing cloud-synced passkey and a backup f
 
 A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`), and the username comes from the passkey's user handle when the passkey was registered before 0.11.1, else it's the wallet's address. Since 0.11.1 the user handle is 32 random bytes: WebAuthn requires it to hold no personal information. In both cases the backup's public key is checked against the assertion's signature.
 
+When this device already stores another wallet for the selected passkey, the backup would replace it: that throws `AddressChangeError` after the assertion and before anything stored changes, unless the app confirms the replacement with the user and passes `{ allowAddressChange: true }`.
+
 **Parameters:**
 - `backupData: string | Blob` - Backup file content (JSON string or Blob)
 - `password?: string` - Password to decrypt the backup (required for `password` backups)
+- `options.allowAddressChange?: boolean` - Allow the backup to replace the passkey's stored wallet with another address (default `false`)
 
 **Returns:** `{ ethereumAddress: string }` (the mnemonic is never returned)
 
@@ -2749,6 +2756,15 @@ A PRF sync file from `exportForSync()` takes no password: it's restored as `impo
 ```typescript
 const result = await w3pk.syncWalletWithPasskey(backupData, 'MyS3cure!Backup@2042')
 console.log('Synced wallet address:', result.ethereumAddress)
+
+// The passkey already has another wallet on this device
+try {
+  await w3pk.syncWalletWithPasskey(backupData, password)
+} catch (error) {
+  if (error instanceof AddressChangeError && await confirmReplace(error.currentAddress, error.newAddress)) {
+    await w3pk.syncWalletWithPasskey(backupData, password, { allowAddressChange: true })
+  }
+}
 ```
 
 **Throws:**
@@ -2760,6 +2776,7 @@ console.log('Synced wallet address:', result.ethereumAddress)
   - `'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4)
   - `'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected
   - `'PUBLIC_KEY_MISMATCH'`: the backup's public key doesn't match the passkey's signature
+- `AddressChangeError` (`code: 'ADDRESS_CHANGE_NOT_ALLOWED'`, with `currentAddress` and `newAddress`) if the passkey has another wallet on this device, without `allowAddressChange` (the stored wallet is kept)
 - `PrfUnsupportedError` if the passkey has another wallet on this device and the authenticator returns no PRF output to store the new one with (the stored wallet is kept)
 
 **Note:** Differs from `importFromSync()` in that it also accepts password backups.
@@ -3739,7 +3756,7 @@ import {
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
   - `PrfUnsupportedError` - `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
-  - `AddressChangeError` - `restoreFromBackupFile()`: the backup would replace the logged-in wallet with another address and `allowAddressChange` isn't set (`currentAddress`, `newAddress`)
+  - `AddressChangeError` - `restoreFromBackupFile()`, `recoverFromGuardians()`, `syncWalletWithPasskey()`, `importFromSync()`: the backup would replace the logged-in (or the passkey's stored) wallet with another address and `allowAddressChange` isn't set (`currentAddress`, `newAddress`)
   - `RemovedBackupMethodError` - `syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, `recoverFromGuardians()`: the backup uses the removed `passkey` or `hybrid` method (`method`); create a new `password` or `prf` backup
   - `UnsupportedBackupVersionError` - the same methods and `registerWithBackupFile()`: the file isn't BackupFile v3 (`version`; `backupFileJson` when rebuilt from guardian shares); decrypt a v2 password file with the v0.10.6 offline tool
   - `WeakPasswordError` - `createBackupFile()`, `setupSocialRecovery()`, `exportForSync(password)`: the password fails `isStrongPassword()` (`code: 'WEAK_PASSWORD'`, `feedback: string[]` lists what's missing)
