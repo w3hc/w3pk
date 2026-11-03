@@ -61,11 +61,15 @@ const isLatest = currentHash === latestCid;
 
 Host applications should query this registry to verify their W3PK installation.
 
+## What the hash covers
+
+`getCurrentBuildHash()` and `verifyBuildHash()` fetch `index.js`, `index.mjs` and `index.d.ts` of this version **from unpkg** and hash them. They check the package published on npm, not the code actually running in the page: a bundler's output, a modified `node_modules` copy, or a script injected into the page is not hashed, and compromised running code can make these functions return whatever it likes. To check the code you ship, hash your own copy of the files with `getW3pkBuildHash()` (or `scripts/compute-build-hash.mjs`) at build time, outside the browser, and compare it with the registry.
+
 ## API Reference
 
 ### `getCurrentBuildHash()`
 
-Computes the IPFS hash for the currently installed w3pk version from the unpkg CDN.
+Computes the IPFS hash of the files published on unpkg for the installed w3pk version (not of the running code: see [What the hash covers](#what-the-hash-covers)).
 
 ```typescript
 import { getCurrentBuildHash } from 'w3pk';
@@ -97,7 +101,7 @@ const hash = await getW3pkBuildHash('http://localhost:3000/dist');
 
 ### `verifyBuildHash(expectedHash)`
 
-Verifies if the current build matches an expected hash.
+Verifies that the files published on unpkg for the installed version match an expected hash. It does not hash the running code: see [What the hash covers](#what-the-hash-covers).
 
 **Parameters:**
 - `expectedHash` (string): The IPFS hash to verify against
