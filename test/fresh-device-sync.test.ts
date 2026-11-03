@@ -260,7 +260,7 @@ async function runTests() {
     const { sdk, authEvents } = freshSdk();
     const result = await sdk.syncWalletWithPasskey(json, PASSWORD);
     assert(result.ethereumAddress === ADDRESS, "returns the backup's address");
-    assert(result.mnemonic === MNEMONIC, "returns the mnemonic");
+    assert(!("mnemonic" in result), "doesn't return the mnemonic");
     await assertSyncedAndLogsIn(sdk, authEvents, publicKey);
   }
   console.log("");

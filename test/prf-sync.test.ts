@@ -330,7 +330,7 @@ async function runTests() {
       allowedIds(authenticator.calls[0]).join() === CREDENTIAL_ID,
       "assertion is restricted to the backup's passkey"
     );
-    assert(result.mnemonic === MNEMONIC, "returns the mnemonic");
+    assert(!("mnemonic" in result), "doesn't return the mnemonic");
     assert(result.ethereumAddress === ADDRESS, "returns the address");
     await assertSyncedAndLogsIn(sdk, authEvents, publicKey);
   }
@@ -373,7 +373,7 @@ async function runTests() {
     const { sdk, authEvents } = freshSdk();
     const result = await sdk.restoreFromBackupFile(json);
     assert(authenticator.calls.length === 1, "one passkey prompt");
-    assert(result.mnemonic === MNEMONIC && result.ethereumAddress === ADDRESS, "restores the wallet");
+    assert(result.ethereumAddress === ADDRESS && !("mnemonic" in result), "restores the wallet without returning the mnemonic");
     await assertSyncedAndLogsIn(sdk, authEvents, publicKey);
   }
   console.log("");
@@ -466,7 +466,7 @@ async function runTests() {
     localStorage.clear();
     const { sdk } = freshSdk();
     const result = await sdk.syncWalletWithPasskey(JSON.stringify(parsed));
-    assert(result.mnemonic === MNEMONIC, "the parsed backup restores the wallet");
+    assert(result.ethereumAddress === ADDRESS, "the parsed backup restores the wallet");
   }
   console.log("");
 
@@ -508,7 +508,7 @@ async function runTests() {
     localStorage.clear();
     const { sdk: deviceB, authEvents } = freshSdk();
     const result = await deviceB.syncWalletWithPasskey(fallback.json, PASSWORD);
-    assert(result.mnemonic === MNEMONIC, "syncWalletWithPasskey() restores it with the password");
+    assert(result.ethereumAddress === ADDRESS, "syncWalletWithPasskey() restores it with the password");
     await assertSyncedAndLogsIn(deviceB, authEvents, publicKey);
   }
   console.log("");
