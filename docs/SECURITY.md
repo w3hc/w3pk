@@ -1398,7 +1398,7 @@ const stolenEncryptedSeed = "..."   // from w3pk_wallet_<address>
 
 ### 3. Credential Metadata in LocalStorage
 
-Credential metadata is stored in plain text, under `w3pk_credential_<SHA-256 of the credential ID>`, with the credential IDs listed in `w3pk_credential_index`:
+Credential metadata is stored in plain text, under `w3pk_credential_<hash>`, where `<hash>` is the base64url SHA-256 of `"w3pk-cred-id:" + credentialId`, with the credential IDs listed in `w3pk_credential_index`:
 
 ```json
 {
@@ -1414,7 +1414,7 @@ Credential metadata is stored in plain text, under `w3pk_credential_<SHA-256 of 
 
 **Any script on the page can read the username and Ethereum address**, and so can extensions with access to the site and anyone who can read the browser profile. `login()` reads this list before any passkey prompt to build `allowCredentials`, so the metadata can't be encrypted under a key that isn't already on the device. None of it unlocks the wallet: the mnemonic is encrypted under a key from the passkey's PRF output (see above).
 
-From v0.7.4 to v0.11.0, the username and address were encrypted under a key derived from `SHA-256("w3pk-metadata-v1:" + credentialId)`, with the credential ID stored in clear in the index, so the encryption hid nothing. Those entries are treated as absent since v0.11.1; see the CHANGELOG for the upgrade path.
+From v0.7.4 to v0.11.0, the username and address were encrypted under a key derived from `SHA-256("w3pk-metadata-v1:" + credentialId)`, with the credential ID stored in clear in the index, so the encryption hid nothing. Entries stored by v0.11.0 and earlier are treated as absent: after upgrading, `login()` throws `SyncRequiredError` and the wallet is restored from a backup.
 
 ### 4. Storage Architecture
 
@@ -1428,7 +1428,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │ localStorage (Origin-Scoped)                           │ │
-│  │ Key: w3pk_credential_<SHA-256(credentialId)>           │ │
+│  │ Key: w3pk_credential_<hashed credentialId>             │ │
 │  │                                                          │ │
 │  │ {                                                        │ │
 │  │   "id": "credential-abc123",          // PUBLIC        │ │
@@ -2775,7 +2775,7 @@ const w3pk = createWeb3Passkey({
 
 ```typescript
 // localStorage (origin-scoped by browser)
-// Key: w3pk_credential_<credentialId>
+// Key: w3pk_credential_<base64url SHA-256 of "w3pk-cred-id:" + credentialId>
 {
   "id": "credential-abc123",
   "publicKey": "MFkw...",      // Public key only

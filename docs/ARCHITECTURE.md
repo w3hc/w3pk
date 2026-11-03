@@ -388,7 +388,7 @@ User wants to send 1 ETH
 **Purpose**: WebAuthn credential metadata
 
 ```typescript
-// Example: localStorage.getItem('w3pk_credential_<SHA-256 of the credential ID>')
+// Example: localStorage.getItem('w3pk_credential_<hashed credential ID>')
 {
   id: "credential-abc123",
   username: "alice",                    // Plain text, readable by any script on the page
