@@ -20,7 +20,9 @@
 import { register } from "../auth/register";
 import { login } from "../auth/authenticate";
 import { LocalStorageWalletStorage } from "../wallet/storage";
+import { Mnemonic } from "ethers";
 import {
+  createWalletFromMnemonic,
   generateBIP39Wallet,
 } from "../wallet/generate";
 import {
@@ -83,6 +85,7 @@ import {
   setupSocialRecovery,
 } from "./social-recovery";
 import {
+  bootstrapCredential,
   confirmRecoveryPhraseBackup,
   createBackupFile,
   detectSyncCapabilities,
@@ -760,8 +763,13 @@ export class Web3Passkey {
 
 
   /**
-   * Import mnemonic phrase
-   * Requires authentication and overwrites existing wallet
+   * Import a mnemonic phrase as the logged-in passkey's wallet, replacing
+   * the stored one. The imported wallet is stored under its own address
+   * before the credential points at it, and the previous wallet is deleted
+   * only after.
+   *
+   * @throws WalletError if not logged in, or the phrase isn't a valid BIP39 mnemonic
+   * @throws AuthenticationError if the passkey prompt is cancelled, and PrfUnsupportedError if the authenticator returns no PRF output (nothing stored changes)
    */
   async importMnemonic(mnemonic: string): Promise<void> {
     try {
@@ -769,51 +777,27 @@ export class Web3Passkey {
         throw new WalletError("Must be authenticated to import mnemonic");
       }
 
-      if (!mnemonic || mnemonic.trim().split(/\s+/).length < 12) {
-        throw new WalletError("Invalid mnemonic: must be at least 12 words");
+      const phrase = (mnemonic ?? "").trim().split(/\s+/).join(" ");
+      if (!Mnemonic.isValidMnemonic(phrase)) {
+        throw new WalletError("Invalid mnemonic: not a valid BIP39 phrase");
       }
+      const ethereumAddress = createWalletFromMnemonic(phrase).address;
 
-      const authResult = await login(this.config.userVerification);
-      if (!authResult.user) {
-        throw new WalletError("Authentication failed");
-      }
-
-      const credentialId = authResult.user.credentialId;
-
-      // Without PRF, the imported wallet stays in memory only
-      if (authResult.prfOutput) {
-        await this.storeWallet(
-          this.currentUser.ethereumAddress,
-          mnemonic.trim(),
-          credentialId,
-          authResult.prfOutput
-        );
-      } else {
-        await this.walletStorage.delete(this.currentUser.ethereumAddress);
-      }
-
-      this.currentWallet = {
-        address: this.currentUser.ethereumAddress,
-        mnemonic: mnemonic.trim(),
-      };
-
-      const prfSessionKey = authResult.prfOutput
-        ? await derivePrfSessionKey(
-            authResult.prfOutput,
-            this.sessionManager.storesSessionKey
-          )
-        : undefined;
-
-      await this.sessionManager.startSession(
-        mnemonic.trim(),
-        credentialId,
-        this.currentUser.ethereumAddress,
-        prfSessionKey,
-        'STANDARD' // Default security mode for importMnemonic
+      const credential = await new CredentialStorage().getCredentialById(
+        this.currentUser.credentialId
       );
+      if (!credential) {
+        throw new WalletError("Credential not found");
+      }
+
+      const { output: prfOutput } = await evaluatePrf(PRF_INPUT, credential.id);
+
+      await bootstrapCredential(this.ctx, credential, phrase, ethereumAddress, prfOutput, true);
+
+      this.currentWallet = { address: ethereumAddress, mnemonic: phrase };
     } catch (error) {
       this.config.onError?.(error as any);
-      throw new WalletError("Failed to import mnemonic", error);
+      throw error;
     }
   }
 
