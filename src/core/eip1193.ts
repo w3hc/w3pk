@@ -168,6 +168,12 @@ export function createEIP1193Provider(
 
           const { domain, types, message: typedMessage, primaryType } = typedData;
 
+          if (domain?.chainId != null && BigInt(domain.chainId) !== BigInt(activeChainId)) {
+            throw new WalletError(
+              `eth_signTypedData_v4: domain chainId ${domain.chainId} does not match the active chain ${activeChainId}`
+            );
+          }
+
           // Remove EIP-712 meta-type if present (ethers doesn't want it)
           const filteredTypes = { ...types };
           delete filteredTypes['EIP712Domain'];

@@ -8,7 +8,7 @@
  * - wallet_switchEthereumChain + chainChanged event
  * - eth_sendTransaction param mapping (hex → bigint)
  * - personal_sign / eth_sign (plain text, and hex signed as bytes)
- * - eth_signTypedData_v4 (EIP-712 typed data)
+ * - eth_signTypedData_v4 (EIP-712 typed data, bound to the active chain)
  * - Unsupported method throws
  * - Multiple independent provider instances are isolated
  * - on / removeListener event wiring
@@ -342,6 +342,36 @@ async function runTests() {
     assertEqual(hexlify(calls[1].message as Uint8Array), invalidUtf8, "eth_sign bytes");
     assertEqual(calls[2].message, "Hello", "plain text passes through");
     passTest("Hex data is signed as its bytes, not lossy UTF-8 text");
+  });
+
+  // ------------------------------------------------------------------
+  // 15b. eth_signTypedData_v4 refuses a domain on another chain
+  // ------------------------------------------------------------------
+  await runTest("eth_signTypedData_v4 refuses a domain chainId other than the active chain", async () => {
+    const { sdk, calls } = stubSdk();
+    const provider = createEIP1193Provider(sdk, { chainId: 10 });
+    const typedData = (chainId?: unknown) => JSON.stringify({
+      domain: { name: "Test", version: "1", ...(chainId === undefined ? {} : { chainId }) },
+      types: { Mail: [{ name: "contents", type: "string" }] },
+      primaryType: "Mail",
+      message: { contents: "hi" },
+    });
+
+    await assertThrows(
+      () => provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(1)] }),
+      "domain chainId 1 should be refused on chain 10"
+    );
+    assertEqual(calls.length, 0, "nothing should be signed");
+
+    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(10)] });
+    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData("0xa")] });
+    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData()] });
+    assertEqual(calls.length, 3, "matching or absent chainId should be signed");
+
+    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(1)] });
+    assertEqual(calls.length, 4, "chainId 1 should be signed after switching to chain 1");
+    passTest("Typed data is bound to the active chain");
   });
 
   // ------------------------------------------------------------------
