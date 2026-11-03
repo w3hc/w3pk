@@ -207,16 +207,3 @@ export async function hashCredentialId(credentialId: string): Promise<string> {
     throw new CryptoError("Failed to hash credential ID", error);
   }
 }
-
-export async function hashPublicKey(publicKey: string): Promise<string> {
-  try {
-    const hash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(publicKey)
-    );
-    return arrayBufferToBase64Url(hash);
-  } catch (error) {
-    throw new CryptoError("Failed to hash public key", error);
-  }
-}
-
