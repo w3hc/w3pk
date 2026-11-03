@@ -37,7 +37,6 @@ export type {
   EIP7702Authorization,
   SignAuthorizationParams,
 } from "./wallet/types";
-export type { EIP1193Provider } from "./eip7702";
 
 export {
   Web3PasskeyError,
@@ -175,10 +174,6 @@ export type { SyncCapabilities } from "./sync/types";
 export type { DeviceSyncInfo } from "./sync/backup-sync";
 
 export {
-  requestExternalWalletAuthorization,
-  getDefaultProvider,
-  detectWalletProvider,
-  supportsEIP7702Authorization,
   encodeEIP7702AuthorizationMessage,
   hashEIP7702AuthorizationMessage,
   verifyEIP7702Authorization,

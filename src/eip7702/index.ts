@@ -164,15 +164,6 @@ export async function supportsEIP7702(
   }
 }
 
-// Export external wallet utilities
-export {
-  requestExternalWalletAuthorization,
-  getDefaultProvider,
-  detectWalletProvider,
-  supportsEIP7702Authorization,
-} from "./external-wallet";
-export type { EIP1193Provider } from "./external-wallet";
-
 // Export EIP-7702 utility functions
 export {
   encodeEIP7702AuthorizationMessage,
