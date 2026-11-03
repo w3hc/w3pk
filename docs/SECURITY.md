@@ -867,7 +867,7 @@ async function authorizeGovernanceContract() {
 
 **For more details, see:**
 - [EIP-7702 Complete Guide](./EIP_7702.md)
-- [signAuthorization() API Reference](./API_REFERENCE.md#signauthorization)
+- [signAuthorization() API Reference](./API_REFERENCE.md#signauthorizationparams-signauthorizationparams-options--mode-securitymode-tag-string--promiseeip7702authorization)
 - [EIP-7702 Specification](https://eips.ethereum.org/EIPS/eip-7702)
 
 ---
