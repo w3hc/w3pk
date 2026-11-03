@@ -209,6 +209,8 @@ async function runTests() {
     assertEqual(file.walletAddress, ADDRESS, "file holds the address");
     assert(invite.shareDocument.includes(guardianShares[0].shareData), "document holds the share");
     assert(invite.shareDocument.includes("Keep this safe"), "document holds the message");
+    assert(invite.shareDocument.includes("any\n   2 guardians"), "document states the threshold");
+    assert(!invite.shareDocument.includes("-of-N"), "document has no placeholder threshold");
     passTest();
   });
 
