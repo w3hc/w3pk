@@ -1264,8 +1264,7 @@ Resources:
           console.log('Parse announcement result:', result);
           window.showResult('Announcement Parsed', {
             isForUser: result.isForUser,
-            stealthAddress: result.stealthAddress,
-            hasPrivateKey: !!result.stealthPrivateKey
+            stealthAddress: result.stealthAddress
           }, result.isForUser ? 'success' : 'result');
         } catch (error) {
           window.handleError(error);

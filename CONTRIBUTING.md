@@ -310,7 +310,6 @@ const result = await w3pk.stealth?.parseAnnouncement({
 // Returns: {
 //   isForUser: boolean
 //   stealthAddress?: string
-//   stealthPrivateKey?: string
 // }
 ```
 
@@ -319,6 +318,15 @@ Efficiently scan multiple announcements.
 ```typescript
 const myPayments = await w3pk.stealth?.scanAnnouncements([...])
 // Returns: ParseAnnouncementResult[]
+```
+
+#### `stealth.signTransaction(announcement, tx)`
+Sign an EIP-1559 transaction from a stealth address after a fresh passkey assertion; broadcast it with your own RPC.
+```typescript
+const signedTx = await w3pk.stealth?.signTransaction(announcement, {
+  to, value, data, chainId, nonce, gasLimit, maxFeePerGas, maxPriorityFeePerGas
+})
+// Returns: serialized signed transaction
 ```
 
 ### Backup & Recovery Methods

@@ -93,8 +93,19 @@ async function main() {
   } else {
     console.log("✅ Found a stealth payment!");
     console.log(`  Stealth Address: ${parseResult.stealthAddress}`);
-    console.log(`  Private Key: ${parseResult.stealthPrivateKey?.slice(0, 20)}...`);
-    console.log("\n💰 Recipient can now spend the funds using the stealth private key");
+
+    // w3pk signs from the stealth address; the app broadcasts with its own RPC
+    const signedTx = await w3pk.stealth?.signTransaction(announcement, {
+      to: "0x0000000000000000000000000000000000000001",
+      value: 1000000000000000n,
+      chainId: 11155111,
+      nonce: 0,
+      gasLimit: 21000n,
+      maxFeePerGas: 2000000000n,
+      maxPriorityFeePerGas: 1000000000n,
+    });
+    console.log(`  Signed Tx: ${signedTx?.slice(0, 20)}...`);
+    console.log("\n💰 Recipient can now broadcast the signed transaction to spend the funds");
   }
 
   // ============================================================================

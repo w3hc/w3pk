@@ -7,8 +7,9 @@
  * - Stealth addresses use SEPARATE derivation paths from the main wallet
  * - Viewing key: m/44'/60'/1'/0/0 (for scanning announcements)
  * - Spending key: m/44'/60'/1'/0/1 (for spending stealth funds)
- * - Applications that opt-in to stealth addresses get the viewing key and the
- *   private key of each stealth address found for the user, never the spending key
+ * - Applications that opt-in to stealth addresses get the viewing key, never the
+ *   spending key or the private key of a stealth address; w3pk signs from
+ *   stealth addresses itself
  * - Stealth keys are NOT derived from the main wallet's MAIN tag
  * - Stealth keys are shared across origins: every app gets the same meta-address
  * - This module is OPT-IN only (must explicitly enable in SDK config)
@@ -16,6 +17,7 @@
  * @see https://eips.ethereum.org/EIPS/eip-5564
  */
 
+import { ethers } from "ethers";
 import { Web3PasskeyError } from "../core/errors";
 import {
   deriveStealthKeys,
@@ -61,8 +63,20 @@ export interface ParseAnnouncementResult {
   isForUser: boolean;
   /** The stealth address (only if isForUser is true) */
   stealthAddress?: string;
-  /** The stealth private key for spending (only if isForUser is true) */
-  stealthPrivateKey?: string;
+}
+
+/**
+ * EIP-1559 transaction to sign from a stealth address
+ */
+export interface StealthTransaction {
+  to: string;
+  value?: bigint;
+  data?: string;
+  chainId: number;
+  nonce: number;
+  gasLimit: bigint;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
 }
 
 /**
@@ -73,16 +87,18 @@ export interface ParseAnnouncementResult {
  * By using this module, applications will have access to:
  * - Stealth meta-address (safe to share publicly)
  * - Viewing private key (required for scanning announcements)
- * - Computed stealth private keys (required for accessing received stealth payments)
+ * - Transactions signed from stealth addresses with `signTransaction()`, each
+ *   after a fresh passkey assertion
  *
- * `getKeys()` never returns the spending private key, but the viewing key and
- * any stealth private key from `parseAnnouncement()` are enough to compute it
- * (stealth key = spending key + hash of the shared secret), so an app with
- * this module enabled can spend every stealth payment. Stealth keys are derived from
- * separate HD paths (not from main wallet) and are the same for every origin,
- * so any app that enables this module sees the same viewing key and
- * meta-address; scoping them per origin would change the meta-address and
- * strand funds already sent to it.
+ * The spending key and stealth private keys never leave the SDK: a stealth
+ * private key plus the viewing key would give back the spending key (stealth
+ * key = spending key + hash of the shared secret). The viewing key lets an app
+ * see every stealth payment to the user, and an app with this module enabled
+ * can ask w3pk to sign from a stealth address, which prompts for the passkey
+ * every time. Stealth keys are derived from separate HD paths (not from main wallet)
+ * and are the same for every origin, so any app that enables this module sees
+ * the same viewing key and meta-address; scoping them per origin would change
+ * the meta-address and strand funds already sent to it.
  */
 export class StealthAddressModule {
   private getMnemonic: (requireAuth?: boolean) => Promise<string>;
@@ -132,39 +148,22 @@ export class StealthAddressModule {
    * @param announcement - The announcement to parse (from on-chain event)
    * @param options - Optional configuration
    * @param options.requireAuth - If true, force fresh authentication even if session is active
-   * @returns ParseResult indicating if announcement is for user, plus stealth private key if true
+   * @returns ParseResult indicating if announcement is for user, plus the stealth address if true
    */
   async parseAnnouncement(announcement: Announcement, options?: { requireAuth?: boolean }): Promise<ParseAnnouncementResult> {
     try {
       // Get mnemonic from session (or authenticate if needed/forced)
       const mnemonic = await this.getMnemonic(options?.requireAuth);
 
-      const stealthKeys = deriveStealthKeys(mnemonic);
-
-      // Check if this announcement is for us (with view tag optimization)
-      const parseResult = checkStealthAddress(
-        stealthKeys.viewingKey,
-        stealthKeys.spendingPubKey,
-        announcement.ephemeralPublicKey,
-        announcement.stealthAddress,
-        announcement.viewTag
-      );
+      const parseResult = checkAnnouncement(deriveStealthKeys(mnemonic), announcement);
 
       if (!parseResult.isForUser) {
         return { isForUser: false };
       }
 
-      // Compute the stealth private key so user can spend the funds
-      const stealthPrivateKey = computeStealthPrivateKey(
-        stealthKeys.viewingKey,
-        stealthKeys.spendingKey,
-        announcement.ephemeralPublicKey
-      );
-
       return {
         isForUser: true,
         stealthAddress: parseResult.stealthAddress,
-        stealthPrivateKey,
       };
     } catch (error) {
       throw new Web3PasskeyError(
@@ -182,7 +181,7 @@ export class StealthAddressModule {
    * @param announcements - Array of announcements to scan
    * @param options - Optional configuration
    * @param options.requireAuth - If true, force fresh authentication even if session is active
-   * @returns Array of announcements that belong to the user with their private keys
+   * @returns Array of announcements that belong to the user
    */
   async scanAnnouncements(announcements: Announcement[], options?: { requireAuth?: boolean }): Promise<ParseAnnouncementResult[]> {
     const results: ParseAnnouncementResult[] = [];
@@ -195,6 +194,55 @@ export class StealthAddressModule {
     }
 
     return results;
+  }
+
+  /**
+   * Sign an EIP-1559 transaction from a stealth address found for the user
+   * The stealth private key is derived and used inside the SDK, never returned.
+   * Every call runs a fresh passkey assertion, even with an active session.
+   * The transaction is signed, not sent: broadcast it with your own RPC
+   * (`eth_sendRawTransaction`).
+   *
+   * @param announcement - The announcement of the stealth address to sign from
+   * @param tx - Fully populated transaction (nonce, gas limit and fees included)
+   * @returns The serialized signed transaction
+   */
+  async signTransaction(announcement: Announcement, tx: StealthTransaction): Promise<string> {
+    try {
+      const mnemonic = await this.getMnemonic(true);
+
+      const stealthKeys = deriveStealthKeys(mnemonic);
+
+      if (!checkAnnouncement(stealthKeys, announcement).isForUser) {
+        throw new Error("Announcement is not for this user");
+      }
+
+      const wallet = new ethers.Wallet(
+        computeStealthPrivateKey(
+          stealthKeys.viewingKey,
+          stealthKeys.spendingKey,
+          announcement.ephemeralPublicKey
+        )
+      );
+
+      return await wallet.signTransaction({
+        type: 2,
+        to: tx.to,
+        value: tx.value,
+        data: tx.data ?? "0x",
+        chainId: tx.chainId,
+        nonce: tx.nonce,
+        gasLimit: tx.gasLimit,
+        maxFeePerGas: tx.maxFeePerGas,
+        maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+      });
+    } catch (error) {
+      throw new Web3PasskeyError(
+        "Failed to sign stealth transaction",
+        "STEALTH_SIGN_ERROR",
+        error
+      );
+    }
   }
 
   // ========================================
@@ -258,6 +306,16 @@ export class StealthAddressModule {
   get isAvailable(): boolean {
     return true;
   }
+}
+
+function checkAnnouncement(stealthKeys: StealthKeys, announcement: Announcement) {
+  return checkStealthAddress(
+    stealthKeys.viewingKey,
+    stealthKeys.spendingPubKey,
+    announcement.ephemeralPublicKey,
+    announcement.stealthAddress,
+    announcement.viewTag
+  );
 }
 
 // Export types for stealth module

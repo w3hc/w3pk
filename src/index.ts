@@ -32,6 +32,7 @@ export type {
   StealthAddressResult,
   Announcement,
   ParseAnnouncementResult,
+  StealthTransaction,
 } from "./stealth";
 export type {
   EIP7702Authorization,
