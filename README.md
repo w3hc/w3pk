@@ -321,14 +321,25 @@ const result = await w3pk.stealth?.parseAnnouncement({
 })
 
 if (result.isForUser) {
-  console.log('Private key:', result.stealthPrivateKey)
+  console.log('Payment received at:', result.stealthAddress)
 }
 
 // Scan multiple announcements
 const myPayments = await w3pk.stealth?.scanAnnouncements(announcements)
+
+// Sign a transaction from a stealth address (broadcast it with your own RPC)
+const signedTx = await w3pk.stealth?.signTransaction(announcement, {
+  to: '0x...',
+  value: 1000000000000000n,
+  chainId: 11155111,
+  nonce: 0,
+  gasLimit: 21000n,
+  maxFeePerGas: 2000000000n,
+  maxPriorityFeePerGas: 1000000000n
+})
 ```
 
-Stealth keys are shared across origins, and `getKeys()` never returns the spending private key.
+Stealth keys are shared across origins, and w3pk never returns the spending private key or a stealth private key: it signs from stealth addresses itself.
 
 ### Post-quantum encryption
 

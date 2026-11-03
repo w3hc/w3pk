@@ -1639,7 +1639,7 @@ const w3pk = createWeb3Passkey({
 
 All stealth address methods are accessed via `w3pk.stealth.*`
 
-Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, and the private key of each stealth payment it finds through `parseAnnouncement()`. The spending private key is never returned, but it can be computed from the viewing key and any stealth private key, so only enable stealth addresses in apps you trust with stealth funds.
+Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, so it can see every stealth payment to the user. w3pk never returns the spending private key or a stealth private key (a stealth private key plus the viewing key would give back the spending key); it signs from stealth addresses itself with `signTransaction()`. An app with stealth addresses enabled can have w3pk sign from any stealth address found for the user during an active session, so only enable them in apps you trust with stealth funds.
 
 > **🔒 Security Note:** The ERC-5564 implementation properly reduces all scalars modulo the secp256k1 curve order to prevent unspendable funds. The same reduced scalar is used consistently in both public-key operations (`s_h × G`) and private-key operations (`spendingKey + s_h`) to ensure the derived stealth address always matches the derived private key.
 
@@ -1696,7 +1696,6 @@ interface Announcement {
 interface ParseAnnouncementResult {
   isForUser: boolean;            // True if announcement is for you
   stealthAddress?: string;       // Only present if isForUser is true
-  stealthPrivateKey?: string;    // Only present if isForUser is true - use to spend funds
 }
 ```
 
@@ -1714,8 +1713,7 @@ const result = await w3pk.stealth.parseAnnouncement({
 
 if (result.isForUser) {
   console.log('Payment received at:', result.stealthAddress)
-  console.log('Private key to spend:', result.stealthPrivateKey)
-  // Use stealthPrivateKey to create wallet and spend funds
+  // Spend from it with stealth.signTransaction()
 }
 ```
 
@@ -1749,15 +1747,65 @@ console.log(`Found ${myPayments.length} payments`)
 
 myPayments.forEach(payment => {
   console.log('Address:', payment.stealthAddress)
-  console.log('Private key:', payment.stealthPrivateKey)
 })
+```
+
+---
+
+### `stealth.signTransaction(announcement: Announcement, tx: StealthTransaction, options?: { requireAuth?: boolean }): Promise<string>`
+
+Sign an EIP-1559 transaction from a stealth address found for the current user. The stealth private key is derived and used inside w3pk, never returned. The transaction is signed, not sent: broadcast it with your own RPC (`eth_sendRawTransaction`).
+
+**Parameters:**
+- `announcement: Announcement` - The announcement of the stealth address to sign from
+- `tx: StealthTransaction` - Fully populated transaction; nothing is fetched from an RPC
+- `options.requireAuth?: boolean` - Force fresh authentication
+
+```typescript
+interface StealthTransaction {
+  to: string;
+  value?: bigint;
+  data?: string;                 // Default "0x"
+  chainId: number;
+  nonce: number;
+  gasLimit: bigint;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+}
+```
+
+**Returns:** The serialized signed transaction.
+
+**Throws:** `Web3PasskeyError` with code `STEALTH_SIGN_ERROR` if the announcement isn't for the user or signing fails.
+
+**Example:**
+
+```typescript
+import { JsonRpcProvider } from 'ethers'
+
+const provider = new JsonRpcProvider('https://...')
+const [payment] = await w3pk.stealth.scanAnnouncements(announcements)
+const announcement = announcements.find(a => a.stealthAddress === payment.stealthAddress)
+const fees = await provider.getFeeData()
+
+const signedTx = await w3pk.stealth.signTransaction(announcement, {
+  to: '0x...',
+  value: 1000000000000000n,
+  chainId: 11155111,
+  nonce: await provider.getTransactionCount(payment.stealthAddress),
+  gasLimit: 21000n,
+  maxFeePerGas: fees.maxFeePerGas,
+  maxPriorityFeePerGas: fees.maxPriorityFeePerGas
+})
+
+const tx = await provider.broadcastTransaction(signedTx)
 ```
 
 ---
 
 ### `stealth.getKeys(options?: { requireAuth?: boolean }): Promise<Omit<StealthKeys, 'spendingKey'>>`
 
-Get ERC-5564 stealth keys: the meta-address, both public keys and the viewing key. The spending private key stays inside w3pk; use `parseAnnouncement()` to get the private key of a stealth address.
+Get ERC-5564 stealth keys: the meta-address, both public keys and the viewing key. The spending private key stays inside w3pk; use `signTransaction()` to spend from a stealth address.
 
 **Parameters:**
 - `options.requireAuth?: boolean` - Force fresh authentication
@@ -3582,7 +3630,7 @@ const result = checkStealthAddress(
 )
 
 if (result.isForUser) {
-  console.log('Private key:', result.stealthPrivateKey)
+  console.log('Stealth address:', result.stealthAddress)
 }
 ```
 
