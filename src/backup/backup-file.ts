@@ -13,6 +13,7 @@ import type { BackupCredential, BackupFile } from './types';
 import {
   ARGON2ID_MAX_PARAMS,
   ARGON2ID_PARAMS,
+  assertStrongPassword,
   deriveKeyFromPasswordArgon2id,
 } from './encryption';
 import { encryptData, decryptData } from '../wallet/crypto';
@@ -144,15 +145,14 @@ export class BackupFileManager {
    * @param mnemonic - The BIP39 mnemonic to encrypt
    * @param password - User's password for encryption
    * @param credential - The passkey that owns the wallet, so a fresh device can sync with it
+   * @throws WeakPasswordError when validatePasswordStrength() refuses the password
    */
   async createPasswordBackup(
     mnemonic: string,
     password: string,
     credential?: BackupCredential
   ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
-    if (!password || password.length < 1) {
-      throw new Error('Password is required for password-based backup');
-    }
+    assertStrongPassword(password);
 
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const key = await deriveKeyFromPasswordArgon2id(password, salt, ARGON2ID_PARAMS);

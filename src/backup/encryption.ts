@@ -4,6 +4,7 @@
  */
 
 import { argon2idAsync } from "@noble/hashes/argon2.js";
+import { WeakPasswordError } from "../core/errors";
 
 export interface Argon2idParams {
   /** Memory cost in KiB */
@@ -148,6 +149,14 @@ export function validatePasswordStrength(password: string): {
     score: Math.min(score, 100),
     feedback,
   };
+}
+
+/**
+ * @throws WeakPasswordError when validatePasswordStrength() refuses the password
+ */
+export function assertStrongPassword(password: string): void {
+  const { valid, feedback } = validatePasswordStrength(password);
+  if (!valid) throw new WeakPasswordError(feedback);
 }
 
 /**
