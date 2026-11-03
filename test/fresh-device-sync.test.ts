@@ -251,6 +251,7 @@ async function runTests() {
     const backup = JSON.parse(json);
     assert(backup.credential?.id === CREDENTIAL_ID, "backup names the passkey");
     assert(backup.credential?.publicKey === publicKey, "backup has its public key");
+    assert(backup.username === USERNAME, "backup has the username");
   }
   console.log("");
 
@@ -265,15 +266,45 @@ async function runTests() {
   }
   console.log("");
 
-  console.log("Test 2b: a random user handle isn't read as the username");
+  console.log("Test 2b: with a random user handle, the username comes from the backup");
   {
     const json = await passwordBackupFromDeviceA(publicKey);
+    const credential = { id: CREDENTIAL_ID, publicKey };
+    const { json: noUsernameJson } = await manager.createPasswordBackup(
+      MNEMONIC,
+      PASSWORD,
+      credential
+    );
+    const { json: invalidUsernameJson } = await manager.createPasswordBackup(
+      MNEMONIC,
+      PASSWORD,
+      credential,
+      "-not a username-"
+    );
     authenticator.userHandle = crypto.getRandomValues(new Uint8Array(32)).buffer;
     try {
       const { sdk } = freshSdk();
       await sdk.syncWalletWithPasskey(json, PASSWORD);
       assert(sdk.isAuthenticated, "user is logged in");
-      assert(sdk.user?.username === ADDRESS, "username falls back to the address");
+      assert(sdk.user?.username === USERNAME, "username comes from the backup");
+      const stored = await new CredentialStorage(
+        localStorage as unknown as Storage
+      ).getCredentialById(CREDENTIAL_ID);
+      assert(stored?.username === USERNAME, "credential metadata has the backup's username");
+
+      for (const [label, backup] of [
+        ["without a username", noUsernameJson],
+        ["with an invalid username", invalidUsernameJson],
+      ]) {
+        localStorage.clear();
+        const next = freshSdk();
+        await next.sdk.syncWalletWithPasskey(backup, PASSWORD);
+        assert(next.sdk.isAuthenticated, `backup ${label}: user is logged in`);
+        assert(
+          next.sdk.user?.username === ADDRESS,
+          `backup ${label}: username falls back to the address`
+        );
+      }
     } finally {
       authenticator.userHandle = new TextEncoder().encode(USERNAME).buffer;
     }
