@@ -609,7 +609,8 @@ EIP-7702 authorizations allow an EOA to **permanently delegate** its code execut
 #### Threat Analysis
 
 **✅ Protected Against:**
-- Unauthorized signing (requires WebAuthn or active session)
+- Unauthorized signing (every call needs a fresh user-verified passkey assertion; an active session is not enough)
+- Master key delegation (signs with the origin-specific derived key, never `m/44'/60'/0'/0/0`)
 - Phishing (authorization bound to specific contract address + chain ID)
 - Replay attacks (nonce-based protection)
 - Cross-chain attacks (chain ID binding)
@@ -623,7 +624,7 @@ EIP-7702 authorizations allow an EOA to **permanently delegate** its code execut
 **❌ NOT Protected Against:**
 - Malicious contracts (user must verify contract is trustworthy)
 - Social engineering (user can be tricked into authorizing bad contracts)
-- XSS during active session (can call `signAuthorization()` without auth)
+- XSS that tricks the user into approving the passkey prompt for an attacker's contract
 
 ### Security Best Practices
 
@@ -665,34 +666,24 @@ This delegation will persist until you explicitly revoke it.
 if (await getUserConfirmation()) {
   const auth = await w3pk.signAuthorization({
     contractAddress: VERIFIED_GOV_CONTRACT,
-    chainId: 11155111,
-    requireAuth: true  // Force fresh authentication
-  })
+    chainId: 11155111
+  })  // Always prompts for the passkey
 }
 ```
 
-#### 2. Session Management
+#### 2. Fresh Authentication and Signing Key
 
-**For sensitive operations, force fresh authentication:**
+`signAuthorization()` never uses the session cache: without `privateKey`, every call triggers a user-verified passkey assertion, so a script running during an active session cannot delegate the account silently. It signs with the origin-specific derived key for `mode` and `tag` (default `STANDARD` / `MAIN`, the same address `sendTransaction()` uses), never the master key. `PRIMARY` mode is refused.
 
 ```typescript
-// GOOD: Require fresh biometric authentication
 const authorization = await w3pk.signAuthorization({
   contractAddress: govContract,
   chainId: 1
 }, {
-  requireAuth: true  // User must authenticate
-})
-
-// BAD: Uses cached session (vulnerable to XSS)
-const authorization = await w3pk.signAuthorization({
-  contractAddress: govContract,
-  chainId: 1
-  // No requireAuth - uses session if available
+  mode: 'STRICT',
+  tag: 'GOV'
 })
 ```
-
-**Recommendation:** Always use `requireAuth: true` for EIP-7702 authorizations to ensure user consciously approves the permanent delegation.
 
 #### 3. Monitoring and Revocation
 
@@ -720,8 +711,6 @@ const revocation = await w3pk.signAuthorization({
   contractAddress: '0x0000000000000000000000000000000000000000',
   chainId: 11155111,
   nonce: currentNonce + 1n
-}, {
-  requireAuth: true  // Require authentication to revoke
 })
 
 await walletClient.sendTransaction({
@@ -812,13 +801,11 @@ async function authorizeGovernanceContract() {
     const confirmed = await showAuthorizationWarning(contractInfo)
     if (!confirmed) return
 
-    // 4. Sign with fresh authentication
+    // 4. Sign (always prompts for biometric/PIN)
     const authorization = await sdk.signAuthorization({
       contractAddress: GOV_CONTRACT,
       chainId: CHAIN_ID,
       nonce: 0n
-    }, {
-      requireAuth: true  // Force biometric/PIN
     })
 
     // 5. Submit first transaction
@@ -860,7 +847,7 @@ async function authorizeGovernanceContract() {
 | **Scope** | One message | Permanent delegation |
 | **Duration** | Single use | Until revoked |
 | **Risk level** | Low | High |
-| **Requires fresh auth** | Optional | Recommended (always) |
+| **Requires fresh auth** | Optional | Always |
 | **Contract verification** | N/A | Critical |
 | **Can be phished** | Signature only | Entire account |
 | **Revocation needed** | N/A | Yes |
@@ -869,7 +856,7 @@ async function authorizeGovernanceContract() {
 
 1. **EIP-7702 is NOT temporary** - Delegation persists indefinitely
 2. **Always verify contracts** - Malicious contract = compromised account
-3. **Use `requireAuth: true`** - Force fresh authentication for authorizations
+3. **Fresh authentication is enforced** - Every authorization prompts for the passkey
 4. **Monitor authorizations** - Check on-chain code regularly
 5. **Educate users** - Make delegation persistence crystal clear
 6. **Implement revocation** - Provide easy way to revoke when needed
