@@ -5,6 +5,7 @@
 
 import { argon2idAsync } from "@noble/hashes/argon2.js";
 import { WeakPasswordError } from "../core/errors";
+import { COMMON_PASSWORDS } from "./common-passwords";
 
 export interface Argon2idParams {
   /** Memory cost in KiB */
@@ -75,89 +76,41 @@ export async function deriveAddressChecksum(
   return bufferToBase64(hashBuffer).substring(0, 16);
 }
 
+export const PASSWORD_MIN_LENGTH = 15;
+export const PASSWORD_MAX_LENGTH = 256;
+
 /**
- * Validate password strength
+ * Password rules for backups, after NIST SP 800-63B-4 §3.1.1.2 and the OWASP
+ * Authentication Cheat Sheet: the NFC-normalized password must have 15 to 256
+ * Unicode code points and not be a common password (whole match, any case).
+ * No composition rules; spaces and any Unicode character are accepted.
  */
 export function validatePasswordStrength(password: string): {
   valid: boolean;
-  score: number; // 0-100
   feedback: string[];
 } {
+  const normalized = typeof password === "string" ? password.normalize("NFC") : "";
+  const length = [...normalized].length;
   const feedback: string[] = [];
-  let score = 0;
 
-  // Length check
-  if (password.length < 12) {
-    feedback.push("Password must be at least 12 characters");
-  } else {
-    score += 25;
+  if (length < PASSWORD_MIN_LENGTH) {
+    feedback.push(`Password must be at least ${PASSWORD_MIN_LENGTH} characters`);
   }
-
-  // Uppercase check
-  if (!/[A-Z]/.test(password)) {
-    feedback.push("Add at least one uppercase letter");
-  } else {
-    score += 15;
+  if (length > PASSWORD_MAX_LENGTH) {
+    feedback.push(`Password must be at most ${PASSWORD_MAX_LENGTH} characters`);
   }
-
-  // Lowercase check
-  if (!/[a-z]/.test(password)) {
-    feedback.push("Add at least one lowercase letter");
-  } else {
-    score += 15;
-  }
-
-  // Number check
-  if (!/[0-9]/.test(password)) {
-    feedback.push("Add at least one number");
-  } else {
-    score += 15;
-  }
-
-  // Special character check
-  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
-    feedback.push("Add at least one special character");
-  } else {
-    score += 15;
-  }
-
-  // Length bonus
-  if (password.length >= 16) {
-    score += 10;
-  }
-  if (password.length >= 20) {
-    score += 5;
-  }
-
-  // Common password check (simple version)
-  const commonPasswords = [
-    "password",
-    "12345678",
-    "qwerty",
-    "abc123",
-    "password123",
-    "admin",
-    "letmein",
-  ];
-  if (
-    commonPasswords.some((common) => password.toLowerCase().includes(common))
-  ) {
+  if (COMMON_PASSWORDS.has(normalized.toLowerCase())) {
     feedback.push("Password is too common");
-    score = Math.min(score, 25);
   }
 
-  return {
-    valid: score >= 50 && feedback.length === 0,
-    score: Math.min(score, 100),
-    feedback,
-  };
+  return { valid: feedback.length === 0, feedback };
 }
 
 /**
  * @throws WeakPasswordError when validatePasswordStrength() refuses the password
  */
 export function assertStrongPassword(password: string): void {
-  const { valid, feedback } = validatePasswordStrength(typeof password === "string" ? password : "");
+  const { valid, feedback } = validatePasswordStrength(password);
   if (!valid) throw new WeakPasswordError(feedback);
 }
 
