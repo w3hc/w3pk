@@ -1338,7 +1338,7 @@ const { proof, publicSignals } = await w3pk.zkProve(
 **Threat model:** the same as `derivePrfSecret()`'s, plus:
 - **Out of the API, not out of reach.** w3pk runs in the app's JavaScript context: an honest app can't leak the secret or keep a receipt of the randomness, but malicious code on the page can still evaluate the PRF with the same input or read the witness in memory. The [cross-origin wallet](https://github.com/w3hc/w3pk/issues/156) isolates it fully.
 - **Out of reach of `derivePrfSecret()`.** Both secret sources use their own labels, so no tag returns them.
-- **The circuit decides what's public.** Derived values may be public signals (e.g. a nullifier); w3pk only refuses proofs that publish the secret or a random input.
+- **The circuit decides what's public.** Derived values may be public signals (e.g. a nullifier); w3pk only refuses proofs that publish the secret or a random input as is. A circuit can output any other function of the secret (its bits, `secret + 1`, a weak hash), the Semaphore `secretScalar` included, so only prove with circuits you trust: the pins guarantee which circuit runs, not that it keeps the secret private.
 
 ---
 

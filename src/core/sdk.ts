@@ -1771,6 +1771,11 @@ export class Web3Passkey {
    * refused. Everything checkable without the passkey is checked before
    * the prompt.
    *
+   * Only public signals equal to the secret or a random input are refused:
+   * the circuit chooses its public signals and can output any function of
+   * the secret, the Semaphore secret included. Only prove with circuits
+   * you trust; the artifact pins say which circuit runs, not what it reveals.
+   *
    * w3pk runs in the app's JavaScript context: this keeps the secret out
    * of the API, not out of reach of malicious code on the same page.
    *

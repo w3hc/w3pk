@@ -1257,6 +1257,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 - XSS or code injection has full access to w3pk API
 - This is why XSS prevention is critical
 - `zkProve()` and `getSemaphoreIdentity()` keep their secrets out of the API, not out of reach of code on the same page; the [cross-origin wallet](https://github.com/w3hc/w3pk/issues/156) isolates them fully
+- `zkProve()` only refuses public signals equal to the secret or a random input: a circuit can output any function of the secret, the Semaphore secret included, so apps must only prove with circuits they trust
 
 #### Security Boundaries
 
