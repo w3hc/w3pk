@@ -46,7 +46,8 @@ export async function createBackupFile(ctx: SdkContext, password: string): Promi
   const { backupFile } = await manager.createPasswordBackup(
     mnemonic,
     password,
-    await backupCredential(ctx)
+    await backupCredential(ctx),
+    ctx.currentUser.username
   );
 
   await recordBackup(ctx, 'file');
