@@ -27,7 +27,8 @@ export async function setupSocialRecovery(
   const { backupFile } = await new BackupFileManager().createPasswordBackup(
     mnemonic,
     password,
-    await backupCredential(ctx)
+    await backupCredential(ctx),
+    ctx.currentUser.username
   );
 
   // Split backup among guardians

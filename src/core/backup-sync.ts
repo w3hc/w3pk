@@ -4,6 +4,7 @@ import { CredentialStorage } from "../auth/storage";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
 import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
+import { validateUsername } from "../utils/validation";
 import { derivePrfSessionKey, PRF_INPUT } from "../wallet/crypto";
 import { AddressChangeError, AuthenticationError, PrfUnsupportedError, SyncBootstrapError, WalletError } from "./errors";
 import type { SdkContext } from "./context";
@@ -46,7 +47,8 @@ export async function createBackupFile(ctx: SdkContext, password: string): Promi
   const { backupFile } = await manager.createPasswordBackup(
     mnemonic,
     password,
-    await backupCredential(ctx)
+    await backupCredential(ctx),
+    ctx.currentUser.username
   );
 
   await recordBackup(ctx, 'file');
@@ -207,7 +209,7 @@ export async function syncWalletWithPasskey(
     {
       id: credentialId,
       publicKey,
-      username: passkeyResult.username ?? ethereumAddress,
+      username: passkeyResult.username ?? backupUsername(backupFile) ?? ethereumAddress,
     },
     mnemonic,
     ethereumAddress,
@@ -218,6 +220,12 @@ export async function syncWalletWithPasskey(
   backupManager.markBackupVerified(ethereumAddress);
 
   return { ethereumAddress };
+}
+
+/** The backup's username, unless it isn't one register() would accept */
+function backupUsername(backupFile: BackupFile): string | undefined {
+  const { username } = backupFile;
+  return typeof username === 'string' && validateUsername(username) ? username : undefined;
 }
 
 /**
@@ -248,7 +256,7 @@ async function restorePrfBackup(
     {
       id: credential.id,
       publicKey,
-      username: backupFile.username ?? ethereumAddress,
+      username: backupUsername(backupFile) ?? ethereumAddress,
     },
     mnemonic,
     ethereumAddress,
@@ -298,12 +306,18 @@ export async function bootstrapCredential(
     await ctx.walletStorage.delete(ethereumAddress);
   }
 
+  // register() refuses a username already on this device
+  const username =
+    !stored && (await storage.userExists(credential.username))
+      ? ethereumAddress
+      : credential.username;
+
   if (!stored) {
     const now = new Date().toISOString();
     await storage.saveCredential({
       id: credential.id,
       publicKey: credential.publicKey,
-      username: credential.username,
+      username,
       ethereumAddress,
       createdAt: now,
       lastUsed: now,
@@ -314,7 +328,7 @@ export async function bootstrapCredential(
   }
 
   ctx.currentUser = {
-    username: stored?.username ?? credential.username,
+    username: stored?.username ?? username,
     ethereumAddress,
     credentialId: credential.id,
   };

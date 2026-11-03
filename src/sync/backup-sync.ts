@@ -110,7 +110,7 @@ export class DeviceSyncManager {
       ({ output } = await evaluatePrf(await prfSyncInput(prfSalt), credential.id));
     } catch (error) {
       if (error instanceof PrfUnsupportedError && password) {
-        return manager.createPasswordBackup(mnemonic, password, credential);
+        return manager.createPasswordBackup(mnemonic, password, credential, username);
       }
       throw error;
     }

@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `validateSiweMessage()` always checks `Expiration Time` and `Not Before`, and rejects `Issued At`, `Expiration Time` or `Not Before` that isn't an RFC 3339 date (an invalid date used to pass)
   - `createSiweMessage()` and `validateSiweMessage()` reject line breaks (CR or LF) in `domain`, `uri`, `statement` and each `resources` entry
   - `signMessage()` rejects a SIWE message whose `domain` doesn't match the current origin (host and port, and scheme when given), as EIP-4361 requires; the check also runs on `EIP191` messages that contain the SIWE header, `personal_sign` included
-- **The WebAuthn user handle is 32 random bytes** ([#229](https://github.com/w3hc/w3pk/issues/229)). `register()` used the username as `user.id`, which WebAuthn says must hold no personal information. Existing passkeys keep their handle; on a fresh device, `syncWalletWithPasskey()` with a password backup reads the username from a pre-0.11.1 handle, and uses the address for newer passkeys
+- **The WebAuthn user handle is 32 random bytes** ([#229](https://github.com/w3hc/w3pk/issues/229)). `register()` used the username as `user.id`, which WebAuthn says must hold no personal information. Existing passkeys keep their handle; on a fresh device, `syncWalletWithPasskey()` with a password backup reads the username from a pre-0.11.1 handle, and from the backup for newer passkeys ([#250](https://github.com/w3hc/w3pk/issues/250))
 - **DER signatures are parsed with length and bounds checks** ([#229](https://github.com/w3hc/w3pk/issues/229)). The parsers in `extractRS()` and assertion verification read lengths without checking them, so malformed input was read out of range; it now throws. `signMessageWithPasskey()` and the ML-KEM helpers no longer use Node's `Buffer`
 - **Documented limits** ([#229](https://github.com/w3hc/w3pk/issues/229))
   - Origin keys use non-hardened BIP-32 derivation under `m/44'/60'/0'/0`: a leaked child private key plus that node's extended public key reveal every origin's key. w3pk never exposes the extended public key; the path isn't changed because that would move every address
@@ -82,6 +82,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Types used in public signatures exported from `w3pk`** ([#189](https://github.com/w3hc/w3pk/issues/189)): `RegisterResult` (new, returned by `register()`), `SecurityMode`, `SigningMethod`, `SignMessageOptions`, `PersistentSessionConfig`, `ZKProofConfig`, `ZKMethods`, `EIP1193ProviderInterface`, `DeviceSyncInfo`, `GuardianShare`, `Announcement`, `ParseAnnouncementResult`, `Chain`, `ChainlistOptions`, and the ZK proof types (`ProofType`, `ZKProof`, `VerificationResult`, `CircuitArtifacts` and the five `*ProofInput` types)
 - `getSyncStatus()` is documented again in `docs/API_REFERENCE.md`
 - **EIP-1193 event types** ([#210](https://github.com/w3hc/w3pk/issues/210)): `ProviderConnectInfo`, `ProviderRpcError` and `ProviderMessage`, exported from `w3pk`
+- **Password backups carry the username** ([#250](https://github.com/w3hc/w3pk/issues/250)), as PRF backups do. `syncWalletWithPasskey()` restores it on a fresh device, where a passkey registered since 0.11.1 has a random user handle
+  - `BackupFileManager.createPasswordBackup(mnemonic, password, credential?, username?)`; `createBackupFile()`, `setupSocialRecovery()` and the password fallback of `exportForSync()` pass the logged-in username
+  - A backup without a username, with one `register()` wouldn't accept, or with one another passkey already has on the device falls back to the wallet's address; PRF backups follow the same rules
 
 ### Changed
 
