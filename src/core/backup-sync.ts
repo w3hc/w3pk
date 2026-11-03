@@ -96,7 +96,7 @@ export async function restoreFromBackupFile(
     if (ctx.currentUser && ctx.currentUser.credentialId !== backupFile.credential!.id) {
       throw new SyncBootstrapError("CREDENTIAL_MISMATCH", ctx.currentUser.credentialId);
     }
-    return restorePrfBackup(ctx, backupFile);
+    return restorePrfBackup(ctx, backupFile, allowAddressChange);
   }
 
   if (!password) {
@@ -167,7 +167,7 @@ export async function syncWalletWithPasskey(
   const backupFile = await manager.parseBackupFile(backupData);
 
   if (backupFile.encryptionMethod === 'prf') {
-    return restorePrfBackup(ctx, backupFile);
+    return restorePrfBackup(ctx, backupFile, true);
   }
 
   const passkeyResult = await promptPasskeySelection();
@@ -213,11 +213,15 @@ export async function syncWalletWithPasskey(
 /**
  * Restore a PRF backup with its passkey and set this device up for it.
  * The public key is this device's when it has the passkey's metadata,
- * else the backup's, checked against the assertion's signature.
+ * else the backup's, checked against the assertion's signature. The
+ * backup carries no address, so a change of the stored credential's
+ * address is only known, and refused without `allowAddressChange`,
+ * after the assertion and before anything is stored.
  */
 async function restorePrfBackup(
   ctx: SdkContext,
-  backupFile: BackupFile
+  backupFile: BackupFile,
+  allowAddressChange: boolean
 ): Promise<{ mnemonic: string; ethereumAddress: string }> {
   const { DeviceSyncManager } = await import("../sync/backup-sync");
   const { BackupManager } = await import("../backup/manager");
@@ -230,6 +234,15 @@ async function restorePrfBackup(
     backupFile,
     publicKey
   );
+
+  if (
+    stored &&
+    stored.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase() &&
+    !allowAddressChange
+  ) {
+    if (walletPrfOutput) new Uint8Array(walletPrfOutput).fill(0);
+    throw new AddressChangeError(stored.ethereumAddress, ethereumAddress);
+  }
 
   new BackupManager().markBackupVerified(ethereumAddress);
 
@@ -250,8 +263,10 @@ async function restorePrfBackup(
 /**
  * Set this device up for a passkey and a synced wallet: saves the
  * passkey's metadata (or points it at the wallet), stores the wallet
- * under the key derived from `prfOutput` and starts a session. Without
- * `prfOutput`, the wallet and the session stay in memory only.
+ * under the key derived from `prfOutput` and starts a session. The wallet
+ * is stored before the passkey points at it, and the passkey's previous
+ * wallet is deleted only after. Without `prfOutput`, the wallet and the
+ * session stay in memory only and an existing passkey's data is kept.
  */
 async function bootstrapCredential(
   ctx: SdkContext,
@@ -263,6 +278,12 @@ async function bootstrapCredential(
   const storage = new CredentialStorage();
   const stored = await storage.getCredentialById(credential.id);
 
+  if (prfOutput) {
+    await ctx.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
+  } else if (!stored) {
+    await ctx.walletStorage.delete(ethereumAddress);
+  }
+
   if (!stored) {
     const now = new Date().toISOString();
     await storage.saveCredential({
@@ -273,14 +294,9 @@ async function bootstrapCredential(
       createdAt: now,
       lastUsed: now,
     });
-  } else if (stored.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
+  } else if (prfOutput && stored.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
     await storage.updateCredentialAddress(credential.id, ethereumAddress);
-  }
-
-  if (prfOutput) {
-    await ctx.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
-  } else {
-    await ctx.walletStorage.delete(ethereumAddress);
+    await ctx.walletStorage.delete(stored.ethereumAddress);
   }
 
   ctx.currentUser = {
@@ -424,7 +440,7 @@ export async function importFromSync(
     throw new SyncBootstrapError("CREDENTIAL_MISMATCH", ctx.currentUser.credentialId);
   }
 
-  const { ethereumAddress } = await restorePrfBackup(ctx, backupFile);
+  const { ethereumAddress } = await restorePrfBackup(ctx, backupFile, true);
 
   return {
     ethereumAddress,
