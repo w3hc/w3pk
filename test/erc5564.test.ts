@@ -344,15 +344,87 @@ console.log(`✓ Filter rate: ${expectedFilterRate.toFixed(2)}% (expected ~99%)`
   console.log("✓ getKeys() omits the spending private key");
 
   const sent = generateStealthAddress(keys.stealthMetaAddress);
-  const parsed = await module.parseAnnouncement({
+  const announcement = {
     stealthAddress: sent.stealthAddress,
     ephemeralPublicKey: sent.ephemeralPubKey,
     viewTag: sent.viewTag,
-  });
-  if (!parsed.isForUser || new ethers.Wallet(parsed.stealthPrivateKey!).address !== sent.stealthAddress) {
-    throw new Error("parseAnnouncement() should still return the stealth private key");
+  };
+  const stealthKey = computeStealthPrivateKey(
+    keys.viewingKey,
+    keys.spendingKey,
+    sent.ephemeralPubKey
+  ).slice(2);
+
+  console.log("\nTesting StealthAddressModule.parseAnnouncement() and scanAnnouncements()");
+  console.log("-".repeat(50));
+
+  const parsed = await module.parseAnnouncement(announcement);
+  if (!parsed.isForUser || parsed.stealthAddress !== sent.stealthAddress) {
+    throw new Error("parseAnnouncement() should find the stealth address");
   }
-  console.log("✓ parseAnnouncement() still returns the stealth private key");
+  if ("stealthPrivateKey" in parsed || JSON.stringify(parsed).includes(stealthKey)) {
+    throw new Error("parseAnnouncement() must not return the stealth private key");
+  }
+  console.log("✓ parseAnnouncement() returns the stealth address and no private key");
+
+  const scanned = await module.scanAnnouncements([
+    announcement,
+    { ...announcement, stealthAddress: ethers.Wallet.createRandom().address },
+  ]);
+  if (scanned.length !== 1 || scanned[0].stealthAddress !== sent.stealthAddress) {
+    throw new Error("scanAnnouncements() should return only the user's announcement");
+  }
+  if (JSON.stringify(scanned).includes(stealthKey)) {
+    throw new Error("scanAnnouncements() must not return the stealth private key");
+  }
+  console.log("✓ scanAnnouncements() returns no private key");
+
+  console.log("\nTesting StealthAddressModule.signTransaction()");
+  console.log("-".repeat(50));
+
+  const tx = {
+    to: ethers.Wallet.createRandom().address,
+    value: 1000n,
+    chainId: 11155111,
+    nonce: 0,
+    gasLimit: 21000n,
+    maxFeePerGas: 2000000000n,
+    maxPriorityFeePerGas: 1000000000n,
+  };
+  const signed = await module.signTransaction(announcement, tx);
+  const decoded = ethers.Transaction.from(signed);
+  if (
+    decoded.from !== sent.stealthAddress ||
+    decoded.to !== tx.to ||
+    decoded.value !== tx.value ||
+    decoded.chainId !== BigInt(tx.chainId) ||
+    decoded.type !== 2
+  ) {
+    throw new Error("signTransaction() should sign the transaction from the stealth address");
+  }
+  console.log("✓ signTransaction() signs from the stealth address");
+
+  const other = deriveStealthKeys(
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+  );
+  const notMine = generateStealthAddress(other.stealthMetaAddress);
+  let refused = false;
+  try {
+    await module.signTransaction(
+      {
+        stealthAddress: notMine.stealthAddress,
+        ephemeralPublicKey: notMine.ephemeralPubKey,
+        viewTag: notMine.viewTag,
+      },
+      tx
+    );
+  } catch {
+    refused = true;
+  }
+  if (!refused) {
+    throw new Error("signTransaction() should refuse an announcement that isn't for the user");
+  }
+  console.log("✓ signTransaction() refuses an announcement that isn't for the user");
 
   console.log("\n" + "=".repeat(50));
   console.log("✅ All ERC-5564 compliance tests passed!");
