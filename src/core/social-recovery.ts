@@ -1,5 +1,5 @@
 import { WalletError } from "./errors";
-import { backupCredential } from "./backup-sync";
+import { applyRestoredWallet, backupCredential } from "./backup-sync";
 import type { SdkContext } from "./context";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
 
@@ -71,16 +71,16 @@ export async function generateGuardianInvite(
 }
 
 export async function recoverFromGuardians(
+  ctx: SdkContext,
   shares: Array<string | GuardianShare>,
-  password: string
-): Promise<{ mnemonic: string; ethereumAddress: string }> {
+  password: string,
+  options: { allowAddressChange?: boolean } = {}
+): Promise<{ ethereumAddress: string }> {
   const { SocialRecovery } = await import("../recovery/backup-based-recovery");
   const { BackupFileManager } = await import("../backup/backup-file");
-  const { BackupManager } = await import("../backup/manager");
 
   const recovery = new SocialRecovery();
   const backupFileManager = new BackupFileManager();
-  const backupManager = new BackupManager();
 
   // Parse shares if they're strings
   const parsedShares = shares.map(share =>
@@ -106,8 +106,10 @@ export async function recoverFromGuardians(
     throw new WalletError("Recovered wallet doesn't match the guardian shares' address");
   }
 
-  // Mark backup as verified (successful guardian recovery proves the backup works)
-  backupManager.markBackupVerified(result.ethereumAddress);
-
-  return result;
+  return applyRestoredWallet(
+    ctx,
+    result.mnemonic,
+    result.ethereumAddress,
+    options.allowAddressChange ?? false
+  );
 }

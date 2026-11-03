@@ -1528,25 +1528,31 @@ export class Web3Passkey {
 
   /**
    * Recover wallet from guardian shares
-   * Combines M-of-N guardian shares to reconstruct the backup file
+   * Combines M-of-N guardian shares to reconstruct the backup file, then
+   * restores it as restoreFromBackupFile() restores a password backup:
+   * logged out, the wallet stays in memory for register(); logged in, it
+   * replaces the stored wallet after a passkey assertion. The mnemonic is
+   * never returned.
    *
    * @param shares - Array of guardian share objects (JSON strings or parsed objects)
    * @param password - Password of the backup the shares rebuild
+   * @throws AddressChangeError when logged in with another address, without `allowAddressChange`
    */
   async recoverFromGuardians(
     shares: Array<string | GuardianShare>,
-    password: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    return recoverFromGuardians(shares, password);
+    password: string,
+    options?: { allowAddressChange?: boolean }
+  ): Promise<{ ethereumAddress: string }> {
+    return recoverFromGuardians(this.ctx, shares, password, options);
   }
 
   /**
    * Restore wallet from backup file with existing passkey
    * Use case: User has passkey synced to this device
    *
-   * When logged out, a restored password backup stays in memory: log in
-   * and call importMnemonic(), or call registerWithBackupFile() to create
-   * a new passkey for this wallet.
+   * When logged out, a restored password backup stays in memory: call
+   * register() to create a passkey for it, or log in and restore the file
+   * again to store it under that passkey. The mnemonic is never returned.
    *
    * A PRF backup takes one assertion with its passkey, no password, and sets
    * this device up for that passkey (as importFromSync() does).
@@ -1565,7 +1571,7 @@ export class Web3Passkey {
     backupData: string | Blob,
     password?: string,
     options?: { allowAddressChange?: boolean }
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+  ): Promise<{ ethereumAddress: string }> {
     return restoreFromBackupFile(this.ctx, backupData, password, options);
   }
 
@@ -1583,12 +1589,12 @@ export class Web3Passkey {
    *
    * @param backupData - Backup file (JSON string or Blob) - can be pasted by user
    * @param password - Password to decrypt backup (if password-encrypted)
-   * @returns Restored wallet info
+   * @returns The restored wallet's address (the mnemonic is never returned)
    */
   async syncWalletWithPasskey(
     backupData: string | Blob,
     password?: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+  ): Promise<{ ethereumAddress: string }> {
     return syncWalletWithPasskey(this.ctx, backupData, password);
   }
 
