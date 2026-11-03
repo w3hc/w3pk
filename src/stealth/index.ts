@@ -75,7 +75,10 @@ export interface ParseAnnouncementResult {
  * - Viewing private key (required for scanning announcements)
  * - Computed stealth private keys (required for accessing received stealth payments)
  *
- * The spending private key stays inside w3pk. Stealth keys are derived from
+ * `getKeys()` never returns the spending private key, but the viewing key and
+ * any stealth private key from `parseAnnouncement()` are enough to compute it
+ * (stealth key = spending key + hash of the shared secret), so an app with
+ * this module enabled can spend every stealth payment. Stealth keys are derived from
  * separate HD paths (not from main wallet) and are the same for every origin,
  * so any app that enables this module sees the same viewing key and
  * meta-address; scoping them per origin would change the meta-address and

@@ -1637,7 +1637,7 @@ const w3pk = createWeb3Passkey({
 
 All stealth address methods are accessed via `w3pk.stealth.*`
 
-Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, and the private key of each stealth payment it finds through `parseAnnouncement()`. The spending private key is never returned.
+Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, and the private key of each stealth payment it finds through `parseAnnouncement()`. The spending private key is never returned, but it can be computed from the viewing key and any stealth private key, so only enable stealth addresses in apps you trust with stealth funds.
 
 > **🔒 Security Note:** The ERC-5564 implementation properly reduces all scalars modulo the secp256k1 curve order to prevent unspendable funds. The same reduced scalar is used consistently in both public-key operations (`s_h × G`) and private-key operations (`spendingKey + s_h`) to ensure the derived stealth address always matches the derived private key.
 

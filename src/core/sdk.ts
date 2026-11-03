@@ -11,8 +11,9 @@
  * - Each origin receives isolated address derivation
  *
  * STEALTH ADDRESSES (opt-in via config.stealthAddresses):
- * - Applications receive stealth private keys (viewing and spending)
- * - Required for ERC-5564 compliance
+ * - Applications receive the viewing key and the private key of each stealth
+ *   payment found, never the spending key itself
+ * - Stealth keys are shared across origins
  * - Uses separate derivation: m/44'/60'/1'/0/0 and m/44'/60'/1'/0/1
  * - Not derived from origin-specific addresses
  */
