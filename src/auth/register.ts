@@ -185,12 +185,9 @@ export async function register(
 
     const challenge = generateChallenge();
 
-    const encoder = new TextEncoder();
-    const usernameBytes = encoder.encode(username);
-    const userIdBase64url = arrayBufferToBase64Url(usernameBytes);
-
     const challengeBuffer = base64UrlToArrayBuffer(challenge);
-    const userIdBuffer = base64UrlToArrayBuffer(userIdBase64url);
+    // The user handle must not contain personal information (WebAuthn §14.6.1)
+    const userIdBuffer = crypto.getRandomValues(new Uint8Array(32));
 
     const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
       challenge: challengeBuffer,
