@@ -64,12 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `w3pk.zk` is typed `ZKMethods`: the `ZKProofModule` methods, each returning a Promise, and `isAvailable()` returning `Promise<boolean>`
   - `ZKProofConfig` is the one from `w3pk/zk`: `customCircuits` takes `CircuitArtifacts` values
   - The EIP-1193 provider's `request()` takes `params?: unknown[]` and returns `Promise<unknown>`
-  - `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` use `GuardianShare`; `requestExternalWalletDelegation()` takes an `EIP1193Provider`
+  - `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` use `GuardianShare`
   - `MLKEM_DEFAULT_CONTEXT` (`'mlkem-v1'`) replaces the six defaults of the ML-KEM context
 - **No `any` in `Web3Passkey` public signatures** ([#210](https://github.com/w3hc/w3pk/issues/210)), nor in the types they reference
   - The EIP-1193 provider's `on()` and `removeListener()` have one overload per EIP-1193 event: `accountsChanged` (`string[]`), `chainChanged` (`string`), `connect` (`ProviderConnectInfo`), `disconnect` (`ProviderRpcError`) and `message` (`ProviderMessage`). Other event names no longer compile
   - `SignMessageOptions.eip712Domain` is ethers' `TypedDataDomain`
-  - `EIP1193Provider` (taken by `requestExternalWalletDelegation()`) has `request()` with `params?: unknown[]` returning `Promise<unknown>`, and no `on`/`removeListener`, which w3pk never called
   - `CircuitArtifacts.verificationKey` is `unknown` and `VerificationResult.publicSignals` is `Record<string, string>`
 - **`src/core/sdk.ts` split by feature** ([#190](https://github.com/w3hc/w3pk/issues/190)): the public API and behavior are unchanged
   - Backup and sync, social recovery, the EIP-1193 provider and ML-KEM move to `src/core/backup-sync.ts`, `social-recovery.ts`, `eip1193.ts` and `mlkem.ts`; `sdk.ts` keeps auth, session and wallet core
