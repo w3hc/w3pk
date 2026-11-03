@@ -187,7 +187,7 @@ export async function verifyAssertionSignature(
   challenge: string
 ): Promise<boolean> {
   try {
-    if (!verifyClientData(assertion.response.clientDataJSON, challenge)) {
+    if (!verifyClientData(assertion.response.clientDataJSON, challenge, "webauthn.get")) {
       return false;
     }
 
@@ -199,12 +199,7 @@ export async function verifyAssertionSignature(
       return false;
     }
 
-    const rpIdHash = authDataBytes.slice(0, 32);
-    const expectedHash = new Uint8Array(
-      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(window.location.hostname))
-    );
-    if (!arrayEquals(rpIdHash, expectedHash)) {
-      console.error("RP ID hash mismatch - possible phishing attack");
+    if (!(await verifyRpIdHash(authDataBytes))) {
       return false;
     }
 
@@ -250,7 +245,15 @@ export async function verifyAssertionSignature(
   }
 }
 
-function verifyClientData(clientDataJSON: ArrayBuffer, challenge: string): boolean {
+/**
+ * Check `clientDataJSON` per WebAuthn L3 §7.1 and §7.2: its type, the
+ * base64url `challenge` sent in the options, and this page's exact origin.
+ */
+export function verifyClientData(
+  clientDataJSON: ArrayBuffer,
+  challenge: string,
+  type: "webauthn.create" | "webauthn.get"
+): boolean {
   let clientData: { type?: unknown; challenge?: unknown; origin?: unknown };
   try {
     clientData = JSON.parse(new TextDecoder().decode(clientDataJSON));
@@ -258,7 +261,7 @@ function verifyClientData(clientDataJSON: ArrayBuffer, challenge: string): boole
     console.error("Invalid clientDataJSON");
     return false;
   }
-  if (clientData?.type !== "webauthn.get") {
+  if (clientData?.type !== type) {
     console.error("Unexpected clientDataJSON type");
     return false;
   }
@@ -268,6 +271,21 @@ function verifyClientData(clientDataJSON: ArrayBuffer, challenge: string): boole
   }
   if (clientData.origin !== window.location.origin) {
     console.error("Origin mismatch - possible phishing attack");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Check that authenticator data's RP ID hash is the SHA-256 of this page's
+ * hostname, the RP ID w3pk sends.
+ */
+export async function verifyRpIdHash(authData: Uint8Array): Promise<boolean> {
+  const expectedHash = new Uint8Array(
+    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(window.location.hostname))
+  );
+  if (!arrayEquals(authData.slice(0, 32), expectedHash)) {
+    console.error("RP ID hash mismatch - possible phishing attack");
     return false;
   }
   return true;
