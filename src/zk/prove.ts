@@ -248,8 +248,11 @@ async function startProver(bytes: ZkArtifactBytes): Promise<Groth16Prover> {
  * Prove with a secret from `deriveSecret(label)` placed in the witness, plus
  * the derived and random inputs `options` declares. Everything that can fail
  * without the passkey (options, dependencies, artifact pins, the worker)
- * fails before `deriveSecret` prompts. The secret and random values never
- * leave this call: a proof whose public signals contain one is refused.
+ * fails before `deriveSecret` prompts. A proof whose public signals contain
+ * the secret or a random value is refused. That is the only check: the
+ * circuit can make any function of the secret public (a hash, its bits, the
+ * secret plus one), so only the circuit keeps the secret private, and apps
+ * must only prove with circuits they trust.
  *
  * @param deriveSecret - Returns the 32-byte PRF secret for a label
  * @throws ZkArtifactMismatchError when an artifact doesn't match its pin

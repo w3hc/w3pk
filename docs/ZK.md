@@ -473,6 +473,10 @@ Both secrets are scalars in `[1, l)`, so a circuit can use either as a Baby Jubj
 
 snarkjs runs in a module worker, `dist/zk/prove-worker.mjs`, started with `new Worker(new URL('./zk/prove-worker.mjs', import.meta.url), { type: 'module' })`, which webpack 5 and Vite bundle with snarkjs. Proving runs in-thread where `Worker` doesn't exist (Node) or the worker can't start: the CommonJS build (no `import.meta.url`), a bundler that didn't emit the worker, or a CSP that blocks it. In Vite dev, if the worker isn't found, add `w3pk` to `optimizeDeps.exclude`. The worker keeps the UI responsive; it is not a security boundary.
 
+**Circuit trust**
+
+w3pk refuses a proof only when a public signal equals the secret or a random input. The circuit chooses its public signals and can output any function of the secret, such as its bits, `secret + 1` or a weak hash, and with `secret: 'semaphore'` that secret is the Semaphore identity's `secretScalar`. The artifact pins guarantee which circuit runs, not what it reveals, so only prove with circuits you have reviewed or trust.
+
 **Isolation limit**
 
 w3pk runs in the host app's JavaScript context. `zkProve` keeps the secret out of the API, so an honest app can't leak it or keep a receipt of its randomness, but it doesn't put the secret out of reach of malicious code on the same page (XSS, a compromised dependency): that code can evaluate the PRF with the same input after a user-approved prompt, or read the witness in memory. The [cross-origin wallet](https://github.com/w3hc/w3pk/issues/156) is what isolates it fully.

@@ -50,6 +50,7 @@ interface Web3PasskeyConfig {
   stealthAddresses?: StealthAddressConfig;  // Enable stealth addresses
   zkProofs?: ZKProofConfig;          // Enable ZK proofs
   userVerification?: 'required' | 'preferred';  // WebAuthn user verification (default: 'required')
+  rpcUrls?: Record<number, string[]>;  // RPC endpoints per chain ID, used before chainlist
 }
 
 interface PersistentSessionConfig {
@@ -712,7 +713,7 @@ console.log(w3pk.user?.ethereumAddress) // the imported wallet's address
 
 ---
 
-### `signMessage(message: string, options?: SignMessageOptions): Promise<SignatureResult>`
+### `signMessage(message: string | Uint8Array, options?: SignMessageOptions): Promise<SignatureResult>`
 
 Sign a message with the wallet using ECDSA with configurable signing methods.
 
@@ -720,7 +721,7 @@ By default, signs with **STANDARD mode + MAIN tag** (origin-centric address) usi
 You can specify a different mode, tag, and signing method to customize the signature.
 
 **Parameters:**
-- `message: string` - Message to sign (or hash for rawHash method, JSON for EIP712)
+- `message: string | Uint8Array` - Message to sign (or hash for rawHash method, JSON for EIP712); bytes are signed as-is and only with EIP191
 - `options.mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
 - `options.tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
@@ -1086,157 +1087,6 @@ console.log('Delegation revoked!')
 
 ---
 
-### `requestExternalWalletDelegation(params: { chainId?: number; nonce?: bigint }): Promise<EIP7702Authorization>`
-
-Request user to sign an EIP-7702 authorization using an external wallet (MetaMask, Rabby, etc.) to delegate their account to the current w3pk account.
-
-This is a high-level convenience method that handles the entire flow of getting the user's w3pk address and requesting the external wallet to sign the delegation authorization.
-
-**Parameters:**
-
-```typescript
-params: {
-  chainId?: number;   // Chain ID for the authorization (default: 1)
-  nonce?: bigint;     // Nonce for the authorization (default: 0n)
-}
-```
-
-**Returns:** `EIP7702Authorization` - The signed authorization from the external wallet
-
-**Use Cases:**
-- Delegate external wallet accounts (MetaMask, Ledger, etc.) to w3pk for WebAuthn control
-- Delegate ENS-linked addresses to w3pk for identity preservation
-- Upgrade existing wallets to WebAuthn security without losing identity
-- Enable gasless transactions for external wallet accounts
-- Combine external wallet assets with w3pk's WebAuthn security
-
-**Example:**
-
-```typescript
-import { createWeb3Passkey } from 'w3pk'
-
-const w3pk = createWeb3Passkey()
-await w3pk.register({ username: 'alice' })
-
-// User signs with external wallet to delegate their account to w3pk
-const authorization = await w3pk.requestExternalWalletDelegation({
-  chainId: 1,
-  nonce: 0n
-})
-
-console.log('External wallet authorized:', authorization)
-// { chainId: 1n, address: '0x...w3pk...', nonce: 0n, yParity: 1, r: '0x...', s: '0x...' }
-
-// Include in transaction to activate delegation
-import { walletClient } from 'viem'
-const hash = await walletClient.sendTransaction({
-  to: w3pkAddress,
-  value: 0n,
-  authorizationList: [authorization]
-})
-
-// Now external wallet account is controlled by w3pk WebAuthn!
-```
-
-**What happens:**
-1. Gets current w3pk account address (STANDARD + MAIN)
-2. Detects external wallet provider (MetaMask, Rabby, etc.)
-3. Requests user to sign EIP-7702 authorization
-4. Returns authorization ready to include in transaction
-
-**Security:**
-- User must explicitly approve in their external wallet
-- Authorization signature is verified before returning
-- Only delegates to the current w3pk account address
-- Delegation is permanent until revoked
-
-**Related:**
-- See [EIP_7702.md External Wallets](../docs/EIP_7702.md#external-wallets) for complete guide
-- See [examples/ens-to-w3pk-delegation.ts](../examples/ens-to-w3pk-delegation.ts) for integration patterns
-
----
-
-### `requestExternalWalletAuthorization(provider: EIP1193Provider, params: ExternalWalletAuthParams): Promise<EIP7702Authorization>`
-
-Low-level API to request an external wallet to sign an EIP-7702 authorization. Use this when you need full control over the provider and parameters.
-
-**Parameters:**
-
-```typescript
-interface EIP1193Provider {
-  request(args: { method: string; params?: unknown[] }): Promise<unknown>
-}
-
-params: {
-  delegateToAddress: string;  // Address to delegate to (w3pk or any address)
-  chainId?: number;           // Chain ID (default: 1)
-  nonce?: bigint;             // Nonce (default: 0n)
-  accountIndex?: number;      // Account index in wallet (default: 0)
-}
-```
-
-**Returns:** `EIP7702Authorization`
-
-**Example:**
-
-```typescript
-import { requestExternalWalletAuthorization } from 'w3pk'
-
-// Get w3pk account
-const w3pkAddress = await w3pk.getAddress()
-
-// Request MetaMask to sign authorization
-const authorization = await requestExternalWalletAuthorization(
-  window.ethereum,
-  {
-    delegateToAddress: w3pkAddress,
-    chainId: 1,
-    nonce: 0n,
-    accountIndex: 0  // Use first MetaMask account
-  }
-)
-
-console.log('Authorization:', authorization)
-```
-
-**Use Cases:**
-- Custom provider configuration
-- Non-browser environments
-- Multiple account delegation
-- Integration with wallet SDKs
-
-**Wallet Detection Utilities:**
-
-```typescript
-import {
-  getDefaultProvider,
-  detectWalletProvider,
-  supportsEIP7702Authorization
-} from 'w3pk'
-
-// Get default provider
-const provider = getDefaultProvider()
-if (!provider) {
-  console.error('No wallet detected')
-}
-
-// Detect wallet type
-const walletName = detectWalletProvider(provider)
-console.log('Wallet:', walletName) // "MetaMask", "Rabby", etc.
-
-// Check EIP-7702 support
-const supported = await supportsEIP7702Authorization(provider)
-if (!supported) {
-  console.warn('Wallet may not support signing')
-}
-```
-
-**Related:**
-- See [EIP_7702.md External Wallets](../docs/EIP_7702.md#external-wallets) for integration patterns
-- See [examples/ens-to-w3pk-delegation.ts](../examples/ens-to-w3pk-delegation.ts) for usage examples
-
----
-
 ### `signMessageWithPasskey(message: string): Promise<PasskeySignatureResult>`
 
 Sign a message directly with WebAuthn P-256 passkey for PRIMARY mode (EIP-7951 compatible).
@@ -1488,7 +1338,7 @@ const { proof, publicSignals } = await w3pk.zkProve(
 **Threat model:** the same as `derivePrfSecret()`'s, plus:
 - **Out of the API, not out of reach.** w3pk runs in the app's JavaScript context: an honest app can't leak the secret or keep a receipt of the randomness, but malicious code on the page can still evaluate the PRF with the same input or read the witness in memory. The [cross-origin wallet](https://github.com/w3hc/w3pk/issues/156) isolates it fully.
 - **Out of reach of `derivePrfSecret()`.** Both secret sources use their own labels, so no tag returns them.
-- **The circuit decides what's public.** Derived values may be public signals (e.g. a nullifier); w3pk only refuses proofs that publish the secret or a random input.
+- **The circuit decides what's public.** Derived values may be public signals (e.g. a nullifier); w3pk only refuses proofs that publish the secret or a random input as is. A circuit can output any other function of the secret (its bits, `secret + 1`, a weak hash), the Semaphore `secretScalar` included, so only prove with circuits you trust: the pins guarantee which circuit runs, not that it keeps the secret private.
 
 ---
 
@@ -1537,8 +1387,11 @@ interface TransactionResult {
 
 The RPC endpoint is resolved in this order:
 1. `options.rpcUrl` (explicit override)
-2. First endpoint from `getEndpoints(tx.chainId)` (chainlist — 2390+ networks)
-3. Throws `WalletError` if neither is available
+2. First endpoint set for the chain in the `rpcUrls` config
+3. First HTTPS endpoint from chainid.network that needs no API key
+4. Throws `WalletError` if none is available
+
+The chosen RPC also supplies the nonce, gas estimate and fee data, so set `rpcUrls` to endpoints you trust rather than relying on a public list.
 
 **Sender address**
 
@@ -1624,7 +1477,7 @@ const priorityTx = await w3pk.sendTransaction({
 | Condition | Error |
 |-----------|-------|
 | Not authenticated | `WalletError: Must be authenticated to send transaction` |
-| No RPC for chainId | `WalletError: No RPC endpoint found for chainId <N>. Pass options.rpcUrl.` |
+| No RPC for chainId | `WalletError: No RPC endpoint found for chainId <N>. Set rpcUrls in the config or pass options.rpcUrl.` |
 | PRIMARY mode without rpcUrl | `WalletError: PRIMARY mode requires options.rpcUrl pointing to a bundler...` |
 | PRIMARY mode (any) | `WalletError: PRIMARY mode sendTransaction is not yet supported.` |
 | Node rejection | `WalletError: Failed to send transaction` (wraps original error) |
@@ -1679,10 +1532,10 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 | `eth_accounts` | `string[]` | Derived address for the configured mode + tag |
 | `eth_requestAccounts` | `string[]` | Same as `eth_accounts` |
 | `eth_chainId` | `string` (hex) | Active chainId; updated by `wallet_switchEthereumChain` |
-| `eth_sendTransaction` | `string` (tx hash) | Delegates to `sendTransaction()`; hex params auto-converted |
-| `personal_sign` | `string` (sig) | EIP-191; hex-encoded data decoded to UTF-8 automatically |
+| `eth_sendTransaction` | `string` (tx hash) | Delegates to `sendTransaction()`; hex params auto-converted; refused if `chainId` isn't the active chain |
+| `personal_sign` | `string` (sig) | EIP-191; hex-encoded data signed as raw bytes |
 | `eth_sign` | `string` (sig) | Legacy; same behaviour as `personal_sign` |
-| `eth_signTypedData_v4` | `string` (sig) | EIP-712; `EIP712Domain` stripped automatically |
+| `eth_signTypedData_v4` | `string` (sig) | EIP-712; `EIP712Domain` stripped automatically; refused if the domain `chainId` isn't the active chain |
 | `wallet_switchEthereumChain` | `null` | Updates active chainId and emits `chainChanged` |
 
 **Events:**
@@ -1767,7 +1620,8 @@ await provider.request({
 **Notes:**
 - Each call to `getEIP1193Provider()` returns a **new independent instance** with its own `chainId` state and event listeners.
 - `eth_sendTransaction` hex fields (`value`, `gas`, `maxFeePerGas`, `maxPriorityFeePerGas`, `nonce`) are automatically converted to `bigint` / `number` before passing to `sendTransaction()`.
-- `personal_sign` data that arrives as a `0x`-prefixed hex string is decoded to UTF-8, matching MetaMask's behaviour.
+- `personal_sign` data that arrives as a `0x`-prefixed hex string is signed as the bytes it encodes, matching MetaMask's behaviour.
+- `eth_signTypedData_v4` throws a `WalletError` when the typed data's `domain.chainId` differs from the active chain, as [EIP-712](https://eips.ethereum.org/EIPS/eip-712) requires; switch chains first with `wallet_switchEthereumChain`.
 
 ---
 
@@ -1782,6 +1636,8 @@ const w3pk = createWeb3Passkey({
 ```
 
 All stealth address methods are accessed via `w3pk.stealth.*`
+
+Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, and the private key of each stealth payment it finds through `parseAnnouncement()`. The spending private key is never returned, but it can be computed from the viewing key and any stealth private key, so only enable stealth addresses in apps you trust with stealth funds.
 
 > **🔒 Security Note:** The ERC-5564 implementation properly reduces all scalars modulo the secp256k1 curve order to prevent unspendable funds. The same reduced scalar is used consistently in both public-key operations (`s_h × G`) and private-key operations (`spendingKey + s_h`) to ensure the derived stealth address always matches the derived private key.
 
@@ -1897,9 +1753,9 @@ myPayments.forEach(payment => {
 
 ---
 
-### `stealth.getKeys(options?: { requireAuth?: boolean }): Promise<StealthKeys>`
+### `stealth.getKeys(options?: { requireAuth?: boolean }): Promise<Omit<StealthKeys, 'spendingKey'>>`
 
-Get ERC-5564 stealth keys (spending and viewing keys).
+Get ERC-5564 stealth keys: the meta-address, both public keys and the viewing key. The spending private key stays inside w3pk; use `parseAnnouncement()` to get the private key of a stealth address.
 
 **Parameters:**
 - `options.requireAuth?: boolean` - Force fresh authentication
@@ -1907,12 +1763,11 @@ Get ERC-5564 stealth keys (spending and viewing keys).
 **Returns:**
 
 ```typescript
-interface StealthKeys {
+{
   stealthMetaAddress: string;   // 66 bytes (spending + viewing pubkeys)
   spendingPubKey: string;       // 33 bytes compressed public key
   viewingPubKey: string;        // 33 bytes compressed public key
   viewingKey: string;           // 32 bytes private viewing key
-  spendingKey: string;          // 32 bytes private spending key
 }
 ```
 
@@ -3071,12 +2926,12 @@ const wallet = await w3pk.deriveWallet('STRICT')
 
 ### `getEndpoints(chainId: number): Promise<string[]>`
 
-Get public RPC endpoints for a chain from chainlist.
+Get RPC endpoints for a chain: those set in the `rpcUrls` config first, then the public chainlist ones.
 
 **Parameters:**
 - `chainId: number` - Chain ID (e.g., 1 for Ethereum, 137 for Polygon)
 
-**Returns:** Array of RPC URLs (filtered for quality)
+**Returns:** Array of RPC URLs; chainlist endpoints are HTTPS only, without API key placeholders
 
 **Example:**
 
@@ -3802,7 +3657,7 @@ const supported = await w3pk.supportsEIP7702(1)
 
 #### `getEndpoints(chainId: number, options?: ChainlistOptions): Promise<string[]>`
 
-Get RPC endpoints (standalone).
+Get the HTTPS RPC endpoints of a chain from chainid.network, without those that need an API key (standalone).
 
 ```typescript
 const endpoints = await getEndpoints(1)
@@ -3977,7 +3832,6 @@ import type {
 import type {
   Chain,
   ChainlistOptions,
-  EIP1193Provider,
   EIP7702Authorization
 } from 'w3pk'
 ```

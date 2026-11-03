@@ -48,7 +48,6 @@ pnpm test:chainlist       # RPC endpoint tests
 pnpm test:eip7702         # EIP-7702 support tests
 pnpm test:eip7951         # P-256 (EIP-7951) signature tests
 pnpm test:erc5564         # Stealth address tests
-pnpm test:external-wallet # External wallet tests
 pnpm test:sign-message    # Message signing tests
 pnpm test:siwe            # Sign-In with Ethereum tests
 

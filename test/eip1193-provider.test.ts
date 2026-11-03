@@ -7,8 +7,8 @@
  * - eth_chainId (default and custom)
  * - wallet_switchEthereumChain + chainChanged event
  * - eth_sendTransaction param mapping (hex → bigint)
- * - personal_sign / eth_sign (plain text and hex-encoded)
- * - eth_signTypedData_v4 (EIP-712 typed data)
+ * - personal_sign / eth_sign (plain text, and hex signed as bytes)
+ * - eth_signTypedData_v4 (EIP-712 typed data, bound to the active chain)
  * - Unsupported method throws
  * - Multiple independent provider instances are isolated
  * - on / removeListener event wiring
@@ -18,7 +18,9 @@
 import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
-import { verifyMessage, recoverAddress, TypedDataEncoder } from "ethers";
+import { createEIP1193Provider } from "../src/core/eip1193";
+import { WalletError } from "../src/core/errors";
+import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify } from "ethers";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import {
@@ -37,6 +39,23 @@ import {
 const TEST_MNEMONIC =
   "test test test test test test test test test test test junk";
 const TEST_ORIGIN = "https://example.com";
+
+function stubSdk() {
+  const calls: { message: string | Uint8Array; options: any }[] = [];
+  const txs: any[] = [];
+  const sdk = {
+    getAddress: async () => "0x0000000000000000000000000000000000000001",
+    sendTransaction: async (tx: any) => {
+      txs.push(tx);
+      return { hash: "0x" };
+    },
+    signMessage: async (message: string | Uint8Array, options?: any) => {
+      calls.push({ message, options });
+      return { signature: "0xsig" };
+    },
+  } as any;
+  return { sdk, calls, txs };
+}
 
 async function runTests() {
   startTestSuite("EIP-1193 Provider Tests");
@@ -312,23 +331,79 @@ async function runTests() {
   });
 
   // ------------------------------------------------------------------
-  // 15. isHex / hexToUtf8 helper logic (inline verification)
-  //     personal_sign receives hex-encoded message in real dApp calls
+  // 15. personal_sign / eth_sign sign hex data as raw bytes
   // ------------------------------------------------------------------
-  await runTest("Hex-encoded personal_sign data is decoded correctly", async () => {
-    // Simulate the hex encoding that MetaMask/viem does for personal_sign
-    const original = "Hello, Web3!";
-    const encoded = "0x" + Buffer.from(original, "utf8").toString("hex");
+  await runTest("Hex-encoded personal_sign data is signed as bytes", async () => {
+    const { sdk, calls } = stubSdk();
+    const provider = createEIP1193Provider(sdk);
+    const invalidUtf8 = "0xff00fe80";
 
-    // Reconstruct what hexToUtf8 would do
-    const clean = encoded.slice(2);
-    const bytes = new Uint8Array(
-      clean.match(/.{1,2}/g)!.map((b: string) => parseInt(b, 16))
+    await provider.request({ method: "personal_sign", params: [invalidUtf8, "0x0"] });
+    await provider.request({ method: "eth_sign", params: ["0x0", invalidUtf8] });
+    await provider.request({ method: "personal_sign", params: ["Hello", "0x0"] });
+    await provider.request({ method: "personal_sign", params: ["0xabc", "0x0"] });
+
+    assert(calls[0].message instanceof Uint8Array, "personal_sign hex should be bytes");
+    assertEqual(hexlify(calls[0].message as Uint8Array), invalidUtf8, "personal_sign bytes");
+    assertEqual(hexlify(calls[1].message as Uint8Array), invalidUtf8, "eth_sign bytes");
+    assertEqual(calls[2].message, "Hello", "plain text passes through");
+    assertEqual(calls[3].message, "0xabc", "odd-length hex is signed as text");
+    passTest("Hex data is signed as its bytes, not lossy UTF-8 text");
+  });
+
+  // ------------------------------------------------------------------
+  // 15b. eth_signTypedData_v4 refuses a domain on another chain
+  // ------------------------------------------------------------------
+  await runTest("eth_signTypedData_v4 refuses a domain chainId other than the active chain", async () => {
+    const { sdk, calls } = stubSdk();
+    const provider = createEIP1193Provider(sdk, { chainId: 10 });
+    const typedData = (chainId?: unknown) => JSON.stringify({
+      domain: { name: "Test", version: "1", ...(chainId === undefined ? {} : { chainId }) },
+      types: { Mail: [{ name: "contents", type: "string" }] },
+      primaryType: "Mail",
+      message: { contents: "hi" },
+    });
+
+    await assertThrows(
+      () => provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(1)] }),
+      "domain chainId 1 should be refused on chain 10"
     );
-    const decoded = new TextDecoder().decode(bytes);
+    const invalid = await provider
+      .request({ method: "eth_signTypedData_v4", params: ["0x0", typedData("abc")] })
+      .catch((error) => error);
+    assert(invalid instanceof WalletError, "a non-numeric domain chainId should throw a WalletError");
+    assertEqual(calls.length, 0, "nothing should be signed");
 
-    assertEqual(decoded, original, "hexToUtf8 should recover the original string");
-    passTest(`Hex "${encoded.slice(0, 20)}..." → "${decoded}"`);
+    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(10)] });
+    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData("0xa")] });
+    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData()] });
+    assertEqual(calls.length, 3, "matching or absent chainId should be signed");
+
+    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(1)] });
+    assertEqual(calls.length, 4, "chainId 1 should be signed after switching to chain 1");
+    passTest("Typed data is bound to the active chain");
+  });
+
+  // ------------------------------------------------------------------
+  // 15c. eth_sendTransaction refuses a chainId other than the active chain
+  // ------------------------------------------------------------------
+  await runTest("eth_sendTransaction refuses a chainId other than the active chain", async () => {
+    const { sdk, txs } = stubSdk();
+    const provider = createEIP1193Provider(sdk, { chainId: 10 });
+    const to = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
+
+    await assertThrows(
+      () => provider.request({ method: "eth_sendTransaction", params: [{ to, chainId: "0x1" }] }),
+      "chainId 0x1 should be refused on chain 10"
+    );
+    assertEqual(txs.length, 0, "nothing should be sent");
+
+    await provider.request({ method: "eth_sendTransaction", params: [{ to, chainId: "0xa" }] });
+    await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+    assertEqual(txs.length, 2, "matching or absent chainId should be sent");
+    assert(txs.every((tx) => tx.chainId === 10), "transactions go to the active chain");
+    passTest("Transactions are bound to the active chain");
   });
 
   // ------------------------------------------------------------------

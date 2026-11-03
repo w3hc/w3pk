@@ -48,6 +48,9 @@ async function runTests() {
     assert(!hasWebsocket, "Found websocket endpoint!");
     passTest("No websocket endpoints included");
 
+    assert(ethEndpoints.every((url) => url.startsWith("https://")), "Found non-HTTPS endpoint!");
+    passTest("Only HTTPS endpoints included");
+
     // Test Polygon (chainId: 137)
     logInfo("Fetching Polygon endpoints (chainId: 137)...");
     const polygonEndpoints = await getEndpoints(137);
@@ -114,6 +117,30 @@ async function runTests() {
     } else {
       passTest("Cache is working (second call faster)");
     }
+  });
+
+  // Test 5: only HTTPS endpoints without placeholders are kept
+  await runTest("getEndpoints() keeps only HTTPS endpoints", async () => {
+    clearCache();
+    const chains = [{
+      name: "Test", chain: "TEST", chainId: 31337, networkId: 31337, shortName: "test",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpc: [
+        "http://plain.example",
+        "https://secure.example",
+        "wss://socket.example",
+        "ftp://other.example",
+        "https://keyed.example/${API_KEY}",
+      ],
+    }];
+    const chainsJsonUrl = "data:application/json," + encodeURIComponent(JSON.stringify(chains));
+    const endpoints = await getEndpoints(31337, { chainsJsonUrl });
+    clearCache();
+    assert(
+      JSON.stringify(endpoints) === JSON.stringify(["https://secure.example"]),
+      `Expected only https://secure.example, got ${JSON.stringify(endpoints)}`
+    );
+    passTest("http, ws, other schemes and placeholder URLs are filtered out");
   });
 
   endTestSuite();

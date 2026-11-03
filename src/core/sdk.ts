@@ -11,8 +11,9 @@
  * - Each origin receives isolated address derivation
  *
  * STEALTH ADDRESSES (opt-in via config.stealthAddresses):
- * - Applications receive stealth private keys (viewing and spending)
- * - Required for ERC-5564 compliance
+ * - Applications receive the viewing key and the private key of each stealth
+ *   payment found, never the spending key itself
+ * - Stealth keys are shared across origins
  * - Uses separate derivation: m/44'/60'/1'/0/0 and m/44'/60'/1'/0/1
  * - Not derived from origin-specific addresses
  */
@@ -73,7 +74,7 @@ import { getEndpoints } from "../chainlist";
 import type { EncryptedPayload } from "../crypto/mlkem";
 import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
-import { supportsEIP7702, type EIP1193Provider } from "../eip7702";
+import { supportsEIP7702 } from "../eip7702";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
 import { createEIP1193Provider, type EIP1193ProviderInterface } from "./eip1193";
 import type { SdkContext } from "./context";
@@ -810,7 +811,7 @@ export class Web3Passkey {
    * By default, signs with STANDARD mode + MAIN tag (origin-centric address).
    * You can specify a different mode and tag to sign from a specific derived address.
    *
-   * @param message - Message to sign
+   * @param message - Message to sign; bytes are signed as-is, and only with EIP191
    * @param options.mode - Security mode for derivation (default: "STANDARD")
    * @param options.tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
@@ -837,7 +838,7 @@ export class Web3Passkey {
    * })
    */
   async signMessage(
-    message: string,
+    message: string | Uint8Array,
     options?: SignMessageOptions
   ): Promise<{
     signature: string;
@@ -849,6 +850,10 @@ export class Web3Passkey {
     try {
       const effectiveMode = options?.mode || DEFAULT_MODE;
       const signingMethod = options?.signingMethod || 'EIP191';
+
+      if (typeof message !== 'string' && signingMethod !== 'EIP191') {
+        throw new WalletError(`${signingMethod} signing requires a string message`);
+      }
 
       // PRIMARY addresses come from the passkey's P-256 key, which cannot produce
       // an EIP-191 signature that recovers to them
@@ -926,7 +931,7 @@ export class Web3Passkey {
           const { SigningKey } = await import("ethers");
 
           // Validate that the message is a 32-byte hash
-          let hashToSign = message;
+          let hashToSign = message as string;
           if (hashToSign.startsWith('0x')) {
             hashToSign = hashToSign.slice(2);
           }
@@ -1116,7 +1121,9 @@ export class Web3Passkey {
    * @param options.mode - Security mode (default: STANDARD)
    * @param options.tag - Wallet tag (optional)
    * @param options.requireAuth - Force fresh authentication (optional)
-   * @param options.rpcUrl - RPC endpoint override (optional, required for PRIMARY mode)
+   * @param options.rpcUrl - RPC endpoint override (optional, required for PRIMARY mode);
+   *   without it, the first `rpcUrls` endpoint set for the chain is used, then the
+   *   first HTTPS chainid.network endpoint
    * @returns Transaction hash and metadata
    *
    * @example
@@ -1193,10 +1200,12 @@ export class Web3Passkey {
       }
 
       // Resolve RPC endpoint
-      const rpcUrl = options?.rpcUrl ?? (await this.getEndpoints(tx.chainId))[0];
+      const rpcUrl = options?.rpcUrl
+        ?? this.config.rpcUrls?.[tx.chainId]?.[0]
+        ?? (await getEndpoints(tx.chainId))[0];
       if (!rpcUrl) {
         throw new WalletError(
-          `No RPC endpoint found for chainId ${tx.chainId}. Pass options.rpcUrl.`
+          `No RPC endpoint found for chainId ${tx.chainId}. Set rpcUrls in the config or pass options.rpcUrl.`
         );
       }
 
@@ -1339,8 +1348,17 @@ export class Web3Passkey {
     }
   }
 
+  /**
+   * RPC endpoints for a chain: those set in `rpcUrls` first, then the HTTPS
+   * chainid.network endpoints that need no API key (skipped if chainid.network
+   * can't be reached and the app set endpoints for the chain)
+   */
   async getEndpoints(chainId: number): Promise<string[]> {
-    return getEndpoints(chainId);
+    const appEndpoints = this.config.rpcUrls?.[chainId] ?? [];
+    const chainlist = appEndpoints.length > 0
+      ? await getEndpoints(chainId).catch(() => [])
+      : await getEndpoints(chainId);
+    return [...new Set([...appEndpoints, ...chainlist])];
   }
 
   async supportsEIP7702(
@@ -1388,90 +1406,6 @@ export class Web3Passkey {
     rpcUrl?: string;
   }): EIP1193ProviderInterface {
     return createEIP1193Provider(this, options);
-  }
-
-  /**
-   * Request EIP-7702 authorization from external wallet (MetaMask, Rabby, etc.)
-   * This allows users to delegate their ENS account to their w3pk STANDARD+MAIN account
-   *
-   * Flow:
-   * 1. User has ENS account in external wallet
-   * 2. User creates/logs into w3pk account
-   * 3. User signs EIP-7702 authorization delegating ENS account → w3pk account
-   * 4. User includes authorization in transaction to activate delegation
-   *
-   * @param params.provider - EIP-1193 provider (window.ethereum) - optional, auto-detected if not provided
-   * @param params.chainId - Chain ID for the authorization
-   * @param params.nonce - Nonce (default: 0n)
-   * @param params.accountIndex - Which account from external wallet to use (default: 0)
-   * @returns EIP-7702 authorization object
-   *
-   * @example
-   * ```typescript
-   * import { createWeb3Passkey } from 'w3pk';
-   *
-   * const w3pk = createWeb3Passkey();
-   * await w3pk.register({ username: 'alice' });
-   *
-   * // Request MetaMask to delegate to w3pk account
-   * const authorization = await w3pk.requestExternalWalletDelegation({
-   *   chainId: 1,
-   *   nonce: 0n
-   * });
-   *
-   * // Now user's ENS account delegates to w3pk account
-   * // Include in first transaction to activate
-   * await provider.request({
-   *   method: 'eth_sendTransaction',
-   *   params: [{
-   *     to: someContract,
-   *     data: txData,
-   *     authorizationList: [authorization]
-   *   }]
-   * });
-   * ```
-   */
-  async requestExternalWalletDelegation(params?: {
-    provider?: EIP1193Provider;
-    chainId?: number;
-    nonce?: bigint;
-    accountIndex?: number;
-  }): Promise<{
-    chainId: bigint;
-    address: string;
-    nonce: bigint;
-    yParity: number;
-    r: string;
-    s: string;
-  }> {
-    if (!this.currentUser) {
-      throw new WalletError(
-        "Must be authenticated to get w3pk delegation address. Call login() or register() first."
-      );
-    }
-
-    const {
-      requestExternalWalletAuthorization,
-      getDefaultProvider,
-    } = await import("../eip7702/external-wallet");
-
-    const provider = params?.provider || getDefaultProvider();
-
-    if (!provider) {
-      throw new WalletError(
-        "No external wallet provider found. Please install MetaMask, Rabby, or similar wallet."
-      );
-    }
-
-    // Get user's w3pk STANDARD+MAIN account address to delegate to
-    const w3pkAddress = this.currentUser.ethereumAddress;
-
-    return requestExternalWalletAuthorization(provider, {
-      delegateToAddress: w3pkAddress,
-      chainId: params?.chainId,
-      nonce: params?.nonce,
-      accountIndex: params?.accountIndex,
-    });
   }
 
   /**
@@ -1841,6 +1775,11 @@ export class Web3Passkey {
    * a proof whose public signals contain the secret or a random input is
    * refused. Everything checkable without the passkey is checked before
    * the prompt.
+   *
+   * Only public signals equal to the secret or a random input are refused:
+   * the circuit chooses its public signals and can output any function of
+   * the secret, the Semaphore secret included. Only prove with circuits
+   * you trust; the artifact pins say which circuit runs, not what it reveals.
    *
    * w3pk runs in the app's JavaScript context: this keeps the secret out
    * of the API, not out of reach of malicious code on the same page.

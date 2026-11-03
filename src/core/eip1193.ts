@@ -1,3 +1,4 @@
+import { getBytes } from "ethers";
 import type { SecurityMode } from "../types";
 import { WalletError } from "./errors";
 import type { Web3Passkey } from "./sdk";
@@ -46,16 +47,17 @@ export interface EIP1193ProviderInterface {
   removeListener(event: 'message', handler: (message: ProviderMessage) => void): void;
 }
 
-/** Returns true if a string looks like a 0x-prefixed hex value */
+/** Returns true if a string is 0x-prefixed hex encoding whole bytes */
 function isHex(value: string): boolean {
-  return typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value);
+  return typeof value === 'string' && /^0x(?:[0-9a-fA-F]{2})*$/.test(value);
 }
 
-/** Decode a hex-encoded UTF-8 string (used for personal_sign / eth_sign data) */
-function hexToUtf8(hex: string): string {
-  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-  const bytes = new Uint8Array(clean.match(/.{1,2}/g)!.map(b => parseInt(b, 16)));
-  return new TextDecoder().decode(bytes);
+function parseChainId(value: unknown): bigint {
+  try {
+    return BigInt(value as string | number | bigint);
+  } catch {
+    throw new WalletError(`Invalid chainId: ${String(value)}`);
+  }
 }
 
 /** Build the EIP-1193 provider returned by `Web3Passkey.getEIP1193Provider()` */
@@ -102,9 +104,12 @@ export function createEIP1193Provider(
           if (!txParam.chainId && !activeChainId) {
             throw new WalletError('eth_sendTransaction: chainId is required');
           }
-          const chainId = txParam.chainId
-            ? parseInt(txParam.chainId, 16)
-            : activeChainId;
+          if (txParam.chainId != null && parseChainId(txParam.chainId) !== BigInt(activeChainId)) {
+            throw new WalletError(
+              `eth_sendTransaction: chainId ${txParam.chainId} does not match the active chain ${activeChainId}`
+            );
+          }
+          const chainId = activeChainId;
 
           const result = await sdk.sendTransaction(
             {
@@ -141,7 +146,7 @@ export function createEIP1193Provider(
         case 'personal_sign': {
           const [data] = params ?? [];
           const message = isHex(data)
-            ? hexToUtf8(data)
+            ? getBytes(data)
             : data;
           const result = await sdk.signMessage(message, {
             mode: options?.mode,
@@ -155,7 +160,7 @@ export function createEIP1193Provider(
         case 'eth_sign': {
           const [, data] = params ?? [];
           const message = isHex(data)
-            ? hexToUtf8(data)
+            ? getBytes(data)
             : data;
           const result = await sdk.signMessage(message, {
             mode: options?.mode,
@@ -173,6 +178,12 @@ export function createEIP1193Provider(
             : typedDataJson;
 
           const { domain, types, message: typedMessage, primaryType } = typedData;
+
+          if (domain?.chainId != null && parseChainId(domain.chainId) !== BigInt(activeChainId)) {
+            throw new WalletError(
+              `eth_signTypedData_v4: domain chainId ${domain.chainId} does not match the active chain ${activeChainId}`
+            );
+          }
 
           // Remove EIP-712 meta-type if present (ethers doesn't want it)
           const filteredTypes = { ...types };

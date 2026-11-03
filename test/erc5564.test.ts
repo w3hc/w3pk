@@ -10,6 +10,7 @@ import {
   checkStealthAddress,
   computeStealthPrivateKey,
 } from "../src/stealth/crypto";
+import { StealthAddressModule } from "../src/stealth";
 
 console.log("\n🧪 ERC-5564 Stealth Address Tests\n");
 console.log("=".repeat(50));
@@ -319,6 +320,44 @@ if (fullCheckCount !== 1) {
 const expectedFilterRate = (viewTagFiltered / announcements.length) * 100;
 console.log(`✓ Filter rate: ${expectedFilterRate.toFixed(2)}% (expected ~99%)`);
 
-console.log("\n" + "=".repeat(50));
-console.log("✅ All ERC-5564 compliance tests passed!");
-console.log("=".repeat(50) + "\n");
+(async () => {
+  // Test: getKeys() never returns the spending private key
+  console.log("\nTesting StealthAddressModule.getKeys()");
+  console.log("-".repeat(50));
+
+  const module = new StealthAddressModule({}, async () => testMnemonic);
+  const moduleKeys = await module.getKeys();
+  if ("spendingKey" in moduleKeys) {
+    throw new Error("getKeys() must not return the spending private key");
+  }
+  if (
+    moduleKeys.stealthMetaAddress !== keys.stealthMetaAddress ||
+    moduleKeys.viewingKey !== keys.viewingKey ||
+    moduleKeys.spendingPubKey !== keys.spendingPubKey ||
+    moduleKeys.viewingPubKey !== keys.viewingPubKey
+  ) {
+    throw new Error("getKeys() should return the meta-address, public keys and viewing key");
+  }
+  if (JSON.stringify(moduleKeys).includes(keys.spendingKey.slice(2))) {
+    throw new Error("getKeys() output contains the spending private key");
+  }
+  console.log("✓ getKeys() omits the spending private key");
+
+  const sent = generateStealthAddress(keys.stealthMetaAddress);
+  const parsed = await module.parseAnnouncement({
+    stealthAddress: sent.stealthAddress,
+    ephemeralPublicKey: sent.ephemeralPubKey,
+    viewTag: sent.viewTag,
+  });
+  if (!parsed.isForUser || new ethers.Wallet(parsed.stealthPrivateKey!).address !== sent.stealthAddress) {
+    throw new Error("parseAnnouncement() should still return the stealth private key");
+  }
+  console.log("✓ parseAnnouncement() still returns the stealth private key");
+
+  console.log("\n" + "=".repeat(50));
+  console.log("✅ All ERC-5564 compliance tests passed!");
+  console.log("=".repeat(50) + "\n");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

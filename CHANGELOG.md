@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Credential metadata is stored in plain text and documented as readable by any script on the page** ([#226](https://github.com/w3hc/w3pk/issues/226)). `CredentialStorage` encrypted the username and address under a key from `SHA-256("w3pk-metadata-v1:" + credentialId)`, with `credentialId` stored in clear in `w3pk_credential_index`, so the encryption hid nothing. `login()` reads the account list before any passkey prompt, so no key exists that isn't already on the device
   - Entries store `id`, `publicKey`, `username`, `ethereumAddress`, `createdAt`, `lastUsed` and `signCount`; `EncryptedCredential` and `hashPublicKey()` are removed
   - Entries stored encrypted are treated as absent: they aren't listed in `allowCredentials` and don't break `register()` or address lookups
+- **The EIP-1193 provider binds signatures to the active chain and signs hex messages as bytes** ([#228](https://github.com/w3hc/w3pk/issues/228)). `eth_signTypedData_v4` signed whatever chain the domain named, and `personal_sign`/`eth_sign` decoded hex to UTF-8, so data that wasn't valid UTF-8 was signed as replacement characters
+  - `eth_signTypedData_v4` throws a `WalletError` when `domain.chainId` differs from the active chain, as EIP-712 asks; a domain without `chainId` is still signed. `eth_sendTransaction` refuses a `chainId` other than the active chain the same way
+  - Hex data of whole bytes is signed as those bytes; other strings, odd-length hex included, are signed as text. `signMessage()` takes `string | Uint8Array` for EIP-191
+- **Only HTTPS RPC endpoints are used, and endpoints set by the app come first** ([#228](https://github.com/w3hc/w3pk/issues/228)). `sendTransaction()` used the first chainid.network endpoint, `http://` ones included, and took nonce and fee data from it
+  - `getEndpoints()` keeps only `https://` endpoints without API key placeholders
+  - New `rpcUrls: Record<number, string[]>` config option: `sendTransaction()` uses a per-call `rpcUrl`, then `rpcUrls[chainId][0]`, then chainid.network; `w3pk.getEndpoints()` lists the app's endpoints first and keeps them when chainid.network can't be reached
+- **`stealth.getKeys()` no longer returns the spending private key** ([#228](https://github.com/w3hc/w3pk/issues/228)). It returns the meta-address, both public keys and the viewing key. The docs say stealth keys are shared across origins and that the viewing key and any stealth private key from `parseAnnouncement()` are enough to compute the spending key, so only apps trusted with stealth funds should enable stealth addresses
+- **The `zkProve()` circuit trust limit is documented** ([#228](https://github.com/w3hc/w3pk/issues/228)): it only refuses public signals equal to the secret or a random input, and a circuit can output any other function of the secret, the Semaphore secret included, so apps must only prove with circuits they trust
 
 ### Added
 
@@ -56,12 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `w3pk.zk` is typed `ZKMethods`: the `ZKProofModule` methods, each returning a Promise, and `isAvailable()` returning `Promise<boolean>`
   - `ZKProofConfig` is the one from `w3pk/zk`: `customCircuits` takes `CircuitArtifacts` values
   - The EIP-1193 provider's `request()` takes `params?: unknown[]` and returns `Promise<unknown>`
-  - `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` use `GuardianShare`; `requestExternalWalletDelegation()` takes an `EIP1193Provider`
+  - `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` use `GuardianShare`
   - `MLKEM_DEFAULT_CONTEXT` (`'mlkem-v1'`) replaces the six defaults of the ML-KEM context
 - **No `any` in `Web3Passkey` public signatures** ([#210](https://github.com/w3hc/w3pk/issues/210)), nor in the types they reference
   - The EIP-1193 provider's `on()` and `removeListener()` have one overload per EIP-1193 event: `accountsChanged` (`string[]`), `chainChanged` (`string`), `connect` (`ProviderConnectInfo`), `disconnect` (`ProviderRpcError`) and `message` (`ProviderMessage`). Other event names no longer compile
   - `SignMessageOptions.eip712Domain` is ethers' `TypedDataDomain`
-  - `EIP1193Provider` (taken by `requestExternalWalletDelegation()`) has `request()` with `params?: unknown[]` returning `Promise<unknown>`, and no `on`/`removeListener`, which w3pk never called
   - `CircuitArtifacts.verificationKey` is `unknown` and `VerificationResult.publicSignals` is `Record<string, string>`
 - **`src/core/sdk.ts` split by feature** ([#190](https://github.com/w3hc/w3pk/issues/190)): the public API and behavior are unchanged
   - Backup and sync, social recovery, the EIP-1193 provider and ML-KEM move to `src/core/backup-sync.ts`, `social-recovery.ts`, `eip1193.ts` and `mlkem.ts`; `sdk.ts` keeps auth, session and wallet core
@@ -93,6 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `simulateRecoveryScenario(scenario)` and `runRecoveryTest()`: use `new RecoverySimulator().simulateScenario(scenario, status)` and `runInteractiveTest(status)` with `status = await w3pk.getBackupStatus()`
 - **BREAKING: the `socialRecovery` backup status** ([#211](https://github.com/w3hc/w3pk/issues/211)), which `getBackupStatus()` stopped setting in [#184](https://github.com/w3hc/w3pk/issues/184): `BackupStatus.socialRecovery`, `SecurityScore.breakdown.socialRecovery`, and the `SocialRecoveryStatus` and `Guardian` types in `src/backup/types.ts`. The recovery simulator no longer lists social recovery as a method or a step. `setupSocialRecovery()`, `generateGuardianInvite()` and `recoverFromGuardians()` stay
 - **Internal notes from the npm package** ([#191](https://github.com/w3hc/w3pk/issues/191)): `"files"` lists `docs/*.md` instead of `docs/`, so only the top-level docs ship
+- **BREAKING: external wallet delegation** ([#228](https://github.com/w3hc/w3pk/issues/228)): `requestExternalWalletDelegation()`, `requestExternalWalletAuthorization()`, `getDefaultProvider()`, `detectWalletProvider()`, `supportsEIP7702Authorization()` and the `EIP1193Provider` type. It asked the wallet to `eth_sign` a raw hash (blind signing), its `personal_sign` fallback could never verify, it delegated to the w3pk address, which has no code, and no standard RPC lets an external wallet sign an EIP-7702 authorization
+  - `examples/ens-to-w3pk-delegation.ts`, `standalone/ens-delegation-demo.html`, `test/external-wallet.test.ts`, the `test:external-wallet` script and the external wallet sections of the docs
 
 ### Fixed
 

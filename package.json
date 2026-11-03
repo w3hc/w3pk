@@ -90,7 +90,6 @@
     "test:nft": "node scripts/run-tests.mjs test/nft-ownership.test.ts",
     "test:chainlist": "node scripts/run-tests.mjs test/chainlist.test.ts",
     "test:eip7702": "node scripts/run-tests.mjs test/eip7702.test.ts",
-    "test:external-wallet": "node scripts/run-tests.mjs test/external-wallet.test.ts",
     "test:eip7951": "node scripts/run-tests.mjs test/eip7951.test.ts",
     "test:erc5564": "node scripts/run-tests.mjs test/erc5564.test.ts",
     "test:sign-message": "node scripts/run-tests.mjs test/sign-message.test.ts",
