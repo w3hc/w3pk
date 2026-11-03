@@ -253,6 +253,23 @@ async function runTests() {
     assert(selection.residentKey === "required", "residentKey stays required");
     assert(selection.userVerification === "required", "userVerification defaults to required");
     assert(result.prfOutput !== undefined, "verified registration returns the PRF output");
+
+    const userId = new Uint8Array(authenticator.createCalls[0].user.id as ArrayBuffer);
+    assert(userId.length === 32, "user handle is 32 bytes");
+    assert(
+      !new TextDecoder().decode(userId).includes(USERNAME),
+      "user handle doesn't contain the username"
+    );
+    assert(authenticator.createCalls[0].user.name === USERNAME, "user.name stays the username");
+
+    localStorage.clear();
+    reset(UP | UV);
+    await register({ username: USERNAME, ethereumAddress: ADDRESS });
+    const otherId = new Uint8Array(authenticator.createCalls[0].user.id as ArrayBuffer);
+    assert(
+      otherId.some((byte, i) => byte !== userId[i]),
+      "each registration gets a new random user handle"
+    );
   }
   console.log("");
 

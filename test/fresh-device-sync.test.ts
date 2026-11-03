@@ -63,6 +63,7 @@ const ADDRESS = Wallet.fromPhrase(MNEMONIC).address;
 const authenticator = {
   prf: true,
   prfOutput: crypto.getRandomValues(new Uint8Array(32)).buffer,
+  userHandle: new TextEncoder().encode(USERNAME).buffer as ArrayBuffer,
 };
 
 const localStorage = new MemoryStorage();
@@ -142,7 +143,7 @@ async function setupAuthenticator() {
               authenticatorData: authenticatorData.buffer,
               clientDataJSON: clientDataJSON.buffer,
               signature: rawToDer(raw).buffer,
-              userHandle: new TextEncoder().encode(USERNAME).buffer,
+              userHandle: authenticator.userHandle,
             },
             getClientExtensionResults: () =>
               authenticator.prf && (publicKey.extensions as any)?.prf?.eval?.first
@@ -222,7 +223,7 @@ async function runTests() {
   ) {
     assert(sdk.isAuthenticated, "user is logged in");
     assert(sdk.user?.ethereumAddress === ADDRESS, "user has the backup's address");
-    assert(sdk.user?.username === USERNAME, "username comes from the passkey");
+    assert(sdk.user?.username === USERNAME, "username comes from a pre-0.11.1 passkey's user handle");
     assert(sdk.user?.credentialId === CREDENTIAL_ID, "user has the passkey's id");
     assert(authEvents.includes(true), "onAuthStateChanged(true) fires");
 
@@ -261,6 +262,21 @@ async function runTests() {
     assert(result.ethereumAddress === ADDRESS, "returns the backup's address");
     assert(result.mnemonic === MNEMONIC, "returns the mnemonic");
     await assertSyncedAndLogsIn(sdk, authEvents, publicKey);
+  }
+  console.log("");
+
+  console.log("Test 2b: a random user handle isn't read as the username");
+  {
+    const json = await passwordBackupFromDeviceA(publicKey);
+    authenticator.userHandle = crypto.getRandomValues(new Uint8Array(32)).buffer;
+    try {
+      const { sdk } = freshSdk();
+      await sdk.syncWalletWithPasskey(json, PASSWORD);
+      assert(sdk.isAuthenticated, "user is logged in");
+      assert(sdk.user?.username === ADDRESS, "username falls back to the address");
+    } finally {
+      authenticator.userHandle = new TextEncoder().encode(USERNAME).buffer;
+    }
   }
   console.log("");
 
