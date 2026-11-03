@@ -43,8 +43,8 @@ export class CredentialStorage {
   }
 
   /**
-   * Retrieves a credential by original ID. Entries stored encrypted before
-   * v0.11.1 are treated as absent
+   * Retrieves a credential by original ID. Entries encrypted by v0.11.0 and
+   * earlier are treated as absent
    */
   async getCredentialById(id: string): Promise<StoredCredential | null> {
     try {
@@ -52,9 +52,10 @@ export class CredentialStorage {
       const key = `${STORAGE_KEY_PREFIX}${hashedId}`;
       const data = this.storage.getItem(key);
       if (!data) return null;
-      const credential = JSON.parse(data) as Partial<StoredCredential>;
+      const credential = JSON.parse(data) as Partial<StoredCredential> | null;
       if (
-        credential.id !== id ||
+        credential?.id !== id ||
+        typeof credential.publicKey !== "string" ||
         typeof credential.username !== "string" ||
         typeof credential.ethereumAddress !== "string"
       ) {
