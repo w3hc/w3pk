@@ -256,7 +256,7 @@ async function restorePrfBackup(
     {
       id: credential.id,
       publicKey,
-      username: backupFile.username ?? ethereumAddress,
+      username: backupUsername(backupFile) ?? ethereumAddress,
     },
     mnemonic,
     ethereumAddress,
