@@ -66,7 +66,10 @@ export function generateSiweNonce(length: number = 11): string {
     .join('');
 }
 
+export const SIWE_HEADER = ' wants you to sign in with your Ethereum account:';
+
 const LINE_BREAK = /[\r\n]/;
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
 
 function lineBreakFieldError(params: SiweMessage): string | undefined {
   if (params.statement && LINE_BREAK.test(params.statement)) {
@@ -85,6 +88,7 @@ function lineBreakFieldError(params: SiweMessage): string | undefined {
 }
 
 function parseDate(value: string): Date | undefined {
+  if (!RFC3339.test(value)) return undefined;
   const date = new Date(value);
   return isNaN(date.getTime()) ? undefined : date;
 }
@@ -386,6 +390,28 @@ export function validateSiweMessage(
       valid: false,
       errors,
     };
+  }
+}
+
+/**
+ * Check that a SIWE message's domain matches `origin` (EIP-4361): same host
+ * and port, and same scheme when the domain names one
+ *
+ * @throws Error if the message doesn't parse or its domain doesn't match
+ */
+export function assertSiweDomain(message: string, origin: string): void {
+  const { domain } = parseSiweMessage(message);
+  const expected = new URL(origin);
+  let actual: URL;
+  try {
+    actual = new URL(domain.includes('://') ? domain : `${expected.protocol}//${domain}`);
+  } catch {
+    throw new Error(`Invalid SIWE message domain "${domain}"`);
+  }
+  if (actual.protocol !== expected.protocol || actual.host !== expected.host) {
+    throw new Error(
+      `SIWE message domain "${domain}" does not match the current origin "${expected.host}"`
+    );
   }
 }
 
