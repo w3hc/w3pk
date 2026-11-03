@@ -878,6 +878,11 @@ export class Web3Passkey {
         assertSiweDomain(message as string, origin);
       }
 
+      // Checked before the passkey prompt that rawHash always triggers
+      if (signingMethod === 'rawHash' && !/^(0x)?[0-9a-fA-F]{64}$/.test(message as string)) {
+        throw new WalletError("rawHash signing method requires a 32-byte hash (64 hex characters)");
+      }
+
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to sign message");
       }
@@ -947,14 +952,9 @@ export class Web3Passkey {
           // Useful for signing pre-computed EIP-712 hashes (e.g., Safe transactions)
           const { SigningKey } = await import("ethers");
 
-          // Validate that the message is a 32-byte hash
           let hashToSign = message as string;
           if (hashToSign.startsWith('0x')) {
             hashToSign = hashToSign.slice(2);
-          }
-
-          if (hashToSign.length !== 64) {
-            throw new WalletError("rawHash signing method requires a 32-byte hash (64 hex characters)");
           }
 
           // Get the private key from the wallet
