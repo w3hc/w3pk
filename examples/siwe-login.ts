@@ -115,7 +115,6 @@ async function siweWithValidation() {
   const validation = validateSiweMessage(siweMessage, {
     domain, // Ensure domain matches
     chainId, // Ensure chain ID matches
-    checkExpiration: true, // Check if message expired
   });
 
   if (!validation.valid) {
