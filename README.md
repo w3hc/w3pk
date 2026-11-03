@@ -356,7 +356,7 @@ const plaintext = await w3pk.mlkemDecrypt(encrypted)
 import { isStrongPassword } from 'w3pk'
 
 // Validate password strength
-const password = 'correct horse battery staple'
+const password = 'violet lantern under seven bridges'
 if (!isStrongPassword(password)) {
   throw new Error('Password must be 15+ characters and not a common password')
 }

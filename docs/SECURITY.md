@@ -983,7 +983,7 @@ Different threat models require different protections. Password backups may be s
 **Added:** `isStrongPassword()` utility
 - 15 to 256 characters, counted in Unicode code points after NFC normalization
 - Any characters: spaces, accents and emoji are fine, and no mix of character types is required
-- Not one of the 1,000 most common passwords of that length (whole-password match, any case)
+- Not one of the 1,000 most common passwords of that length (whole-password match, any case, ignoring spaces, dots, dashes and underscores), and not a single repeated character
 
 **Location:** `src/utils/validation.ts` (exported from main package)
 
@@ -1546,7 +1546,7 @@ await navigator.credentials.get({
 Enforced on every new password backup (`createBackupFile()`, `setupSocialRecovery()`, `exportForSync(password)`), which throws `WeakPasswordError` with the missing rules in `feedback`. `isStrongPassword()` checks the same rules:
 - 15 to 256 characters, counted in Unicode code points after NFC normalization
 - Any characters: spaces, accents and emoji are fine, and no mix of character types is required
-- Not one of the 1,000 most common passwords of that length (whole-password match, any case)
+- Not one of the 1,000 most common passwords of that length (whole-password match, any case, ignoring spaces, dots, dashes and underscores), and not a single repeated character
 
 **Why a Memory-Hard KDF for Backups:**
 Backups are designed for offline storage and face different threat models:
@@ -2768,7 +2768,7 @@ AES-256-GCM
 w3pk follows [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) §3.1.1.2 and the [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html):
 - 15 to 256 characters, counted in Unicode code points after NFC normalization
 - Any characters: spaces, accents and emoji are fine, and no mix of character types is required
-- Not one of the 1,000 most common passwords of that length (whole-password match, any case)
+- Not one of the 1,000 most common passwords of that length (whole-password match, any case, ignoring spaces, dots, dashes and underscores), and not a single repeated character
 
 **Using `isStrongPassword` utility:**
 ```typescript
@@ -2787,7 +2787,7 @@ const blob = await w3pk.createZipBackup(password)
 **Examples:**
 ```typescript
 // Test fixtures - not real passwords!
-isStrongPassword('correct horse battery staple')  // ✅ true
+isStrongPassword('violet lantern under seven bridges')  // ✅ true
 isStrongPassword('mot de passe très long')        // ✅ true
 isStrongPassword('Test1234!@#$')                  // ❌ false - too short
 isStrongPassword('passwordpassword')              // ❌ false - common password

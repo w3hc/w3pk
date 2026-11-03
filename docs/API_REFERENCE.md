@@ -2323,7 +2323,7 @@ This backup can be used to:
 - Split among guardians for social recovery
 
 **Parameters:**
-- `password: string` - Encrypts the backup through Argon2id (m=64 MiB, t=3, p=4, random 16-byte salt; NFC-normalized) and AES-256-GCM. It must have 15 to 256 characters (Unicode code points, after NFC normalization; spaces and any Unicode accepted, no composition rules) and not be a common password (the rules of `isStrongPassword()`), or `WeakPasswordError` is thrown before the passkey prompt
+- `password: string` - Encrypts the backup through Argon2id (m=64 MiB, t=3, p=4, random 16-byte salt; NFC-normalized) and AES-256-GCM. It must have 15 to 256 characters (Unicode code points, after NFC normalization; spaces and any Unicode accepted, no composition rules) and not be a common password or a single repeated character (the rules of `isStrongPassword()`), or `WeakPasswordError` is thrown before the passkey prompt
 
 The file holds no address. The default filename is `w3pk-backup-<date>.json`. Passing a second argument (the removed `encryptionType`) throws `WalletError`.
 
@@ -3070,10 +3070,10 @@ Validate password strength for backups. `createBackupFile()`, `setupSocialRecove
 **Requirements** ([NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) §3.1.1.2):
 - 15 to 256 characters, counted in Unicode code points after NFC normalization
 - Any characters: spaces, accents and emoji are fine, and no mix of character types is required
-- Not one of the 1,000 most common passwords of that length (whole-password match, any case)
+- Not one of the 1,000 most common passwords of that length (whole-password match, any case, ignoring spaces, dots, dashes and underscores), and not a single repeated character
 
 ```typescript
-const password = 'correct horse battery staple'
+const password = 'violet lantern under seven bridges'
 const strong = isStrongPassword(password)
 console.log('Strong password:', strong) // true
 ```

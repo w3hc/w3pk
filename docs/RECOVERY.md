@@ -147,7 +147,7 @@ w3pk restores v3 files only, with no compatibility layer. A v2 file (no `version
 ### Password-based (the backup that must exist)
 - **Use case**: Disaster recovery, social recovery, new device setup
 - **Security**: Argon2id (RFC 9106; 64 MiB, 3 passes, 4 lanes; random 16-byte salt) + AES-256-GCM. The password is NFC-normalized.
-- **Password**: 15 to 256 characters, counted in Unicode code points after NFC normalization, with no composition rules (spaces and any Unicode accepted), and not one of the 1,000 most common passwords of that length (the rules of `isStrongPassword()`, after [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) §3.1.1.2). A refused one throws `WeakPasswordError`, whose `feedback` gives each reason; social recovery and the `exportForSync(password)` fallback apply the same rules.
+- **Password**: 15 to 256 characters, counted in Unicode code points after NFC normalization, with no composition rules (spaces and any Unicode accepted), not one of the 1,000 most common passwords of that length, and not a single repeated character (the rules of `isStrongPassword()`, after [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) §3.1.1.2). A refused one throws `WeakPasswordError`, whose `feedback` gives each reason; social recovery and the `exportForSync(password)` fallback apply the same rules.
 - **Pros**: Platform-agnostic, restores without a passkey, memory-hard against GPU guessing
 - **Cons**: Must remember password
 
@@ -629,7 +629,7 @@ const blob = await w3pk.createZipBackup(password)
 **Password requirements** ([NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) §3.1.1.2, [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)):
 - 15 to 256 characters, counted in Unicode code points after NFC normalization
 - Any characters: spaces, accents and emoji are fine, and no mix of character types is required
-- Not one of the 1,000 most common passwords of that length (whole-password match, any case)
+- Not one of the 1,000 most common passwords of that length (whole-password match, any case, ignoring spaces, dots, dashes and underscores), and not a single repeated character
 
 ---
 
