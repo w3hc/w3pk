@@ -816,6 +816,8 @@ export class Web3Passkey {
    * @param options.mode - Security mode for derivation (default: "STANDARD")
    * @param options.tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
+   * @param options.signingMethod - EIP191 (default), SIWE, EIP712 or rawHash;
+   *   rawHash always requires a fresh user-verified passkey assertion
    * @returns Signature result with address, mode, and tag information
    *
    * @example
@@ -883,7 +885,10 @@ export class Web3Passkey {
       const effectiveTag = options?.tag || DEFAULT_TAG;
 
       // STRICT mode: always require authentication (no persistent sessions)
-      const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
+      // rawHash: a bare hash may be an EIP-7702 authorization digest, which
+      // can't be told apart, so it gets the same fresh assertion as signAuthorization
+      const requireAuth =
+        effectiveMode === 'STRICT' || signingMethod === 'rawHash' || (options?.requireAuth || false);
 
       const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
 
