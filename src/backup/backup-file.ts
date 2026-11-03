@@ -145,12 +145,14 @@ export class BackupFileManager {
    * @param mnemonic - The BIP39 mnemonic to encrypt
    * @param password - User's password for encryption
    * @param credential - The passkey that owns the wallet, so a fresh device can sync with it
+   * @param username - The wallet owner's username, restored with the passkey on a fresh device
    * @throws WeakPasswordError when validatePasswordStrength() refuses the password
    */
   async createPasswordBackup(
     mnemonic: string,
     password: string,
-    credential?: BackupCredential
+    credential?: BackupCredential,
+    username?: string
   ): Promise<{ backupFile: BackupFile; json: string; blob: Blob }> {
     assertStrongPassword(password);
 
@@ -168,6 +170,7 @@ export class BackupFileManager {
         ...ARGON2ID_PARAMS,
       },
       ...(credential && { credential: { id: credential.id, publicKey: credential.publicKey } }),
+      ...(username && { username }),
     });
   }
 
