@@ -1,11 +1,11 @@
-import { verifyAssertionSignature } from "../auth/authenticate";
+import { verifyAssertion, verifyAssertionSignature } from "../auth/authenticate";
 import { evaluatePrf } from "../auth/prf";
 import { CredentialStorage } from "../auth/storage";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
 import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
 import { derivePrfSessionKey, PRF_INPUT } from "../wallet/crypto";
-import { AddressChangeError, PrfUnsupportedError, SyncBootstrapError, WalletError } from "./errors";
+import { AddressChangeError, AuthenticationError, PrfUnsupportedError, SyncBootstrapError, WalletError } from "./errors";
 import type { SdkContext } from "./context";
 
 export async function getBackupStatus(ctx: SdkContext): Promise<BackupStatus> {
@@ -118,8 +118,9 @@ export async function applyRestoredWallet(
   const { BackupManager } = await import("../backup/manager");
   const backupManager = new BackupManager();
 
+  const storage = new CredentialStorage();
   const credential = ctx.currentUser
-    ? await new CredentialStorage().getCredentialById(ctx.currentUser.credentialId)
+    ? await storage.getCredentialById(ctx.currentUser.credentialId)
     : null;
 
   if (!ctx.currentUser || !credential) {
@@ -134,8 +135,13 @@ export async function applyRestoredWallet(
   }
 
   // One assertion releases the PRF output the wallet key comes from. Until
-  // it succeeds, the stored wallet and the credential stay as they were
-  const { output: prfOutput } = await evaluatePrf(PRF_INPUT, credential.id);
+  // it succeeds and passes login()'s checks, the stored wallet and the
+  // credential stay as they were
+  const { output: prfOutput, assertion, challenge } = await evaluatePrf(PRF_INPUT, credential.id);
+  if (!(await verifyAssertion(assertion, credential, storage, challenge))) {
+    new Uint8Array(prfOutput).fill(0);
+    throw new AuthenticationError("Signature verification failed");
+  }
 
   await bootstrapCredential(
     ctx,
