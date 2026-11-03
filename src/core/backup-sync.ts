@@ -5,7 +5,7 @@ import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types
 import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
 import { derivePrfSessionKey, PRF_INPUT } from "../wallet/crypto";
-import { AddressChangeError, SyncBootstrapError, WalletError } from "./errors";
+import { AddressChangeError, PrfUnsupportedError, SyncBootstrapError, WalletError } from "./errors";
 import type { SdkContext } from "./context";
 
 export async function getBackupStatus(ctx: SdkContext): Promise<BackupStatus> {
@@ -104,24 +104,20 @@ export async function restoreFromBackupFile(
   }
   const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
 
-  // Mark backup as verified (successful restore proves the backup works)
-  backupManager.markBackupVerified(ethereumAddress);
-
-  const storage = new CredentialStorage();
   const credential = ctx.currentUser
-    ? await storage.getCredentialById(ctx.currentUser.credentialId)
+    ? await new CredentialStorage().getCredentialById(ctx.currentUser.credentialId)
     : null;
 
   // Logged out: the wallet stays in memory, so the user can call
   // register() or importMnemonic() with it
   if (!ctx.currentUser || !credential) {
+    backupManager.markBackupVerified(ethereumAddress);
     ctx.currentWallet = { address: ethereumAddress, mnemonic };
     return { mnemonic, ethereumAddress };
   }
 
   const oldAddress = ctx.currentUser.ethereumAddress;
-  const addressChanged = oldAddress.toLowerCase() !== ethereumAddress.toLowerCase();
-  if (addressChanged && !allowAddressChange) {
+  if (oldAddress.toLowerCase() !== ethereumAddress.toLowerCase() && !allowAddressChange) {
     throw new AddressChangeError(oldAddress, ethereumAddress);
   }
 
@@ -129,25 +125,17 @@ export async function restoreFromBackupFile(
   // it succeeds, the stored wallet and the credential stay as they were
   const { output: prfOutput } = await evaluatePrf(PRF_INPUT, credential.id);
 
-  await ctx.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
-  if (addressChanged) {
-    await storage.updateCredentialAddress(credential.id, ethereumAddress);
-    await ctx.walletStorage.delete(oldAddress);
-  }
-
-  ctx.currentWallet = { address: ethereumAddress, mnemonic };
-  ctx.currentUser = { ...ctx.currentUser, ethereumAddress };
-
-  await ctx.sessionManager.startSession(
+  await bootstrapCredential(
+    ctx,
+    credential,
     mnemonic,
-    credential.id,
     ethereumAddress,
-    await derivePrfSessionKey(prfOutput, ctx.sessionManager.storesSessionKey),
-    'STANDARD'
+    prfOutput,
+    allowAddressChange
   );
 
-  void ctx.requestPersistentStorage();
-  ctx.config.onAuthStateChanged?.(true, ctx.currentUser);
+  backupManager.markBackupVerified(ethereumAddress);
+  ctx.currentWallet = { address: ethereumAddress, mnemonic };
 
   return { mnemonic, ethereumAddress };
 }
@@ -204,7 +192,8 @@ export async function syncWalletWithPasskey(
     },
     mnemonic,
     ethereumAddress,
-    passkeyResult.prfOutput
+    passkeyResult.prfOutput,
+    true
   );
 
   return { mnemonic, ethereumAddress };
@@ -214,9 +203,8 @@ export async function syncWalletWithPasskey(
  * Restore a PRF backup with its passkey and set this device up for it.
  * The public key is this device's when it has the passkey's metadata,
  * else the backup's, checked against the assertion's signature. The
- * backup carries no address, so a change of the stored credential's
- * address is only known, and refused without `allowAddressChange`,
- * after the assertion and before anything is stored.
+ * backup carries no address, so a change of the passkey's stored address
+ * is only known after the assertion.
  */
 async function restorePrfBackup(
   ctx: SdkContext,
@@ -235,17 +223,6 @@ async function restorePrfBackup(
     publicKey
   );
 
-  if (
-    stored &&
-    stored.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase() &&
-    !allowAddressChange
-  ) {
-    if (walletPrfOutput) new Uint8Array(walletPrfOutput).fill(0);
-    throw new AddressChangeError(stored.ethereumAddress, ethereumAddress);
-  }
-
-  new BackupManager().markBackupVerified(ethereumAddress);
-
   await bootstrapCredential(ctx, 
     {
       id: credential.id,
@@ -254,8 +231,11 @@ async function restorePrfBackup(
     },
     mnemonic,
     ethereumAddress,
-    walletPrfOutput
+    walletPrfOutput,
+    allowAddressChange
   );
+
+  new BackupManager().markBackupVerified(ethereumAddress);
 
   return { mnemonic, ethereumAddress };
 }
@@ -266,17 +246,30 @@ async function restorePrfBackup(
  * under the key derived from `prfOutput` and starts a session. The wallet
  * is stored before the passkey points at it, and the passkey's previous
  * wallet is deleted only after. Without `prfOutput`, the wallet and the
- * session stay in memory only and an existing passkey's data is kept.
+ * session stay in memory only.
+ *
+ * @throws AddressChangeError if the passkey has another wallet on this device and `allowAddressChange` is false
+ * @throws PrfUnsupportedError if it has another wallet and there is no `prfOutput` to store the new one with
  */
 async function bootstrapCredential(
   ctx: SdkContext,
   credential: { id: string; publicKey: string; username: string },
   mnemonic: string,
   ethereumAddress: string,
-  prfOutput?: ArrayBuffer
+  prfOutput: ArrayBuffer | undefined,
+  allowAddressChange: boolean
 ): Promise<void> {
   const storage = new CredentialStorage();
   const stored = await storage.getCredentialById(credential.id);
+  const addressChanged =
+    !!stored && stored.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase();
+
+  if (addressChanged && (!allowAddressChange || !prfOutput)) {
+    if (prfOutput) new Uint8Array(prfOutput).fill(0);
+    throw allowAddressChange
+      ? new PrfUnsupportedError(credential.id)
+      : new AddressChangeError(stored!.ethereumAddress, ethereumAddress);
+  }
 
   if (prfOutput) {
     await ctx.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
@@ -294,7 +287,7 @@ async function bootstrapCredential(
       createdAt: now,
       lastUsed: now,
     });
-  } else if (prfOutput && stored.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
+  } else if (addressChanged) {
     await storage.updateCredentialAddress(credential.id, ethereumAddress);
     await ctx.walletStorage.delete(stored.ethereumAddress);
   }

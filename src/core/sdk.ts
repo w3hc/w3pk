@@ -1599,6 +1599,7 @@ export class Web3Passkey {
    * @throws UnsupportedBackupVersionError for a file that isn't BackupFile v3
    * @throws SyncBootstrapError ('CREDENTIAL_MISMATCH') for a PRF backup of another passkey than the logged-in one
    * @throws AddressChangeError for a backup of another address without `allowAddressChange`
+   * @throws AuthenticationError if the passkey prompt is cancelled, and PrfUnsupportedError if the authenticator returns no PRF output, when logged in (nothing stored changes)
    */
   async restoreFromBackupFile(
     backupData: string | Blob,
