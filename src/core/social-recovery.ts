@@ -18,9 +18,8 @@ export async function setupSocialRecovery(
     throw new WalletError("Must be authenticated to set up social recovery");
   }
 
-  if (!password) {
-    throw new WalletError("Password required for social recovery");
-  }
+  const { assertStrongPassword } = await import("../backup/encryption");
+  assertStrongPassword(password);
 
   const mnemonic = await ctx.getMnemonicFromSession(true);
 

@@ -1529,6 +1529,7 @@ export class Web3Passkey {
    * restores without a passkey. A PRF backup comes from exportForSync().
    *
    * @param password - Encrypts the backup
+   * @throws WeakPasswordError when isStrongPassword() refuses the password, with its feedback
    */
   async createBackupFile(password: string): Promise<{ blob: Blob; filename: string }> {
     if (arguments.length > 1) {
@@ -1546,6 +1547,7 @@ export class Web3Passkey {
    * @param guardians - List of guardian names/emails
    * @param threshold - Number of guardians required to recover (M-of-N)
    * @param password - Encrypts the backup that the guardians' shares rebuild
+   * @throws WeakPasswordError when isStrongPassword() refuses the password, with its feedback
    */
   async setupSocialRecovery(
     guardians: { name: string; email?: string }[],
@@ -1677,6 +1679,7 @@ export class Web3Passkey {
    *
    * @param password - Fallback password when PRF is unavailable
    * @throws PrfUnsupportedError when PRF is unavailable and no password is given
+   * @throws WeakPasswordError when isStrongPassword() refuses the password, with its feedback
    */
   async exportForSync(
     password?: string

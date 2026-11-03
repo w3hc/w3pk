@@ -36,9 +36,8 @@ export async function createBackupFile(ctx: SdkContext, password: string): Promi
   if (!ctx.currentUser) {
     throw new WalletError("Must be authenticated to create backup");
   }
-  if (!password) {
-    throw new WalletError("Password required for password-based backup");
-  }
+  const { assertStrongPassword } = await import("../backup/encryption");
+  assertStrongPassword(password);
 
   const mnemonic = await ctx.getMnemonicFromSession(true);
 
@@ -371,6 +370,10 @@ export async function exportForSync(
 ): Promise<{ blob: Blob; filename: string; qrCode?: string }> {
   if (!ctx.currentUser) {
     throw new WalletError("Must be authenticated to export for sync");
+  }
+  if (password) {
+    const { assertStrongPassword } = await import("../backup/encryption");
+    assertStrongPassword(password);
   }
 
   // The PRF assertion below is the fresh user verification, so a cached
