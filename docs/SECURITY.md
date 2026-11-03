@@ -1218,7 +1218,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │  │   privateKey: <HARDWARE_PROTECTED>,    // SECRET       │ │
 │  │   rpId: "example.com",                  // Bound       │ │
 │  │   credentialId: "credential-abc123",    // PUBLIC      │ │
-│  │   userHandle: "alice"                   // PUBLIC      │ │
+│  │   userHandle: <32 random bytes>         // PUBLIC      │ │
 │  │ }                                                        │ │
 │  │                                                          │ │
 │  │ ✅ Private key CANNOT be exported                       │ │

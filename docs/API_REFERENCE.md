@@ -2730,7 +2730,7 @@ Sync wallet to this device using an existing cloud-synced passkey and a backup f
 
 **Use case:** New device that already has a passkey synced via iCloud/Google Password Manager. The user provides their backup file; the SDK prompts them to select the passkey, decrypts the backup, saves the passkey's metadata if this device has none, stores wallet data locally, starts a session and fires `onAuthStateChanged(true, user)`.
 
-A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`), and the username comes from the passkey's user handle. In both cases the backup's public key is checked against the assertion's signature.
+A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`), and the username comes from the passkey's user handle when the passkey was registered before 0.11.1, else it's the wallet's address. Since 0.11.1 the user handle is 32 random bytes: WebAuthn requires it to hold no personal information. In both cases the backup's public key is checked against the assertion's signature.
 
 **Parameters:**
 - `backupData: string | Blob` - Backup file content (JSON string or Blob)
