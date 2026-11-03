@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Signs with the key of `getOriginSpecificAddress(mnemonic, origin, mode, tag)`, the address `sendTransaction()` uses; new `options.mode` and `options.tag` (default `STANDARD` / `MAIN`); `PRIMARY` mode is refused
   - Every call runs a fresh passkey assertion, even with an active session; the `requireAuth` option is removed
   - `params.privateKey` still signs with the given key, without a prompt
+- **`importMnemonic()` stores the imported wallet under its own address** ([#225](https://github.com/w3hc/w3pk/issues/225)). It stored the phrase under the logged-in address and never updated the credential, `user` or the in-memory wallet, so the app showed an address whose mnemonic was gone; without a PRF output, it deleted the stored wallet
+  - The phrase must be a valid BIP39 mnemonic (checksum checked), before any prompt
+  - The assertion must come from the logged-in passkey; the new wallet is stored before the passkey points at it, and the old one is deleted only after. Importing is an explicit replace, so no `allowAddressChange` is needed; `onAuthStateChanged(true, user)` fires with the new address
+  - Without a PRF output, nothing stored changes and `PrfUnsupportedError` is thrown; errors are no longer wrapped in a generic `WalletError`
+  - `test/import-mnemonic.test.ts` covers the replacement, the missing PRF, a cancelled prompt, another passkey and invalid phrases
 
 ### Added
 
