@@ -155,16 +155,7 @@ export class StealthAddressModule {
       // Get mnemonic from session (or authenticate if needed/forced)
       const mnemonic = await this.getMnemonic(options?.requireAuth);
 
-      const stealthKeys = deriveStealthKeys(mnemonic);
-
-      // Check if this announcement is for us (with view tag optimization)
-      const parseResult = checkStealthAddress(
-        stealthKeys.viewingKey,
-        stealthKeys.spendingPubKey,
-        announcement.ephemeralPublicKey,
-        announcement.stealthAddress,
-        announcement.viewTag
-      );
+      const parseResult = checkAnnouncement(deriveStealthKeys(mnemonic), announcement);
 
       if (!parseResult.isForUser) {
         return { isForUser: false };
@@ -222,14 +213,7 @@ export class StealthAddressModule {
 
       const stealthKeys = deriveStealthKeys(mnemonic);
 
-      const parseResult = checkStealthAddress(
-        stealthKeys.viewingKey,
-        stealthKeys.spendingPubKey,
-        announcement.ephemeralPublicKey,
-        announcement.stealthAddress,
-        announcement.viewTag
-      );
-      if (!parseResult.isForUser) {
+      if (!checkAnnouncement(stealthKeys, announcement).isForUser) {
         throw new Error("Announcement is not for this user");
       }
 
@@ -322,6 +306,16 @@ export class StealthAddressModule {
   get isAvailable(): boolean {
     return true;
   }
+}
+
+function checkAnnouncement(stealthKeys: StealthKeys, announcement: Announcement) {
+  return checkStealthAddress(
+    stealthKeys.viewingKey,
+    stealthKeys.spendingPubKey,
+    announcement.ephemeralPublicKey,
+    announcement.stealthAddress,
+    announcement.viewTag
+  );
 }
 
 // Export types for stealth module
