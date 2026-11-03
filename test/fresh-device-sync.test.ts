@@ -292,6 +292,23 @@ async function runTests() {
       ).getCredentialById(CREDENTIAL_ID);
       assert(stored?.username === USERNAME, "credential metadata has the backup's username");
 
+      localStorage.clear();
+      const now = new Date().toISOString();
+      await new CredentialStorage(localStorage as unknown as Storage).saveCredential({
+        id: "another-passkey",
+        publicKey,
+        username: USERNAME,
+        ethereumAddress: Wallet.createRandom().address,
+        createdAt: now,
+        lastUsed: now,
+      });
+      const taken = freshSdk();
+      await taken.sdk.syncWalletWithPasskey(json, PASSWORD);
+      assert(
+        taken.sdk.user?.username === ADDRESS,
+        "a username another passkey has on this device falls back to the address"
+      );
+
       for (const [label, backup] of [
         ["without a username", noUsernameJson],
         ["with an invalid username", invalidUsernameJson],
