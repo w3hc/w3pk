@@ -148,7 +148,7 @@ m/44'/60'/0'/0/2  ← Third address
 
 **Purpose**: Link WebAuthn authentication to wallet encryption
 
-**Implementation**: [src/wallet/crypto.ts](src/wallet/crypto.ts) (`deriveWalletKey`)
+**Implementation**: [src/wallet/crypto.ts](../src/wallet/crypto.ts) (`deriveWalletKey`)
 
 **Process**:
 ```typescript
@@ -492,7 +492,7 @@ const signedTx = await wallet.signTransaction(tx);
 
 ### Encryption Key Derivation (PRF + HKDF)
 
-**Implementation**: [src/wallet/crypto.ts](src/wallet/crypto.ts)
+**Implementation**: [src/wallet/crypto.ts](../src/wallet/crypto.ts)
 
 ```javascript
 // PRF_INPUT = "w3pk-prf-input-v1"; the browser sends the authenticator
@@ -623,9 +623,9 @@ Situation:
 
 Recovery Steps:
   1. Login with existing passkey ✅
-  2. Call w3pk.exportMnemonic() ✅
-  3. Write down 12 words immediately ✅
-  4. Store backup securely ✅
+  2. Call w3pk.createBackupFile(password) ✅
+  3. Save the file and remember the password ✅
+  4. Optionally set up social recovery ✅
 
 Result: ✅ Can create new backup
 Warning: Do this ASAP before losing device!
@@ -814,9 +814,9 @@ encryptionKey = HKDF-SHA256(prfOutput, salt = 0^32, info = "w3pk-prf-wallet-key-
 
 ## Further Reading
 
-- [SECURITY.md](./docs/SECURITY.md) - Complete security documentation
-- [RECOVERY.md](./docs/RECOVERY.md) - Backup and recovery guide
-- [API_REFERENCE.md](./docs/API_REFERENCE.md) - Full API documentation
+- [SECURITY.md](./SECURITY.md) - Complete security documentation
+- [RECOVERY.md](./RECOVERY.md) - Backup and recovery guide
+- [API_REFERENCE.md](./API_REFERENCE.md) - Full API documentation
 - [WebAuthn Spec](https://www.w3.org/TR/webauthn-2/) - W3C standard
 - [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) - Mnemonic specification
 - [BIP44](https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki) - HD wallet paths

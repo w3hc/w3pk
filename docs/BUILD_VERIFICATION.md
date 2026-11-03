@@ -500,4 +500,4 @@ If fetching fails:
 
 - [Security Documentation](./SECURITY.md)
 - [API Reference](./API_REFERENCE.md)
-- [Examples](/examples/verify-build-hash.ts)
+- [Examples](../examples/verify-build-hash.ts)

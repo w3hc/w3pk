@@ -107,7 +107,7 @@ const strictWallet = await w3pk.deriveWallet('STRICT', 'SECURE')
 console.log(mainWallet.address !== gamingWallet.address) // true
 ```
 
-**Security:** Master mnemonic is never exposed. Applications cannot access `exportMnemonic()`, and restores (`restoreFromBackupFile()`, `syncWalletWithPasskey()`, `recoverFromGuardians()`) return only the address.
+**Security:** Master mnemonic is never exposed. No method returns it, and restores (`restoreFromBackupFile()`, `syncWalletWithPasskey()`, `recoverFromGuardians()`) return only the address.
 
 ### Message Signing
 

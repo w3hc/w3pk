@@ -623,7 +623,7 @@ if (!isStrongPassword(password)) {
   throw new Error('Password does not meet security requirements')
 }
 
-const blob = await w3pk.createZipBackup(password)
+const { blob, filename } = await w3pk.createBackupFile(password)
 ```
 
 **Password requirements** ([NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) §3.1.1.2, [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)):
@@ -636,10 +636,10 @@ const blob = await w3pk.createZipBackup(password)
 ## 📖 Technical Implementation
 
 ### Files Created
-- [src/backup/backup-file.ts](src/backup/backup-file.ts) - Core backup file manager
-- [src/sync/backup-sync.ts](src/sync/backup-sync.ts) - Cross-device sync
-- [src/recovery/backup-based-recovery.ts](src/recovery/backup-based-recovery.ts) - Social recovery
-- [test/backup-file.test.ts](test/backup-file.test.ts) - Test suite
+- [src/backup/backup-file.ts](../src/backup/backup-file.ts) - Core backup file manager
+- [src/sync/backup-sync.ts](../src/sync/backup-sync.ts) - Cross-device sync
+- [src/recovery/backup-based-recovery.ts](../src/recovery/backup-based-recovery.ts) - Social recovery
+- [test/backup-file.test.ts](../test/backup-file.test.ts) - Test suite
 
 ### Key Classes
 - `BackupFileManager` - Create and restore backup files
@@ -894,7 +894,10 @@ Verification proves that your backup actually works, increasing your security sc
 ### Checking Your Score
 
 ```typescript
-const sdk = new W3PK();
+import { createWeb3Passkey } from 'w3pk';
+
+const sdk = createWeb3Passkey();
+await sdk.login();
 const status = await sdk.getBackupStatus();
 
 console.log(status.securityScore);

@@ -147,25 +147,19 @@ W3PK provides encrypted backup functionality to allow users to export and import
 #### Creating Backups
 
 ```typescript
-import { W3PK } from 'w3pk-sdk';
+import { createWeb3Passkey } from 'w3pk';
 
-const sdk = new W3PK({
-  credentialName: 'MyApp',
-  rpcUrl: 'https://your-rpc-url'
-});
+const sdk = createWeb3Passkey();
+await sdk.login();
 
-// Create encrypted backup
-const password = 'User-Provided-Backup-1!';
-const backupData = await sdk.createBackupFile(password);
+// Create encrypted backup (prompts for the passkey)
+const { blob, filename } = await sdk.createBackupFile(userPassword);
 
 // Save to file
-const blob = new Blob([JSON.stringify(backupData, null, 2)], {
-  type: 'application/json'
-});
 const url = URL.createObjectURL(blob);
 const a = document.createElement('a');
 a.href = url;
-a.download = `w3pk_backup_${new Date().toISOString().split('T')[0]}.json`;
+a.download = filename;
 a.click();
 URL.revokeObjectURL(url);
 ```
@@ -176,32 +170,16 @@ URL.revokeObjectURL(url);
 // Read backup file
 const fileInput = document.getElementById('backup-file-input');
 const file = fileInput.files[0];
-const backupData = JSON.parse(await file.text());
 
-// Restore wallet
-const password = 'User-Provided-Backup-1!';
-await sdk.restoreFromBackupFile(backupData, password);
-
-// Wallet is now restored and ready to use
-const address = await sdk.getAddress();
-console.log('Restored wallet address:', address);
+// Restore wallet: logged out, the wallet waits for register();
+// logged in, it replaces the stored wallet after a passkey prompt
+const { ethereumAddress } = await sdk.restoreFromBackupFile(file, userPassword);
+console.log('Restored wallet address:', ethereumAddress);
 ```
 
 #### Backup File Structure
 
-```json
-{
-  "version": "1.0",
-  "timestamp": "2025-12-26T10:30:00Z",
-  "encryptedData": {
-    "mnemonic": "encrypted-mnemonic-data",
-    "credentialInfo": "encrypted-credential-data",
-    "metadata": "encrypted-metadata"
-  },
-  "salt": "random-salt-for-encryption",
-  "iv": "initialization-vector"
-}
-```
+See [Backup File Format (v3)](./RECOVERY.md#-backup-file-format-v3).
 
 #### UI/UX Best Practices
 
@@ -239,7 +217,7 @@ console.log('Restored wallet address:', address);
 
 ```typescript
 try {
-  await sdk.restoreFromBackupFile(backupData, password);
+  await sdk.restoreFromBackupFile(file, password);
 } catch (error) {
   if (error.message.includes('password')) {
     // Incorrect password

@@ -5,7 +5,7 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.1] - 2026-11-03
 
 ### Security
 
@@ -165,6 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `buildMerkleTree()`, `buildNFTHoldersMerkleTree()`, the NFT ownership proof inputs and `verifyNFTOwnership()` used `bufferToBigInt()` on those bytes, which gave a different number than the circuit; their roots, leaves and hashes change
   - Commitments, roots and NFT hashes stored before this release don't match the new values and must be recomputed
 - **No dead links in `docs/EIP-7951.md`** ([#213](https://github.com/w3hc/w3pk/issues/213)): the Examples section, whose three files never existed, is gone, and the API reference link points to the `signMessageWithPasskey()` heading
+- **The docs call only methods `Web3Passkey` exposes, and their relative links resolve** ([#251](https://github.com/w3hc/w3pk/issues/251)): `exportMnemonic()`, `createZipBackup()`, `generateWallet()` and `restoreFromBackup()` are gone from `README.md`, `CONTRIBUTING.md` and `docs/`, `deriveWallet()` examples pass a security mode instead of an index, and `register()` and `signMessage()` examples use their real return values. Dead links in `docs/EIP_7702.md`, `docs/ARCHITECTURE.md`, `docs/RECOVERY.md` and the API reference anchors are fixed
 
 ## [0.11.0] - 2026-11-02
 

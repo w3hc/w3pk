@@ -126,7 +126,7 @@ w3pk now uses **origin-centric security modes** for wallet derivation:
 ### Application Security Guarantees
 
 **What applications CANNOT access:**
-- ❌ Master mnemonic (permanently disabled via `exportMnemonic()`)
+- ❌ Master mnemonic (no method returns it: restores return only the address)
 - ❌ Private keys in STANDARD mode
 - ❌ Private keys in STRICT mode
 - ❌ Private keys from other origins
@@ -492,13 +492,13 @@ await w3pk.login()  // ⚠️ Prompts the user, who may accept
 ```typescript
 // Attacker with XSS access during active session:
 if (w3pk.hasActiveSession()) {
-  const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
+  const { privateKey } = await w3pk.deriveWallet('YOLO', 'MAIN', { requireAuth: false })
   // ⚠️ SUCCESS - Session allows access, requireAuth is bypassable
-  sendToAttacker(mnemonic)
+  sendToAttacker(privateKey)
 }
 
 // After session expires:
-const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
+await w3pk.deriveWallet('YOLO', 'MAIN', { requireAuth: false })
 // ❌ BLOCKED - Session expired, triggers authentication prompt
 ```
 
@@ -523,7 +523,7 @@ const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
 - Can be trivially bypassed by code injection:
   ```typescript
   // Attacker bypasses requireAuth
-  await w3pk.exportMnemonic({ requireAuth: false })  // ✅ Bypassed
+  await w3pk.deriveWallet('YOLO', 'MAIN', { requireAuth: false })  // ✅ Bypassed
   ```
 - Only protects against honest mistakes, not malicious attacks
 - Think: seatbelt reminder, not bulletproof vest
@@ -733,22 +733,17 @@ await walletClient.sendTransaction({
 **For derived and stealth addresses:**
 
 ```typescript
-// GOOD: Derive key only when needed, clear immediately
-const mnemonic = await w3pk.exportMnemonic({ requireAuth: true })
-const { privateKey } = deriveWalletFromMnemonic(mnemonic, 5)
+// GOOD: Let the SDK sign; the key never reaches the app
+const auth = await w3pk.signAuthorization(
+  { contractAddress: govContract, chainId: 1 },
+  { mode: 'STANDARD', tag: 'GOVERNANCE' }
+)
 
-const auth = await w3pk.signAuthorization({
-  contractAddress: govContract,
-  chainId: 1,
-  privateKey
-})
+// Stealth payments are signed inside the SDK too
+const rawTx = await w3pk.stealth.signTransaction(announcement, tx)
 
-// Clear sensitive data (JS engine will garbage collect)
-privateKey = null
-mnemonic = null
-
-// BAD: Store private keys long-term
-localStorage.setItem('privateKey', privateKey)  // ❌ NEVER DO THIS
+// BAD: Store private keys long-term (e.g. a YOLO key)
+localStorage.setItem('privateKey', yoloWallet.privateKey)  // ❌ NEVER DO THIS
 ```
 
 #### 5. User Education
@@ -872,7 +867,7 @@ async function authorizeGovernanceContract() {
 
 **For more details, see:**
 - [EIP-7702 Complete Guide](./EIP_7702.md)
-- [signAuthorization() API Reference](./API_REFERENCE.md#signauthorization)
+- [signAuthorization() API Reference](./API_REFERENCE.md#signauthorizationparams-signauthorizationparams-options--mode-securitymode-tag-string--promiseeip7702authorization)
 - [EIP-7702 Specification](https://eips.ethereum.org/EIPS/eip-7702)
 
 ---
@@ -1455,9 +1450,9 @@ await w3pk.login()
 ```javascript
 // XSS attack on legitimate.com
 if (w3pk.hasActiveSession()) {
-  // If session is active, attacker can access wallet
-  const mnemonic = await w3pk.exportMnemonic()
-  sendToAttacker(mnemonic)  // ⚠️ SUCCESS during active session
+  // If session is active, attacker can use the wallet
+  const { privateKey } = await w3pk.deriveWallet('YOLO')
+  sendToAttacker(privateKey)  // ⚠️ SUCCESS during active session
 }
 ```
 
@@ -1570,13 +1565,13 @@ const w3pk = new Web3Passkey({
 })
 
 // After login, operations work without repeated authentication
-await w3pk.login()              // ✅ Requires biometric
-await w3pk.deriveWallet(0)      // ✅ Uses session (no prompt)
-await w3pk.exportMnemonic()     // ✅ Uses session (no prompt)
-await w3pk.stealth.getKeys()    // ✅ Uses session (no prompt)
+await w3pk.login()                   // ✅ Requires biometric
+await w3pk.deriveWallet()            // ✅ Uses session (no prompt)
+await w3pk.signMessage('Hello')      // ✅ Uses session (no prompt)
+await w3pk.stealth.getKeys()         // ✅ Uses session (no prompt)
 
 // Session expires after 1 hour - next operation will prompt
-await w3pk.deriveWallet(1)      // ✅ Prompts for biometric (session expired)
+await w3pk.deriveWallet('STANDARD', 'GAMING') // ✅ Prompts for biometric (session expired)
 ```
 
 ### Session Security
@@ -1660,9 +1655,8 @@ Developers can require fresh authentication for specific operations, even when a
 
 ```typescript
 // Force authentication for sensitive operations
-await w3pk.exportMnemonic({ requireAuth: true })
 await w3pk.signMessage('Transfer $1000', { requireAuth: true })
-await w3pk.deriveWallet(5, { requireAuth: true })
+await w3pk.deriveWallet('STANDARD', 'SAVINGS', { requireAuth: true })
 await w3pk.stealth.getKeys({ requireAuth: true })
 
 // Example: Context-based security
@@ -1678,12 +1672,11 @@ async function transferFunds(amount: number, recipient: string) {
   // ... submit transaction with result.signature
 }
 
-// Example: Time-based security
-async function exportBackup() {
-  // Always require fresh auth for backup exports
-  const mnemonic = await w3pk.exportMnemonic({ requireAuth: true })
+// Example: Backup exports always prompt, even during a session
+async function exportBackup(password: string) {
+  const { blob, filename } = await w3pk.createBackupFile(password)
 
-  // ... show mnemonic to user
+  // ... let the user save the file
 }
 ```
 
@@ -1742,11 +1735,11 @@ await w3pk.signMessage('Steal funds', { requireAuth: false })
 
 ```typescript
 // Scenario: Malicious browser extension active session
-// Attacker can steal mnemonic during session window
+// Attacker can steal YOLO keys during session window
 setInterval(async () => {
   if (w3pk.hasActiveSession()) {
-    const mnemonic = await w3pk.exportMnemonic({ requireAuth: false })
-    sendToAttacker(mnemonic) // ❌ Stolen!
+    const { privateKey } = await w3pk.deriveWallet('YOLO', 'MAIN', { requireAuth: false })
+    sendToAttacker(privateKey) // ❌ Stolen!
   }
 }, 1000)
 
@@ -1754,7 +1747,7 @@ setInterval(async () => {
 const w3pk = new Web3Passkey({ sessionDuration: 0.1 }) // 6 minutes
 
 // Scenario: XSS attack + expired session
-await w3pk.exportMnemonic({ requireAuth: false })
+await w3pk.deriveWallet('YOLO', 'MAIN', { requireAuth: false })
 // ✅ Session expired - user sees authentication prompt
 // ⚠️  User might authenticate thinking it's legitimate
 
@@ -2144,7 +2137,7 @@ class IntegrityChecker {
     // Calculate hash of critical functions
     const criticalCode = [
       w3pk.signMessage.toString(),
-      w3pk.exportMnemonic.toString(),
+      w3pk.sendTransaction.toString(),
     ].join('')
 
     return this.hash(criticalCode)
@@ -2183,7 +2176,7 @@ Object.freeze(String.prototype)
 
 // Freeze critical SDK methods
 Object.freeze(w3pk.signMessage)
-Object.freeze(w3pk.exportMnemonic)
+Object.freeze(w3pk.sendTransaction)
 Object.freeze(w3pk.deriveWallet)
 ```
 
@@ -2296,7 +2289,7 @@ class SecurityMonitor {
 }
 
 const monitor = new SecurityMonitor()
-monitor.trackOperation('exportMnemonic')
+monitor.trackOperation('createBackupFile')
 ```
 
 ### Summary: Security Checklist
@@ -2781,7 +2774,7 @@ if (!isStrongPassword(password)) {
 }
 
 // Now safe to create backup
-const blob = await w3pk.createZipBackup(password)
+const { blob, filename } = await w3pk.createBackupFile(password)
 ```
 
 **Examples:**
@@ -2946,8 +2939,8 @@ score = 0
 **1. Use multiple layers:**
 ```typescript
 // ✅ GOOD: Enable all three layers
-await w3pk.setupSocialRecovery([...guardians], 3, 'MyS3cur3!Backup@2024')
-await w3pk.createZipBackup('MyS3cur3!Backup@2024')
+await w3pk.setupSocialRecovery([...guardians], 3, backupPassword)
+await w3pk.createBackupFile(backupPassword)
 // Passkey sync enabled by default on platform
 
 // ❌ BAD: Rely on single layer
@@ -3025,9 +3018,9 @@ console.log('Can recover?', test2.success)
 **All backup operations require authentication:**
 ```typescript
 // These operations trigger biometric prompt
-await w3pk.createZipBackup(password)        // ✅ Auth required
+await w3pk.createBackupFile(password)       // ✅ Auth required
 await w3pk.setupSocialRecovery(...)         // ✅ Auth required
-await w3pk.exportMnemonic()                 // ✅ Auth required
+await w3pk.exportForSync(password)          // ✅ Auth required
 
 // Read-only operations don't require auth
 await w3pk.getBackupStatus()                // ✅ No auth needed
@@ -3037,15 +3030,14 @@ await w3pk.getBackupStatus()                // ✅ No auth needed
 ⚠️ **Important:** Password strength is checked in the browser. A determined attacker with code execution could bypass validation and create backups with weak passwords.
 
 **Mitigation:**
-- Use `requireAuth: true` for backup creation
 - Short session durations
 - XSS/injection protection (CSP, input sanitization)
 - Educate users on password strength
 
-**Recovery operations don't require authentication:**
+**Recovery operations don't require a login:**
 ```typescript
-// Recovery from existing backups is public
-await w3pk.restoreFromBackup(encryptedData, password)
+// Recovery from existing backups works logged out
+await w3pk.restoreFromBackupFile(backupFile, password)
 await w3pk.recoverFromGuardians([shares...], password)
 
 // Rationale: If user has backup data + password/shares,

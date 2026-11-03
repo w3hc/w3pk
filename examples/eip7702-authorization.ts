@@ -20,7 +20,7 @@ async function example() {
   // In a real app, you would call:
   // await sdk.register({ username: "alice" });
   // or
-  // await sdk.login("alice");
+  // await sdk.login();
 
   // Step 2: Sign an EIP-7702 authorization
   console.log("\nStep 2: Sign Authorization");
