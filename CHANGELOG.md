@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Only HTTPS RPC endpoints are used, and endpoints set by the app come first** ([#228](https://github.com/w3hc/w3pk/issues/228)). `sendTransaction()` used the first chainid.network endpoint, `http://` ones included, and took nonce and fee data from it
   - `getEndpoints()` keeps only `https://` endpoints without API key placeholders
   - New `rpcUrls: Record<number, string[]>` config option: `sendTransaction()` uses a per-call `rpcUrl`, then `rpcUrls[chainId][0]`, then chainid.network; `w3pk.getEndpoints()` lists the app's endpoints first and keeps them when chainid.network can't be reached
-- **`stealth.getKeys()` no longer returns the spending private key** ([#228](https://github.com/w3hc/w3pk/issues/228)). It returns the meta-address, both public keys and the viewing key. The docs say stealth keys are shared across origins and that the viewing key and any stealth private key from `parseAnnouncement()` are enough to compute the spending key, so only apps trusted with stealth funds should enable stealth addresses
+- **`stealth.getKeys()` no longer returns the spending private key** ([#228](https://github.com/w3hc/w3pk/issues/228)). It returns the meta-address, both public keys and the viewing key. The docs say stealth keys are shared across origins and that the viewing key and any stealth private key are enough to compute the spending key, so only apps trusted with stealth funds should enable stealth addresses
 - **The `zkProve()` circuit trust limit is documented** ([#228](https://github.com/w3hc/w3pk/issues/228)): it only refuses public signals equal to the secret or a random input, and a circuit can output any other function of the secret, the Semaphore secret included, so apps must only prove with circuits they trust
 - **Assertions are checked against the request that asked for them** ([#229](https://github.com/w3hc/w3pk/issues/229)). `verifyAssertionSignature()` ignored `clientDataJSON` and the user-presence flag; it now takes the challenge it answers and rejects a `type` other than `webauthn.get`, another challenge, another origin, or a missing UP flag. `login()`, `syncWalletWithPasskey()` and `importFromSync()` pass their challenge; UV handling is unchanged
 - **SIWE checks** ([#229](https://github.com/w3hc/w3pk/issues/229))
@@ -54,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `verifyBuildHash()` and `getCurrentBuildHash()` hash the package on unpkg, not the code running in the page
   - Logout drops the session's mnemonic but can't wipe it from memory: JS strings are immutable
 - The guardian share document states the actual threshold instead of `${shareIndex}-of-N` ([#229](https://github.com/w3hc/w3pk/issues/229))
+- **`stealth.parseAnnouncement()` and `stealth.scanAnnouncements()` no longer return stealth private keys** ([#244](https://github.com/w3hc/w3pk/issues/244)). A stealth private key minus the shared-secret hash, which the viewing key computes, is the spending key, so any script on the page could recover it and spend every stealth payment
+  - `ParseAnnouncementResult` and `ParseResult` drop `stealthPrivateKey`; results carry `isForUser` and `stealthAddress`
+  - New `stealth.signTransaction(announcement, tx)` signs an EIP-1559 transaction from the stealth address inside the SDK after a fresh passkey assertion, even with an active session, and returns the serialized signed transaction. It doesn't send it: the app broadcasts it with its own RPC. `tx` (`StealthTransaction`, exported from `w3pk`) must be fully populated: `to`, `chainId`, `nonce`, `gasLimit`, `maxFeePerGas`, `maxPriorityFeePerGas`, with optional `value` and `data`
 
 ### Added
 
