@@ -12,6 +12,7 @@ import {
   validatePasswordStrength,
   deriveAddressChecksum,
 } from '../src/backup/encryption';
+import { isStrongPassword } from '../src/utils/validation';
 import {
   startTestSuite,
   endTestSuite,
@@ -28,13 +29,48 @@ async function runTests() {
 
   // Test 1: Password Validation
   await runTest('Password Strength Validation', async () => {
-    const weakPassword = validatePasswordStrength('password');
-    assert(!weakPassword.valid, 'Weak password should be rejected');
-    assert(weakPassword.score < 50, 'Weak password score should be low');
+    for (const accepted of [
+      'correct horse battery staple',
+      'violet lantern under seven bridges',
+      'mot de passe très long',
+      'パスワードはとても長いですよね本当に',
+      'xy'.repeat(128),
+    ]) {
+      const result = validatePasswordStrength(accepted);
+      assert(result.valid, `"${accepted}" accepted`);
+      assertEqual(result.feedback.length, 0, `"${accepted}": no feedback`);
+    }
 
-    const strongPassword = validatePasswordStrength('TestStrongPass123!NotReal');
-    assert(strongPassword.valid, 'Strong password should be valid');
-    assert(strongPassword.score >= 50, 'Strong password score should be high');
+    const short = validatePasswordStrength('Sh0rt!Passw0rd');
+    assert(!short.valid, '14 characters refused');
+    assert(short.feedback.includes('Password must be at least 15 characters'), 'feedback names the minimum');
+
+    const emoji = validatePasswordStrength('🔑🔒'.repeat(8).slice(0, 30));
+    assert(emoji.valid, 'length counts code points, not UTF-16 units');
+    assert(!validatePasswordStrength('🔑🔒'.repeat(7)).valid, '14 emoji refused');
+
+    const decomposed = 'e\u0301a'.repeat(8).slice(0, 23);
+    assert(validatePasswordStrength(decomposed).valid, 'length is counted after NFC normalization');
+    assert(!validatePasswordStrength('e\u0301a'.repeat(7)).valid, '14 NFC characters refused');
+
+    const repeated = validatePasswordStrength('a'.repeat(17));
+    assert(!repeated.valid, 'a single repeated character is refused');
+    assert(repeated.feedback.includes('Password must not repeat a single character'), 'feedback names the repetition');
+
+    const long = validatePasswordStrength('xy'.repeat(128) + 'z');
+    assert(!long.valid, '257 characters refused');
+    assert(long.feedback.includes('Password must be at most 256 characters'), 'feedback names the maximum');
+
+    for (const common of ['passwordpassword', 'PasswordPassword', 'password password', 'Password-Password', '1qaz2wsx3edc4rfv', '123456789987654321']) {
+      const result = validatePasswordStrength(common);
+      assert(!result.valid, `"${common}" refused`);
+      assert(result.feedback.includes('Password is too common'), `"${common}": feedback names the list`);
+    }
+    assert(validatePasswordStrength('my passwordpassword is long').valid, 'only a whole match is refused');
+
+    assert(isStrongPassword('correct horse battery staple'), 'isStrongPassword accepts a passphrase');
+    assert(!isStrongPassword('Sh0rt!Passw0rd'), 'isStrongPassword refuses a short password');
+    assert(!isStrongPassword('passwordpassword'), 'isStrongPassword refuses a common password');
 
     passTest('Password validation working correctly');
   });
