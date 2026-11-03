@@ -12,6 +12,7 @@ import {
 } from "../utils/base64";
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
+import { parseDerSignature } from "../utils/crypto";
 
 export async function login(
   userVerification: UserVerificationRequirement = "required"
@@ -222,7 +223,10 @@ export async function verifyAssertionSignature(
     signedData.set(authDataBytes, 0);
     signedData.set(new Uint8Array(clientDataHash), authenticatorData.byteLength);
 
-    const rawSignature = derToRaw(new Uint8Array(assertion.response.signature));
+    const { r, s } = parseDerSignature(new Uint8Array(assertion.response.signature));
+    const rawSignature = new Uint8Array(64);
+    rawSignature.set(r, 0);
+    rawSignature.set(s, 32);
 
     return await crypto.subtle.verify(
       {
@@ -271,31 +275,4 @@ function arrayEquals(a: Uint8Array, b: Uint8Array): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
-}
-
-function derToRaw(der: Uint8Array): ArrayBuffer {
-  let offset = 2;
-
-  offset++;
-  let rLength = der[offset++];
-  if (rLength > 32) {
-    offset++;
-    rLength--;
-  }
-  const r = der.slice(offset, offset + rLength);
-  offset += rLength;
-
-  offset++;
-  let sLength = der[offset++];
-  if (sLength > 32) {
-    offset++;
-    sLength--;
-  }
-  const s = der.slice(offset, offset + sLength);
-
-  const raw = new Uint8Array(64);
-  raw.set(r, 32 - r.length);
-  raw.set(s, 64 - s.length);
-
-  return raw.buffer;
 }
