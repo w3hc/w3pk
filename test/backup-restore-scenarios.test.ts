@@ -89,7 +89,7 @@ async function testStorageDeletionRecovery() {
 
   // Create account and backup
   const { mnemonic, address } = createTestWallet();
-  const password = 'SecurePass456!';
+  const password = 'secure pass for storage loss';
 
   console.log('  Creating account and backup...');
   const { backupFile, blob } = await manager.createPasswordBackup(
@@ -337,7 +337,7 @@ async function testBackupFileFormat() {
 
   const manager = new BackupFileManager();
   const { mnemonic, address } = createTestWallet();
-  const password = 'FormatTest123!';
+  const password = 'format test passphrase';
 
   // Create backup
   const { backupFile, json } = await manager.createPasswordBackup(
