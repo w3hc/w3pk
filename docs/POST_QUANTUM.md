@@ -117,7 +117,6 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 | --- | --- | --- | --- |
 | Wallet encryption | HKDF-SHA256 of the WebAuthn PRF output | 256-bit key material | Strong — 128-bit quantum security |
 | Backup encryption | PBKDF2-SHA256 | 310,000 iterations | Moderate |
-| Metadata encryption | PBKDF2-SHA256 | 100,000 iterations | Moderate |
 
 ### Hash functions
 

@@ -1396,122 +1396,25 @@ const stolenEncryptedSeed = "..."   // from w3pk_wallet_<address>
 
 **But** the stored public identifiers (`credentialId` + `publicKey`) are exactly the key-derivation inputs, so possessing both stores is equivalent to possessing the decryption key. The absence of a stored key object is not a security boundary here.
 
-### 3. Metadata Encryption in LocalStorage (v0.7.4+)
+### 3. Credential Metadata in LocalStorage
 
-**What changed:**
-Starting in v0.7.4, w3pk encrypts sensitive metadata (usernames and Ethereum addresses) in localStorage to prevent XSS attacks from correlating user identities to wallet addresses.
+Credential metadata is stored in plain text, under `w3pk_credential_<hash>`, where `<hash>` is the base64url SHA-256 of `"w3pk-cred-id:" + credentialId`, with the credential IDs listed in `w3pk_credential_index`:
 
-**Previous storage format (before v0.7.4):**
 ```json
 {
   "id": "credential-abc123",
-  "publicKey": "MFkw...EwYH...AQAB",
-  "username": "alice",                  // ⚠️ PLAINTEXT
-  "ethereumAddress": "0x1234...5678",   // ⚠️ PLAINTEXT
-  "createdAt": 1234567890
+  "publicKey": "MFkw...AQAB",
+  "username": "alice",
+  "ethereumAddress": "0x1234...5678",
+  "createdAt": "2026-11-03T10:00:00Z",
+  "lastUsed": "2026-11-03T10:00:00Z",
+  "signCount": 12
 }
 ```
 
-**New storage format (v0.7.4+):**
-```json
-{
-  "id": "hashed-credential-id",               // SHA-256 hashed
-  "encryptedUsername": "v1kT...x3Zp",        // AES-GCM encrypted
-  "encryptedAddress": "w2sQ...y4Mp",         // AES-GCM encrypted
-  "publicKey": "MFkw...EwYH...AQAB",          // Public key (needed for key derivation)
-  "publicKeyFingerprint": "fp1kT...x3Zp",    // SHA-256 hash for verification
-  "createdAt": 1234567890,
-  "lastUsed": 1234567890
-}
-```
+**Any script on the page can read the username and Ethereum address**, and so can extensions with access to the site and anyone who can read the browser profile. `login()` reads this list before any passkey prompt to build `allowCredentials`, so the metadata can't be encrypted under a key that isn't already on the device. None of it unlocks the wallet: the mnemonic is encrypted under a key from the passkey's PRF output (see above).
 
-**Security improvements:**
-- ✅ **XSS attacks cannot correlate** usernames to addresses without credential ID
-- ✅ **Credential IDs are hashed** - attackers cannot easily enumerate credentials
-- ✅ **Public key still stored** - needed for encryption key derivation (public keys are non-sensitive)
-- ✅ **Defense in depth** - Even if XSS reads localStorage, sensitive data is encrypted
-
-**Encryption details:**
-```typescript
-// Metadata key derivation
-const keyMaterial = `w3pk-metadata-v1:${credentialId}`
-const hash = SHA-256(keyMaterial)
-
-const metadataKey = PBKDF2({
-  keyMaterial: hash,
-  salt: "w3pk-metadata-salt-v1",
-  iterations: 100000,
-  hash: "SHA-256",
-  keyLength: 256
-})
-
-// Encryption
-const encryptedUsername = AES-256-GCM(username, metadataKey)
-const encryptedAddress = AES-256-GCM(address, metadataKey)
-const hashedId = SHA-256(`w3pk-cred-id:${credentialId}`)
-const publicKeyFingerprint = SHA-256(publicKey)
-```
-
-**Why this matters:**
-
-**Before v0.7.4 - XSS correlation attack:**
-```javascript
-// Attacker injects malicious script
-const credentials = Object.keys(localStorage)
-  .filter(k => k.startsWith('w3pk_credential_'))
-  .map(k => JSON.parse(localStorage[k]))
-
-// ⚠️ Attacker now knows:
-// - All usernames
-// - All Ethereum addresses
-// - Can correlate: "alice" → "0x1234..."
-// - Can track user across different apps
-```
-
-**After v0.7.4 - XSS sees only encrypted data:**
-```javascript
-// Attacker injects malicious script
-const credentials = Object.keys(localStorage)
-  .filter(k => k.startsWith('w3pk_credential_'))
-  .map(k => JSON.parse(localStorage[k]))
-
-// ✅ Attacker only sees:
-// - Hashed credential IDs (no user info)
-// - Encrypted usernames (need credentialId to decrypt)
-// - Encrypted addresses (need credentialId to decrypt)
-// - Public key fingerprints (no correlation possible)
-// - Cannot correlate users to addresses
-```
-
-**Important notes:**
-1. **Credential ID still required for lookup** - The credential ID index stores original IDs (not encrypted) to enable O(1) lookups
-2. **Search operations are slower** - Finding a credential by username/address requires decrypting all credentials (O(n))
-3. **Not backward compatible** - Existing credentials must be re-registered (old plaintext credentials won't work)
-4. **Session-based decryption** - Metadata is decrypted on-demand using the credential ID
-
-**Threat model:**
-
-| Attack Scenario | Before v0.7.4 | After v0.7.4 |
-|-----------------|---------------|--------------|
-| XSS reads localStorage | ❌ Full correlation exposed | ✅ Only encrypted data visible |
-| XSS during active session | ❌ Can access wallet | ❌ Can still access wallet |
-| File system access only | ⚠️ Username/address visible | ✅ Only encrypted metadata |
-| File system + credential ID | ⚠️ Full access | ⚠️ Can decrypt metadata |
-
-**Performance impact:**
-- **Save credential:** ~10ms slower (encryption overhead)
-- **Get by ID:** ~5ms slower (decryption overhead)
-- **Get by username/address:** Much slower - O(1) → O(n) + decryption
-- **Get all credentials:** ~N×5ms slower (decrypt each)
-
-**Migration:**
-No automatic migration is provided (by design). Users must:
-1. Export their mnemonic before upgrading
-2. Clear old credentials
-3. Re-register with same mnemonic
-4. New encrypted storage format will be used
-
-This is a breaking change for security reasons - we don't want to risk accidentally leaving plaintext metadata.
+From v0.7.4 to v0.11.0, the username and address were encrypted under a key derived from `SHA-256("w3pk-metadata-v1:" + credentialId)`, with the credential ID stored in clear in the index, so the encryption hid nothing. Entries stored by v0.11.0 and earlier are treated as absent: after upgrading, `login()` throws `SyncRequiredError` and the wallet is restored from a backup.
 
 ### 4. Storage Architecture
 
@@ -1525,7 +1428,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │ localStorage (Origin-Scoped)                           │ │
-│  │ Key: w3pk_credential_<credentialId>                    │ │
+│  │ Key: w3pk_credential_<hashed credentialId>             │ │
 │  │                                                          │ │
 │  │ {                                                        │ │
 │  │   "id": "credential-abc123",          // PUBLIC        │ │
@@ -2872,7 +2775,7 @@ const w3pk = createWeb3Passkey({
 
 ```typescript
 // localStorage (origin-scoped by browser)
-// Key: w3pk_credential_<credentialId>
+// Key: w3pk_credential_<base64url SHA-256 of "w3pk-cred-id:" + credentialId>
 {
   "id": "credential-abc123",
   "publicKey": "MFkw...",      // Public key only

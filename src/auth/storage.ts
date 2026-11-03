@@ -1,10 +1,5 @@
 import { StorageError } from "../core/errors";
-import {
-  encryptData,
-  decryptData,
-  hashCredentialId,
-  hashPublicKey,
-} from "../wallet/crypto";
+import { hashCredentialId } from "../wallet/crypto";
 
 const STORAGE_KEY_PREFIX = "w3pk_credential_";
 const STORAGE_INDEX_KEY = "w3pk_credential_index";
@@ -17,53 +12,6 @@ export interface StoredCredential {
   createdAt: string;
   lastUsed: string;
   signCount?: number; // Signature counter for authenticator cloning detection
-}
-
-/**
- * Encrypted credential stored in localStorage
- * Prevents XSS attacks from correlating usernames to Ethereum addresses
- */
-export interface EncryptedCredential {
-  id: string; // Hashed credential ID
-  encryptedUsername: string; // AES-GCM encrypted
-  encryptedAddress: string; // AES-GCM encrypted
-  publicKey: string; // Public key (needed for encryption key derivation)
-  publicKeyFingerprint: string; // SHA-256 hash for verification
-  createdAt: string;
-  lastUsed: string;
-  signCount?: number;
-}
-
-/**
- * Derives a metadata encryption key from credential ID
- * Used to encrypt username and address fields in localStorage
- */
-async function deriveMetadataKey(credentialId: string): Promise<CryptoKey> {
-  const keyMaterial = new TextEncoder().encode(
-    `w3pk-metadata-v1:${credentialId}`
-  );
-  const hash = await crypto.subtle.digest("SHA-256", keyMaterial);
-
-  const importedKey = await crypto.subtle.importKey(
-    "raw",
-    hash,
-    { name: "PBKDF2" },
-    false,
-    ["deriveKey"]
-  );
-
-  return await crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: new TextEncoder().encode("w3pk-metadata-salt-v1"),
-      iterations: 100000,
-      hash: "SHA-256",
-    },
-    importedKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
 }
 
 export class CredentialStorage {
@@ -80,33 +28,14 @@ export class CredentialStorage {
   }
 
   /**
-   * Saves credential with encrypted metadata
-   * Username and address are encrypted to prevent XSS correlation attacks
+   * Saves a credential. Username and address are stored in plain text:
+   * any script on the page can read them
    */
   async saveCredential(credential: StoredCredential): Promise<void> {
     try {
-      const metadataKey = await deriveMetadataKey(credential.id);
       const hashedId = await hashCredentialId(credential.id);
-
-      const encryptedData: EncryptedCredential = {
-        id: hashedId,
-        encryptedUsername: await encryptData(
-          credential.username,
-          metadataKey
-        ),
-        encryptedAddress: await encryptData(
-          credential.ethereumAddress,
-          metadataKey
-        ),
-        publicKey: credential.publicKey, // Store public key (needed for key derivation)
-        publicKeyFingerprint: await hashPublicKey(credential.publicKey),
-        createdAt: credential.createdAt,
-        lastUsed: credential.lastUsed,
-        signCount: credential.signCount,
-      };
-
       const key = `${STORAGE_KEY_PREFIX}${hashedId}`;
-      this.storage.setItem(key, JSON.stringify(encryptedData));
+      this.storage.setItem(key, JSON.stringify(credential));
       await this.addToIndex(credential.id);
     } catch (error) {
       throw new StorageError("Failed to save credential", error);
@@ -114,32 +43,25 @@ export class CredentialStorage {
   }
 
   /**
-   * Retrieves and decrypts credential by original ID
+   * Retrieves a credential by original ID. Entries encrypted by v0.11.0 and
+   * earlier are treated as absent
    */
   async getCredentialById(id: string): Promise<StoredCredential | null> {
     try {
       const hashedId = await hashCredentialId(id);
       const key = `${STORAGE_KEY_PREFIX}${hashedId}`;
       const data = this.storage.getItem(key);
-      if (!data) {
+      if (!data) return null;
+      const credential = JSON.parse(data) as Partial<StoredCredential> | null;
+      if (
+        credential?.id !== id ||
+        typeof credential.publicKey !== "string" ||
+        typeof credential.username !== "string" ||
+        typeof credential.ethereumAddress !== "string"
+      ) {
         return null;
       }
-
-      const encrypted = JSON.parse(data) as EncryptedCredential;
-      const metadataKey = await deriveMetadataKey(id);
-
-      return {
-        id,
-        publicKey: encrypted.publicKey, // Return the stored public key
-        username: await decryptData(encrypted.encryptedUsername, metadataKey),
-        ethereumAddress: await decryptData(
-          encrypted.encryptedAddress,
-          metadataKey
-        ),
-        createdAt: encrypted.createdAt,
-        lastUsed: encrypted.lastUsed,
-        signCount: encrypted.signCount,
-      };
+      return credential as StoredCredential;
     } catch (error) {
       throw new StorageError("Failed to retrieve credential", error);
     }
@@ -147,7 +69,6 @@ export class CredentialStorage {
 
   /**
    * Searches for credential by username
-   * WARNING: Requires decrypting all credentials (O(n) operation)
    */
   async getCredentialByUsername(
     username: string
@@ -162,7 +83,6 @@ export class CredentialStorage {
 
   /**
    * Searches for credential by Ethereum address
-   * WARNING: Requires decrypting all credentials (O(n) operation)
    */
   async getCredentialByAddress(
     address: string
@@ -180,7 +100,7 @@ export class CredentialStorage {
   }
 
   /**
-   * Retrieves and decrypts all credentials
+   * Retrieves all credentials
    */
   async getAllCredentials(): Promise<StoredCredential[]> {
     try {

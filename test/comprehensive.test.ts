@@ -83,8 +83,8 @@ async function runTests() {
     logDetail("Security: Key derived from the passkey's PRF output");
   });
 
-  // Test 5: Encrypted Credential Storage (v0.7.5 fix)
-  await runTest("Encrypted Credential Storage", async () => {
+  // Test 5: Credential Storage
+  await runTest("Credential Storage", async () => {
     const { CredentialStorage } = await import("../src/auth/storage");
     const storage = new CredentialStorage(mockLocalStorage);
 
@@ -97,35 +97,26 @@ async function runTests() {
       lastUsed: new Date().toISOString(),
     };
 
-    // Save credential (should encrypt username/address)
     await storage.saveCredential(testCredential);
 
-    // Retrieve credential (should decrypt)
     const retrieved = await storage.getCredentialById(testCredential.id);
 
     assert(retrieved !== null, "Credential should be retrieved");
-    assertEqual(retrieved!.username, testCredential.username, "Username should match after decryption");
-    assertEqual(retrieved!.ethereumAddress, testCredential.ethereumAddress, "Address should match after decryption");
+    assertEqual(retrieved!.username, testCredential.username, "Username should match");
+    assertEqual(retrieved!.ethereumAddress, testCredential.ethereumAddress, "Address should match");
     assertEqual(retrieved!.publicKey, testCredential.publicKey, "Public key should be stored and retrieved (v0.7.5 fix)");
 
-    // Verify data is encrypted in storage
     const storageKeys = Object.keys(mockLocalStorage);
     const credentialKey = storageKeys.find(k => k.startsWith('w3pk_credential_') && k !== 'w3pk_credential_index');
 
     if (credentialKey) {
       const rawData = JSON.parse(mockLocalStorage[credentialKey]);
-      assert(rawData.encryptedUsername !== undefined, "Username should be encrypted in storage");
-      assert(rawData.encryptedAddress !== undefined, "Address should be encrypted in storage");
-      assert(rawData.publicKey !== undefined, "Public key should be stored (required for key derivation)");
-      assert(rawData.username === undefined, "Plaintext username should not exist");
-      assert(rawData.ethereumAddress === undefined, "Plaintext address should not exist");
+      assertEqual(rawData.username, testCredential.username, "Username should be stored in plain text");
+      assertEqual(rawData.ethereumAddress, testCredential.ethereumAddress, "Address should be stored in plain text");
+      assert(rawData.encryptedUsername === undefined, "No encrypted username");
     }
 
-    passTest("Encrypted storage verified (metadata encrypted, public key preserved)");
-    logDetail("✓ Username encrypted in localStorage");
-    logDetail("✓ Address encrypted in localStorage");
-    logDetail("✓ Public key stored (v0.7.5 critical fix)");
-    logDetail("✓ Decryption successful");
+    passTest("Credential storage verified (plain-text metadata, public key preserved)");
   });
 
   // Test 6: SDK Initialization

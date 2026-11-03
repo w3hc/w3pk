@@ -248,10 +248,10 @@ STEP 4: Encrypt & Store
 │                            │                            │
 │  w3pk_credential_*:        │  w3pk_wallet_<address>:    │
 │  {                         │  {                         │
-│    id: "hash(abc123)",     │    ethereumAddress,        │
-│    publicKey (plaintext),  │    encryptedMnemonic,      │
-│    encryptedUsername,      │    credentialId: "abc123"  │
-│    encryptedAddress        │  }                         │
+│    id: "abc123",           │    ethereumAddress,        │
+│    publicKey,              │    encryptedMnemonic,      │
+│    username,               │    credentialId: "abc123"  │
+│    ethereumAddress         │  }                         │
 │  }                         │                            │
 │                            │                            │
 │  (WebAuthn metadata)       │  (Encrypted wallet)        │
@@ -388,13 +388,12 @@ User wants to send 1 ETH
 **Purpose**: WebAuthn credential metadata
 
 ```typescript
-// Example: localStorage.getItem('w3pk_credential_abc123')
+// Example: localStorage.getItem('w3pk_credential_<hashed credential ID>')
 {
-  id: "sha256_hash_of_credential_id",
-  encryptedUsername: "AES-GCM...",      // Protected from XSS
-  encryptedAddress: "AES-GCM...",       // Protected from XSS
-  publicKey: "04A1B2C3D4E5F6...",       // PLAINTEXT (needed for encryption)
-  publicKeyFingerprint: "sha256_hash",
+  id: "credential-abc123",
+  username: "alice",                    // Plain text, readable by any script on the page
+  ethereumAddress: "0x742d...",         // Plain text, readable by any script on the page
+  publicKey: "04A1B2C3D4E5F6...",
   createdAt: "2024-11-25T12:00:00Z",
   lastUsed: "2024-11-25T15:30:00Z"
 }
@@ -567,7 +566,6 @@ Layer 4: Crypto Wallet
 
 | Threat | Protection |
 |--------|-----------|
-| **XSS attacks** | Username/address encrypted in localStorage |
 | **Phishing** | WebAuthn verifies origin (FIDO2) |
 | **Keyloggers** | No passwords—biometric only |
 | **Credential stuffing** | No shared credentials across sites |
@@ -590,6 +588,7 @@ Layer 4: Crypto Wallet
 | **No backup created** | User never wrote down 12 words |
 | **Both device + backup lost** | Irrecoverable without either |
 | **Physical access to unlocked device** | Attacker can export mnemonic |
+| **XSS reading account metadata** | Username and address are stored in plain text, readable by any script on the page |
 
 ---
 
@@ -785,10 +784,10 @@ Scenarios:
 
 ```json
 {
-  "id": "hashed_credential_id",
-  "publicKey": "04A1B2C3D4... (plaintext)",
-  "encryptedUsername": "AES-GCM...",
-  "encryptedAddress": "AES-GCM...",
+  "id": "credential-abc123",
+  "publicKey": "04A1B2C3D4...",
+  "username": "alice",
+  "ethereumAddress": "0x742d...",
   "createdAt": "2024-11-25T..."
 }
 ```

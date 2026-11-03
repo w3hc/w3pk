@@ -4,6 +4,7 @@
  */
 import "./setup"; // Import setup to initialize mocks
 import { CredentialStorage } from "../src/auth/storage";
+import { hashCredentialId } from "../src/wallet/crypto";
 import {
   startTestSuite,
   endTestSuite,
@@ -252,16 +253,93 @@ async function runTests() {
     });
   });
 
-  // Test 12: Test encryption is working (credentials are encrypted in storage)
-  await runTest("Verify credentials are encrypted in storage", async () => {
-    // Check raw localStorage data (access through window for test environment)
-    const rawData = (global as any).window.localStorage.getItem("w3pk_credential_index");
-    assert(rawData !== null, "Should have index in localStorage");
+  // Test 12: Metadata is stored in plain text
+  await runTest("Credential metadata is stored in plain text", async () => {
+    const storage = new CredentialStorage();
+    await storage.clearAll();
+    await storage.saveCredential({
+      id: "credential-plain",
+      publicKey: "public-key-plain",
+      username: "dave@example.com",
+      ethereumAddress: "0x4444444444444444444444444444444444444444",
+      createdAt: "2024-01-04T00:00:00Z",
+      lastUsed: "2024-01-04T00:00:00Z",
+    });
 
-    logDetail("Credentials are stored with encrypted metadata");
-    logDetail("Username and address fields are AES-GCM encrypted");
+    const localStorage = (global as any).window.localStorage;
+    const raw = JSON.parse(
+      localStorage.getItem(`w3pk_credential_${await hashCredentialId("credential-plain")}`)
+    );
+    assertEqual(raw.id, "credential-plain", "Stored id should be the credential id");
+    assertEqual(raw.username, "dave@example.com", "Username should be in plain text");
+    assertEqual(
+      raw.ethereumAddress,
+      "0x4444444444444444444444444444444444444444",
+      "Address should be in plain text"
+    );
+    assert(raw.encryptedUsername === undefined, "No encrypted username");
+    passTest("Plain-text metadata verified");
+  });
 
-    passTest("Encryption verification passed");
+  // Test 13: Entries encrypted before v0.11.1 are treated as absent
+  await runTest("Old encrypted entries are ignored", async () => {
+    const storage = new CredentialStorage();
+    await storage.clearAll();
+    await storage.saveCredential({
+      id: "credential-plain",
+      publicKey: "public-key-plain",
+      username: "dave@example.com",
+      ethereumAddress: "0x4444444444444444444444444444444444444444",
+      createdAt: "2024-01-04T00:00:00Z",
+      lastUsed: "2024-01-04T00:00:00Z",
+    });
+    const localStorage = (global as any).window.localStorage;
+    const hashedId = await hashCredentialId("credential-old");
+    localStorage.setItem(
+      `w3pk_credential_${hashedId}`,
+      JSON.stringify({
+        id: hashedId,
+        encryptedUsername: "gqq1C5H/UlCsjp35Ddmkc/Gq8bzXUeLZEvEr1Bye4Z+i",
+        encryptedAddress: "RLYIjiYRjt++Tvhv+VUVwXtslpJ1QASWFJY61aAhZo26",
+        publicKey: "public-key-old",
+        publicKeyFingerprint: "6zECpstYZ2XQH60yRSPsC8Z7nv1qLZWJwTWt_t95Isw",
+        createdAt: "2024-01-01T00:00:00Z",
+        lastUsed: "2024-01-01T00:00:00Z",
+      })
+    );
+    localStorage.setItem(
+      "w3pk_credential_index",
+      JSON.stringify(["credential-plain", "credential-old"])
+    );
+
+    assertEqual(await storage.getCredentialById("credential-old"), null, "Old entry should be absent");
+    const all = await storage.getAllCredentials();
+    assertEqual(all.length, 1, "Only the plain-text credential should be listed");
+    assertEqual(all[0].id, "credential-plain", "Listed ids should be credential ids");
+    assertEqual(
+      await storage.getCredentialByAddress("0x5555555555555555555555555555555555555555"),
+      null,
+      "Address lookup should not throw on an old entry"
+    );
+    assert(
+      (await storage.getCredentialByAddress("0x4444444444444444444444444444444444444444")) !== null,
+      "Address lookup should still find the plain-text credential"
+    );
+
+    await storage.saveCredential({
+      id: "credential-old",
+      publicKey: "public-key-old",
+      username: "erin@example.com",
+      ethereumAddress: "0x5555555555555555555555555555555555555555",
+      createdAt: "2024-01-05T00:00:00Z",
+      lastUsed: "2024-01-05T00:00:00Z",
+    });
+    assertEqual(
+      (await storage.getCredentialById("credential-old"))?.username,
+      "erin@example.com",
+      "Saving again should replace the old entry"
+    );
+    passTest("Old encrypted entries are ignored and can be replaced");
   });
 
   endTestSuite();
