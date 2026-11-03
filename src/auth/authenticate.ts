@@ -133,7 +133,14 @@ export async function login(
   }
 }
 
-async function verifyAssertion(
+/**
+ * Check an assertion as login() does: verifyAssertionSignature() against the
+ * stored credential's public key, then the signature counter, which must
+ * increase unless the authenticator keeps none. Saves the new counter.
+ *
+ * @param challenge - The base64url challenge sent in the request options
+ */
+export async function verifyAssertion(
   assertion: AuthenticationCredential,
   credential: StoredCredential,
   storage: CredentialStorage,
