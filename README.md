@@ -356,9 +356,9 @@ const plaintext = await w3pk.mlkemDecrypt(encrypted)
 import { isStrongPassword } from 'w3pk'
 
 // Validate password strength
-const password = 'MyS3cur3!Backup@2042'
+const password = 'correct horse battery staple'
 if (!isStrongPassword(password)) {
-  throw new Error('Password must be 12+ chars with uppercase, lowercase, number, special char')
+  throw new Error('Password must be 15+ characters and not a common password')
 }
 
 // Get backup status

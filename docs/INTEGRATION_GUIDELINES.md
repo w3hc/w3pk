@@ -857,7 +857,7 @@ async function createEncryptedBackup() {
 
   // Validate strength
   if (!isStrongPassword(password)) {
-    throw new Error('Password too weak. Need 12+ chars with mixed case, numbers, symbols')
+    throw new Error('Password too weak. Need 15+ characters, not a common password')
   }
 
   // Create backup file and optionally generate QR code
@@ -1124,7 +1124,7 @@ class WalletManager {
     let password = await this.promptUserForPassword()
     while (!isStrongPassword(password)) {
       password = await this.promptUserForPassword(
-        'Password too weak. Need 12+ chars with mixed case, numbers, symbols'
+        'Password too weak. Need 15+ characters, not a common password'
       )
     }
     return password

@@ -147,7 +147,7 @@ w3pk restores v3 files only, with no compatibility layer. A v2 file (no `version
 ### Password-based (the backup that must exist)
 - **Use case**: Disaster recovery, social recovery, new device setup
 - **Security**: Argon2id (RFC 9106; 64 MiB, 3 passes, 4 lanes; random 16-byte salt) + AES-256-GCM. The password is NFC-normalized.
-- **Password**: 12+ characters with an uppercase letter, a lowercase letter, a number and a special character, and no common password (the rules of `isStrongPassword()`). A weak one throws `WeakPasswordError`, whose `feedback` lists what's missing; social recovery and the `exportForSync(password)` fallback apply the same rules.
+- **Password**: 15 to 256 characters, counted in Unicode code points after NFC normalization, with no composition rules (spaces and any Unicode accepted), and not one of the 1,000 most common passwords of that length (the rules of `isStrongPassword()`, after [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) §3.1.1.2). A refused one throws `WeakPasswordError`, whose `feedback` gives each reason; social recovery and the `exportForSync(password)` fallback apply the same rules.
 - **Pros**: Platform-agnostic, restores without a passkey, memory-hard against GPU guessing
 - **Cons**: Must remember password
 
@@ -588,7 +588,7 @@ const { ethereumAddress } = await w3pk.recoverFromGuardians(shares, 'MyS3cure!Ba
 
 ### Backup Creation
 1. **Always create a password backup** immediately after wallet creation
-2. **Use strong passwords** (12+ characters, mixed case, numbers, symbols)
+2. **Use strong passwords** (15+ characters, such as a passphrase of 4+ random words)
 3. **Test recovery** on another device before relying on it
 4. **Store backups securely**:
    - Password manager (1Password, Bitwarden) ✅ Recommended
@@ -626,19 +626,10 @@ if (!isStrongPassword(password)) {
 const blob = await w3pk.createZipBackup(password)
 ```
 
-**Password requirements:**
-- Minimum 12 characters
-- At least 1 uppercase letter
-- At least 1 lowercase letter
-- At least 1 number
-- At least 1 special character
-- Not a common password (dictionary check)
-
-**Strength indicator:**
-- 0-25%   : ❌ Weak (rejected)
-- 26-50%  : ⚠️  Fair (warning shown)
-- 51-75%  : 🟡 Good (accepted)
-- 76-100% : ✅ Strong (recommended)
+**Password requirements** ([NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) §3.1.1.2, [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)):
+- 15 to 256 characters, counted in Unicode code points after NFC normalization
+- Any characters: spaces, accents and emoji are fine, and no mix of character types is required
+- Not one of the 1,000 most common passwords of that length (whole-password match, any case)
 
 ---
 

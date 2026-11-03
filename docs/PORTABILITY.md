@@ -27,8 +27,8 @@ W3PK provides encrypted backup files that allow you to restore your wallet on an
 
 1. **In the app**, look for "Backup Wallet" or "Export Wallet" option
 2. **Set a strong password**: This encrypts your backup file
-   - Use a unique, strong password (12+ characters)
-   - Mix uppercase, lowercase, numbers, and symbols
+   - Use a unique password of 15+ characters, such as a passphrase of 4+ random words
+   - Spaces and any characters are fine; common passwords are refused
    - Store this password securely - it cannot be recovered!
 3. **Download the backup file**: Save it to a secure location
    - The file will be named something like `w3pk_backup_YYYY-MM-DD.json`
@@ -207,12 +207,10 @@ console.log('Restored wallet address:', address);
 
 1. **Password Requirements**: Enforce strong passwords
    ```typescript
+   import { isStrongPassword } from 'w3pk'
+
    function validateBackupPassword(password: string): boolean {
-     return password.length >= 12 &&
-            /[A-Z]/.test(password) &&
-            /[a-z]/.test(password) &&
-            /[0-9]/.test(password) &&
-            /[^A-Za-z0-9]/.test(password);
+     return isStrongPassword(password);
    }
    ```
 
