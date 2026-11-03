@@ -1,7 +1,8 @@
 /**
  * restoreFromBackupFile() while logged in: the restored wallet replaces the
  * stored one only after the passkey assertion succeeds, and a different
- * address needs `allowAddressChange`
+ * address needs `allowAddressChange`, as in syncWalletWithPasskey() and
+ * importFromSync()
  *
  * Mocks navigator.credentials.get with a P-256 key that signs real
  * assertions, and a PRF computed as the spec describes,
@@ -271,6 +272,14 @@ async function runTests() {
   const manager = new BackupFileManager();
   const { json: backupB } = await manager.createPasswordBackup(MNEMONIC_B, PASSWORD);
   const { json: backupA } = await manager.createPasswordBackup(MNEMONIC_A, PASSWORD);
+  const prfSalt = generatePrfSalt();
+  const { json: prfBackupB } = await manager.createPrfBackup(
+    MNEMONIC_B,
+    { id: CREDENTIAL_ID, publicKey },
+    USERNAME,
+    prfSalt,
+    await prf(authenticator.secret, await prfSyncInput(prfSalt))
+  );
 
   console.log("Test 1: a cancelled prompt keeps wallet A and the credential address");
   {
@@ -338,15 +347,6 @@ async function runTests() {
 
   console.log("Test 6: a PRF backup of another address than the stored one");
   {
-    const prfSalt = generatePrfSalt();
-    const { json: prfBackupB } = await manager.createPrfBackup(
-      MNEMONIC_B,
-      { id: CREDENTIAL_ID, publicKey },
-      USERNAME,
-      prfSalt,
-      await prf(authenticator.secret, await prfSyncInput(prfSalt))
-    );
-
     const sdk = await loggedInWith(publicKey, MNEMONIC_A);
     const error = await capture(() => sdk.restoreFromBackupFile(prfBackupB));
     assert(error instanceof AddressChangeError, "without allowAddressChange, throws AddressChangeError");
@@ -357,6 +357,41 @@ async function runTests() {
     await assertReplacedByB(replaced);
   }
   console.log("");
+
+  const syncCases: Array<
+    [string, (sdk: Web3Passkey, options?: { allowAddressChange?: boolean }) => Promise<unknown>]
+  > = [
+    [
+      "syncWalletWithPasskey() with a password backup",
+      (sdk, options) => sdk.syncWalletWithPasskey(backupB, PASSWORD, options),
+    ],
+    [
+      "syncWalletWithPasskey() with a PRF backup",
+      (sdk, options) => sdk.syncWalletWithPasskey(prfBackupB, undefined, options),
+    ],
+    ["importFromSync()", (sdk, options) => sdk.importFromSync(prfBackupB, options)],
+  ];
+
+  for (const [label, sync] of syncCases) {
+    console.log(`Test 7: ${label} of another address than the stored one`);
+    {
+      const sdk = await loggedInWith(publicKey, MNEMONIC_A);
+      const error = await capture(() => sync(sdk));
+      assert(error instanceof AddressChangeError, "without allowAddressChange, throws AddressChangeError");
+      assert(
+        error instanceof AddressChangeError &&
+          error.currentAddress === ADDRESS_A &&
+          error.newAddress === ADDRESS_B,
+        "names both addresses"
+      );
+      await assertKeepsWalletA(sdk);
+
+      const replaced = await loggedInWith(publicKey, MNEMONIC_A);
+      await sync(replaced, { allowAddressChange: true });
+      await assertReplacedByB(replaced);
+    }
+    console.log("");
+  }
 
   console.log("==================================================");
   console.log(`✅ Restore Replacing a Wallet Tests: ${passed} passed, ${failed} failed`);
