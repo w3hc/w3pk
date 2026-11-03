@@ -532,8 +532,10 @@ const status = await w3pk.getBackupStatus();
 await w3pk.registerWithBackupFile(backupData, password, username);
 
 // Option 2: Restore under the existing passkey (stores the wallet for the logged-in user)
+// A backup of another wallet throws AddressChangeError: pass
+// { allowAddressChange: true } once the user confirms the replacement
 await w3pk.login();
-await w3pk.restoreFromBackupFile(backupData, password, { allowAddressChange: true });
+await w3pk.restoreFromBackupFile(backupData, password);
 ```
 
 ### Cross-Device Sync

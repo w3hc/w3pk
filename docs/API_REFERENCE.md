@@ -694,11 +694,12 @@ Import a mnemonic phrase as the logged-in passkey's wallet, replacing the stored
 **Behavior:**
 - One passkey assertion with the logged-in passkey releases the key the wallet is stored under
 - The imported wallet is stored under its own address; the passkey, `user` and the session then point at that address, and the previous wallet is deleted last
+- `onAuthStateChanged(true, user)` fires with the new address
 - Replacing the wallet needs no `allowAddressChange`: importing is an explicit replace, so the app confirms it with the user before calling
 - Make sure the previous wallet's recovery phrase or a backup is saved first: its encrypted mnemonic is deleted from this device
 
 **Throws:**
-- `WalletError` if not logged in, or the phrase isn't a valid BIP39 mnemonic (before any prompt)
+- `WalletError` if not logged in, or the phrase isn't a valid BIP39 mnemonic (before any prompt), or another passkey answers the prompt
 - `AuthenticationError` if the prompt is cancelled, `PrfUnsupportedError` if the authenticator returns no PRF output: the stored wallet and the passkey stay as they were
 
 **Example:**
