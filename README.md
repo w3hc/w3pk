@@ -107,7 +107,7 @@ const strictWallet = await w3pk.deriveWallet('STRICT', 'SECURE')
 console.log(mainWallet.address !== gamingWallet.address) // true
 ```
 
-**Security:** Master mnemonic is never exposed. Applications cannot access `exportMnemonic()`.
+**Security:** Master mnemonic is never exposed. Applications cannot access `exportMnemonic()`, and restores (`restoreFromBackupFile()`, `syncWalletWithPasskey()`, `recoverFromGuardians()`) return only the address.
 
 ### Message Signing
 
@@ -373,7 +373,8 @@ const { guardianShares } = await w3pk.setupSocialRecovery(
 const { downloadBlob, filename, shareDocument } = await w3pk.generateGuardianInvite(guardianShares[0])
 
 // Recover from guardian share files - rebuilds and decrypts the backup
-const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians([share1, share2], password)
+// (logged out: the wallet stays in memory for register(); logged in: it replaces the stored one)
+const { ethereumAddress } = await w3pk.recoverFromGuardians([share1, share2], password)
 
 // Restore from backup file (another wallet than the logged-in one needs
 // the user's confirmation: { allowAddressChange: true })

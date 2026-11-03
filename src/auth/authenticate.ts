@@ -11,7 +11,8 @@ import {
   base64UrlToArrayBuffer,
 } from "../utils/base64";
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
-import { isUserVerified } from "./flags";
+import { isUserPresent, isUserVerified } from "./flags";
+import { parseDerSignature } from "../utils/crypto";
 
 export async function login(
   userVerification: UserVerificationRequirement = "required"
@@ -99,7 +100,7 @@ export async function login(
       throw new SyncRequiredError(assertion.id);
     }
 
-    const isValid = await verifyAssertion(assertion, credential, storage);
+    const isValid = await verifyAssertion(assertion, credential, storage, challenge);
 
     if (!isValid) {
       throw new Error("Signature verification failed");
@@ -135,10 +136,11 @@ export async function login(
 async function verifyAssertion(
   assertion: AuthenticationCredential,
   credential: StoredCredential,
-  storage: CredentialStorage
+  storage: CredentialStorage,
+  challenge: string
 ): Promise<boolean> {
   try {
-    if (!(await verifyAssertionSignature(assertion, credential.publicKey))) {
+    if (!(await verifyAssertionSignature(assertion, credential.publicKey, challenge))) {
       return false;
     }
 
@@ -165,16 +167,30 @@ async function verifyAssertion(
 }
 
 /**
- * Check an assertion's RP ID hash and its signature against `publicKey`
- * (base64url SPKI, P-256). The signature counter is not checked.
+ * Check an assertion against `publicKey` (base64url SPKI, P-256): its client
+ * data (type `webauthn.get`, `challenge`, this page's origin), its RP ID hash,
+ * the user-presence flag and its signature. The signature counter and the
+ * user-verification flag are not checked.
+ *
+ * @param challenge - The base64url challenge sent in the request options
  */
 export async function verifyAssertionSignature(
   assertion: AuthenticationCredential,
-  publicKey: string
+  publicKey: string,
+  challenge: string
 ): Promise<boolean> {
   try {
+    if (!verifyClientData(assertion.response.clientDataJSON, challenge)) {
+      return false;
+    }
+
     const authenticatorData = assertion.response.authenticatorData;
     const authDataBytes = new Uint8Array(authenticatorData);
+
+    if (!isUserPresent(authDataBytes)) {
+      console.error("User presence flag not set");
+      return false;
+    }
 
     const rpIdHash = authDataBytes.slice(0, 32);
     const expectedHash = new Uint8Array(
@@ -207,7 +223,10 @@ export async function verifyAssertionSignature(
     signedData.set(authDataBytes, 0);
     signedData.set(new Uint8Array(clientDataHash), authenticatorData.byteLength);
 
-    const rawSignature = derToRaw(new Uint8Array(assertion.response.signature));
+    const { r, s } = parseDerSignature(new Uint8Array(assertion.response.signature));
+    const rawSignature = new Uint8Array(64);
+    rawSignature.set(r, 0);
+    rawSignature.set(s, 32);
 
     return await crypto.subtle.verify(
       {
@@ -224,6 +243,29 @@ export async function verifyAssertionSignature(
   }
 }
 
+function verifyClientData(clientDataJSON: ArrayBuffer, challenge: string): boolean {
+  let clientData: { type?: unknown; challenge?: unknown; origin?: unknown };
+  try {
+    clientData = JSON.parse(new TextDecoder().decode(clientDataJSON));
+  } catch {
+    console.error("Invalid clientDataJSON");
+    return false;
+  }
+  if (clientData?.type !== "webauthn.get") {
+    console.error("Unexpected clientDataJSON type");
+    return false;
+  }
+  if (clientData.challenge !== challenge) {
+    console.error("Challenge mismatch - possible replay");
+    return false;
+  }
+  if (clientData.origin !== window.location.origin) {
+    console.error("Origin mismatch - possible phishing attack");
+    return false;
+  }
+  return true;
+}
+
 /**
  * Compare two Uint8Arrays for equality
  */
@@ -233,31 +275,4 @@ function arrayEquals(a: Uint8Array, b: Uint8Array): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
-}
-
-function derToRaw(der: Uint8Array): ArrayBuffer {
-  let offset = 2;
-
-  offset++;
-  let rLength = der[offset++];
-  if (rLength > 32) {
-    offset++;
-    rLength--;
-  }
-  const r = der.slice(offset, offset + rLength);
-  offset += rLength;
-
-  offset++;
-  let sLength = der[offset++];
-  if (sLength > 32) {
-    offset++;
-    sLength--;
-  }
-  const s = der.slice(offset, offset + sLength);
-
-  const raw = new Uint8Array(64);
-  raw.set(r, 32 - r.length);
-  raw.set(s, 64 - s.length);
-
-  return raw.buffer;
 }

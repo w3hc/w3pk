@@ -164,7 +164,7 @@ export class DeviceSyncManager {
       if (evaluation.credentialId !== credentialId) {
         throw new SyncBootstrapError('CREDENTIAL_MISMATCH', evaluation.credentialId);
       }
-      if (!(await verifyAssertionSignature(evaluation.assertion, publicKey))) {
+      if (!(await verifyAssertionSignature(evaluation.assertion, publicKey, evaluation.challenge))) {
         throw new SyncBootstrapError('PUBLIC_KEY_MISMATCH', credentialId);
       }
       result = await manager.restoreWithPrf(backupFile, evaluation.output);

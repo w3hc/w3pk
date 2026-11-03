@@ -763,6 +763,8 @@ interface SignatureResult {
 - Uses EIP-191 prefix (for EOA accounts)
 - See https://docs.login.xyz for message format
 - Use `createSiweMessage()` helper for proper formatting
+- The message's `domain` must match the current origin (host and port, and scheme when the domain names one), or `signMessage()` throws. The same check runs on an `EIP191` message that contains the SIWE header, including `personal_sign` through the EIP-1193 provider
+- `validateSiweMessage()` always checks `Expiration Time` and `Not Before`, and requires RFC 3339 dates
 - Not supported in PRIMARY mode (throws): use STANDARD, STRICT or YOLO
 
 **EIP-712 Signing:**
@@ -2444,31 +2446,35 @@ for (const share of guardianShares) {
 
 ---
 
-### `recoverFromGuardians(shares: Array<string | GuardianShare>, password: string): Promise<{ mnemonic: string; ethereumAddress: string }>`
+### `recoverFromGuardians(shares: Array<string | GuardianShare>, password: string, options?: { allowAddressChange?: boolean }): Promise<{ ethereumAddress: string }>`
 
-Combine guardian shares into the backup file and decrypt it.
+Combine guardian shares into the backup file, decrypt it and restore it as `restoreFromBackupFile()` restores a password backup. Logged out, the wallet stays in memory: call `register()` to create a passkey for it. Logged in, it replaces the stored wallet after one passkey assertion (`AddressChangeError` for another address unless `allowAddressChange: true`). The mnemonic is never returned.
 
 **Parameters:**
 - `shares` - At least `threshold` share files (JSON strings) or share objects
 - `password: string` - Password set in `setupSocialRecovery()`
+- `options.allowAddressChange?: boolean` - Allow the recovered wallet to replace the logged-in wallet with another address (default `false`)
 
-**Throws:** `UnsupportedBackupVersionError` when the shares rebuild a v2 file (shares made before 0.11.0); its `backupFileJson` holds the rebuilt file, for the v0.10.6 offline tool
+**Throws:** `AddressChangeError` as in `restoreFromBackupFile()`; `UnsupportedBackupVersionError` when the shares rebuild a v2 file (shares made before 0.11.0); its `backupFileJson` holds the rebuilt file, for the v0.10.6 offline tool
 
 **Example:**
 
 ```typescript
 const shares = [aliceShareFile, bobShareFile, charlieShareFile]; // JSON strings
 
-const { mnemonic, ethereumAddress } = await w3pk.recoverFromGuardians(
+const { ethereumAddress } = await w3pk.recoverFromGuardians(
   shares,
   'MyS3cure!Backup@2042'
 );
 console.log('Wallet recovered:', ethereumAddress);
+
+// Logged out: create a passkey for the recovered wallet
+await w3pk.register({ username: 'alice' });
 ```
 
 ---
 
-### `restoreFromBackupFile(backupData: string | Blob, password?: string, options?: { allowAddressChange?: boolean }): Promise<{ mnemonic: string; ethereumAddress: string }>`
+### `restoreFromBackupFile(backupData: string | Blob, password?: string, options?: { allowAddressChange?: boolean }): Promise<{ ethereumAddress: string }>`
 
 Restore wallet from backup file with existing passkey.
 
@@ -2478,9 +2484,11 @@ A `prf` backup takes one assertion with its passkey and no password, then sets t
 
 After restoring a password backup, the wallet is automatically associated with the current logged-in user. One passkey assertion releases the key the wallet is stored under: the stored wallet and the passkey's address change only once it succeeds, so a cancelled prompt or an authenticator without PRF leaves this device as it was. A backup of another address than the logged-in one replaces that wallet, so it throws `AddressChangeError` before any prompt unless the app confirms the replacement with the user and passes `{ allowAddressChange: true }`. The same applies to a `prf` backup, where the address is known only after the assertion.
 
-If not logged in, you can either:
-- Log in, then call `importMnemonic()` to store it under that passkey
-- Call `registerWithBackupFile()` to create new passkey for this wallet
+If not logged in, the wallet stays in memory and you can either:
+- Call `register()` to create a new passkey for this wallet (or `registerWithBackupFile()` with the file)
+- Log in, then call `restoreFromBackupFile()` again to store it under that passkey
+
+The mnemonic is never returned.
 
 **Parameters:**
 - `backupData: string | Blob` - Backup file (JSON string or Blob)
@@ -2491,7 +2499,6 @@ If not logged in, you can either:
 
 ```typescript
 {
-  mnemonic: string;
   ethereumAddress: string;
 }
 ```
@@ -2723,19 +2730,19 @@ console.log('Wallet synced:', result.ethereumAddress)
 
 ---
 
-### `syncWalletWithPasskey(backupData: string | Blob, password?: string): Promise<{ mnemonic: string; ethereumAddress: string }>`
+### `syncWalletWithPasskey(backupData: string | Blob, password?: string): Promise<{ ethereumAddress: string }>`
 
 Sync wallet to this device using an existing cloud-synced passkey and a backup file. No prior session required.
 
 **Use case:** New device that already has a passkey synced via iCloud/Google Password Manager. The user provides their backup file; the SDK prompts them to select the passkey, decrypts the backup, saves the passkey's metadata if this device has none, stores wallet data locally, starts a session and fires `onAuthStateChanged(true, user)`.
 
-A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`), and the username comes from the passkey's user handle. In both cases the backup's public key is checked against the assertion's signature.
+A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`), and the username comes from the passkey's user handle when the passkey was registered before 0.11.1, else it's the wallet's address. Since 0.11.1 the user handle is 32 random bytes: WebAuthn requires it to hold no personal information. In both cases the backup's public key is checked against the assertion's signature.
 
 **Parameters:**
 - `backupData: string | Blob` - Backup file content (JSON string or Blob)
 - `password?: string` - Password to decrypt the backup (required for `password` backups)
 
-**Returns:** `{ mnemonic: string; ethereumAddress: string }`
+**Returns:** `{ ethereumAddress: string }` (the mnemonic is never returned)
 
 **Supported encryption methods:** `prf` and `password`
 

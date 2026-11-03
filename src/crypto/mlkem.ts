@@ -77,25 +77,19 @@ function hpkeSuiteId(kemId: number, kdfId: number, aeadId: number): Uint8Array {
 const SUITE_ID = hpkeSuiteId(KEM_ID, KDF_ID_HKDF_SHA256, AEAD_ID_AES_256_GCM);
 
 function arrayBufferToBase64(buffer: Uint8Array): string {
-  if (typeof btoa !== 'undefined') {
-    const binary = Array.from(buffer)
-      .map(byte => String.fromCharCode(byte))
-      .join('');
-    return btoa(binary);
-  }
-  return Buffer.from(buffer).toString('base64');
+  const binary = Array.from(buffer)
+    .map(byte => String.fromCharCode(byte))
+    .join('');
+  return btoa(binary);
 }
 
 function base64ToArrayBuffer(base64: string): Uint8Array {
-  if (typeof atob !== 'undefined') {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
   }
-  return new Uint8Array(Buffer.from(base64, 'base64'));
+  return bytes;
 }
 
 function hexToBytes(hex: string): Uint8Array {

@@ -62,6 +62,7 @@ import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
+import { SIWE_HEADER } from "../siwe";
 import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
   AuthenticationError,
@@ -863,12 +864,23 @@ export class Web3Passkey {
         );
       }
 
+      const origin = getCurrentOrigin();
+
+      // EIP-4361: reject a SIWE message whose domain isn't this page's, also
+      // when it comes as a plain EIP-191 message, which signs the same bytes
+      if (
+        signingMethod === 'SIWE' ||
+        (signingMethod === 'EIP191' && typeof message === 'string' && message.includes(SIWE_HEADER))
+      ) {
+        const { assertSiweDomain } = await import("../siwe");
+        assertSiweDomain(message as string, origin);
+      }
+
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to sign message");
       }
 
       const effectiveTag = options?.tag || DEFAULT_TAG;
-      const origin = getCurrentOrigin();
 
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
@@ -993,16 +1005,17 @@ export class Web3Passkey {
 
       const { extractRS } = await import("../utils/crypto");
       const { base64UrlDecode } = await import("../utils/base64");
+      const { bytesToHex } = await import("@noble/hashes/utils.js");
 
       // Hash the message
       const messageHash = await crypto.subtle.digest(
         'SHA-256',
         new TextEncoder().encode(message)
       );
-      const h = '0x' + Buffer.from(messageHash).toString('hex');
+      const h = '0x' + bytesToHex(new Uint8Array(messageHash));
 
       // Generate challenge from message hash
-      const challengeBytes = new Uint8Array(Buffer.from(h.slice(2), 'hex'));
+      const challengeBytes = new Uint8Array(messageHash);
 
       // Get credential ID from current user
       const credentialId = this.currentUser.credentialId;
@@ -1047,7 +1060,7 @@ export class Web3Passkey {
 
       // Hash the concatenation to get what was actually signed
       const actualMessageHash = await crypto.subtle.digest('SHA-256', signedData.buffer);
-      const actualH = '0x' + Buffer.from(actualMessageHash).toString('hex');
+      const actualH = '0x' + bytesToHex(new Uint8Array(actualMessageHash));
 
       // Extract r and s from the DER-encoded signature
       const signature = new Uint8Array(response.signature);
@@ -1086,8 +1099,8 @@ export class Web3Passkey {
       }
 
       // Convert base64url x and y to hex (each is 32 bytes for P-256)
-      const qx = '0x' + Buffer.from(base64UrlToArrayBuffer(jwk.x)).toString('hex');
-      const qy = '0x' + Buffer.from(base64UrlToArrayBuffer(jwk.y)).toString('hex');
+      const qx = '0x' + bytesToHex(new Uint8Array(base64UrlToArrayBuffer(jwk.x)));
+      const qy = '0x' + bytesToHex(new Uint8Array(base64UrlToArrayBuffer(jwk.y)));
 
       // Derive address from public key
       const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
@@ -1514,25 +1527,31 @@ export class Web3Passkey {
 
   /**
    * Recover wallet from guardian shares
-   * Combines M-of-N guardian shares to reconstruct the backup file
+   * Combines M-of-N guardian shares to reconstruct the backup file, then
+   * restores it as restoreFromBackupFile() restores a password backup:
+   * logged out, the wallet stays in memory for register(); logged in, it
+   * replaces the stored wallet after a passkey assertion. The mnemonic is
+   * never returned.
    *
    * @param shares - Array of guardian share objects (JSON strings or parsed objects)
    * @param password - Password of the backup the shares rebuild
+   * @throws AddressChangeError when logged in with another address, without `allowAddressChange`
    */
   async recoverFromGuardians(
     shares: Array<string | GuardianShare>,
-    password: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    return recoverFromGuardians(shares, password);
+    password: string,
+    options?: { allowAddressChange?: boolean }
+  ): Promise<{ ethereumAddress: string }> {
+    return recoverFromGuardians(this.ctx, shares, password, options);
   }
 
   /**
    * Restore wallet from backup file with existing passkey
    * Use case: User has passkey synced to this device
    *
-   * When logged out, a restored password backup stays in memory: log in
-   * and call importMnemonic(), or call registerWithBackupFile() to create
-   * a new passkey for this wallet.
+   * When logged out, a restored password backup stays in memory: call
+   * register() to create a passkey for it, or log in and restore the file
+   * again to store it under that passkey. The mnemonic is never returned.
    *
    * A PRF backup takes one assertion with its passkey, no password, and sets
    * this device up for that passkey (as importFromSync() does).
@@ -1551,7 +1570,7 @@ export class Web3Passkey {
     backupData: string | Blob,
     password?: string,
     options?: { allowAddressChange?: boolean }
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+  ): Promise<{ ethereumAddress: string }> {
     return restoreFromBackupFile(this.ctx, backupData, password, options);
   }
 
@@ -1569,12 +1588,12 @@ export class Web3Passkey {
    *
    * @param backupData - Backup file (JSON string or Blob) - can be pasted by user
    * @param password - Password to decrypt backup (if password-encrypted)
-   * @returns Restored wallet info
+   * @returns The restored wallet's address (the mnemonic is never returned)
    */
   async syncWalletWithPasskey(
     backupData: string | Blob,
     password?: string
-  ): Promise<{ mnemonic: string; ethereumAddress: string }> {
+  ): Promise<{ ethereumAddress: string }> {
     return syncWalletWithPasskey(this.ctx, backupData, password);
   }
 

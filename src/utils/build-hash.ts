@@ -72,6 +72,7 @@ export function getPackageVersion(): string {
 
 /**
  * Computes build hash for the current w3pk version from unpkg CDN
+ * (the published package, not the running code)
  * @returns IPFS CIDv1 hash of the build
  *
  * @example
@@ -85,7 +86,14 @@ export async function getCurrentBuildHash(): Promise<string> {
 }
 
 /**
- * Verifies if a given hash matches the current build
+ * Verifies if a given hash matches the build published on unpkg for the
+ * installed version
+ *
+ * This hashes the files fetched from unpkg, not the code actually running:
+ * a bundled, modified or injected copy is not checked, and compromised
+ * running code can return any result. Hash the files you ship at build time
+ * to check those.
+ *
  * @param expectedHash The hash to verify against
  * @returns true if hashes match, false otherwise
  *

@@ -66,6 +66,33 @@ export function generateSiweNonce(length: number = 11): string {
     .join('');
 }
 
+export const SIWE_HEADER = ' wants you to sign in with your Ethereum account:';
+
+const LINE_BREAK = /[\r\n]/;
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+
+function lineBreakFieldError(params: SiweMessage): string | undefined {
+  if (params.statement && LINE_BREAK.test(params.statement)) {
+    return 'Statement cannot contain line breaks';
+  }
+  if (LINE_BREAK.test(params.domain)) {
+    return 'Domain cannot contain line breaks';
+  }
+  if (LINE_BREAK.test(params.uri)) {
+    return 'URI cannot contain line breaks';
+  }
+  if (params.resources?.some((resource) => LINE_BREAK.test(resource))) {
+    return 'Resources cannot contain line breaks';
+  }
+  return undefined;
+}
+
+function parseDate(value: string): Date | undefined {
+  if (!RFC3339.test(value)) return undefined;
+  const date = new Date(value);
+  return isNaN(date.getTime()) ? undefined : date;
+}
+
 /**
  * Create a properly formatted SIWE message according to EIP-4361
  *
@@ -104,9 +131,9 @@ export function createSiweMessage(params: SiweMessage): string {
     throw new Error('Nonce must be at least 8 alphanumeric characters');
   }
 
-  // Validate statement (no newlines)
-  if (params.statement && params.statement.includes('\n')) {
-    throw new Error('Statement cannot contain newlines');
+  const lineBreakError = lineBreakFieldError(params);
+  if (lineBreakError) {
+    throw new Error(lineBreakError);
   }
 
   // Build message according to EIP-4361 ABNF spec
@@ -265,6 +292,9 @@ export function parseSiweMessage(message: string): SiweMessage {
 /**
  * Validate a SIWE message for correctness and expiration
  *
+ * `Issued At`, `Expiration Time` and `Not Before` must be valid dates, and
+ * the message fails once expired or before its not-before time.
+ *
  * @param message - SIWE message string or parsed object
  * @param options - Validation options
  * @returns Validation result with details
@@ -272,7 +302,7 @@ export function parseSiweMessage(message: string): SiweMessage {
  * @example
  * const validation = validateSiweMessage(message, {
  *   domain: 'example.com',
- *   checkExpiration: true
+ *   chainId: 1
  * })
  *
  * if (validation.valid) {
@@ -286,10 +316,6 @@ export function validateSiweMessage(
   options?: {
     /** Expected domain (validates domain matches) */
     domain?: string;
-    /** Check expiration time */
-    checkExpiration?: boolean;
-    /** Check not-before time */
-    checkNotBefore?: boolean;
     /** Expected chain ID */
     chainId?: number;
   }
@@ -324,18 +350,31 @@ export function validateSiweMessage(
       errors.push('Nonce must be at least 8 alphanumeric characters');
     }
 
-    // Check expiration
-    if (options?.checkExpiration && parsed.expirationTime) {
-      const expirationDate = new Date(parsed.expirationTime);
-      if (expirationDate < new Date()) {
+    const lineBreakError = lineBreakFieldError(parsed);
+    if (lineBreakError) {
+      errors.push(lineBreakError);
+    }
+
+    const now = new Date();
+
+    if (!parseDate(parsed.issuedAt)) {
+      errors.push(`Invalid Issued At date: "${parsed.issuedAt}"`);
+    }
+
+    if (parsed.expirationTime !== undefined) {
+      const expirationDate = parseDate(parsed.expirationTime);
+      if (!expirationDate) {
+        errors.push(`Invalid Expiration Time date: "${parsed.expirationTime}"`);
+      } else if (expirationDate <= now) {
         errors.push('Message has expired');
       }
     }
 
-    // Check not-before
-    if (options?.checkNotBefore && parsed.notBefore) {
-      const notBeforeDate = new Date(parsed.notBefore);
-      if (notBeforeDate > new Date()) {
+    if (parsed.notBefore !== undefined) {
+      const notBeforeDate = parseDate(parsed.notBefore);
+      if (!notBeforeDate) {
+        errors.push(`Invalid Not Before date: "${parsed.notBefore}"`);
+      } else if (notBeforeDate > now) {
         errors.push('Message is not yet valid (not-before constraint)');
       }
     }
@@ -351,6 +390,28 @@ export function validateSiweMessage(
       valid: false,
       errors,
     };
+  }
+}
+
+/**
+ * Check that a SIWE message's domain matches `origin` (EIP-4361): same host
+ * and port, and same scheme when the domain names one
+ *
+ * @throws Error if the message doesn't parse or its domain doesn't match
+ */
+export function assertSiweDomain(message: string, origin: string): void {
+  const { domain } = parseSiweMessage(message);
+  const expected = new URL(origin);
+  let actual: URL;
+  try {
+    actual = new URL(domain.includes('://') ? domain : `${expected.protocol}//${domain}`);
+  } catch {
+    throw new Error(`Invalid SIWE message domain "${domain}"`);
+  }
+  if (actual.protocol !== expected.protocol || actual.host !== expected.host) {
+    throw new Error(
+      `SIWE message domain "${domain}" does not match the current origin "${expected.host}"`
+    );
   }
 }
 

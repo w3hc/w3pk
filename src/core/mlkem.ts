@@ -51,13 +51,7 @@ export async function deriveMLKemPublicKey(ctx: MlkemContext, options?: {
 
   const keypair = await deriveMLKemKeypair(privateKey, context);
 
-  // Convert to base64 for easy sharing
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(keypair.publicKey).toString('base64');
-  } else {
-    // Browser fallback
-    return btoa(String.fromCharCode(...Array.from(keypair.publicKey)));
-  }
+  return btoa(String.fromCharCode(...Array.from(keypair.publicKey)));
 }
 
 export async function mlkemEncrypt(

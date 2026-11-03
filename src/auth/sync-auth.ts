@@ -12,6 +12,7 @@ import {
 } from "../utils/base64";
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 import { isUserVerified } from "./flags";
+import { validateUsername } from "../utils/validation";
 
 export interface PasskeySelectionResult {
   credentialId: string;
@@ -20,8 +21,24 @@ export interface PasskeySelectionResult {
   username?: string;
   /** The selection assertion, to verify against a public key from a backup */
   assertion: AuthenticationCredential;
+  /** Base64url challenge the assertion answers */
+  challenge: string;
   /** PRF output at `PRF_INPUT`, the source of the wallet key; absent without PRF */
   prfOutput?: ArrayBuffer;
+}
+
+/**
+ * Passkeys registered before 0.11.1 used the username as user handle; newer
+ * ones use random bytes, which don't decode to a valid username.
+ */
+function usernameFromUserHandle(userHandle?: ArrayBuffer): string | undefined {
+  if (!userHandle?.byteLength) return undefined;
+  try {
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(userHandle);
+    return validateUsername(decoded) ? decoded : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -86,10 +103,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
     const prfOutput = isUserVerified(new Uint8Array(credential.response.authenticatorData))
       ? credential.getClientExtensionResults?.().prf?.results?.first
       : undefined;
-    const userHandle = credential.response.userHandle;
-    const username = userHandle?.byteLength
-      ? new TextDecoder().decode(userHandle)
-      : undefined;
+    const username = usernameFromUserHandle(credential.response.userHandle);
 
     // Try to get the stored credential metadata
     const storedCredential = await storage.getCredentialById(credentialId);
@@ -103,6 +117,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
         ethereumAddress: undefined,
         username,
         assertion: credential,
+        challenge,
         prfOutput,
       };
     }
@@ -114,6 +129,7 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
       ethereumAddress: storedCredential.ethereumAddress,
       username: storedCredential.username,
       assertion: credential,
+      challenge,
       prfOutput,
     };
   } catch (error: any) {

@@ -70,6 +70,14 @@ export async function deriveIndexFromOriginModeAndTag(
  * - STANDARD mode: Private key NOT exposed, persistent sessions allowed
  * - STRICT mode: Private key NOT exposed, persistent sessions NOT allowed
  * - YOLO mode: Private key exposed, persistent sessions allowed
+ *
+ * The key is derived at `m/44'/60'/0'/0/{index}`, a non-hardened BIP-32 child.
+ * Under BIP-32, a leaked non-hardened child private key together with the
+ * parent extended public key (`m/44'/60'/0'/0`) reveals the parent private key
+ * and every sibling, so every origin's key. w3pk never exposes that extended
+ * public key, but a YOLO-mode private key must be treated as sensitive for the
+ * whole wallet, not only for its origin. The path is kept as is because
+ * changing it would move every origin address.
  */
 export async function getOriginSpecificAddress(
   mnemonic: string,

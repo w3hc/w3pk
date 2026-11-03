@@ -150,6 +150,44 @@ async function runTests() {
     }
   }
 
+  // Test 4b: extractRS - Malformed DER is rejected, not read out of range
+  console.log("\nTest 4b: extractRS - Reject malformed DER");
+  {
+    const r = new Uint8Array(32).fill(0x11);
+    const s = new Uint8Array(32).fill(0x22);
+    const der = (parts: number[][]) => {
+      const body = parts.flat();
+      return new Uint8Array([0x30, body.length, ...body]);
+    };
+    const int = (bytes: Uint8Array | number[]) => [0x02, bytes.length, ...bytes];
+    const valid = der([int(r), int(s)]);
+    assert.doesNotThrow(() => extractRS(valid), "well-formed DER parses");
+
+    const cases: Array<[string, Uint8Array]> = [
+      ["empty", new Uint8Array(0)],
+      ["truncated", valid.slice(0, 40)],
+      ["sequence length too long", Uint8Array.from([0x30, 0x50, ...valid.slice(2)])],
+      ["sequence length too short", Uint8Array.from([0x30, 0x10, ...valid.slice(2)])],
+      ["r length past the end", der([[0x02, 0x60, ...r], int(s)])],
+      ["r longer than 33 bytes", der([int(new Uint8Array(34).fill(0x11)), int(s)])],
+      ["33-byte r without a 0x00 prefix", der([int(new Uint8Array(33).fill(0x11)), int(s)])],
+      ["zero-length s", der([int(r), [0x02, 0x00]])],
+      ["missing s", der([int(r)])],
+      ["wrong s tag", der([int(r), [0x03, 32, ...s]])],
+      ["trailing bytes", der([int(r), int(s), [0x00]])],
+    ];
+    for (const [name, sig] of cases) {
+      assert.throws(
+        () => extractRS(sig),
+        (error: Error) => error.message.startsWith("Invalid DER signature"),
+        `${name} should be rejected`
+      );
+    }
+
+    console.log(`  ✓ Rejected ${cases.length} malformed signatures`);
+    console.log("✅ extractRS checks DER lengths and bounds");
+  }
+
   // Test 5: base64UrlToArrayBuffer - Basic conversion
   console.log("\nTest 5: base64UrlToArrayBuffer - Basic conversion");
   {

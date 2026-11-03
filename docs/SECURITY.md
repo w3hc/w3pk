@@ -139,6 +139,12 @@ w3pk now uses **origin-centric security modes** for wallet derivation:
 - ✅ Signatures via `signMessage()` (no key exposure)
 - ✅ Encrypted backups via SDK methods
 
+### Origin keys are non-hardened BIP-32 children
+
+Every origin address is derived at `m/44'/60'/0'/0/{index}`, where `index` comes from the origin, mode and tag. That last step is a non-hardened [BIP-32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#security) derivation: anyone holding one child private key **and** the parent extended public key of `m/44'/60'/0'/0` can compute the parent private key, and from it every sibling, so every other origin's key.
+
+w3pk never exposes that extended public key, so a single leaked YOLO-mode private key does not reveal the others on its own. But the isolation between origins rests on the extended public key staying secret, not on the derivation: treat a YOLO private key as sensitive for the whole wallet. The path is kept because hardening it would move every existing origin address.
+
 ### Mode-Based Security Examples
 
 ```typescript
@@ -1196,7 +1202,8 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │  │                                                          │ │
 │  │ ⚠️  Plaintext mnemonic in JavaScript memory             │ │
 │  │ ⚠️  Accessible to all JavaScript in same context        │ │
-│  │ ⚠️  Cleared on logout, browser close, or expiration     │ │
+│  │ ⚠️  Dropped on logout or expiration (not zeroed: JS     │ │
+│  │     strings are immutable, so it stays until GC)       │ │
 │  │ ⚠️  Never written to disk (unless OS swap/hibernate)    │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
@@ -1212,7 +1219,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │  │   privateKey: <HARDWARE_PROTECTED>,    // SECRET       │ │
 │  │   rpId: "example.com",                  // Bound       │ │
 │  │   credentialId: "credential-abc123",    // PUBLIC      │ │
-│  │   userHandle: "alice"                   // PUBLIC      │ │
+│  │   userHandle: <32 random bytes>         // PUBLIC      │ │
 │  │ }                                                        │ │
 │  │                                                          │ │
 │  │ ✅ Private key CANNOT be exported                       │ │
@@ -1587,6 +1594,8 @@ w3pk supports **two types of sessions** (v0.8.2+):
 - ✅ Cleared on page refresh
 - ✅ Cleared on logout
 - ✅ Cleared when browser tab closes
+
+**Logout drops the session, it doesn't wipe memory.** The mnemonic is a JavaScript string, and strings are immutable: `clearSession()` overwrites the session's field, which only drops that reference. The original string stays in the heap until the garbage collector reclaims it, along with any copy derived from it (ethers wallet objects, the app's own variables). JavaScript gives no way to zero it, so a heap dump or a memory-reading exploit taken shortly after logout can still find the mnemonic. Closing the tab ends the process's copy.
 
 **Persistent Session (opt-in — "Remember Me"):**
 - Mnemonic encrypted in localStorage under a **WebAuthn-PRF-derived key** (HKDF-SHA256 of the authenticator's per-credential PRF secret); survives page refresh for the configured duration

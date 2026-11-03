@@ -209,6 +209,8 @@ async function runTests() {
     assertEqual(file.walletAddress, ADDRESS, "file holds the address");
     assert(invite.shareDocument.includes(guardianShares[0].shareData), "document holds the share");
     assert(invite.shareDocument.includes("Keep this safe"), "document holds the message");
+    assert(invite.shareDocument.includes("any\n   2 guardians"), "document states the threshold");
+    assert(!invite.shareDocument.includes("-of-N"), "document has no placeholder threshold");
     passTest();
   });
 
@@ -222,19 +224,27 @@ async function runTests() {
     const files = await shareFiles(sdk, guardianShares);
 
     for (const combo of [[0, 1, 2], [1, 3, 4], [0, 2, 4]]) {
-      const result = await new Web3Passkey().recoverFromGuardians(
+      const recovering = new Web3Passkey();
+      const result = await recovering.recoverFromGuardians(
         combo.map((i) => files[i]),
         PASSWORD
       );
-      assertEqual(result.mnemonic, MNEMONIC, `mnemonic from ${combo.join(",")}`);
+      assert(!("mnemonic" in result), "doesn't return the mnemonic");
       assertEqual(result.ethereumAddress, ADDRESS, `address from ${combo.join(",")}`);
+      assertEqual(
+        (recovering as any).currentWallet?.mnemonic,
+        MNEMONIC,
+        `wallet kept in memory from ${combo.join(",")}`
+      );
     }
 
-    const fromObjects = await new Web3Passkey().recoverFromGuardians(
-      guardianShares.slice(0, 3),
-      PASSWORD
+    const fromObjects = new Web3Passkey();
+    await fromObjects.recoverFromGuardians(guardianShares.slice(0, 3), PASSWORD);
+    assertEqual(
+      (fromObjects as any).currentWallet?.address,
+      ADDRESS,
+      "parsed share objects work too"
     );
-    assertEqual(fromObjects.mnemonic, MNEMONIC, "parsed share objects work too");
     passTest();
   });
 

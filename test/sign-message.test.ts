@@ -413,6 +413,61 @@ Issued At: 2021-09-30T16:25:24Z`;
     console.log("✅ PRIMARY mode SIWE rejection works");
   }
 
+  // Test 13: SIWE signing rejects a message for another domain
+  console.log("\nTest 13: SIWE signing checks the message's domain");
+  {
+    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const siweFor = (domain: string) => `${domain} wants you to sign in with your Ethereum account:
+0x1234567890123456789012345678901234567890
+
+URI: https://${domain}
+Version: 1
+Chain ID: 1
+Nonce: 32891756
+Issued At: 2021-09-30T16:25:24Z`;
+
+    const causeOf = async (siweMessage: string) => {
+      try {
+        await sdk.signMessage(siweMessage, { signingMethod: "SIWE" });
+      } catch (error) {
+        return (error as any).originalError?.message ?? (error as Error).message;
+      }
+      return "";
+    };
+
+    const mismatch = await causeOf(siweFor("evil.example"));
+    if (!mismatch.includes("does not match the current origin")) {
+      throw new Error(`Expected SIWE domain rejection, got: "${mismatch}"`);
+    }
+
+    const host = new URL(window.location.origin).host;
+    const scheme = new URL(window.location.origin).protocol;
+    for (const domain of [host, host.toUpperCase(), `${scheme}//${host}`]) {
+      const match = await causeOf(siweFor(domain));
+      if (!match.includes("Must be authenticated")) {
+        throw new Error(`Expected "${domain}" to pass the check, got: "${match}"`);
+      }
+    }
+
+    const otherScheme = await causeOf(siweFor(`ftp://${host}`));
+    if (!otherScheme.includes("does not match the current origin")) {
+      throw new Error(`Expected another scheme to be rejected, got: "${otherScheme}"`);
+    }
+
+    let eip191 = "";
+    try {
+      await sdk.signMessage(siweFor("evil.example"));
+    } catch (error) {
+      eip191 = (error as any).originalError?.message ?? (error as Error).message;
+    }
+    if (!eip191.includes("does not match the current origin")) {
+      throw new Error(`Expected a SIWE message signed as EIP-191 to be checked, got: "${eip191}"`);
+    }
+
+    console.log(`  ✓ Rejected: ${mismatch}`);
+    console.log("✅ SIWE domain check works");
+  }
+
   console.log("\n✅ All Sign Message Tests Passed!\n");
   console.log("📋 Summary:");
   console.log("  • STANDARD mode: Can sign messages (address-only derivation)");
