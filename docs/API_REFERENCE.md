@@ -50,6 +50,7 @@ interface Web3PasskeyConfig {
   stealthAddresses?: StealthAddressConfig;  // Enable stealth addresses
   zkProofs?: ZKProofConfig;          // Enable ZK proofs
   userVerification?: 'required' | 'preferred';  // WebAuthn user verification (default: 'required')
+  rpcUrls?: Record<number, string[]>;  // RPC endpoints per chain ID, used before chainlist
 }
 
 interface PersistentSessionConfig {
@@ -1386,8 +1387,11 @@ interface TransactionResult {
 
 The RPC endpoint is resolved in this order:
 1. `options.rpcUrl` (explicit override)
-2. First endpoint from `getEndpoints(tx.chainId)` (chainlist — 2390+ networks)
-3. Throws `WalletError` if neither is available
+2. First endpoint set for the chain in the `rpcUrls` config
+3. First HTTPS endpoint from chainid.network that needs no API key
+4. Throws `WalletError` if none is available
+
+The chosen RPC also supplies the nonce, gas estimate and fee data, so set `rpcUrls` to endpoints you trust rather than relying on a public list.
 
 **Sender address**
 
@@ -1473,7 +1477,7 @@ const priorityTx = await w3pk.sendTransaction({
 | Condition | Error |
 |-----------|-------|
 | Not authenticated | `WalletError: Must be authenticated to send transaction` |
-| No RPC for chainId | `WalletError: No RPC endpoint found for chainId <N>. Pass options.rpcUrl.` |
+| No RPC for chainId | `WalletError: No RPC endpoint found for chainId <N>. Set rpcUrls in the config or pass options.rpcUrl.` |
 | PRIMARY mode without rpcUrl | `WalletError: PRIMARY mode requires options.rpcUrl pointing to a bundler...` |
 | PRIMARY mode (any) | `WalletError: PRIMARY mode sendTransaction is not yet supported.` |
 | Node rejection | `WalletError: Failed to send transaction` (wraps original error) |
@@ -2920,12 +2924,12 @@ const wallet = await w3pk.deriveWallet('STRICT')
 
 ### `getEndpoints(chainId: number): Promise<string[]>`
 
-Get public RPC endpoints for a chain from chainlist.
+Get RPC endpoints for a chain: those set in the `rpcUrls` config first, then the public chainlist ones.
 
 **Parameters:**
 - `chainId: number` - Chain ID (e.g., 1 for Ethereum, 137 for Polygon)
 
-**Returns:** Array of RPC URLs (filtered for quality)
+**Returns:** Array of RPC URLs; chainlist endpoints are HTTPS only, without API key placeholders
 
 **Example:**
 
@@ -3651,7 +3655,7 @@ const supported = await w3pk.supportsEIP7702(1)
 
 #### `getEndpoints(chainId: number, options?: ChainlistOptions): Promise<string[]>`
 
-Get RPC endpoints (standalone).
+Get the HTTPS RPC endpoints of a chain from chainid.network, without those that need an API key (standalone).
 
 ```typescript
 const endpoints = await getEndpoints(1)
