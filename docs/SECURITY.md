@@ -609,8 +609,8 @@ EIP-7702 authorizations allow an EOA to **permanently delegate** its code execut
 #### Threat Analysis
 
 **✅ Protected Against:**
-- Unauthorized signing (every call needs a fresh user-verified passkey assertion; an active session is not enough)
-- Master key delegation (signs with the origin-specific derived key, never `m/44'/60'/0'/0/0`)
+- Silent `signAuthorization()` calls (without `privateKey`, every call needs a fresh passkey assertion; an active session is not enough)
+- Master key delegation (without `privateKey`, signs with the origin-specific derived key, never `m/44'/60'/0'/0/0`)
 - Phishing (authorization bound to specific contract address + chain ID)
 - Replay attacks (nonce-based protection)
 - Cross-chain attacks (chain ID binding)
@@ -625,6 +625,7 @@ EIP-7702 authorizations allow an EOA to **permanently delegate** its code execut
 - Malicious contracts (user must verify contract is trustworthy)
 - Social engineering (user can be tricked into authorizing bad contracts)
 - XSS that tricks the user into approving the passkey prompt for an attacker's contract
+- XSS during an active session signing the authorization digest itself with `signMessage(hash, { signingMethod: 'rawHash' })`, or passing a key it obtained to `signAuthorization({ privateKey })`
 
 ### Security Best Practices
 
@@ -673,7 +674,7 @@ if (await getUserConfirmation()) {
 
 #### 2. Fresh Authentication and Signing Key
 
-`signAuthorization()` never uses the session cache: without `privateKey`, every call triggers a user-verified passkey assertion, so a script running during an active session cannot delegate the account silently. It signs with the origin-specific derived key for `mode` and `tag` (default `STANDARD` / `MAIN`, the same address `sendTransaction()` uses), never the master key. `PRIMARY` mode is refused.
+`signAuthorization()` never uses the session cache: without `privateKey`, every call triggers a passkey assertion (user-verified with the default `userVerification: 'required'`), so it cannot be called silently during an active session. A `privateKey` passed by the caller is used as is, with no prompt. It signs with the origin-specific derived key for `mode` and `tag` (default `STANDARD` / `MAIN`, the same address `sendTransaction()` uses), never the master key. `PRIMARY` mode is refused.
 
 ```typescript
 const authorization = await w3pk.signAuthorization({
