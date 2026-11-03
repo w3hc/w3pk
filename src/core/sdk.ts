@@ -1591,14 +1591,21 @@ export class Web3Passkey {
    * A PRF backup takes one assertion with its passkey, no password, and sets
    * this device up for that passkey (as importFromSync() does).
    *
+   * When logged in, the restored wallet replaces the stored one only after
+   * the passkey assertion succeeds. A backup of another address than the
+   * logged-in one needs `allowAddressChange: true`, which the app sets once
+   * the user confirms the replacement.
+   *
    * @throws UnsupportedBackupVersionError for a file that isn't BackupFile v3
    * @throws SyncBootstrapError ('CREDENTIAL_MISMATCH') for a PRF backup of another passkey than the logged-in one
+   * @throws AddressChangeError for a backup of another address without `allowAddressChange`
    */
   async restoreFromBackupFile(
     backupData: string | Blob,
-    password?: string
+    password?: string,
+    options?: { allowAddressChange?: boolean }
   ): Promise<{ mnemonic: string; ethereumAddress: string }> {
-    return restoreFromBackupFile(this.ctx, backupData, password);
+    return restoreFromBackupFile(this.ctx, backupData, password, options);
   }
 
   /**
