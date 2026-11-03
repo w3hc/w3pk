@@ -52,6 +52,14 @@ function isHex(value: string): boolean {
   return typeof value === 'string' && /^0x(?:[0-9a-fA-F]{2})*$/.test(value);
 }
 
+function parseChainId(value: unknown): bigint {
+  try {
+    return BigInt(value as string | number | bigint);
+  } catch {
+    throw new WalletError(`Invalid chainId: ${String(value)}`);
+  }
+}
+
 /** Build the EIP-1193 provider returned by `Web3Passkey.getEIP1193Provider()` */
 export function createEIP1193Provider(
   sdk: Pick<Web3Passkey, 'getAddress' | 'sendTransaction' | 'signMessage'>,
@@ -168,7 +176,7 @@ export function createEIP1193Provider(
 
           const { domain, types, message: typedMessage, primaryType } = typedData;
 
-          if (domain?.chainId != null && BigInt(domain.chainId) !== BigInt(activeChainId)) {
+          if (domain?.chainId != null && parseChainId(domain.chainId) !== BigInt(activeChainId)) {
             throw new WalletError(
               `eth_signTypedData_v4: domain chainId ${domain.chainId} does not match the active chain ${activeChainId}`
             );

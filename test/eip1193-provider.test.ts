@@ -19,6 +19,7 @@ import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { createEIP1193Provider } from "../src/core/eip1193";
+import { WalletError } from "../src/core/errors";
 import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify } from "ethers";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -363,6 +364,10 @@ async function runTests() {
       () => provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(1)] }),
       "domain chainId 1 should be refused on chain 10"
     );
+    const invalid = await provider
+      .request({ method: "eth_signTypedData_v4", params: ["0x0", typedData("abc")] })
+      .catch((error) => error);
+    assert(invalid instanceof WalletError, "a non-numeric domain chainId should throw a WalletError");
     assertEqual(calls.length, 0, "nothing should be signed");
 
     await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(10)] });
