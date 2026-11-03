@@ -139,6 +139,12 @@ w3pk now uses **origin-centric security modes** for wallet derivation:
 - ✅ Signatures via `signMessage()` (no key exposure)
 - ✅ Encrypted backups via SDK methods
 
+### Origin keys are non-hardened BIP-32 children
+
+Every origin address is derived at `m/44'/60'/0'/0/{index}`, where `index` comes from the origin, mode and tag. That last step is a non-hardened [BIP-32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#security) derivation: anyone holding one child private key **and** the parent extended public key of `m/44'/60'/0'/0` can compute the parent private key, and from it every sibling, so every other origin's key.
+
+w3pk never exposes that extended public key, so a single leaked YOLO-mode private key does not reveal the others on its own. But the isolation between origins rests on the extended public key staying secret, not on the derivation: treat a YOLO private key as sensitive for the whole wallet. The path is kept because hardening it would move every existing origin address.
+
 ### Mode-Based Security Examples
 
 ```typescript
