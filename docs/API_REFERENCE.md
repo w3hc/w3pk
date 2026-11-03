@@ -2892,6 +2892,7 @@ console.log('Synced wallet address:', result.ethereumAddress)
   - `'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4)
   - `'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected
   - `'PUBLIC_KEY_MISMATCH'`: the backup's public key doesn't match the passkey's signature
+- `PrfUnsupportedError` if the passkey has another wallet on this device and the authenticator returns no PRF output to store the new one with (the stored wallet is kept)
 
 **Note:** Differs from `importFromSync()` in that it also accepts password backups.
 
