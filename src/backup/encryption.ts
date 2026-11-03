@@ -82,15 +82,18 @@ export const PASSWORD_MAX_LENGTH = 256;
 /**
  * Password rules for backups, after NIST SP 800-63B-4 §3.1.1.2 and the OWASP
  * Authentication Cheat Sheet: the NFC-normalized password must have 15 to 256
- * Unicode code points and not be a common password (whole match, any case).
- * No composition rules; spaces and any Unicode character are accepted.
+ * Unicode code points, not be a common password (whole match, any case,
+ * ignoring spaces, dots, dashes and underscores) and not repeat a single
+ * character. No composition rules; spaces and any Unicode character are accepted.
  */
 export function validatePasswordStrength(password: string): {
   valid: boolean;
   feedback: string[];
 } {
   const normalized = typeof password === "string" ? password.normalize("NFC") : "";
-  const length = [...normalized].length;
+  const codePoints = [...normalized];
+  const length = codePoints.length;
+  const folded = normalized.toLowerCase();
   const feedback: string[] = [];
 
   if (length < PASSWORD_MIN_LENGTH) {
@@ -99,8 +102,11 @@ export function validatePasswordStrength(password: string): {
   if (length > PASSWORD_MAX_LENGTH) {
     feedback.push(`Password must be at most ${PASSWORD_MAX_LENGTH} characters`);
   }
-  if (COMMON_PASSWORDS.has(normalized.toLowerCase())) {
+  if (COMMON_PASSWORDS.has(folded) || COMMON_PASSWORDS.has(folded.replace(/[\s._-]+/gu, ""))) {
     feedback.push("Password is too common");
+  }
+  if (length > 1 && new Set(codePoints).size === 1) {
+    feedback.push("Password must not repeat a single character");
   }
 
   return { valid: feedback.length === 0, feedback };

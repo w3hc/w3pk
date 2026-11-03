@@ -31,10 +31,10 @@ async function runTests() {
   await runTest('Password Strength Validation', async () => {
     for (const accepted of [
       'correct horse battery staple',
-      'abcdefghijklmno',
+      'violet lantern under seven bridges',
       'mot de passe très long',
       'パスワードはとても長いですよね本当に',
-      'x'.repeat(256),
+      'xy'.repeat(128),
     ]) {
       const result = validatePasswordStrength(accepted);
       assert(result.valid, `"${accepted}" accepted`);
@@ -45,19 +45,23 @@ async function runTests() {
     assert(!short.valid, '14 characters refused');
     assert(short.feedback.includes('Password must be at least 15 characters'), 'feedback names the minimum');
 
-    const emoji = validatePasswordStrength('🔑'.repeat(15));
+    const emoji = validatePasswordStrength('🔑🔒'.repeat(8).slice(0, 30));
     assert(emoji.valid, 'length counts code points, not UTF-16 units');
-    assert(!validatePasswordStrength('🔑'.repeat(14)).valid, '14 emoji refused');
+    assert(!validatePasswordStrength('🔑🔒'.repeat(7)).valid, '14 emoji refused');
 
-    const decomposed = 'e\u0301'.repeat(15);
+    const decomposed = 'e\u0301a'.repeat(8).slice(0, 23);
     assert(validatePasswordStrength(decomposed).valid, 'length is counted after NFC normalization');
-    assert(!validatePasswordStrength('e\u0301'.repeat(14)).valid, '14 NFC characters refused');
+    assert(!validatePasswordStrength('e\u0301a'.repeat(7)).valid, '14 NFC characters refused');
 
-    const long = validatePasswordStrength('x'.repeat(257));
+    const repeated = validatePasswordStrength('a'.repeat(17));
+    assert(!repeated.valid, 'a single repeated character is refused');
+    assert(repeated.feedback.includes('Password must not repeat a single character'), 'feedback names the repetition');
+
+    const long = validatePasswordStrength('xy'.repeat(128) + 'z');
     assert(!long.valid, '257 characters refused');
     assert(long.feedback.includes('Password must be at most 256 characters'), 'feedback names the maximum');
 
-    for (const common of ['passwordpassword', 'PasswordPassword', '1qaz2wsx3edc4rfv', '123456789987654321']) {
+    for (const common of ['passwordpassword', 'PasswordPassword', 'password password', 'Password-Password', '1qaz2wsx3edc4rfv', '123456789987654321']) {
       const result = validatePasswordStrength(common);
       assert(!result.valid, `"${common}" refused`);
       assert(result.feedback.includes('Password is too common'), `"${common}": feedback names the list`);

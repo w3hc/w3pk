@@ -61,7 +61,7 @@ async function runTests() {
 
   await runTest('Password backup refuses a weak password with the feedback', async () => {
     const { mnemonic } = newWallet();
-    for (const weak of ['', 'a', 'Sh0rt!Passw0rd', 'PasswordPassword']) {
+    for (const weak of ['', 'a', 'Sh0rt!Passw0rd', 'PasswordPassword', 'xy'.repeat(128) + 'z']) {
       const error = await capture(() => manager.createPasswordBackup(mnemonic, weak));
       assert(error instanceof WeakPasswordError, `"${weak}": WeakPasswordError`);
       assertEqual((error as WeakPasswordError).code, 'WEAK_PASSWORD', `"${weak}": code`);
@@ -69,6 +69,8 @@ async function runTests() {
     }
     const missing = await capture(() => manager.createPasswordBackup(mnemonic, undefined as unknown as string));
     assert(missing instanceof WeakPasswordError, 'missing password: WeakPasswordError');
+    const notString = await capture(() => manager.createPasswordBackup(mnemonic, 123456789012345678 as unknown as string));
+    assert(notString instanceof WeakPasswordError, 'non-string password: WeakPasswordError');
     const short = (await capture(() => manager.createPasswordBackup(mnemonic, 'a'))) as WeakPasswordError;
     assert(short.feedback.includes('Password must be at least 15 characters'), 'feedback names the length');
     assert(short.message.includes('at least 15 characters'), 'message carries the feedback');
