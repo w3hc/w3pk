@@ -67,6 +67,8 @@ async function runTests() {
       assertEqual((error as WeakPasswordError).code, 'WEAK_PASSWORD', `"${weak}": code`);
       assert((error as WeakPasswordError).feedback.length > 0, `"${weak}": carries the feedback`);
     }
+    const missing = await capture(() => manager.createPasswordBackup(mnemonic, undefined as unknown as string));
+    assert(missing instanceof WeakPasswordError, 'missing password: WeakPasswordError');
     const short = (await capture(() => manager.createPasswordBackup(mnemonic, 'a'))) as WeakPasswordError;
     assert(short.feedback.includes('Password must be at least 12 characters'), 'feedback names the length');
     assert(short.message.includes('at least 12 characters'), 'message carries the feedback');
