@@ -372,8 +372,9 @@ async function runTests() {
     ["importFromSync()", (sdk, options) => sdk.importFromSync(prfBackupB, options)],
   ];
 
-  for (const [label, sync] of syncCases) {
-    console.log(`Test 7: ${label} of another address than the stored one`);
+  for (const [i, [label, sync]] of syncCases.entries()) {
+    const n = `7${"abc"[i]}`;
+    console.log(`Test ${n}: ${label} of another address than the stored one`);
     {
       const sdk = await loggedInWith(publicKey, MNEMONIC_A);
       const error = await capture(() => sync(sdk));
@@ -387,6 +388,27 @@ async function runTests() {
       await assertKeepsWalletA(sdk);
 
       const replaced = await loggedInWith(publicKey, MNEMONIC_A);
+      await sync(replaced, { allowAddressChange: true });
+      await assertReplacedByB(replaced);
+    }
+    console.log("");
+
+    console.log(`Test ${n}: logged out, the same`);
+    {
+      const sdk = await loggedInWith(publicKey, MNEMONIC_A);
+      (sdk as any).currentUser = null;
+      const error = await capture(() => sync(sdk));
+      assert(error instanceof AddressChangeError, "without allowAddressChange, throws AddressChangeError");
+      assert((await storedMnemonic(ADDRESS_A)) === MNEMONIC_A, "wallet A stays stored");
+      assert((await wallets().retrieve(ADDRESS_B)) === null, "wallet B isn't stored");
+      assert(
+        (await credentials().getCredentialById(CREDENTIAL_ID))?.ethereumAddress === ADDRESS_A,
+        "the credential still points at wallet A"
+      );
+      assert(sdk.user === null, "stays logged out");
+
+      const replaced = await loggedInWith(publicKey, MNEMONIC_A);
+      (replaced as any).currentUser = null;
       await sync(replaced, { allowAddressChange: true });
       await assertReplacedByB(replaced);
     }
