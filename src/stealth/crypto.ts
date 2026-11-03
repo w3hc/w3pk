@@ -45,8 +45,6 @@ export interface ParseResult {
   isForUser: boolean;
   /** The stealth address (only if isForUser is true) */
   stealthAddress?: string;
-  /** The stealth private key (only if isForUser is true) */
-  stealthPrivateKey?: string;
 }
 
 /**
@@ -168,7 +166,7 @@ export function generateStealthAddress(
  * @param ephemeralPubKey - Ephemeral public key from announcement
  * @param stealthAddress - The stealth address to check
  * @param viewTag - View tag from announcement (optional, for optimization)
- * @returns ParseResult with stealth address and private key if it belongs to user
+ * @returns ParseResult with the stealth address if it belongs to the user
  */
 export function checkStealthAddress(
   viewingKey: string,
