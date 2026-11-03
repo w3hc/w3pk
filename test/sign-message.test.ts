@@ -440,9 +440,28 @@ Issued At: 2021-09-30T16:25:24Z`;
       throw new Error(`Expected SIWE domain rejection, got: "${mismatch}"`);
     }
 
-    const match = await causeOf(siweFor(new URL(window.location.origin).host));
-    if (!match.includes("Must be authenticated")) {
-      throw new Error(`Expected the matching domain to pass the check, got: "${match}"`);
+    const host = new URL(window.location.origin).host;
+    const scheme = new URL(window.location.origin).protocol;
+    for (const domain of [host, host.toUpperCase(), `${scheme}//${host}`]) {
+      const match = await causeOf(siweFor(domain));
+      if (!match.includes("Must be authenticated")) {
+        throw new Error(`Expected "${domain}" to pass the check, got: "${match}"`);
+      }
+    }
+
+    const otherScheme = await causeOf(siweFor(`ftp://${host}`));
+    if (!otherScheme.includes("does not match the current origin")) {
+      throw new Error(`Expected another scheme to be rejected, got: "${otherScheme}"`);
+    }
+
+    let eip191 = "";
+    try {
+      await sdk.signMessage(siweFor("evil.example"));
+    } catch (error) {
+      eip191 = (error as any).originalError?.message ?? (error as Error).message;
+    }
+    if (!eip191.includes("does not match the current origin")) {
+      throw new Error(`Expected a SIWE message signed as EIP-191 to be checked, got: "${eip191}"`);
     }
 
     console.log(`  ✓ Rejected: ${mismatch}`);

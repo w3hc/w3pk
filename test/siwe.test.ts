@@ -373,6 +373,8 @@ async function runTests() {
       [{ expirationTime: "not-a-date" }, "Invalid Expiration Time"],
       [{ notBefore: "not-a-date" }, "Invalid Not Before"],
       [{ issuedAt: "not-a-date" }, "Invalid Issued At"],
+      [{ expirationTime: "3000" }, "Invalid Expiration Time"],
+      [{ notBefore: "Jan 1 2000" }, "Invalid Not Before"],
     ];
     for (const [fields, expected] of cases) {
       const validation = validateSiweMessage(createSiweMessage({ ...base, ...fields }));
