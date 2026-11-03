@@ -470,6 +470,16 @@ async function runTests() {
   }
   console.log("");
 
+  console.log("Test 6b: a PRF backup with an invalid username falls back to the address");
+  {
+    localStorage.clear();
+    const { sdk } = freshSdk();
+    await sdk.syncWalletWithPasskey(JSON.stringify({ ...backup, username: "-not a username-" }));
+    assert(sdk.isAuthenticated, "user is logged in");
+    assert(sdk.user?.username === ADDRESS, "username falls back to the address");
+  }
+  console.log("");
+
   console.log("Test 7: password fallback without PRF");
   {
     authenticator.prf = false;
@@ -499,6 +509,7 @@ async function runTests() {
     const file: BackupFile = JSON.parse(fallback.json);
     assert(file.encryptionMethod === "password", "with a password: emits a password backup");
     assert(file.credential?.id === CREDENTIAL_ID, "the password backup names the passkey");
+    assert(file.username === USERNAME, "the password backup carries the username");
 
     const importError = await capture(() => freshSdk().sdk.importFromSync(fallback.json));
     assert(importError instanceof WalletError, "importFromSync() points to syncWalletWithPasskey()");
