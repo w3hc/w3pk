@@ -71,11 +71,11 @@ async function getChainsData(options?: ChainlistOptions): Promise<Chain[]> {
 }
 
 /**
- * Get RPC endpoints for a specific chain ID, excluding those that require API keys
+ * Get the HTTPS RPC endpoints for a specific chain ID, excluding those that require API keys
  *
  * @param chainId - The chain ID to get endpoints for
  * @param options - Optional configuration
- * @returns Array of RPC URLs that don't require API keys
+ * @returns Array of HTTPS RPC URLs that don't require API keys
  *
  * @example
  * ```typescript
@@ -103,12 +103,8 @@ export async function getEndpoints(
     return [];
   }
 
-  // Filter out RPC URLs that require API keys and websocket URLs
   return chain.rpc.filter(
-    (rpcUrl) =>
-      !requiresApiKey(rpcUrl) &&
-      !rpcUrl.startsWith("wss://") &&
-      !rpcUrl.startsWith("ws://")
+    (rpcUrl) => rpcUrl.startsWith("https://") && !requiresApiKey(rpcUrl)
   );
 }
 
