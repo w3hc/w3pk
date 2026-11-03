@@ -46,40 +46,14 @@ async function example() {
       s: authorization.s,
     });
 
-    // Option 2: Sign with a specific derived address
-    console.log("\nSigning with derived address:");
-    const { deriveWalletFromMnemonic } = await import("w3pk");
-    const mnemonic = "your mnemonic phrase here"; // Get from secure source
-    const { address: derivedAddress, privateKey: derivedKey } = deriveWalletFromMnemonic(mnemonic, 5);
-
-    const authFromDerived = await sdk.signAuthorization({
-      contractAddress: govContractAddress,
-      chainId: chainId,
-      privateKey: derivedKey, // Use derived private key
-    });
-
-    console.log("Authorization from derived address:", derivedAddress, "to", authFromDerived.address);
-
-    // Option 3: Sign with a stealth address
-    console.log("\nSigning with stealth address:");
-    const { computeStealthPrivateKey } = await import("w3pk");
-    const viewingKey = "0x...";
-    const spendingKey = "0x...";
-    const ephemeralPubKey = "0x..."; // From ERC-5564 announcement
-
-    const stealthPrivKey = computeStealthPrivateKey(
-      viewingKey,
-      spendingKey,
-      ephemeralPubKey
+    // Option 2: Sign with another tag's address (prompts for the passkey again)
+    console.log("\nSigning with the YOLO GAMING address:");
+    const authFromTag = await sdk.signAuthorization(
+      { contractAddress: govContractAddress, chainId: chainId },
+      { mode: "YOLO", tag: "GAMING" }
     );
 
-    const authFromStealth = await sdk.signAuthorization({
-      contractAddress: govContractAddress,
-      chainId: chainId,
-      privateKey: stealthPrivKey, // Use computed stealth private key
-    });
-
-    console.log("Authorization from stealth address to:", authFromStealth.address);
+    console.log("Authorization from YOLO GAMING to:", authFromTag.address);
 
     // Step 3: Use the authorization with ethers.js or viem
     console.log("\nStep 3: Submit Transaction");
