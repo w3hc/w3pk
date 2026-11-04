@@ -63,6 +63,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `standalone/extract-mnemonic.html` decrypts v4 files only, with the same additional data, and points v3 and v2 files to the tools that read them. `examples/w3pk_backup_example_2026-11-04.json` (v4, password `test-password`) replaces the v3 example
   - `test/backup-file.test.ts`, `test/social-recovery.test.ts` and `test/standalone-extract.test.ts` edit each metadata field, corrupt, rename and mix shares, and check v3 files are refused
 
+### Changed
+
+- **Stealth address math uses `@noble/curves`** ([#272](https://github.com/w3hc/w3pk/issues/272)). The hand-written secp256k1 point addition in `src/stealth/crypto.ts` didn't handle `P + (−P)`, and its `modInverse(0)` returned 0, so a degenerate sum gave a bogus key instead of an error
+  - The stealth public key is `spending_pubkey + s_h × G` with the `@noble/curves` `Point` API; the point at infinity throws `CryptoError`. `addPublicKeys`, `modInverse`, `compressPublicKey` and `publicKeyToAddress` are removed
+  - `s_h` is reduced, and added to the spending key, in the curve's scalar field; a zero stealth private key throws `CryptoError` instead of being returned
+  - Keys and scalars are parsed as `0x` hex bytes, so an unprefixed key is refused instead of read as decimal
+  - `test/stealth-point.test.ts` has a known vector and checks `P + (−P)` and a zero private key throw
+
 ### Fixed
 
 - **Two passkeys for one wallet both log in** ([#267](https://github.com/w3hc/w3pk/issues/267)). Wallet records were stored by address only (`w3pk_wallet_<address>`), so registering a second passkey for a wallet the device already held, with `registerWithBackupFile()` or a restore, replaced the first passkey's record, and logging in with the first passkey threw `WalletMissingError`
