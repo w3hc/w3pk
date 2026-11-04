@@ -73,6 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Silent restore picks the most recent persistent session when several passkeys have one
   - `SessionManager.deletePersistentSession()` takes a credential id
   - `test/two-passkeys.test.ts` registers a second passkey from a backup and logs in with both, with and without persistent sessions
+- **The chainlist cache is kept per `chainsJsonUrl`** ([#271](https://github.com/w3hc/w3pk/issues/271)). `getChainsData` kept one cache for the module, so `getEndpoints()`, `getChainById()` or `getAllChains()` with a custom `chainsJsonUrl` could return data fetched from another URL within `cacheDuration`
+  - Each URL has its own entry and expiry; `clearCache()` clears them all
+  - Concurrent calls for one URL share a fetch, and a failed fetch is not cached
+  - `test/chainlist.test.ts` covers two URLs, sequential and concurrent, a shared fetch and a retry after a failure
 
 ## [0.11.1] - 2026-11-03
 
