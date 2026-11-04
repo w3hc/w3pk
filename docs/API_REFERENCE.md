@@ -1668,6 +1668,8 @@ myPayments.forEach(payment => {
 
 Sign an EIP-1559 transaction from a stealth address found for the current user. The stealth private key is derived and used inside w3pk, never returned. Every call runs a fresh passkey assertion, even with an active session. The transaction is signed, not sent: broadcast it with your own RPC (`eth_sendRawTransaction`).
 
+> **Cross-origin risk:** stealth keys are the same for every origin, so any origin that enables `stealthAddresses` can sign any transaction from any of the user's stealth addresses. The passkey prompt shows the site, not the transaction, so the user can't tell what they approve. Tracked in [#147](https://github.com/w3hc/w3pk/issues/147).
+
 **Parameters:**
 - `announcement: Announcement` - The announcement of the stealth address to sign from
 - `tx: StealthTransaction` - Fully populated transaction; nothing is fetched from an RPC

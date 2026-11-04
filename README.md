@@ -344,7 +344,7 @@ const signedTx = await w3pk.stealth?.signTransaction(announcement, {
 })
 ```
 
-Stealth keys are shared across origins, and w3pk never returns the spending private key or a stealth private key: it signs from stealth addresses itself.
+Stealth keys are shared across origins, and w3pk never returns the spending private key or a stealth private key: it signs from stealth addresses itself. Any app that enables stealth addresses can sign any transaction from them, and the passkey prompt doesn't show the transaction ([#147](https://github.com/w3hc/w3pk/issues/147)).
 
 ### Post-quantum encryption
 

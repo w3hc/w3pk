@@ -91,6 +91,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Concurrent calls for one URL share a fetch, and a failed fetch is not cached
   - `test/chainlist.test.ts` covers two URLs, sequential and concurrent, a shared fetch and a retry after a failure
 
+### Documentation
+
+- **`stealth.signTransaction()` states its cross-origin risk** ([#274](https://github.com/w3hc/w3pk/issues/274)). Stealth keys are the same for every origin, so any origin that enables `stealthAddresses` can sign any transaction from any of the user's stealth addresses, and the passkey prompt doesn't show the transaction
+  - The JSDoc, `docs/API_REFERENCE.md`, `docs/SECURITY.md` and the README say so and link [#147](https://github.com/w3hc/w3pk/issues/147)
+
 ## [0.11.1] - 2026-11-03
 
 ### Security

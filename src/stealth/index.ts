@@ -94,8 +94,9 @@ export interface StealthTransaction {
  * private key plus the viewing key would give back the spending key (stealth
  * key = spending key + hash of the shared secret). The viewing key lets an app
  * see every stealth payment to the user, and an app with this module enabled
- * can ask w3pk to sign from a stealth address, which prompts for the passkey
- * every time. Stealth keys are derived from separate HD paths (not from main wallet)
+ * can ask w3pk to sign any transaction from any stealth address, which
+ * prompts for the passkey every time without showing the transaction (see
+ * `signTransaction()`). Stealth keys are derived from separate HD paths (not from main wallet)
  * and are the same for every origin, so any app that enables this module sees
  * the same viewing key and meta-address; scoping them per origin would change
  * the meta-address and strand funds already sent to it.
@@ -202,6 +203,12 @@ export class StealthAddressModule {
    * Every call runs a fresh passkey assertion, even with an active session.
    * The transaction is signed, not sent: broadcast it with your own RPC
    * (`eth_sendRawTransaction`).
+   *
+   * Cross-origin risk: stealth keys are the same for every origin, so any
+   * origin that enables this module can sign any transaction from any of the
+   * user's stealth addresses. The passkey prompt shows the site, not the
+   * transaction, so the user can't tell what they approve. Tracked in
+   * https://github.com/w3hc/w3pk/issues/147
    *
    * @param announcement - The announcement of the stealth address to sign from
    * @param tx - Fully populated transaction (nonce, gas limit and fees included)
