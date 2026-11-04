@@ -290,6 +290,11 @@ export async function deriveMLKemKeypair(
  * sealed to each recipient with HPKE (RFC 9180, mode_base, HKDF-SHA256, AES-256-GCM)
  * over a hybrid ML-KEM-1024 + X25519 KEM.
  *
+ * Payloads have no sender authentication: every recipient learns the shared data key,
+ * so any recipient can seal new content for the others. To prove who sent a payload,
+ * sign it (e.g. `w3pk.signMessage()` over the serialized payload) and have recipients
+ * verify the signature before trusting the plaintext.
+ *
  * @param plaintext - The data to encrypt
  * @param publicKeys - Hybrid public keys (base64 strings or Uint8Arrays, 1600 bytes each)
  * @returns Encrypted payload with one entry per recipient
@@ -369,7 +374,8 @@ export async function mlkemEncrypt(
  * Decrypt a v3 payload from mlkemEncrypt()
  *
  * The recipient entry is found by the public key derived from `privateKey`.
- * Payloads of any other version are rejected.
+ * Payloads of any other version are rejected. Decryption doesn't prove who sent the
+ * payload: any recipient can seal new content for the others (see mlkemEncrypt()).
  *
  * @param payload - The encrypted payload
  * @param privateKey - Hybrid private key (base64 string or Uint8Array, 3200 bytes)
@@ -458,7 +464,8 @@ async function decryptWithKeyBytes(payload: EncryptedPayload, privateKeyBytes: U
  * Encrypt with a hybrid keypair derived from a BIP-39 seed
  *
  * Derives the sender's keypair and adds its public key as the first recipient,
- * so the sender can decrypt later.
+ * so the sender can decrypt later. The sender's keypair doesn't authenticate the payload:
+ * see mlkemEncrypt() on sender authentication.
  *
  * @param plaintext - The data to encrypt
  * @param senderSeed - Sender's 64-byte BIP-39 seed
@@ -483,6 +490,8 @@ export async function mlkemEncryptWithKey(
 
 /**
  * Decrypt with a hybrid keypair derived from a BIP-39 seed
+ *
+ * Decryption doesn't prove who sent the payload (see mlkemEncrypt()).
  *
  * @param payload - The encrypted payload
  * @param seed - 64-byte BIP-39 seed
