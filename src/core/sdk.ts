@@ -63,7 +63,7 @@ import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
-import { SIWE_HEADER } from "../siwe";
+import { SIWE_HEADER, assertSiweDomain } from "../siwe";
 import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
   AuthenticationError,
@@ -909,10 +909,7 @@ export class Web3Passkey {
         signingMethod === 'SIWE' ? (message as string)
         : signingMethod === 'EIP191' ? siweText(message)
         : undefined;
-      if (text !== undefined) {
-        const { assertSiweDomain } = await import("../siwe");
-        assertSiweDomain(text, origin);
-      }
+      if (text !== undefined) assertSiweDomain(text, origin);
 
       // Checked before the passkey prompt that rawHash always triggers
       if (signingMethod === 'rawHash' && !/^(0x)?[0-9a-fA-F]{64}$/.test(message as string)) {
