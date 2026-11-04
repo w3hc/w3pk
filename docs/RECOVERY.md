@@ -690,6 +690,7 @@ All tests pass:
 - ✅ Downloadable backup file creation
 - ✅ No address in the file; Argon2id parameters and bounds
 - ✅ Offline extractor decrypts v3 password files (`test/standalone-extract.test.ts`)
+- ✅ Offline extractor loads nothing from the network and derives the same wallets as the SDK (`test/standalone-extract.test.ts`)
 
 ---
 
@@ -959,7 +960,7 @@ BackupFile v2 (before 0.11.0) is no longer restored. To migrate a v2 password ba
 
 ## 🧰 Offline Extractor
 
-`standalone/extract-mnemonic.html` decrypts v3 password backups in the browser, with no server and no network: Argon2id is inlined (a bundle of `@noble/hashes`), and AES-GCM comes from WebCrypto. Only its optional "Derive Wallets" section loads ethers from a CDN. Regenerate the inlined Argon2id after upgrading `@noble/hashes` with `pnpm build:standalone`. For v2 files, use the v0.10.6 tool linked above.
+`standalone/extract-mnemonic.html` decrypts v3 password backups in the browser, with no server and no network request: Argon2id is inlined (a bundle of `@noble/hashes`), and AES-GCM comes from WebCrypto. Its "Derive Wallets" section is offline too: an inlined bundle of `@noble/hashes` (PBKDF2, HMAC-SHA512, Keccak-256) and `@noble/curves` (secp256k1) gives the BIP-39 seed, BIP-32 keys and EIP-55 addresses. It derives an origin wallet at `m/13'/A'/B'/C'/D'/mode'/tag'`, the same path as `deriveOriginPath()`, and an index wallet at `m/44'/60'/0'/0/{index}`, where index 0 is the registration address. Regenerate both bundles after upgrading `@noble/hashes` or `@noble/curves` with `pnpm build:standalone`. For v2 files, use the v0.10.6 tool linked above.
 
 ---
 
