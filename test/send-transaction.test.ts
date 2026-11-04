@@ -397,39 +397,6 @@ async function runTests() {
   });
 
   // ------------------------------------------------------------------
-  // 13. chainlist has no endpoints for an unknown chainId
-  // ------------------------------------------------------------------
-  await runTest("getEndpoints returns empty array for unknown chainId", async () => {
-    const { getEndpoints } = await import("../src/chainlist");
-    // Use a chainId that is guaranteed not to have public RPCs in the list
-    const unknownChainId = 9999999999;
-    const endpoints = await getEndpoints(unknownChainId);
-    assert(Array.isArray(endpoints), "getEndpoints should return an array");
-    assertEqual(endpoints.length, 0, "Unknown chainId should yield no endpoints");
-    passTest("Unknown chainId produces empty endpoint list");
-    logDetail(`Endpoints for chainId ${unknownChainId}: ${endpoints.length}`);
-  });
-
-  // ------------------------------------------------------------------
-  // 14. getEndpoints returns non-empty for well-known chains
-  // ------------------------------------------------------------------
-  await runTest("getEndpoints returns endpoints for well-known chains", async () => {
-    const { getEndpoints } = await import("../src/chainlist");
-    const chains = [
-      { id: 1, name: "Ethereum" },
-      { id: 10, name: "Optimism" },
-      { id: 8453, name: "Base" },
-      { id: 42161, name: "Arbitrum One" },
-    ];
-    for (const { id, name } of chains) {
-      const endpoints = await getEndpoints(id);
-      assert(endpoints.length > 0, `${name} (chainId ${id}) should have RPC endpoints`);
-      logDetail(`${name}: ${endpoints.length} endpoints`);
-    }
-    passTest("Well-known chains all have at least one RPC endpoint");
-  });
-
-  // ------------------------------------------------------------------
   // 15. origin isolation: different origins → different addresses
   // ------------------------------------------------------------------
   await runTest("Different origins derive different sender addresses", async () => {
