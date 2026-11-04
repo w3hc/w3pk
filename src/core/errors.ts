@@ -193,6 +193,20 @@ export class UnsupportedBackupVersionError extends Web3PasskeyError {
 }
 
 /**
+ * A guardian share is corrupted, edited, from another split or in an old
+ * format: `shareIndex` and `guardianName` name it
+ */
+export class InvalidGuardianShareError extends Web3PasskeyError {
+  constructor(public shareIndex: unknown, public guardianName: unknown, reason: string) {
+    super(
+      `Guardian share ${String(shareIndex)} (${String(guardianName)}) ${reason}`,
+      "GUARDIAN_SHARE_INVALID"
+    );
+    this.name = "InvalidGuardianShareError";
+  }
+}
+
+/**
  * The password for a password backup is too weak to resist an offline
  * guess: `feedback` lists what it's missing
  */
