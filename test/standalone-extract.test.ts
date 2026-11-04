@@ -1,5 +1,5 @@
 /**
- * standalone/extract-mnemonic.html decrypts BackupFile v3 password files
+ * standalone/extract-mnemonic.html decrypts BackupFile v4 password files
  * offline: runs the page's inlined Argon2id and decrypt scripts against
  * files made by the SDK. They run through new Function rather than node:vm,
  * whose global lookups make the Argon2id loop about 20 times slower.
@@ -69,7 +69,7 @@ async function runTests() {
     passTest(`bundle ${inlineScript('argon2id').length} bytes`);
   });
 
-  await runTest('Decrypts a v3 password backup made by the SDK', async () => {
+  await runTest('Decrypts a v4 password backup made by the SDK', async () => {
     const wallet = Wallet.createRandom();
     const { backupFile } = await new BackupFileManager().createPasswordBackup(
       wallet.mnemonic!.phrase,
@@ -84,10 +84,26 @@ async function runTests() {
 
     const wrong = await capture(() => pageDecrypt(context, backupFile, 'wrong-password'));
     assert(/Wrong password/.test(messageOf(wrong)), 'wrong password is rejected');
+
+    const withMetadata = await new BackupFileManager().createPasswordBackup(
+      wallet.mnemonic!.phrase,
+      PASSWORD,
+      { id: 'credential-id', publicKey: 'public-key' },
+      'alice'
+    );
+    assertEqual(
+      await pageDecrypt(context, withMetadata.backupFile, PASSWORD),
+      wallet.mnemonic!.phrase,
+      'page decrypts a file with a passkey and a username'
+    );
+    const edited = await capture(() =>
+      pageDecrypt(context, { ...withMetadata.backupFile, username: 'mallory' }, PASSWORD)
+    );
+    assert(/modified or corrupted/.test(messageOf(edited)), 'an edited username is rejected');
     passTest(`decrypted in ${ms.toFixed(0)} ms`);
   });
 
-  await runTest('Rejects v2 files and unbounded parameters', async () => {
+  await runTest('Rejects v2 and v3 files and unbounded parameters', async () => {
     const context = pageContext();
     const v2 = {
       ethereumAddress: '0x0000000000000000000000000000000000000001',
@@ -105,6 +121,12 @@ async function runTests() {
       Wallet.createRandom().mnemonic!.phrase,
       PASSWORD
     );
+    const v3error = await capture(() => pageDecrypt(context, { ...backupFile, version: 3 }, PASSWORD));
+    assert(
+      messageOf(v3error).includes('b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html'),
+      'v3 file points to the last tool that reads v3'
+    );
+
     const huge = {
       ...backupFile,
       passwordEncryption: { ...backupFile.passwordEncryption!, memoryKiB: 65537 },
