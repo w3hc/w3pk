@@ -29,6 +29,8 @@ interface Overrides {
 }
 
 let next: Overrides = {};
+let createdId: string | undefined;
+let signalled: { rpId: string; credentialId: string }[] = [];
 let publicKeyRaw: Uint8Array;
 
 async function attestationObject(rpId: string, flags: number): Promise<ArrayBuffer> {
@@ -65,12 +67,21 @@ async function setup() {
   );
   publicKeyRaw = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
 
+  Object.defineProperty(globalThis, "PublicKeyCredential", {
+    configurable: true,
+    value: {
+      signalUnknownCredential: async (options: { rpId: string; credentialId: string }) => {
+        signalled.push(options);
+      },
+    },
+  });
+
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: {
       credentials: {
         create: async ({ publicKey }: { publicKey: PublicKeyCredentialCreationOptions }) => ({
-          id: arrayBufferToBase64Url(crypto.getRandomValues(new Uint8Array(16)).buffer),
+          id: (createdId = arrayBufferToBase64Url(crypto.getRandomValues(new Uint8Array(16)).buffer)),
           rawId: new Uint8Array(16).buffer,
           type: "public-key",
           response: {
@@ -100,6 +111,8 @@ async function setup() {
 async function attemptRegister(overrides: Overrides) {
   mockLocalStorage.clear();
   next = overrides;
+  createdId = undefined;
+  signalled = [];
   let error: Error | undefined;
   try {
     await register({ username: USERNAME, ethereumAddress: ADDRESS });
@@ -115,6 +128,10 @@ function rejected(overrides: Overrides, what: string, message: string) {
     const { error, stored } = await attemptRegister(overrides);
     assert(error?.message === message, `registration should reject ${what} with "${message}", got "${error?.message}"`);
     assert(!stored, `${what} should not store the credential`);
+    assert(
+      signalled.length === 1 && signalled[0].credentialId === createdId && signalled[0].rpId === RP_ID,
+      `${what} should signal the unstored passkey as unknown`
+    );
   };
 }
 
@@ -126,6 +143,7 @@ setup().then(() =>
         const { error, stored } = await attemptRegister({});
         assert(error === undefined, `registration should succeed: ${error?.message}`);
         assert(stored, "the credential should be stored");
+        assert(signalled.length === 0, "a stored credential should not be signalled as unknown");
       },
     },
     {
