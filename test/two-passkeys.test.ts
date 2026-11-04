@@ -134,11 +134,12 @@ async function attestationObject(publicKeyRaw: Uint8Array): Promise<ArrayBuffer>
     ...credId,
     ...cose,
   ];
-  const authDataKey = [0x68, ...new TextEncoder().encode("authData")];
+  const text = (s: string) => [0x60 | s.length, ...new TextEncoder().encode(s)];
   return new Uint8Array([
     0xa3,
-    ...authDataKey,
-    0x59, authData.length >> 8, authData.length & 0xff,
+    ...text("fmt"), ...text("none"),
+    ...text("attStmt"), 0xa0,
+    ...text("authData"), 0x59, authData.length >> 8, authData.length & 0xff,
     ...authData,
   ]).buffer;
 }
