@@ -3684,7 +3684,7 @@ console.log('Chain name:', chain?.name)
 
 #### `clearCache(): void`
 
-Clear chainlist cache.
+Clear the chainlist cache of every `chainsJsonUrl`. Each URL is cached on its own, for `cacheDuration` (1 hour by default).
 
 ```typescript
 clearCache()

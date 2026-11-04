@@ -8,11 +8,11 @@ const DEFAULT_CHAINS_URL = "https://chainid.network/chains.json";
 const DEFAULT_CACHE_DURATION = 3600000; // 1 hour
 
 interface CacheEntry {
-  data: Chain[];
-  timestamp: number;
+  data: Promise<Chain[]>;
+  timestamp?: number;
 }
 
-let cache: CacheEntry | null = null;
+const cache = new Map<string, CacheEntry>();
 
 /**
  * Patterns that indicate an RPC URL requires an API key
@@ -56,18 +56,28 @@ async function fetchChains(
 async function getChainsData(options?: ChainlistOptions): Promise<Chain[]> {
   const chainsJsonUrl = options?.chainsJsonUrl ?? DEFAULT_CHAINS_URL;
   const cacheDuration = options?.cacheDuration ?? DEFAULT_CACHE_DURATION;
-  const now = Date.now();
 
-  // Check if cache is valid
-  if (cache && now - cache.timestamp < cacheDuration) {
-    return cache.data;
+  const cached = cache.get(chainsJsonUrl);
+  if (
+    cached &&
+    (cached.timestamp === undefined ||
+      Date.now() - cached.timestamp < cacheDuration)
+  ) {
+    return cached.data;
   }
 
-  // Fetch fresh data
-  const data = await fetchChains(chainsJsonUrl);
-  cache = { data, timestamp: now };
-
-  return data;
+  const entry: CacheEntry = { data: fetchChains(chainsJsonUrl) };
+  cache.set(chainsJsonUrl, entry);
+  try {
+    const data = await entry.data;
+    entry.timestamp = Date.now();
+    return data;
+  } catch (error) {
+    if (cache.get(chainsJsonUrl) === entry) {
+      cache.delete(chainsJsonUrl);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -139,7 +149,7 @@ export async function getChainById(
  * Clear the chains data cache
  */
 export function clearCache(): void {
-  cache = null;
+  cache.clear();
 }
 
 // Export types
