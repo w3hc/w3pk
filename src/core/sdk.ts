@@ -131,7 +131,7 @@ export class Web3Passkey {
       ...config.persistentSession,
     };
     this.sessionManager = new SessionManager(
-      config.sessionDuration ?? 1,
+      config.sessionDuration ?? DEFAULT_CONFIG.sessionDuration,
       persistentSessionConfig
     );
 
