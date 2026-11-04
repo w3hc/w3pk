@@ -16,6 +16,7 @@ import {
   bytesToHex,
   hexToBytes,
 } from './shamir';
+import { concatBytes } from '@noble/hashes/utils.js';
 
 export interface GuardianShare {
   guardianId: string;
@@ -35,37 +36,39 @@ const SHARE_CHECKSUM_LABEL = 'w3pk-guardian-share-v2';
 
 /**
  * SHA-256 of the label `w3pk-guardian-share-v2`, the split id, the share
- * index, the threshold, the lowercased wallet address and the share bytes.
- * The strings and the share bytes are length-prefixed (4 bytes big-endian),
- * the index and threshold are one byte each. It catches a corrupted or
- * edited share, and binds it to its split.
+ * index, the threshold, the lowercased wallet address, the guardian's name,
+ * the creation date and the share bytes. The strings and byte fields are
+ * length-prefixed (4 bytes big-endian), the index and threshold are one byte
+ * each. It names a corrupted, edited or mislabelled share before the shares
+ * are combined. It's no MAC: a guardian who recomputes it after editing the
+ * share gets past it, and the backup's AES-GCM tag refuses the result.
  */
 export async function guardianShareChecksum(
-  share: Pick<GuardianShare, 'splitId' | 'shareIndex' | 'threshold' | 'walletAddress' | 'shareData'>
+  share: Pick<
+    GuardianShare,
+    'splitId' | 'shareIndex' | 'threshold' | 'walletAddress' | 'guardianName' | 'createdAt' | 'shareData'
+  >
 ): Promise<string> {
   const encoder = new TextEncoder();
-  const parts: Uint8Array[] = [];
-  const bytes = (value: Uint8Array) => {
+  const prefixed = (value: Uint8Array) => {
     const length = new Uint8Array(4);
     new DataView(length.buffer).setUint32(0, value.length);
-    parts.push(length, value);
+    return concatBytes(length, value);
   };
-  bytes(encoder.encode(SHARE_CHECKSUM_LABEL));
-  bytes(hexToBytes(share.splitId));
-  parts.push(Uint8Array.of(share.shareIndex, share.threshold));
-  bytes(encoder.encode(share.walletAddress.toLowerCase()));
-  bytes(hexToBytes(share.shareData));
-
-  const data = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    data.set(part, offset);
-    offset += part.length;
-  }
-  return bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', data)));
+  const data = concatBytes(
+    prefixed(encoder.encode(SHARE_CHECKSUM_LABEL)),
+    prefixed(hexToBytes(share.splitId)),
+    Uint8Array.of(share.shareIndex, share.threshold),
+    prefixed(encoder.encode(share.walletAddress.toLowerCase())),
+    prefixed(encoder.encode(share.guardianName)),
+    prefixed(encoder.encode(share.createdAt)),
+    prefixed(hexToBytes(share.shareData))
+  );
+  return bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(data))));
 }
 
-const HEX = /^(?:[0-9a-f]{2})+$/;
+const HEX = /^(?:[0-9a-f]{2})+$/i;
+const SPLIT_ID = /^[0-9a-f]{32}$/i;
 
 function isByte(value: unknown, min: number): value is number {
   return Number.isInteger(value) && (value as number) >= min && (value as number) <= 255;
@@ -79,15 +82,17 @@ async function checkShare(share: GuardianShare): Promise<void> {
     typeof share.shareData !== 'string' ||
     !HEX.test(share.shareData) ||
     typeof share.splitId !== 'string' ||
-    !HEX.test(share.splitId) ||
+    !SPLIT_ID.test(share.splitId) ||
     typeof share.checksum !== 'string' ||
     typeof share.walletAddress !== 'string' ||
+    typeof share.guardianName !== 'string' ||
+    typeof share.createdAt !== 'string' ||
     !isByte(share.shareIndex, 1) ||
     !isByte(share.threshold, 2)
   ) {
     fail('is malformed or uses an old format: ask the wallet owner to set up social recovery again');
   }
-  if ((await guardianShareChecksum(share)) !== share.checksum) {
+  if ((await guardianShareChecksum(share)) !== share.checksum.toLowerCase()) {
     fail("is corrupted or was edited: its checksum doesn't match");
   }
 }
@@ -188,21 +193,21 @@ export class SocialRecovery {
       throw new Error('At least 2 shares required for recovery');
     }
 
-    for (const share of shares) {
-      await checkShare(share);
-    }
+    await Promise.all(shares.map(checkShare));
 
     const splitCounts = new Map<string, number>();
-    for (const { splitId } of shares) {
-      splitCounts.set(splitId, (splitCounts.get(splitId) ?? 0) + 1);
+    const splitOf = (share: GuardianShare) => share.splitId.toLowerCase();
+    for (const share of shares) {
+      splitCounts.set(splitOf(share), (splitCounts.get(splitOf(share)) ?? 0) + 1);
     }
     const splitId = [...splitCounts].reduce((best, entry) => (entry[1] > best[1] ? entry : best))[0];
-    const stranger = shares.find((share) => share.splitId !== splitId);
+    const reference = shares.find((share) => splitOf(share) === splitId)!;
+    const stranger = shares.find((share) => splitOf(share) !== splitId);
     if (stranger) {
       throw new InvalidGuardianShareError(
         stranger.shareIndex,
         stranger.guardianName,
-        'comes from another social recovery setup than the other shares'
+        `comes from another social recovery setup than share ${reference.shareIndex} (${reference.guardianName})`
       );
     }
     const seen = new Set<number>();
@@ -229,7 +234,7 @@ export class SocialRecovery {
     // Verify all shares are for the same wallet and have consistent threshold
     const allMatch = shares.every(
       share =>
-        share.walletAddress === firstAddress &&
+        share.walletAddress.toLowerCase() === firstAddress.toLowerCase() &&
         share.threshold === threshold
     );
 
@@ -364,7 +369,7 @@ ${share.shareData}
       throw new InvalidGuardianShareError(
         data.shareIndex,
         data.guardianName,
-        `uses format version ${String(data.version)}; w3pk reads version ${GUARDIAN_SHARE_VERSION} only: ask the wallet owner to set up social recovery again`
+        `uses format version ${String(data.version)}, which w3pk no longer reads: combine version 1 shares with w3pk v0.11.1, or ask the wallet owner to set up social recovery again`
       );
     }
 
