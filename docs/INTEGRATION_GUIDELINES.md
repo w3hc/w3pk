@@ -330,11 +330,15 @@ A bare hash could be an EIP-7702 authorization digest, so rawHash never signs fr
 
 ## Sending Transactions
 
-`sendTransaction()` broadcasts on-chain transactions using the wallet derived for the current security mode. It handles RPC resolution, session management, and STRICT-mode re-authentication automatically — you only need to provide the transaction details.
+`sendTransaction()` broadcasts on-chain transactions using the wallet derived for the current security mode. It handles session management and STRICT-mode re-authentication automatically; it sends through the RPC endpoints you set for each chain.
 
 ### Basic Usage
 
 ```typescript
+const w3pk = createWeb3Passkey({
+  rpcUrls: { 1: ['https://eth.example.com'] }  // endpoints you trust, per chain
+})
+
 const result = await w3pk.sendTransaction({
   to: '0xRecipient...',
   value: 1n * 10n**18n,  // 1 ETH in wei (bigint)
@@ -346,7 +350,7 @@ console.log(result.from)   // derived sender address
 console.log(result.mode)   // 'STANDARD'
 ```
 
-The RPC endpoint is resolved automatically from the built-in chainlist (2390+ networks). Pass `options.rpcUrl` to override.
+`sendTransaction()` uses `options.rpcUrl`, then the first `rpcUrls` endpoint for the chain. With neither, it throws a `WalletError` naming `rpcUrls` before any passkey prompt. It never falls back to the public chainlist endpoints, since the RPC supplies the nonce, gas and fees.
 
 ### Using with ethers.js
 
