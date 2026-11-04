@@ -6,7 +6,10 @@ import {
   deriveStealthKeys,
   checkStealthAddress,
   computeStealthPrivateKey,
+  computeStealthPublicKey,
 } from "../src/stealth/crypto";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { CryptoError } from "../src/core/errors";
 
 console.log("\n🧪 Stealth Point Math Tests\n");
 
@@ -43,5 +46,20 @@ if (!result.isForUser || result.stealthAddress !== expectedAddress) {
   throw new Error(`Stealth address mismatch: ${JSON.stringify(result)}`);
 }
 console.log("✓ Stealth address matches the known vector");
+
+const scalar = "0x" + "05".padStart(64, "0");
+const negated = "0x" + secp256k1.Point.BASE.multiply(5n).negate().toHex(true);
+let threw = false;
+try {
+  computeStealthPublicKey(negated, scalar);
+} catch (error) {
+  threw =
+    error instanceof CryptoError &&
+    error.message === "Stealth public key is the point at infinity";
+}
+if (!threw) {
+  throw new Error("P + (−P) did not throw the point-at-infinity error");
+}
+console.log("✓ P + (−P) throws");
 
 console.log("\n✅ Stealth point math tests passed\n");
