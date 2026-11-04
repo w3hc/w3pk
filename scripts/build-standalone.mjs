@@ -6,7 +6,7 @@
  *
  * - argon2id: @noble/hashes argon2idAsync
  * - derive: @noble/hashes pbkdf2, hmac, sha512, keccak_256 and
- *   @noble/curves secp256k1, for BIP-39, BIP-32 and addresses
+ *   @noble/curves secp256k1 and byte utils, for BIP-39, BIP-32 and addresses
  *
  * Run after upgrading @noble/hashes or @noble/curves: pnpm build:standalone
  */
@@ -43,6 +43,7 @@ const bundles = [
       "export { sha512 } from '@noble/hashes/sha2.js';",
       "export { keccak_256 } from '@noble/hashes/sha3.js';",
       "export { secp256k1 } from '@noble/curves/secp256k1.js';",
+      "export { bytesToHex, bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js';",
     ].join('\n'),
   },
 ];
