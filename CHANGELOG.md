@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `deriveMLKemKeypair(seed, { origin, mode?, tag?, context? })` replaces `deriveMLKemKeypair(privateKey, context?)`; `mlkemEncryptWithKey` and `mlkemDecryptWithKey` take the seed and the same options. `MLKemDerivationOptions` is exported
   - `w3pk.deriveMLKemPublicKey()`, `w3pk.mlkemEncrypt()` and `w3pk.mlkemDecrypt()` derive from the session mnemonic's seed, the current origin, the mode and the tag
   - `test/mlkem.test.ts` reproduces the derivation from the seed alone and checks separation across origin, mode, tag and context
+- **The offline mnemonic extractor loads no remote script** ([#264](https://github.com/w3hc/w3pk/issues/264)). `standalone/extract-mnemonic.html` loaded ethers 5.7.2 from `cdn.ethers.io`, without SRI, in the page where the user types the backup password and reads the mnemonic
+  - `pnpm build:standalone` (`scripts/build-standalone.mjs`, was `build-standalone-argon2.mjs`) also inlines a bundle of `@noble/hashes` (PBKDF2, HMAC-SHA512, Keccak-256) and `@noble/curves` (secp256k1). The page derives the BIP-39 seed, BIP-32 keys and EIP-55 addresses with it
+  - A Content-Security-Policy (`default-src 'none'`) blocks every request from the page
+  - Origin wallets are derived at `m/13'/A'/B'/C'/D'/mode'/tag'`, as in [#262](https://github.com/w3hc/w3pk/issues/262); the page derived them at the old `m/44'/60'/0'/0/{index}`. Index wallets stay at `m/44'/60'/0'/0/{index}`, and index 0 is the registration address
+  - `test/standalone-extract.test.ts` checks the page makes no request and doesn't use ethers, and that it derives the same paths, addresses and keys as the SDK
 
 ## [0.11.1] - 2026-11-03
 
