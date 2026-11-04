@@ -166,7 +166,7 @@ setup().then(() =>
     {
       name: "extensions after the key are accepted when ED is set",
       fn: async () => {
-        const extensions = [0xa1, 0x6b, ...new TextEncoder().encode("credProtect"), 0x02];
+        const extensions = [0xa2, ...text("credProtect"), 0x02, ...text("hmac-secret"), 0xf5];
         const out = new Uint8Array(
           await credentialPublicKeyFromAuthData(authData(es256(x, y), { flags: UP | AT | ED, tail: extensions }))
         );

@@ -68,8 +68,20 @@ runTestSuite("CBOR Decoder Tests", [
   { name: "reserved additional info is refused", fn: refused(hex("1c"), "additional info 28") },
   { name: "tags are refused", fn: refused(hex("c11a514b67b0"), "a tag") },
   { name: "floats are refused", fn: refused(hex("f93c00"), "a half float") },
-  { name: "simple values are refused", fn: refused(hex("f5"), "true") },
+  {
+    name: "decodes false, true and null",
+    fn: () => {
+      assert(decodeCborExact(hex("f4")) === false, "false");
+      assert(decodeCborExact(hex("f5")) === true, "true");
+      assert(decodeCborExact(hex("f6")) === null, "null");
+      const map = decodeCborExact(hex("a16b686d61632d736563726574f5")) as Map<string, unknown>;
+      assert(map.get("hmac-secret") === true, "hmac-secret extension output");
+    },
+  },
+  { name: "undefined is refused", fn: refused(hex("f7"), "undefined") },
+  { name: "other simple values are refused", fn: refused(hex("f820"), "simple value 32") },
   { name: "integers beyond 2^53 are refused", fn: refused(hex("1bffffffffffffffff"), "a 64-bit integer") },
+  { name: "-2^53 is refused", fn: refused(hex("3b001fffffffffffff"), "-2^53") },
   { name: "duplicate map keys are refused", fn: refused(hex("a201020103"), "a duplicate key") },
   { name: "array map keys are refused", fn: refused(hex("a1800102"), "an array key") },
   { name: "invalid UTF-8 is refused", fn: refused(hex("62c328"), "invalid UTF-8") },

@@ -1,11 +1,14 @@
 /**
- * Strict CBOR decoder (RFC 8949) for the subset WebAuthn attestation objects
- * and COSE keys use: integers, byte and text strings, arrays and maps, all of
- * definite length. Tags, floats, simple values, indefinite lengths, integers
- * beyond Number.MAX_SAFE_INTEGER and duplicate map keys are refused.
+ * Strict CBOR decoder (RFC 8949) for the subset WebAuthn attestation objects,
+ * authenticator extensions and COSE keys use: integers, byte and text strings,
+ * arrays, maps, false, true and null, all of definite length. Tags, floats,
+ * other simple values, indefinite lengths, integers outside the safe range and
+ * duplicate map keys are refused. Arguments need not use the shortest form.
  */
 
 export type CborValue =
+  | boolean
+  | null
   | number
   | string
   | Uint8Array
@@ -13,6 +16,7 @@ export type CborValue =
   | Map<number | string, CborValue>;
 
 const MAX_DEPTH = 16;
+const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 export class CborError extends Error {}
 
@@ -57,18 +61,20 @@ function readItem(r: Reader, depth: number): CborValue {
   if (depth > MAX_DEPTH) throw new CborError("CBOR nested too deeply");
   const [initial] = take(r, 1);
   const major = initial >> 5;
+  if (major === 7) return readSimple(initial & 0x1f);
   const arg = readArgument(r, initial & 0x1f);
 
   switch (major) {
     case 0:
       return arg;
     case 1:
+      if (arg === Number.MAX_SAFE_INTEGER) throw new CborError("CBOR integer too large");
       return -1 - arg;
     case 2:
       return take(r, arg).slice();
     case 3:
       try {
-        return new TextDecoder("utf-8", { fatal: true }).decode(take(r, arg));
+        return utf8.decode(take(r, arg));
       } catch (error) {
         if (error instanceof CborError) throw error;
         throw new CborError("Invalid UTF-8 in CBOR text string");
@@ -93,4 +99,11 @@ function readItem(r: Reader, depth: number): CborValue {
     default:
       throw new CborError("Unsupported CBOR major type");
   }
+}
+
+function readSimple(info: number): CborValue {
+  if (info === 20) return false;
+  if (info === 21) return true;
+  if (info === 22) return null;
+  throw new CborError("Unsupported CBOR simple value or float");
 }
