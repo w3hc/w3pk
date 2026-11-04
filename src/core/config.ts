@@ -61,9 +61,10 @@ export interface Web3PasskeyConfig {
   userVerification?: 'required' | 'preferred';
 
   /**
-   * RPC endpoints per chain ID, used before the chainid.network endpoints
-   * by `sendTransaction()`, `getEndpoints()` and `supportsEIP7702()`.
-   * A per-call `rpcUrl` still takes precedence.
+   * RPC endpoints per chain ID. `sendTransaction()` uses the first one and
+   * throws for a chain with none (a per-call `rpcUrl` takes precedence);
+   * `getEndpoints()` and `supportsEIP7702()` list them before the
+   * chainid.network endpoints.
    *
    * @example
    * rpcUrls: { 1: ['https://eth.example.com'], 10: ['https://op.example.com'] }
