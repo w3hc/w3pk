@@ -50,7 +50,7 @@ interface Web3PasskeyConfig {
   stealthAddresses?: StealthAddressConfig;  // Enable stealth addresses
   zkProofs?: ZKProofConfig;          // Enable ZK proofs
   userVerification?: 'required' | 'preferred';  // WebAuthn user verification (default: 'required')
-  rpcUrls?: Record<number, string[]>;  // RPC endpoints per chain ID, used before chainlist
+  rpcUrls?: Record<number, string[]>;  // RPC endpoints per chain ID; sendTransaction() requires one for the chain
 }
 
 interface PersistentSessionConfig {
@@ -1298,10 +1298,15 @@ interface TransactionResult {
 The RPC endpoint is resolved in this order:
 1. `options.rpcUrl` (explicit override)
 2. First endpoint set for the chain in the `rpcUrls` config
-3. First HTTPS endpoint from chainid.network that needs no API key
-4. Throws `WalletError` if none is available
+3. Otherwise throws `WalletError` naming `rpcUrls`, before any passkey prompt
 
-The chosen RPC also supplies the nonce, gas estimate and fee data, so set `rpcUrls` to endpoints you trust rather than relying on a public list.
+chainid.network endpoints are never used to send: the chosen RPC supplies the nonce, gas estimate and fee data, so a public endpoint could make the user overpay or censor the transaction. Set `rpcUrls` to endpoints you trust:
+
+```typescript
+const w3pk = createWeb3Passkey({
+  rpcUrls: { 1: ['https://eth.example.com'], 10: ['https://op.example.com'] }
+})
+```
 
 **Sender address**
 
@@ -1321,12 +1326,11 @@ console.log('will send from:', from)
 **What happens:**
 1. Guards: requires authenticated user
 2. Resolves `effectiveMode`, `effectiveTag`, `origin` (defaults: `'STANDARD'`, `'MAIN'`, `window.location.origin`)
-3. Sets `currentSecurityMode`
+3. Resolves the RPC endpoint; throws if the app set none for the chain
 4. STRICT mode forces fresh authentication; other modes use active session
 5. Derives sender wallet from mnemonic at the mode/tag/origin-specific path — this is the `from` address
-6. Resolves RPC endpoint; throws if none found
-7. Connects wallet to `JsonRpcProvider` and calls `sendTransaction()`
-8. Returns `{ hash, from, chainId, mode, tag, origin }`
+6. Connects wallet to `JsonRpcProvider` and calls `sendTransaction()`
+7. Returns `{ hash, from, chainId, mode, tag, origin }`
 
 **Mode Summary:**
 
@@ -1386,11 +1390,11 @@ const priorityTx = await w3pk.sendTransaction({
 
 | Condition | Error |
 |-----------|-------|
-| Not authenticated | `WalletError: Must be authenticated to send transaction` |
-| No RPC for chainId | `WalletError: No RPC endpoint found for chainId <N>. Set rpcUrls in the config or pass options.rpcUrl.` |
-| PRIMARY mode without rpcUrl | `WalletError: PRIMARY mode requires options.rpcUrl pointing to a bundler...` |
-| PRIMARY mode (any) | `WalletError: PRIMARY mode sendTransaction is not yet supported.` |
-| Node rejection | `WalletError: Failed to send transaction` (wraps original error) |
+| Not authenticated | `WalletError: Failed to send transaction: Must be authenticated to send transaction` |
+| No `rpcUrls` or `rpcUrl` for chainId | `WalletError: Failed to send transaction: No RPC endpoint set for chainId <N>. Set rpcUrls in the config (rpcUrls: { <N>: ['https://...'] }) or pass options.rpcUrl.` |
+| PRIMARY mode without rpcUrl | `WalletError: Failed to send transaction: PRIMARY mode requires options.rpcUrl pointing to a bundler...` |
+| PRIMARY mode (any) | `WalletError: Failed to send transaction: PRIMARY mode sendTransaction is not yet supported.` |
+| Node rejection | `WalletError: Failed to send transaction: <reason>` (original error in `originalError`) |
 
 **Note on PRIMARY mode:** The P-256 WebAuthn key cannot produce a standard secp256k1 signature accepted by EVM nodes. Full PRIMARY support (via EIP-7702 delegation + bundler) is planned for a future release. Use `signMessageWithPasskey()` to obtain a P-256 signature and submit it via a bundler manually in the meantime.
 
@@ -1409,7 +1413,7 @@ options?: {
   mode?: SecurityMode;  // Security mode used for all operations (default: 'STANDARD')
   tag?: string;         // Wallet tag (default: 'MAIN')
   chainId?: number;     // Initial chainId reported by eth_chainId (default: 1)
-  rpcUrl?: string;      // RPC override passed to eth_sendTransaction
+  rpcUrl?: string;      // RPC override passed to eth_sendTransaction (else rpcUrls for the active chain, required)
 }
 ```
 
@@ -2910,7 +2914,7 @@ const wallet = await w3pk.deriveWallet('STRICT')
 
 ### `getEndpoints(chainId: number): Promise<string[]>`
 
-Get RPC endpoints for a chain: those set in the `rpcUrls` config first, then the public chainlist ones.
+Get RPC endpoints for a chain: those set in the `rpcUrls` config first, then the public chainlist ones. For reading and discovery only: `sendTransaction()` never uses the chainlist ones.
 
 **Parameters:**
 - `chainId: number` - Chain ID (e.g., 1 for Ethereum, 137 for Polygon)

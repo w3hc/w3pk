@@ -62,6 +62,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `UnsupportedBackupVersionError.backupFileJson` is removed: no share format rebuilds an older file anymore
   - `standalone/extract-mnemonic.html` decrypts v4 files only, with the same additional data, and points v3 and v2 files to the tools that read them. `examples/w3pk_backup_example_2026-11-04.json` (v4, password `test-password`) replaces the v3 example
   - `test/backup-file.test.ts`, `test/social-recovery.test.ts` and `test/standalone-extract.test.ts` edit each metadata field, corrupt, rename and mix shares, and check v3 files are refused
+- **`sendTransaction()` only sends through an endpoint the app set** ([#273](https://github.com/w3hc/w3pk/issues/273)). Without `rpcUrls` or a per-call `rpcUrl`, it fell back to the first HTTPS chainid.network endpoint and took the nonce, gas and fees from it, so a malicious public endpoint could make the user overpay or censor transactions
+  - **Set `rpcUrls` for every chain you send on** (`createWeb3Passkey({ rpcUrls: { 1: ['https://...'] } })`) or pass `options.rpcUrl`. Otherwise `sendTransaction()`, and the EIP-1193 provider's `eth_sendTransaction`, throw `WalletError: Failed to send transaction: No RPC endpoint set for chainId <id>. Set rpcUrls in the config ...` before any passkey prompt, fetch or RPC request
+  - The `Failed to send transaction` error appends its cause's message
+  - `getEndpoints()` and `supportsEIP7702()` still list chainid.network endpoints after the app's: they only read
+  - `test/send-transaction.test.ts` checks the error for no config, an empty list and another chain's endpoints, with no prompt and no fetch
 
 ### Changed
 

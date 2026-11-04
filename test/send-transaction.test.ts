@@ -8,8 +8,8 @@
  * - PRIMARY mode without rpcUrl (specific error)
  * - Return type structure
  * - Mode / tag / origin isolation (wallet derivation correctness)
- * - RPC resolution: explicit rpcUrl, then app rpcUrls, then HTTPS chainlist
- * - No RPC found error
+ * - RPC resolution: explicit rpcUrl, then app rpcUrls, never chainlist
+ * - No app-set RPC endpoint error
  * - ethers sendTransaction delegation (provider mock)
  * - STANDARD / STRICT / YOLO mode wiring
  * - Deterministic sender address (same mode+tag → same from)
@@ -397,45 +397,6 @@ async function runTests() {
   });
 
   // ------------------------------------------------------------------
-  // 13. No RPC found error text (unit test against known-bad chainId)
-  //     We cannot call the full SDK without WebAuthn, so we verify the
-  //     error message format from the chainlist layer directly.
-  // ------------------------------------------------------------------
-  await runTest("getEndpoints returns empty array for unknown chainId", async () => {
-    const { getEndpoints } = await import("../src/chainlist");
-    // Use a chainId that is guaranteed not to have public RPCs in the list
-    const unknownChainId = 9999999999;
-    const endpoints = await getEndpoints(unknownChainId);
-    assert(Array.isArray(endpoints), "getEndpoints should return an array");
-    // The SDK guard: if endpoints is empty, it throws with the chain ID in the message.
-    // We verify the guard condition here:
-    const wouldThrow = endpoints.length === 0;
-    assert(wouldThrow, "Unknown chainId should yield no endpoints, triggering the guard");
-    passTest("Unknown chainId produces empty endpoint list (guard would fire)");
-    logDetail(`Endpoints for chainId ${unknownChainId}: ${endpoints.length}`);
-  });
-
-  // ------------------------------------------------------------------
-  // 14. getEndpoints returns non-empty for well-known chains
-  //     (verifies the chainlist fallback path in sendTransaction works)
-  // ------------------------------------------------------------------
-  await runTest("getEndpoints returns endpoints for well-known chains", async () => {
-    const { getEndpoints } = await import("../src/chainlist");
-    const chains = [
-      { id: 1, name: "Ethereum" },
-      { id: 10, name: "Optimism" },
-      { id: 8453, name: "Base" },
-      { id: 42161, name: "Arbitrum One" },
-    ];
-    for (const { id, name } of chains) {
-      const endpoints = await getEndpoints(id);
-      assert(endpoints.length > 0, `${name} (chainId ${id}) should have RPC endpoints`);
-      logDetail(`${name}: ${endpoints.length} endpoints`);
-    }
-    passTest("Well-known chains all have at least one RPC endpoint");
-  });
-
-  // ------------------------------------------------------------------
   // 15. origin isolation: different origins → different addresses
   // ------------------------------------------------------------------
   await runTest("Different origins derive different sender addresses", async () => {
@@ -460,15 +421,17 @@ async function runTests() {
   });
 
   // ------------------------------------------------------------------
-  // 16. RPC selection: per-call rpcUrl, then app rpcUrls, then HTTPS chainlist
+  // 16. RPC selection: per-call rpcUrl, then app rpcUrls, never chainlist
   // ------------------------------------------------------------------
-  await runTest("sendTransaction prefers per-call rpcUrl, then app rpcUrls, then HTTPS chainlist", async () => {
+  await runTest("sendTransaction uses per-call rpcUrl, then app rpcUrls, and throws without either", async () => {
     const { JsonRpcProvider } = await import("ethers");
     const { clearCache } = await import("../src/chainlist");
     const proto = JsonRpcProvider.prototype as any;
     const originalSend = proto._send;
     const originalFetch = globalThis.fetch;
     const urls: string[] = [];
+    let fetches = 0;
+    let prompts = 0;
     proto._send = async function (payload: any) {
       urls.push(this._getConnection().url);
       const requests = Array.isArray(payload) ? payload : [payload];
@@ -477,25 +440,41 @@ async function runTests() {
       }
       throw new Error("stub RPC");
     };
-    globalThis.fetch = (async () => new Response(JSON.stringify([
-      { chainId: 1, rpc: ["http://plain.example", "https://chainlist.example"] },
-    ]))) as typeof fetch;
+    globalThis.fetch = (async () => {
+      fetches++;
+      return new Response(JSON.stringify([
+        { chainId: 1, rpc: ["http://plain.example", "https://chainlist.example"] },
+      ]));
+    }) as typeof fetch;
     clearCache();
 
     const send = async (config: object, rpcUrl?: string) => {
       const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, ...config });
       (sdk as any).currentUser = { username: "rpc", ethereumAddress: TEST_CONTRACT, credentialId: "rpc" };
-      (sdk as any).getMnemonicFromSession = async () => TEST_MNEMONIC;
+      (sdk as any).getMnemonicFromSession = async () => {
+        prompts++;
+        return TEST_MNEMONIC;
+      };
       urls.length = 0;
-      await sdk.sendTransaction({ to: TEST_CONTRACT, chainId: 1 }, { rpcUrl }).catch(() => {});
-      return urls[0];
+      const error = await sdk.sendTransaction({ to: TEST_CONTRACT, chainId: 1 }, { rpcUrl }).catch((e) => e);
+      return { url: urls[0], error: error as Error };
     };
 
     try {
       const appRpc = { rpcUrls: { 1: ["https://app.example"] } };
-      assertEqual(await send(appRpc, "https://call.example"), "https://call.example", "per-call rpcUrl first");
-      assertEqual(await send(appRpc), "https://app.example", "app rpcUrls before chainlist");
-      assertEqual(await send({}), "https://chainlist.example", "first HTTPS chainlist endpoint");
+      assertEqual((await send(appRpc, "https://call.example")).url, "https://call.example", "per-call rpcUrl first");
+      assertEqual((await send({}, "https://call.example")).url, "https://call.example", "per-call rpcUrl without rpcUrls");
+      assertEqual((await send(appRpc)).url, "https://app.example", "app rpcUrls without per-call rpcUrl");
+
+      for (const config of [{}, { rpcUrls: { 1: [] } }, { rpcUrls: { 10: ["https://op.example"] } }]) {
+        prompts = 0;
+        fetches = 0;
+        const { url, error } = await send(config);
+        assert(error.message.includes("rpcUrls"), `error names rpcUrls, got: ${error.message}`);
+        assertEqual(url, undefined, "no RPC request without an app-set endpoint");
+        assertEqual(fetches, 0, "chainid.network not fetched");
+        assertEqual(prompts, 0, "no passkey prompt");
+      }
 
       const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, ...appRpc });
       assertEqual(
@@ -516,7 +495,7 @@ async function runTests() {
       globalThis.fetch = originalFetch;
       clearCache();
     }
-    passTest("RPC endpoint order: per-call, app, HTTPS chainlist");
+    passTest("RPC endpoint: per-call, then app rpcUrls, else a clear error");
   });
 
   // ------------------------------------------------------------------

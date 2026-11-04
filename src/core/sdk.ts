@@ -1173,8 +1173,8 @@ export class Web3Passkey {
    * @param options.tag - Wallet tag (optional)
    * @param options.requireAuth - Force fresh authentication (optional)
    * @param options.rpcUrl - RPC endpoint override (optional, required for PRIMARY mode);
-   *   without it, the first `rpcUrls` endpoint set for the chain is used, then the
-   *   first HTTPS chainid.network endpoint
+   *   without it, the first `rpcUrls` endpoint set for the chain is used. Throws
+   *   if neither is set: chainid.network endpoints are never used to send
    * @returns Transaction hash and metadata
    *
    * @example
@@ -1229,6 +1229,14 @@ export class Web3Passkey {
         );
       }
 
+      const rpcUrl = options?.rpcUrl ?? this.config.rpcUrls?.[tx.chainId]?.[0];
+      if (!rpcUrl) {
+        throw new WalletError(
+          `No RPC endpoint set for chainId ${tx.chainId}. Set rpcUrls in the config ` +
+          `(rpcUrls: { ${tx.chainId}: ['https://...'] }) or pass options.rpcUrl.`
+        );
+      }
+
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
@@ -1248,16 +1256,6 @@ export class Web3Passkey {
         const { deriveWalletFromPath } = await import("../wallet/generate");
         const { privateKey } = deriveWalletFromPath(mnemonic, derived.path);
         wallet = new Wallet(privateKey);
-      }
-
-      // Resolve RPC endpoint
-      const rpcUrl = options?.rpcUrl
-        ?? this.config.rpcUrls?.[tx.chainId]?.[0]
-        ?? (await getEndpoints(tx.chainId))[0];
-      if (!rpcUrl) {
-        throw new WalletError(
-          `No RPC endpoint found for chainId ${tx.chainId}. Set rpcUrls in the config or pass options.rpcUrl.`
-        );
       }
 
       const provider = new JsonRpcProvider(rpcUrl);
@@ -1284,7 +1282,8 @@ export class Web3Passkey {
       };
     } catch (error) {
       this.config.onError?.(error as any);
-      throw new WalletError("Failed to send transaction", error);
+      const reason = (error as any)?.shortMessage ?? (error instanceof Error ? error.message : String(error));
+      throw new WalletError(`Failed to send transaction: ${reason}`, error);
     }
   }
 
