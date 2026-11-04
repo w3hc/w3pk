@@ -124,6 +124,20 @@ export class SessionManager {
   }
 
   /**
+   * Clear the session if its expiry time has passed
+   */
+  private expireIfDue(): boolean {
+    if (!this.session || Date.now() < new Date(this.session.expiresAt).getTime()) {
+      return false;
+    }
+    // Fire-and-forget: expiry cleanup has no caller to surface errors to
+    this.clearSession().catch((error) =>
+      console.warn('[w3pk] Failed to clear expired session:', error)
+    );
+    return true;
+  }
+
+  /**
    * Get the cached mnemonic if session is still valid
    * Returns null if session expired or doesn't exist
    */
@@ -132,12 +146,7 @@ export class SessionManager {
       return null;
     }
 
-    // Check if session expired
-    if (new Date() >= new Date(this.session.expiresAt)) {
-      // Fire-and-forget: expiry cleanup has no caller to surface errors to
-      this.clearSession().catch((error) =>
-        console.warn('[w3pk] Failed to clear expired session:', error)
-      );
+    if (this.expireIfDue()) {
       return null;
     }
 
@@ -152,11 +161,7 @@ export class SessionManager {
       return null;
     }
 
-    if (new Date() >= new Date(this.session.expiresAt)) {
-      // Fire-and-forget: expiry cleanup has no caller to surface errors to
-      this.clearSession().catch((error) =>
-        console.warn('[w3pk] Failed to clear expired session:', error)
-      );
+    if (this.expireIfDue()) {
       return null;
     }
 
@@ -178,11 +183,7 @@ export class SessionManager {
       return 0;
     }
 
-    if (new Date() >= new Date(this.session.expiresAt)) {
-      // Fire-and-forget: expiry cleanup has no caller to surface errors to
-      this.clearSession().catch((error) =>
-        console.warn('[w3pk] Failed to clear expired session:', error)
-      );
+    if (this.expireIfDue()) {
       return 0;
     }
 
@@ -197,11 +198,7 @@ export class SessionManager {
       throw new Error("No active session to extend");
     }
 
-    if (new Date() >= new Date(this.session.expiresAt)) {
-      // Fire-and-forget: expiry cleanup has no caller to surface errors to
-      this.clearSession().catch((error) =>
-        console.warn('[w3pk] Failed to clear expired session:', error)
-      );
+    if (this.expireIfDue()) {
       throw new Error("Session expired, cannot extend");
     }
 
