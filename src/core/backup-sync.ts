@@ -301,7 +301,7 @@ async function restorePrfBackup(
  * passkey's metadata (or points it at the wallet), stores the wallet
  * under the key derived from `prfOutput` and starts a session. The wallet
  * is stored before the passkey points at it, and the passkey's previous
- * wallet is deleted only after. Without `prfOutput`, the wallet and the
+ * wallet and its persistent session are deleted only after. Without `prfOutput`, the wallet and the
  * session stay in memory only.
  *
  * @throws AddressChangeError if the passkey has another wallet on this device and `allowAddressChange` is false
@@ -352,6 +352,7 @@ export async function bootstrapCredential(
   } else if (addressChanged) {
     await storage.updateCredentialAddress(credential.id, ethereumAddress);
     await ctx.walletStorage.delete(stored.ethereumAddress);
+    await ctx.sessionManager.deletePersistentSession(stored.ethereumAddress);
   }
 
   ctx.currentUser = {
