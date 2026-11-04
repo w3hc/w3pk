@@ -1282,7 +1282,8 @@ export class Web3Passkey {
       };
     } catch (error) {
       this.config.onError?.(error as any);
-      throw new WalletError(`Failed to send transaction: ${(error as Error).message}`, error);
+      const reason = (error as any)?.shortMessage ?? (error instanceof Error ? error.message : String(error));
+      throw new WalletError(`Failed to send transaction: ${reason}`, error);
     }
   }
 
