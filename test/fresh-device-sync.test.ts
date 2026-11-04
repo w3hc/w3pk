@@ -558,12 +558,12 @@ async function runTests() {
       );
       assert(!authEvents.includes(true), `${name}: no login`);
     }
-    const v4 = await capture(() =>
-      new BackupFileManager().parseBackupFile(JSON.stringify({ version: 4 }))
+    const v5 = await capture(() =>
+      new BackupFileManager().parseBackupFile(JSON.stringify({ version: 5 }))
     );
     assert(
-      v4 instanceof UnsupportedBackupVersionError && v4.version === 4,
-      "version 4: throws UnsupportedBackupVersionError with the version"
+      v5 instanceof UnsupportedBackupVersionError && v5.version === 5,
+      "version 5: throws UnsupportedBackupVersionError with the version"
     );
   }
   console.log("");

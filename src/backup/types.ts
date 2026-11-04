@@ -75,10 +75,10 @@ export interface BackupMetadata {
   addressChecksum: string; // For verification
 }
 
-export const BACKUP_FILE_VERSION = 3;
+export const BACKUP_FILE_VERSION = 4;
 
 /**
- * BackupFile v3 - acts like a "floppy disk"
+ * BackupFile v4 - acts like a "floppy disk"
  * Can be used to:
  * 1. Restore wallet with existing passkey (same or synced device)
  * 2. Register new passkey with this wallet (fresh device)
@@ -86,6 +86,8 @@ export const BACKUP_FILE_VERSION = 3;
  * 4. Split among guardians for social recovery
  *
  * It holds no address: the wallet's address comes from the decrypted mnemonic.
+ * Every field but `encryptedMnemonic` is AES-GCM additional data
+ * (backupAdditionalData()), so editing one makes the restore fail.
  */
 export interface BackupFile {
   version: typeof BACKUP_FILE_VERSION;
