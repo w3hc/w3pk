@@ -136,7 +136,7 @@ export function generateStealthAddress(
     const stealthPubKey = computeStealthPublicKey(spendingPubKey, reducedScalar);
 
     // Derive stealth address from stealth public key
-    const stealthAddress = publicKeyToAddress(stealthPubKey);
+    const stealthAddress = ethers.computeAddress(stealthPubKey);
 
     return {
       stealthAddress,
@@ -196,7 +196,7 @@ export function checkStealthAddress(
     const stealthPubKey = computeStealthPublicKey(spendingPubKey, reducedScalar);
 
     // Derive stealth address from stealth public key
-    const derivedAddress = publicKeyToAddress(stealthPubKey);
+    const derivedAddress = ethers.computeAddress(stealthPubKey);
 
     // Check if addresses match
     if (derivedAddress.toLowerCase() !== stealthAddress.toLowerCase()) {
@@ -378,22 +378,3 @@ function addPrivateKey(privKey: string, scalar: bigint): string {
   }
   return ethers.toBeHex(sum, 32);
 }
-
-/**
- * Derive Ethereum address from compressed public key
- */
-function publicKeyToAddress(compressedPubKey: string): string {
-  try {
-    // Decompress the public key first
-    const uncompressedPubKey = ethers.SigningKey.computePublicKey(compressedPubKey, false);
-
-    // Take keccak256 of uncompressed public key (without 0x04 prefix)
-    const pubKeyHash = ethers.keccak256("0x" + uncompressedPubKey.slice(4));
-
-    // Take last 20 bytes as address
-    return ethers.getAddress("0x" + pubKeyHash.slice(-40));
-  } catch (error) {
-    throw new CryptoError("Failed to derive address from public key", error);
-  }
-}
-
