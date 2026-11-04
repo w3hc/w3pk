@@ -355,44 +355,25 @@ export function computeStealthPublicKey(
  * @throws CryptoError if scalar is zero after reduction
  */
 function reduceScalarModN(scalar: string): string {
-  try {
-    // SECP256k1 curve order
-    const n = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141");
-
-    const s = BigInt(scalar);
-    const reduced = s % n;
-
-    // Reject zero scalar
-    if (reduced === 0n) {
-      throw new Error("Scalar reduced to zero (invalid)");
-    }
-
-    // Convert back to hex with proper padding
-    return "0x" + reduced.toString(16).padStart(64, "0");
-  } catch (error) {
-    throw new CryptoError("Failed to reduce scalar modulo curve order", error);
+  const reduced = secp256k1.Point.Fn.create(BigInt(scalar));
+  if (reduced === 0n) {
+    throw new CryptoError("Scalar reduced to zero (invalid)");
   }
+  return ethers.toBeHex(reduced, 32);
 }
 
 /**
  * Add two private keys modulo the curve order
  * (privkey1 + privkey2) mod n
+ *
+ * @throws CryptoError if the sum is zero
  */
 function addPrivateKeys(privKey1: string, privKey2: string): string {
-  try {
-    // SECP256k1 curve order
-    const n = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141");
-
-    const k1 = BigInt(privKey1);
-    const k2 = BigInt(privKey2);
-
-    const sum = (k1 + k2) % n;
-
-    // Convert back to hex with proper padding
-    return "0x" + sum.toString(16).padStart(64, "0");
-  } catch (error) {
-    throw new CryptoError("Failed to add private keys", error);
+  const sum = secp256k1.Point.Fn.add(BigInt(privKey1), BigInt(privKey2));
+  if (sum === 0n) {
+    throw new CryptoError("Stealth private key is zero");
   }
+  return ethers.toBeHex(sum, 32);
 }
 
 /**
