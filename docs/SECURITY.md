@@ -97,7 +97,9 @@ A backup file is portable and independent of any device. What an attacker who ob
 
 A backup file on its own is not decryptable in either variant. **For a backup that leaves the device (cloud, USB, guardians), `password` is the one that restores without the passkey.**
 
-Backup files are BackupFile v3 (`version: 3`). They hold no address, in clear or hashed. v2 stored the address in clear and as `addressChecksum`, an unsalted truncated SHA-256 that hashing every onchain address reverses. A salted hash wouldn't help: the salt sits in the file, and onchain addresses can be enumerated. So a stolen v3 file doesn't give the wallet's address. A backup made while logged in carries the username in clear, so a fresh device can restore it: whoever holds the file learns the username, not the address. Restores derive the address from the decrypted mnemonic, and AES-GCM rejects a wrong key or an altered ciphertext. Files that aren't v3 throw `UnsupportedBackupVersionError`.
+Backup files are BackupFile v4 (`version: 4`). They hold no address, in clear or hashed. v2 stored the address in clear and as `addressChecksum`, an unsalted truncated SHA-256 that hashing every onchain address reverses. A salted hash wouldn't help: the salt sits in the file, and onchain addresses can be enumerated. So a stolen file doesn't give the wallet's address. A backup made while logged in carries the username in clear, so a fresh device can restore it: whoever holds the file learns the username, not the address. Restores derive the address from the decrypted mnemonic, and AES-GCM rejects a wrong key or an altered ciphertext. Every other field (`credential`, `username`, `prfSalt`, `createdAt`, the Argon2id parameters) is AES-GCM additional data, in a fixed-order, length-prefixed encoding: in v3 only the mnemonic was authenticated, so whoever could edit the file could swap the passkey a fresh device trusts or the username it registers. Editing or adding a field now makes the restore fail. Files that aren't v4 throw `UnsupportedBackupVersionError`.
+
+Guardian shares carry their setup's random `splitId` and a SHA-256 checksum over the share and its labels, so a corrupted, edited or mixed-up share throws `InvalidGuardianShareError` naming it before the shares are combined. The checksum is unkeyed: it catches mistakes, not a guardian who edits a share and recomputes it; that share passes, and the backup's AES-GCM tag refuses the rebuilt file.
 
 The `passkey` and `hybrid` types were removed in 0.11.0: their key came from `credentialId` and the credential's public key, with no WebAuthn ceremony, so a `passkey` file decrypted from public data alone and a `hybrid` file was only as strong as its password. Restoring one throws `RemovedBackupMethodError`; users who have one should create a new `password` or `prf` backup.
 
@@ -971,7 +973,7 @@ const w3pk = createWeb3Passkey({
 - The PRF output is 32 bytes of full-entropy key material held by the authenticator, so there is nothing to stretch
 - Storage alone can't decrypt the wallet
 
-**Backup file encryption (BackupFile v3):** Argon2id, m=64 MiB, t=3, p=4
+**Backup file encryption (BackupFile v4):** Argon2id, m=64 MiB, t=3, p=4
 - Primary threat: Offline attacks (backups may be on USB/cloud)
 - PBKDF2 isn't memory-hard, so GPUs run it massively in parallel. Argon2id makes each guess fill 64 MiB, which caps a GPU's parallelism by its memory rather than its cores
 - RFC 9106's second recommendation. It takes about 1 to 2 s in pure JavaScript (`@noble/hashes`, Node 24, Apple Silicon), so the offline extractor can run it in a browser. Each file records its parameters, so backups made before v0.11.1 at OWASP's minimum (19 MiB, t=2, p=1) still restore
@@ -1522,9 +1524,9 @@ await navigator.credentials.get({
 
 ### Backup Encryption (User-Controlled)
 
-**Key Derivation (BackupFile v3, `password`):**
+**Key Derivation (BackupFile v4, `password`):**
 - **Algorithm:** Argon2id (RFC 9106), `@noble/hashes` `argon2idAsync`
-- **Parameters:** m=65536 KiB (64 MiB), t=3 passes, p=4 lanes (RFC 9106's second recommendation), stored in the file. Backups made before v0.11.1 used m=19456 KiB, t=2, p=1 and still restore
+- **Parameters:** m=65536 KiB (64 MiB), t=3 passes, p=4 lanes (RFC 9106's second recommendation), stored in the file. v3 backups made before v0.11.1 used m=19456 KiB, t=2, p=1; a v4 file with those parameters still restores
 - **Bounds on restore:** at most 64 MiB, 3 passes and 4 lanes, so a crafted file can't freeze the page
 - **Salt:** Random 16 bytes per backup
 - **Key Material:** User-chosen password, NFC-normalized, UTF-8 encoded
@@ -2749,7 +2751,7 @@ w3pk implements a **three-layer backup and recovery system** that balances secur
 
 **Cryptographic details:**
 ```typescript
-// Key derivation (BackupFile v3)
+// Key derivation (BackupFile v4)
 Argon2id
 ├─ Memory: 64 MiB, passes: 3, lanes: 4
 ├─ Salt: 16 bytes (random per backup)
