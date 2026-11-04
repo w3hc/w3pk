@@ -1,6 +1,7 @@
 import { verifyAssertion, verifyAssertionSignature } from "../auth/authenticate";
 import { evaluatePrf } from "../auth/prf";
 import { CredentialStorage } from "../auth/storage";
+import type { PasskeySelectionResult } from "../auth/sync-auth";
 import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types";
 import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
@@ -181,38 +182,20 @@ export async function syncWalletWithPasskey(
     return restorePrfBackup(ctx, backupFile, allowAddressChange);
   }
 
-  const passkeyResult = await promptPasskeySelection();
-  const credentialId = passkeyResult.credentialId;
-  const storage = new CredentialStorage();
-  const stored = await storage.getCredentialById(credentialId);
-
-  // A known passkey's assertion passes login()'s checks against its stored
-  // metadata. A fresh device has none: the public key comes from the
-  // password backup that names the passkey
-  let publicKey: string;
-  if (stored) {
-    if (!(await verifyAssertion(passkeyResult.assertion, stored, storage, passkeyResult.challenge))) {
-      if (passkeyResult.prfOutput) new Uint8Array(passkeyResult.prfOutput).fill(0);
-      throw new AuthenticationError("Signature verification failed");
-    }
-    publicKey = stored.publicKey;
-  } else {
-    if (!backupFile.credential) {
-      throw new SyncBootstrapError("NO_CREDENTIAL", credentialId);
-    }
-    if (backupFile.credential.id !== credentialId) {
-      throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
-    }
-    publicKey = backupFile.credential.publicKey;
-    if (!(await verifyAssertionSignature(passkeyResult.assertion, publicKey, passkeyResult.challenge))) {
-      throw new SyncBootstrapError("PUBLIC_KEY_MISMATCH", credentialId);
-    }
-  }
-
   if (!password) {
     throw new WalletError("Password required to restore password-encrypted backup");
   }
   const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
+
+  const passkeyResult = await promptPasskeySelection();
+  const credentialId = passkeyResult.credentialId;
+  let publicKey: string;
+  try {
+    publicKey = await verifySyncAssertion(passkeyResult, backupFile);
+  } catch (error) {
+    if (passkeyResult.prfOutput) new Uint8Array(passkeyResult.prfOutput).fill(0);
+    throw error;
+  }
 
   await bootstrapCredential(ctx, 
     {
@@ -229,6 +212,39 @@ export async function syncWalletWithPasskey(
   backupManager.markBackupVerified(ethereumAddress);
 
   return { ethereumAddress };
+}
+
+/**
+ * Check the passkey selection's assertion and return the public key it
+ * answers to. A known passkey's assertion passes login()'s checks against
+ * its stored metadata. A fresh device has none: the public key comes from
+ * the password backup that names the passkey.
+ */
+async function verifySyncAssertion(
+  passkeyResult: PasskeySelectionResult,
+  backupFile: BackupFile
+): Promise<string> {
+  const { credentialId, assertion, challenge } = passkeyResult;
+  const storage = new CredentialStorage();
+  const stored = await storage.getCredentialById(credentialId);
+
+  if (stored) {
+    if (!(await verifyAssertion(assertion, stored, storage, challenge))) {
+      throw new AuthenticationError("Signature verification failed");
+    }
+    return stored.publicKey;
+  }
+
+  if (!backupFile.credential) {
+    throw new SyncBootstrapError("NO_CREDENTIAL", credentialId);
+  }
+  if (backupFile.credential.id !== credentialId) {
+    throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
+  }
+  if (!(await verifyAssertionSignature(assertion, backupFile.credential.publicKey, challenge))) {
+    throw new SyncBootstrapError("PUBLIC_KEY_MISMATCH", credentialId);
+  }
+  return backupFile.credential.publicKey;
 }
 
 /** The backup's username, unless it isn't one register() would accept */
