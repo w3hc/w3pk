@@ -296,20 +296,13 @@ export class Web3Passkey {
         userVerification: this.config.userVerification,
       });
 
-      const storage = new CredentialStorage();
-      const credential = await storage.getCredentialByAddress(ethereumAddress);
+      const { credentialId } = registration;
 
       this.currentUser = {
         username: options.username,
         ethereumAddress,
-        credentialId: credential?.id || '',
+        credentialId,
       };
-
-      if (!credential) {
-        throw new WalletError("Credential not found after registration");
-      }
-
-      const credentialId = credential.id;
 
       // Some platforms evaluate the PRF at creation; if this one didn't,
       // one assertion does. Without PRF, the wallet stays in memory only.
