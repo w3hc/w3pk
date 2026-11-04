@@ -8,6 +8,7 @@
  * 4. Split among guardians for social recovery (via Shamir)
  */
 
+import { concatBytes } from '@noble/hashes/utils.js';
 import { BACKUP_FILE_VERSION } from './types';
 import type { BackupCredential, BackupFile } from './types';
 import {
@@ -87,7 +88,6 @@ const CREDENTIAL_FIELDS = ['id', 'publicKey'];
  * then its bytes; an integer is 0x01 then 4 bytes big-endian.
  */
 export function backupAdditionalData(file: BackupMetadata): Uint8Array<ArrayBuffer> {
-  const encoder = new TextEncoder();
   const parts: Uint8Array[] = [];
   const u32 = (value: number) => {
     const bytes = new Uint8Array(4);
@@ -96,7 +96,7 @@ export function backupAdditionalData(file: BackupMetadata): Uint8Array<ArrayBuff
   };
   const str = (value: string | undefined) => {
     if (value === undefined) return void parts.push(Uint8Array.of(0));
-    const bytes = encoder.encode(value);
+    const bytes = new TextEncoder().encode(value);
     parts.push(Uint8Array.of(1), u32(bytes.length), bytes);
   };
   const int = (value: number | undefined) => {
@@ -119,13 +119,7 @@ export function backupAdditionalData(file: BackupMetadata): Uint8Array<ArrayBuff
   str(file.prfSalt);
   str(file.username);
 
-  const out = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
+  return new Uint8Array(concatBytes(...parts));
 }
 
 async function sealBackup(
