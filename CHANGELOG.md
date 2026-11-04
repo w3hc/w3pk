@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `test/import-mnemonic.test.ts` and `test/restore-replace-wallet.test.ts` cover it
   - `PasskeySelectionResult` (internal) drops `publicKey` and `ethereumAddress`; the stored metadata is read where it is checked
   - `test/fresh-device-sync.test.ts` covers a counter behind the stored one, a stored key from another passkey, the saved counter and a wrong password
+- **A SIWE message sent as bytes gets the domain check** ([#268](https://github.com/w3hc/w3pk/issues/268)). `signMessage()` checked the domain of an `EIP191` message that contains the SIWE header only when it was a string. `personal_sign` and `eth_sign` sign hex data as bytes, and viem and ethers send SIWE messages as hex, so through the EIP-1193 provider a SIWE message for another domain got signed
+  - A byte message whose text contains the SIWE header is decoded as UTF-8 and checked like a string; one that isn't valid UTF-8 throws, so a verifier that decodes it leniently can't accept it unchecked
+  - `test/sign-message.test.ts` and `test/eip1193-provider.test.ts` cover raw bytes and hex through `personal_sign` and `eth_sign`
 
 ### Fixed
 
