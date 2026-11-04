@@ -179,6 +179,23 @@ setup().then(() =>
       fn: rejected({ rpId: "evil.example" }, "another RP ID hash", "RP ID hash mismatch"),
     },
     {
+      name: "storage failure does not signal the passkey as unknown",
+      fn: async () => {
+        const setItem = mockLocalStorage.setItem;
+        mockLocalStorage.setItem = () => {
+          throw new Error("QuotaExceededError");
+        };
+        let result;
+        try {
+          result = await attemptRegister({});
+        } finally {
+          mockLocalStorage.setItem = setItem;
+        }
+        assert(result.error !== undefined, "registration should fail when storage fails");
+        assert(signalled.length === 0, "a passkey that may be on record should not be signalled as unknown");
+      },
+    },
+    {
       name: "attestation object that is not a CBOR map is rejected",
       fn: async () => {
         const { error, stored } = await attemptRegister({

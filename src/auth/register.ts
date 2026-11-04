@@ -15,17 +15,17 @@ import { authDataFromAttestationObject, credentialPublicKeyFromAuthData } from "
  * Asks the authenticator to drop a passkey that was created but not stored
  * (WebAuthn L3 §5.1.10.2), so it does not linger as an orphan.
  */
-function signalUnknownCredential(credentialId: string): void {
+function signalUnknownCredential(rpId: string, credentialId: string): void {
   if (typeof PublicKeyCredential === "undefined" || typeof PublicKeyCredential.signalUnknownCredential !== "function") {
     return;
   }
-  PublicKeyCredential.signalUnknownCredential({ rpId: window.location.hostname, credentialId }).catch(() => {});
+  PublicKeyCredential.signalUnknownCredential({ rpId, credentialId }).catch(() => {});
 }
 
 export async function register(
   options: RegisterOptions
 ): Promise<{ credentialId: string; signature: ArrayBuffer; prfOutput?: ArrayBuffer }> {
-  let unstoredCredentialId: string | null = null;
+  let unstored: { rpId: string; credentialId: string } | null = null;
   try {
     const { username, ethereumAddress, userVerification = "required" } = options;
 
@@ -39,6 +39,7 @@ export async function register(
     }
 
     const challenge = generateChallenge();
+    const rpId = window.location.hostname;
 
     const challengeBuffer = base64UrlToArrayBuffer(challenge);
     // The user handle must not contain personal information (WebAuthn §14.6.1)
@@ -48,7 +49,7 @@ export async function register(
       challenge: challengeBuffer,
       rp: {
         name: "w3pk",
-        id: window.location.hostname,
+        id: rpId,
       },
       user: {
         id: userIdBuffer,
@@ -83,7 +84,7 @@ export async function register(
     if (!credential) {
       throw new Error("Failed to create credential");
     }
-    unstoredCredentialId = credential.id;
+    unstored = { rpId, credentialId: credential.id };
 
     const attestationObject = credential.response.attestationObject;
 
@@ -101,6 +102,8 @@ export async function register(
 
     const publicKey = arrayBufferToBase64Url(await credentialPublicKeyFromAuthData(authData));
 
+    // Past this point a record may be on disk, so the passkey must stay
+    unstored = null;
     await storage.saveCredential({
       id: credential.id,
       publicKey,
@@ -110,7 +113,6 @@ export async function register(
       lastUsed: new Date().toISOString(),
       signCount: 0, // Initialize signature counter
     });
-    unstoredCredentialId = null;
 
     const prfOutput = isUserVerified(authData)
       ? credential.getClientExtensionResults?.().prf?.results?.first
@@ -118,7 +120,7 @@ export async function register(
 
     return { credentialId: credential.id, signature: attestationObject, prfOutput };
   } catch (error) {
-    if (unstoredCredentialId) signalUnknownCredential(unstoredCredentialId);
+    if (unstored) signalUnknownCredential(unstored.rpId, unstored.credentialId);
     throw new RegistrationError(
       error instanceof Error ? error.message : "Registration failed",
       error
