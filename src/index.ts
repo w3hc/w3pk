@@ -60,11 +60,6 @@ export {
 
 export type { SyncBootstrapReason, ZkArtifactName } from "./core/errors";
 
-export {
-  promptPasskeySelection,
-  authenticateWithPasskey,
-} from "./auth/sync-auth";
-export type { PasskeySelectionResult } from "./auth/sync-auth";
 export type { PrfSecret } from "./auth/prf";
 export type { SemaphoreIdentity } from "./zk/semaphore";
 export type {

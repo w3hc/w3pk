@@ -10,6 +10,7 @@ import {
   DEFAULT_MODE,
 } from "../src/wallet/origin-derivation";
 import { Web3Passkey } from "../src/core/sdk";
+import * as w3pk from "../src";
 
 async function runSecurityTests() {
   console.log("\n🔒 Running Security Restrictions Tests...\n");
@@ -164,6 +165,14 @@ async function runSecurityTests() {
       "exportMnemonic() should not exist on the SDK"
     );
     console.log("✅ exportMnemonic() is not exposed");
+  }
+
+  console.log("\nTest 6b: no export returns the wallet key PRF output");
+  {
+    for (const name of ["promptPasskeySelection", "authenticateWithPasskey"]) {
+      assert(!(name in w3pk), `${name} should not be exported`);
+    }
+    console.log("✅ Passkey selection helpers are not exported");
   }
 
   // Test 7: Verify STANDARD and STRICT modes never leak private keys

@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - **`pnpm audit --prod` reports only the `elliptic` advisory** ([#277](https://github.com/w3hc/w3pk/issues/277)). `pnpm.overrides` raise `brace-expansion` to `>=5.0.12` and `minimatch` to `>=11.0.1` in `snarkjs > ejs > jake > filelist`, which clears 7 denial-of-service advisories. None of them reached the browser bundle. `elliptic`, through `circomlibjs > ethers@5`, has no patched version
+- **No exported function returns the passkey's PRF output** ([#260](https://github.com/w3hc/w3pk/issues/260)). `promptPasskeySelection()` evaluated the PRF at `PRF_INPUT` and returned it as `prfOutput`, the input to `deriveWalletKey()`, so an app could decrypt the stored mnemonic after one prompt that looked like a normal sign-in
+  - `promptPasskeySelection()` and `PasskeySelectionResult` are no longer exported; `syncWalletWithPasskey()` still uses them internally
+  - `authenticateWithPasskey()` is removed: it didn't request the PRF, but nothing used it
+  - `test/security-restrictions.test.ts` checks neither name is exported
 
 ## [0.11.1] - 2026-11-03
 
