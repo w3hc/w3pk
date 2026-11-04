@@ -280,7 +280,7 @@ Decrypts a v3 payload. The recipient entry is found by the public key derived fr
 - ✅ Cross-platform — browser and Node.js
 - ⚠️ No forward secrecy — a leaked KEM private key exposes every payload sealed to it
 - ⚠️ No sender authentication — any recipient can seal new content for the others; sign the payload to prove who sent it (see [No sender authentication](#no-sender-authentication))
-- ⚠️ Deterministic derivation from the Ethereum private key means KEM key secrecy is capped by secp256k1 key secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
+- ⚠️ Deterministic derivation from the wallet's BIP-39 seed means KEM key secrecy is capped by the mnemonic's secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
 
 ---
 
