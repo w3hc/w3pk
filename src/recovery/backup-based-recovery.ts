@@ -7,7 +7,7 @@
 
 import type { BackupFile } from '../backup/types';
 import { validateBackupFile } from '../backup/backup-file';
-import { InvalidGuardianShareError, UnsupportedBackupVersionError } from '../core/errors';
+import { InvalidGuardianShareError } from '../core/errors';
 import {
   splitSecret,
   combineShares,
@@ -257,14 +257,7 @@ export class SocialRecovery {
       throw new Error('Recovered data is not a backup file - corrupted shares');
     }
 
-    try {
-      return validateBackupFile(recovered);
-    } catch (error) {
-      if (error instanceof UnsupportedBackupVersionError) {
-        error.backupFileJson = backupJson;
-      }
-      throw error;
-    }
+    return validateBackupFile(recovered);
   }
 
   /**

@@ -173,9 +173,6 @@ const V3_TOOL_URL =
  * reads its format, then create a new backup.
  */
 export class UnsupportedBackupVersionError extends Web3PasskeyError {
-  /** The rebuilt file, when it came from guardian shares, for the offline tool */
-  public backupFileJson?: string;
-
   constructor(public version: unknown, method?: string) {
     const format = version === undefined ? "v2 or earlier" : `version ${String(version)}`;
     const next =

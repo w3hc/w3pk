@@ -349,12 +349,7 @@ async function runTests() {
     const { version: _, ...v2 } = backupFile;
     const v2setup = await recovery.splitAmongGuardians(v2 as BackupFile, guardians, 3, address);
     const v2error = await capture(() => recovery.recoverFromShares(v2setup.guardianShares.slice(0, 3)));
-    assert(v2error instanceof UnsupportedBackupVersionError, 'v2 shares: UnsupportedBackupVersionError');
-    assertEqual(
-      JSON.parse((v2error as UnsupportedBackupVersionError).backupFileJson!).encryptedMnemonic,
-      backupFile.encryptedMnemonic,
-      'v2 shares: the error carries the rebuilt file'
-    );
+    assert(v2error instanceof UnsupportedBackupVersionError, 'shares of a v2 file: UnsupportedBackupVersionError');
     passTest('3, 4 and 5 shares restore');
   });
 
