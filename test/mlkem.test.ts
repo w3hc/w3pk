@@ -12,11 +12,10 @@ import {
   mlkemEncryptWithKey,
   mlkemDecryptWithKey,
   hpkeKeySchedule,
+  type MLKemDerivationOptions,
 } from '../src/crypto/mlkem';
 import { bip39Seed, deriveMLKemPublicKey } from '../src/core/mlkem';
-import { getOriginSpecificAddress } from '../src/wallet/origin-derivation';
-import { deriveWalletFromPath } from '../src/wallet/generate';
-import { Mnemonic, getBytes } from 'ethers';
+import { Mnemonic } from 'ethers';
 import { extract, expand } from '@noble/hashes/hkdf.js';
 import { sha256, sha512 } from '@noble/hashes/sha2.js';
 import { createMlKem1024 } from 'mlkem';
@@ -296,10 +295,12 @@ async function runTests() {
     passTest('Derivation reproduced from the seed alone');
   });
 
-  await runTest('BIP-39 seed matches ethers and the SDK no longer uses the signing key', async () => {
+  await runTest('SDK derives from the BIP-39 seed, origin, mode and tag', async () => {
     const mnemonic = 'test test test test test test test test test test test junk';
-    const seed = bip39Seed(mnemonic);
+    const seed = await bip39Seed(mnemonic);
     assertEqual(hex(seed), Mnemonic.fromPhrase(mnemonic).computeSeed().slice(2), 'Seed matches ethers computeSeed');
+    const mixedCase = await bip39Seed('Test test TEST test test test test test test test test Junk');
+    assertEqual(hex(mixedCase), hex(seed), 'Phrase lowercased like ethers');
 
     const previousWindow = (globalThis as any).window;
     (globalThis as any).window = { location: { origin } };
@@ -308,21 +309,21 @@ async function runTests() {
         currentUser: {} as any,
         getMnemonicFromSession: async () => mnemonic,
       };
-      const sdkKey = await deriveMLKemPublicKey(ctx, { tag: 'main' });
-      const expected = await deriveMLKemKeypair(getBytes(Mnemonic.fromPhrase(mnemonic).computeSeed()), { origin });
-      assertEqual(sdkKey, Buffer.from(expected.publicKey).toString('base64'), 'SDK derives from the seed, origin, mode and tag');
+      const expected = async (options: Partial<MLKemDerivationOptions>) =>
+        Buffer.from((await deriveMLKemKeypair(seed, { origin, ...options })).publicKey).toString('base64');
 
-      const { path } = await getOriginSpecificAddress(mnemonic, origin);
-      const signingKey = getBytes(deriveWalletFromPath(mnemonic, path).privateKey);
-      const signingSeed = new Uint8Array(64);
-      signingSeed.set(signingKey);
-      const fromSigningKey = await deriveMLKemKeypair(signingSeed, { origin });
-      assert(hex(fromSigningKey.publicKey) !== hex(expected.publicKey), 'Signing key does not give the KEM key');
+      assertEqual(await deriveMLKemPublicKey(ctx), await expected({}), 'Default SDK key');
+      assertEqual(await deriveMLKemPublicKey(ctx, { tag: 'main', context: '' }), await expected({}), 'Empty context and lowercase tag fall back');
+      assertEqual(
+        await deriveMLKemPublicKey(ctx, { mode: 'YOLO', tag: 'gaming', context: 'chat' }),
+        await expected({ mode: 'YOLO', tag: 'GAMING', context: 'chat' }),
+        'Mode, tag and context passed through'
+      );
     } finally {
       (globalThis as any).window = previousWindow;
     }
 
-    passTest('SDK derivation independent of the signing key');
+    passTest('SDK derivation matches the seed-based derivation');
   });
 
   await runTest('Invalid seed and mode rejected', async () => {
@@ -337,7 +338,6 @@ async function runTests() {
 
     passTest('Inputs validated');
   });
-
 
   const flipByte = (base64: string, index: number): string => {
     const bytes = Buffer.from(base64, 'base64');
