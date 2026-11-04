@@ -110,13 +110,16 @@ export type ZKMethods = {
     : () => Promise<ZKProofModule[K]>;
 };
 
-// Strict decoding: bytes that aren't valid UTF-8 can't be a SIWE message
-function decodeUtf8(message: string | Uint8Array): string | undefined {
-  if (typeof message === 'string') return message;
+// A lenient decoder can't produce the ASCII header from invalid bytes, so a
+// message without it in the lenient text isn't SIWE; one with it must be
+// valid UTF-8, or a verifier decoding it leniently could accept it unchecked
+function siweText(message: string | Uint8Array): string | undefined {
+  if (typeof message === 'string') return message.includes(SIWE_HEADER) ? message : undefined;
+  if (!new TextDecoder().decode(message).includes(SIWE_HEADER)) return undefined;
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(message);
   } catch {
-    return undefined;
+    throw new WalletError("Invalid SIWE message: not valid UTF-8");
   }
 }
 
@@ -902,8 +905,11 @@ export class Web3Passkey {
       // EIP-4361: reject a SIWE message whose domain isn't this page's, also
       // when it comes as a plain EIP-191 message, which signs the same bytes,
       // or as bytes that decode to one, as personal_sign passes hex
-      const text = signingMethod === 'SIWE' || signingMethod === 'EIP191' ? decodeUtf8(message) : undefined;
-      if (text !== undefined && (signingMethod === 'SIWE' || text.includes(SIWE_HEADER))) {
+      const text =
+        signingMethod === 'SIWE' ? (message as string)
+        : signingMethod === 'EIP191' ? siweText(message)
+        : undefined;
+      if (text !== undefined) {
         const { assertSiweDomain } = await import("../siwe");
         assertSiweDomain(text, origin);
       }

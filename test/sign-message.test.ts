@@ -484,8 +484,12 @@ Issued At: 2021-09-30T16:25:24Z`;
       throw new Error(`Expected a SIWE message as bytes for "${host}" to pass, got: "${sameBytes}"`);
     }
 
-    const invalidUtf8 = new Uint8Array([...encode(siweFor("evil.example")), 0xff]);
-    const notText = await bytesCauseOf(invalidUtf8);
+    const invalidSiwe = await bytesCauseOf(new Uint8Array([...encode(siweFor(host)), 0xff]));
+    if (!invalidSiwe.includes("not valid UTF-8")) {
+      throw new Error(`Expected a SIWE message with invalid UTF-8 to be refused, got: "${invalidSiwe}"`);
+    }
+
+    const notText = await bytesCauseOf(new Uint8Array([0xff, 0x00, 0xfe, 0x80]));
     if (!notText.includes("Must be authenticated")) {
       throw new Error(`Expected invalid UTF-8 bytes to skip the check, got: "${notText}"`);
     }
