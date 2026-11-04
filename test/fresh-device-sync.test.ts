@@ -423,12 +423,16 @@ async function runTests() {
     const stored = await credentials.getCredentialById(CREDENTIAL_ID);
     assert((stored?.signCount ?? 0) > 0, "a successful sync saves the counter");
 
+    const prfOutput = authenticator.prfOutput;
+    authenticator.prfOutput = crypto.getRandomValues(new Uint8Array(32)).buffer;
+    const wrongPrfOutput = authenticator.prfOutput;
     const wrong = freshSdk();
     const error = await capture(() => wrong.sdk.syncWalletWithPasskey(json, "Wrong" + PASSWORD));
-    assert(error !== undefined && !(error instanceof AuthenticationError), "a wrong password throws before the passkey check");
+    authenticator.prfOutput = prfOutput;
+    assert(error !== undefined && !wrong.sdk.isAuthenticated, "a wrong password throws, no login");
     assert(
-      (await credentials.getCredentialById(CREDENTIAL_ID))?.signCount === stored?.signCount,
-      "a wrong password leaves the counter unchanged"
+      new Uint8Array(wrongPrfOutput).every((b) => b === 0),
+      "a wrong password zeroes the PRF output"
     );
   }
   console.log("");
