@@ -253,13 +253,13 @@ export async function deriveMLKemKeypair(
   if (!(seed instanceof Uint8Array) || seed.length !== BIP39_SEED_LENGTH) {
     throw new Error(`Invalid BIP-39 seed: expected ${BIP39_SEED_LENGTH} bytes`);
   }
-  const mode = options.mode ?? DEFAULT_MODE;
+  const mode = options.mode || DEFAULT_MODE;
   if (!SECURITY_MODES.includes(mode)) {
     throw new Error(`Unknown security mode: ${String(mode)}`);
   }
   const origin = normalizeOrigin(options.origin);
-  const tag = (options.tag ?? DEFAULT_TAG).toUpperCase();
-  const context = options.context ?? MLKEM_DEFAULT_CONTEXT;
+  const tag = (options.tag || DEFAULT_TAG).toUpperCase();
+  const context = options.context || MLKEM_DEFAULT_CONTEXT;
 
   const mlkem = await createMlKem1024();
 
