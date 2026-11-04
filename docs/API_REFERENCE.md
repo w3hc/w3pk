@@ -2693,7 +2693,7 @@ Sync wallet to this device using an existing cloud-synced passkey and a backup f
 
 **Use case:** New device that already has a passkey synced via iCloud/Google Password Manager. The user provides their backup file; the SDK prompts them to select the passkey, decrypts the backup, saves the passkey's metadata if this device has none, stores wallet data locally, starts a session and fires `onAuthStateChanged(true, user)`.
 
-A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`) and carry the username. The username comes from the passkey's user handle when the passkey was registered before 0.11.1, else from the backup; a backup without one, with one `register()` wouldn't accept, or with one another passkey already has on this device falls back to the wallet's address. Since 0.11.1 the user handle is 32 random bytes: WebAuthn requires it to hold no personal information. In both cases the backup's public key is checked against the assertion's signature.
+A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`) and carry the username. The username comes from the passkey's user handle when the passkey was registered before 0.11.1, else from the backup; a backup without one, with one `register()` wouldn't accept, or with one another passkey already has on this device falls back to the wallet's address. Since 0.11.1 the user handle is 32 random bytes: WebAuthn requires it to hold no personal information. In both cases the backup's public key is checked against the assertion's signature. On a device that has the passkey's metadata, the assertion passes `login()`'s checks instead: its signature against the stored public key, and its counter, which is saved.
 
 When this device already stores another wallet for the selected passkey, the backup would replace it: that throws `AddressChangeError` after the assertion and before anything stored changes, unless the app confirms the replacement with the user and passes `{ allowAddressChange: true }`.
 
@@ -2727,6 +2727,7 @@ try {
 - `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`) for a `passkey` or `hybrid` backup, before any prompt
 - `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`) for a file that isn't BackupFile v3, before any prompt
 - `Error` if backup uses an unknown encryption method
+- `AuthenticationError` on a device with the passkey's metadata, if the assertion's signature or counter fails `login()`'s checks (nothing stored changes)
 - `SyncBootstrapError` on a device with no data for the passkey (carries `reason` and `credentialId`):
   - `'NO_CREDENTIAL'`: password backup that doesn't name its passkey (made before 0.10.4)
   - `'CREDENTIAL_MISMATCH'`: the backup names another passkey than the one selected

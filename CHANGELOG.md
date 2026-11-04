@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A Content-Security-Policy (`default-src 'none'`) blocks every request from the page
   - Origin wallets are derived at `m/13'/A'/B'/C'/D'/mode'/tag'`, as in [#262](https://github.com/w3hc/w3pk/issues/262); the page derived them at the old `m/44'/60'/0'/0/{index}`. Index wallets stay at `m/44'/60'/0'/0/{index}`, and index 0 is the registration address
   - `test/standalone-extract.test.ts` checks the page makes no request and doesn't use ethers, and that it derives the same paths, addresses and keys as the SDK
+- **`syncWalletWithPasskey()` checks a known passkey's assertion** ([#265](https://github.com/w3hc/w3pk/issues/265)). On the password-backup path, the passkey selection's assertion was checked against a public key only when the device had no metadata for the passkey. When it had some, neither the signature nor the counter was checked before the stored wallet was replaced; #255 closed the same gap in `restoreFromBackupFile()`
+  - With metadata, the assertion runs `verifyAssertion()`, `login()`'s check: signature against the stored public key, counter checked and saved. A failure throws `AuthenticationError` before anything stored changes
+  - The PRF output is zeroed on any failure after the prompt, a wrong password included
+  - `PasskeySelectionResult` (internal) drops `publicKey` and `ethereumAddress`; the stored metadata is read where it is checked
+  - `test/fresh-device-sync.test.ts` covers a counter behind the stored one, a stored key from another passkey, the saved counter and a wrong password
 
 ## [0.11.1] - 2026-11-03
 
