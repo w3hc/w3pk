@@ -2270,7 +2270,7 @@ if (await userConfirmsPhraseWrittenDown()) {
 
 ### `createBackupFile(password: string): Promise<{ blob: Blob; filename: string }>`
 
-Create a password backup (BackupFile v3): the backup that restores without a passkey. For a backup the passkey decrypts, use `exportForSync()` (PRF).
+Create a password backup (BackupFile v4): the backup that restores without a passkey. For a backup the passkey decrypts, use `exportForSync()` (PRF).
 
 This backup can be used to:
 - Restore wallet with existing passkey
@@ -2283,11 +2283,11 @@ This backup can be used to:
 
 The file holds no address. The default filename is `w3pk-backup-<date>.json`. Passing a second argument (the removed `encryptionType`) throws `WalletError`.
 
-**File format (v3):**
+**File format (v4):**
 
 ```typescript
 interface BackupFile {
-  version: 3;
+  version: 4;
   createdAt: string;
   encryptedMnemonic: string;      // base64(iv || AES-256-GCM ciphertext)
   encryptionMethod: 'password' | 'prf';
@@ -2298,7 +2298,9 @@ interface BackupFile {
 }
 ```
 
-Restoring a file that isn't v3 throws `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`, with `version`). For a v2 password file, its message names the [v0.10.6 offline tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html). `passkey` and `hybrid` files throw `RemovedBackupMethodError`.
+Every field but `encryptedMnemonic` is AES-GCM additional data (`backupAdditionalData()` in `src/backup/backup-file.ts`): editing any of them, or adding one, makes the restore fail. The encoding is the label `w3pk-backup-v4`, then `version`, `createdAt`, `encryptionMethod`, `passwordEncryption.kdf`, `.salt`, `.memoryKiB`, `.passes`, `.parallelism`, `credential.id`, `credential.publicKey`, `prfSalt`, `username`, in that order. An absent field is `0x00`; a string is `0x01`, its UTF-8 length as 4 bytes big-endian, then its bytes; an integer is `0x01` then 4 bytes big-endian.
+
+Restoring a file that isn't v4 throws `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`, with `version`). For a v3 password file, its message names the [last offline tool that reads v3](https://github.com/w3hc/w3pk/blob/b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html); for a v2 password file, the [v0.10.6 offline tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html). `passkey` and `hybrid` files throw `RemovedBackupMethodError`.
 
 **Returns:**
 
@@ -2351,6 +2353,8 @@ Encrypt the logged-in wallet into a password backup file and split it among guar
     threshold: number;
     createdAt: string;
     walletAddress: string;
+    splitId: string;       // Hex, 16 random bytes, the same for every share of one setup
+    checksum: string;      // Hex SHA-256, see guardianShareChecksum() in src/recovery/backup-based-recovery.ts
   }>;
   setupComplete: boolean;
 }
@@ -2360,6 +2364,7 @@ Encrypt the logged-in wallet into a password backup file and split it among guar
 - Guardians receive fragments of an already-encrypted backup file
 - Password is never shared with guardians
 - Requires both threshold shares + password to recover
+- Each share carries a checksum and its setup's `splitId`, so a corrupted, edited or mixed-up share is named before the shares are combined. The checksum is a plain SHA-256, not a MAC: a share edited on purpose with a recomputed checksum is refused by the backup's AES-GCM tag instead, without being named
 
 **Example:**
 
@@ -2409,7 +2414,7 @@ Combine guardian shares into the backup file, decrypt it and restore it as `rest
 - `password: string` - Password set in `setupSocialRecovery()`
 - `options.allowAddressChange?: boolean` - Allow the recovered wallet to replace the logged-in wallet with another address (default `false`)
 
-**Throws:** `AddressChangeError` as in `restoreFromBackupFile()`; `UnsupportedBackupVersionError` when the shares rebuild a v2 file (shares made before 0.11.0); its `backupFileJson` holds the rebuilt file, for the v0.10.6 offline tool
+**Throws:** `AddressChangeError` as in `restoreFromBackupFile()`; `InvalidGuardianShareError` (`code: 'GUARDIAN_SHARE_INVALID'`, with `shareIndex` and `guardianName`) for a share that is corrupted or edited (checksum mismatch), from another setup, given twice, or in an older format (share files `version: 1`, made by 0.11.x: combine them with w3pk v0.11.1, or set up social recovery again); `CryptoError` for a wrong password
 
 **Example:**
 
@@ -2482,9 +2487,9 @@ try {
 ```
 
 **Throws:**
-- `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`, with `version`) for a file that isn't BackupFile v3
+- `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`, with `version`) for a file that isn't BackupFile v4
 - `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`) for a `passkey` or `hybrid` backup
-- `CryptoError` for a wrong password or an altered file
+- `CryptoError` for a wrong password or an altered file, metadata included
 - `AddressChangeError` (`code: 'ADDRESS_CHANGE_NOT_ALLOWED'`, with `currentAddress` and `newAddress`) for a backup of another address than the logged-in one, without `allowAddressChange`
 - `AuthenticationError` if the passkey prompt is cancelled, `PrfUnsupportedError` if the authenticator returns no PRF output (logged in only; nothing stored changes)
 
@@ -2613,7 +2618,7 @@ Runs a fresh assertion restricted to the current passkey and encrypts the mnemon
 }
 ```
 
-**File format (`prf`, BackupFile v3):** `version: 3`, `encryptedMnemonic`, `prfSalt` (32 random bytes per file, base64url), `credential: { id, publicKey }`, `username`; no address. The default filename is `w3pk-sync-<date>.json`. The export is recorded in `getBackupStatus().methods` as `prf`. Key: HKDF-SHA256 over the PRF output evaluated at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, then AES-256-GCM. The public key doesn't decrypt the file; a fresh device needs it for `login()` and checks it against the assertion's signature.
+**File format (`prf`, BackupFile v4):** `version: 4`, `encryptedMnemonic`, `prfSalt` (32 random bytes per file, base64url), `credential: { id, publicKey }`, `username`; no address. The default filename is `w3pk-sync-<date>.json`. The export is recorded in `getBackupStatus().methods` as `prf`. Key: HKDF-SHA256 over the PRF output evaluated at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, then AES-256-GCM, with every field but `encryptedMnemonic` as additional data. The public key doesn't decrypt the file; a fresh device needs it for `login()` and checks it against the assertion's signature.
 
 **Security:** The PRF assertion is the fresh user verification; with an active session, export takes one prompt.
 
@@ -2726,7 +2731,7 @@ try {
 **Throws:**
 - `WalletError` if password is required but not provided
 - `RemovedBackupMethodError` (`code: 'BACKUP_METHOD_REMOVED'`, with `method`) for a `passkey` or `hybrid` backup, before any prompt
-- `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`) for a file that isn't BackupFile v3, before any prompt
+- `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`) for a file that isn't BackupFile v4, before any prompt
 - `Error` if backup uses an unknown encryption method
 - `AuthenticationError` on a device with the passkey's metadata, if the assertion's signature or counter fails `login()`'s checks (nothing stored changes)
 - `SyncBootstrapError` on a device with no data for the passkey (carries `reason` and `credentialId`):
@@ -3726,7 +3731,8 @@ import {
   - `PrfUnsupportedError` - `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
   - `AddressChangeError` - `restoreFromBackupFile()`, `recoverFromGuardians()`, `syncWalletWithPasskey()`, `importFromSync()`: the backup would replace the logged-in (or the passkey's stored) wallet with another address and `allowAddressChange` isn't set (`currentAddress`, `newAddress`)
   - `RemovedBackupMethodError` - `syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, `recoverFromGuardians()`: the backup uses the removed `passkey` or `hybrid` method (`method`); create a new `password` or `prf` backup
-  - `UnsupportedBackupVersionError` - the same methods and `registerWithBackupFile()`: the file isn't BackupFile v3 (`version`; `backupFileJson` when rebuilt from guardian shares); decrypt a v2 password file with the v0.10.6 offline tool
+  - `UnsupportedBackupVersionError` - the same methods and `registerWithBackupFile()`: the file isn't BackupFile v4 (`version`); decrypt a v3 password file with the extractor at commit `b14c32c`, a v2 one with the v0.10.6 offline tool
+  - `InvalidGuardianShareError` - `recoverFromGuardians()`: a share is corrupted, edited, from another setup, given twice or in an older format (`shareIndex`, `guardianName`)
   - `WeakPasswordError` - `createBackupFile()`, `setupSocialRecovery()`, `exportForSync(password)`: the password fails `isStrongPassword()` (`code: 'WEAK_PASSWORD'`, `feedback: string[]` gives each reason)
 
 ### Error Handling

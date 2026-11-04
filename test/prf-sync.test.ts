@@ -302,7 +302,7 @@ async function runTests() {
   const backup: BackupFile = JSON.parse(json);
   {
     assert(prompts === 1, "one passkey prompt");
-    assert(backup.version === 3, "is BackupFile v3");
+    assert(backup.version === 4, "is BackupFile v4");
     assert(backup.encryptionMethod === "prf", "encryptionMethod is 'prf'");
     assert(!json.toLowerCase().includes(ADDRESS.slice(2).toLowerCase()), "no address in the file");
     assert(!("addressChecksum" in backup), "no address checksum in the file");
@@ -472,9 +472,14 @@ async function runTests() {
 
   console.log("Test 6b: a PRF backup with an invalid username falls back to the address");
   {
+    const { json } = await new DeviceSyncManager().exportForSync(
+      MNEMONIC,
+      { id: CREDENTIAL_ID, publicKey },
+      "-not a username-"
+    );
     localStorage.clear();
     const { sdk } = freshSdk();
-    await sdk.syncWalletWithPasskey(JSON.stringify({ ...backup, username: "-not a username-" }));
+    await sdk.syncWalletWithPasskey(json);
     assert(sdk.isAuthenticated, "user is logged in");
     assert(sdk.user?.username === ADDRESS, "username falls back to the address");
   }

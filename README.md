@@ -366,7 +366,7 @@ const status = await w3pk.getBackupStatus()
 console.log('Security Score:', status.securityScore.total) // 0-70
 console.log('Next backup:', status.recommendedMode) // 'password', then 'prf'
 
-// Create encrypted backup file (BackupFile v3: Argon2id, no address in the file)
+// Create encrypted backup file (BackupFile v4: Argon2id, metadata authenticated, no address in the file)
 const { blob, filename } = await w3pk.createBackupFile(password)
 
 // Setup social recovery (M-of-N guardians) - guardians store backup file fragments

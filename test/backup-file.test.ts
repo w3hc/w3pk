@@ -1,10 +1,10 @@
 /**
- * BackupFile v3: password (Argon2id) and PRF round trips, no address in
+ * BackupFile v4: password (Argon2id) and PRF round trips, no address in
  * the file, Argon2id parameters, version checks and social recovery
  */
 
 import { Wallet } from 'ethers';
-import { BackupFileManager, validateBackupFile } from '../src/backup/backup-file';
+import { BackupFileManager, backupAdditionalData, validateBackupFile } from '../src/backup/backup-file';
 import {
   ARGON2ID_MAX_PARAMS,
   ARGON2ID_PARAMS,
@@ -33,6 +33,21 @@ async function capture(fn: () => Promise<unknown>): Promise<unknown> {
   return undefined;
 }
 
+async function passwordFile(
+  mnemonic: string,
+  params: { memoryKiB: number; passes: number; parallelism: number }
+): Promise<BackupFile> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await deriveKeyFromPasswordArgon2id(PASSWORD, salt, params);
+  const metadata = {
+    version: 4 as const,
+    createdAt: new Date().toISOString(),
+    encryptionMethod: 'password' as const,
+    passwordEncryption: { kdf: 'argon2id' as const, salt: btoa(String.fromCharCode(...salt)), ...params },
+  };
+  return { ...metadata, encryptedMnemonic: await encryptData(mnemonic, key, backupAdditionalData(metadata)) };
+}
+
 function assertNoAddress(json: string, address: string, label: string) {
   const hex = address.slice(2).toLowerCase();
   assert(!json.toLowerCase().includes(hex), `${label}: no address in the file`);
@@ -42,13 +57,13 @@ function assertNoAddress(json: string, address: string, label: string) {
 }
 
 async function runTests() {
-  startTestSuite('BackupFile v3 Tests');
+  startTestSuite('BackupFile v4 Tests');
 
   await runTest('Password backup round trip', async () => {
     const { mnemonic, address } = newWallet();
     const { backupFile, json } = await manager.createPasswordBackup(mnemonic, PASSWORD);
 
-    assertEqual(backupFile.version, 3, 'version is 3');
+    assertEqual(backupFile.version, 4, 'version is 4');
     assertEqual(backupFile.encryptionMethod, 'password', 'method is password');
     assertNoAddress(json, address, 'password');
     assert(!json.includes(mnemonic.split(' ')[0] + ' '), 'mnemonic is not in clear');
@@ -107,16 +122,9 @@ async function runTests() {
 
   await runTest('Backup made with the v0.11.0 parameters still restores', async () => {
     const { mnemonic, address } = newWallet();
-    const params = { memoryKiB: 19456, passes: 2, parallelism: 1 };
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const key = await deriveKeyFromPasswordArgon2id(PASSWORD, salt, params);
-    const json = JSON.stringify({
-      version: 3,
-      createdAt: new Date().toISOString(),
-      encryptedMnemonic: await encryptData(mnemonic, key),
-      encryptionMethod: 'password',
-      passwordEncryption: { kdf: 'argon2id', salt: btoa(String.fromCharCode(...salt)), ...params },
-    });
+    const json = JSON.stringify(
+      await passwordFile(mnemonic, { memoryKiB: 19456, passes: 2, parallelism: 1 })
+    );
 
     const restored = await manager.restoreWithPassword(await manager.parseBackupFile(json), PASSWORD);
     assertEqual(restored.mnemonic, mnemonic, 'mnemonic restored');
@@ -126,16 +134,7 @@ async function runTests() {
 
   await runTest('Restore reads the Argon2id parameters from the file', async () => {
     const { mnemonic, address } = newWallet();
-    const params = { memoryKiB: 1024, passes: 3, parallelism: 2 };
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const key = await deriveKeyFromPasswordArgon2id(PASSWORD, salt, params);
-    const file: BackupFile = {
-      version: 3,
-      createdAt: new Date().toISOString(),
-      encryptedMnemonic: await encryptData(mnemonic, key),
-      encryptionMethod: 'password',
-      passwordEncryption: { kdf: 'argon2id', salt: btoa(String.fromCharCode(...salt)), ...params },
-    };
+    const file = await passwordFile(mnemonic, { memoryKiB: 1024, passes: 3, parallelism: 2 });
 
     const restored = await manager.restoreWithPassword(validateBackupFile(file), PASSWORD);
     assertEqual(restored.ethereumAddress, address, 'restores with the file parameters');
@@ -197,14 +196,14 @@ async function runTests() {
     assertNoAddress(json, address, 'prf');
 
     const backupFile = await manager.parseBackupFile(json);
-    assertEqual(backupFile.version, 3, 'version is 3');
+    assertEqual(backupFile.version, 4, 'version is 4');
     const restored = await manager.restoreWithPrf(backupFile, prfOutput);
     assertEqual(restored.mnemonic, mnemonic, 'mnemonic restored');
     assertEqual(restored.ethereumAddress, address, 'address derived from the mnemonic');
     passTest('prf file round-trips');
   });
 
-  await runTest('Files that are not v3 throw UnsupportedBackupVersionError', async () => {
+  await runTest('Files that are not v4 throw UnsupportedBackupVersionError', async () => {
     const v2 = {
       createdAt: new Date().toISOString(),
       ethereumAddress: '0x0000000000000000000000000000000000000001',
@@ -232,7 +231,103 @@ async function runTests() {
     passTest('rejected with a typed error');
   });
 
-  await runTest('Social recovery splits and rebuilds a v3 file', async () => {
+  await runTest('v3 files are rejected and point to the tool that reads them', async () => {
+    const { backupFile } = await manager.createPasswordBackup(newWallet().mnemonic, PASSWORD);
+    const v3 = { ...backupFile, version: 3 };
+    const error = await capture(() => manager.parseBackupFile(JSON.stringify(v3)));
+    assert(error instanceof UnsupportedBackupVersionError && error.version === 3, 'password v3: UnsupportedBackupVersionError');
+    assert(
+      (error as Error).message.includes('b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html'),
+      'password v3: names the last tool that reads v3'
+    );
+    const restoreError = await capture(() => manager.restoreWithPassword(v3 as unknown as BackupFile, PASSWORD));
+    assert(restoreError instanceof UnsupportedBackupVersionError, 'restoreWithPassword refuses v3 too');
+
+    const prf = await capture(() =>
+      manager.parseBackupFile(JSON.stringify({ ...v3, encryptionMethod: 'prf' }))
+    );
+    assert((prf as Error).message.includes('exportForSync()'), 'prf v3: asks for a new export');
+    passTest('rejected');
+  });
+
+  await runTest('Editing any metadata field makes the restore fail', async () => {
+    const { mnemonic } = newWallet();
+    const credential = { id: 'credential-id', publicKey: 'public-key' };
+    const { backupFile } = await manager.createPasswordBackup(mnemonic, PASSWORD, credential, 'alice');
+    const kdf = backupFile.passwordEncryption!;
+    const otherSalt = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+
+    const passwordEdits: [string, BackupFile][] = [
+      ['createdAt', { ...backupFile, createdAt: new Date(0).toISOString() }],
+      ['credential.id', { ...backupFile, credential: { ...credential, id: 'other-id' } }],
+      ['credential.publicKey', { ...backupFile, credential: { ...credential, publicKey: 'other-key' } }],
+      ['credential removed', { ...backupFile, credential: undefined }],
+      ['username', { ...backupFile, username: 'mallory' }],
+      ['username removed', { ...backupFile, username: undefined }],
+      ['salt', { ...backupFile, passwordEncryption: { ...kdf, salt: otherSalt } }],
+      ['memoryKiB', { ...backupFile, passwordEncryption: { ...kdf, memoryKiB: 32768 } }],
+      ['passes', { ...backupFile, passwordEncryption: { ...kdf, passes: 2 } }],
+      ['parallelism', { ...backupFile, passwordEncryption: { ...kdf, parallelism: 2 } }],
+    ];
+    for (const [field, edited] of passwordEdits) {
+      const json = JSON.stringify(edited);
+      const error = await capture(async () =>
+        manager.restoreWithPassword(await manager.parseBackupFile(json), PASSWORD)
+      );
+      assert(error instanceof CryptoError, `password ${field}: CryptoError`);
+    }
+
+    const extra = await capture(() =>
+      manager.parseBackupFile(JSON.stringify({ ...backupFile, ethereumAddress: '0x01' }))
+    );
+    assert(extra instanceof Error && /unknown fields/.test(extra.message), 'an unknown field is rejected');
+    const extraKdf = await capture(() =>
+      manager.parseBackupFile(JSON.stringify({ ...backupFile, passwordEncryption: { ...kdf, iv: 'AAAA' } }))
+    );
+    assert(extraKdf instanceof Error, 'an unknown Argon2id field is rejected');
+
+    const prfOutput = crypto.getRandomValues(new Uint8Array(32));
+    const prfSalt = 'c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdHNhbHQ';
+    const prf = (await manager.createPrfBackup(mnemonic, credential, 'alice', prfSalt, prfOutput)).backupFile;
+    const prfEdits: [string, BackupFile][] = [
+      ['createdAt', { ...prf, createdAt: new Date(0).toISOString() }],
+      ['credential.id', { ...prf, credential: { ...credential, id: 'other-id' } }],
+      ['credential.publicKey', { ...prf, credential: { ...credential, publicKey: 'other-key' } }],
+      ['username', { ...prf, username: 'mallory' }],
+      ['prfSalt', { ...prf, prfSalt: prfSalt.slice(0, -1) + 'A' }],
+    ];
+    for (const [field, edited] of prfEdits) {
+      const error = await capture(async () =>
+        manager.restoreWithPrf(await manager.parseBackupFile(JSON.stringify(edited)), prfOutput)
+      );
+      assert(error instanceof CryptoError, `prf ${field}: CryptoError`);
+    }
+    assertEqual((await manager.restoreWithPrf(prf, prfOutput)).mnemonic, mnemonic, 'the unedited PRF file restores');
+    passTest(`${passwordEdits.length} password and ${prfEdits.length} PRF edits refused`);
+  });
+
+  await runTest('The additional data is the documented encoding', async () => {
+    const aad = backupAdditionalData({
+      version: 4,
+      createdAt: 'T',
+      encryptionMethod: 'prf',
+      credential: { id: 'i', publicKey: 'pk' },
+      prfSalt: 's',
+      username: 'é',
+    });
+    const hex = Array.from(aad, (b) => b.toString(16).padStart(2, '0')).join('');
+    const str = (text: string) => {
+      const bytes = new TextEncoder().encode(text);
+      return '01' + bytes.length.toString(16).padStart(8, '0') + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    };
+    const expected =
+      str('w3pk-backup-v4') + '0100000004' + str('T') + str('prf') +
+      '00'.repeat(5) + str('i') + str('pk') + str('s') + str('é');
+    assertEqual(hex, expected, 'fixed order, length-prefixed, absent fields as 0x00');
+    passTest(`${aad.length} bytes`);
+  });
+
+  await runTest('Social recovery splits and rebuilds a v4 file', async () => {
     const { mnemonic, address } = newWallet();
     const recovery = new SocialRecovery();
     const { backupFile } = await manager.createPasswordBackup(mnemonic, PASSWORD);
@@ -243,7 +338,7 @@ async function runTests() {
 
     for (const count of [3, 4, 5]) {
       const rebuilt = await recovery.recoverFromShares(setup.guardianShares.slice(0, count));
-      assertEqual(rebuilt.version, 3, `${count} shares: v3 file`);
+      assertEqual(rebuilt.version, 4, `${count} shares: v4 file`);
       const restored = await manager.restoreWithPassword(rebuilt, PASSWORD);
       assertEqual(restored.ethereumAddress, address, `${count} shares: restores the wallet`);
     }
@@ -254,12 +349,7 @@ async function runTests() {
     const { version: _, ...v2 } = backupFile;
     const v2setup = await recovery.splitAmongGuardians(v2 as BackupFile, guardians, 3, address);
     const v2error = await capture(() => recovery.recoverFromShares(v2setup.guardianShares.slice(0, 3)));
-    assert(v2error instanceof UnsupportedBackupVersionError, 'v2 shares: UnsupportedBackupVersionError');
-    assertEqual(
-      JSON.parse((v2error as UnsupportedBackupVersionError).backupFileJson!).encryptedMnemonic,
-      backupFile.encryptedMnemonic,
-      'v2 shares: the error carries the rebuilt file'
-    );
+    assert(v2error instanceof UnsupportedBackupVersionError, 'shares of a v2 file: UnsupportedBackupVersionError');
     passTest('3, 4 and 5 shares restore');
   });
 
@@ -269,7 +359,7 @@ async function runTests() {
     const download = manager.createDownloadableBackup(backupFile);
 
     assert(!download.filename.toLowerCase().includes(address.slice(2, 8).toLowerCase()), 'no address in the filename');
-    assertEqual((await manager.parseBackupFile(await download.blob.text())).version, 3, 'parses back');
+    assertEqual((await manager.parseBackupFile(await download.blob.text())).version, 4, 'parses back');
     passTest(download.filename);
   });
 

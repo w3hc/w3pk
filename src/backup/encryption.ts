@@ -1,6 +1,6 @@
 /**
  * Encryption utilities for backup system
- * BackupFile v3 password mode: Argon2id + AES-256-GCM
+ * BackupFile v4 password mode: Argon2id + AES-256-GCM
  */
 
 import { argon2idAsync } from "@noble/hashes/argon2.js";

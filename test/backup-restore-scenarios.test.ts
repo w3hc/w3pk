@@ -353,10 +353,10 @@ async function testBackupFileFormat() {
   }
   console.log('  ✓ Has createdAt field');
 
-  if (backupFile.version !== 3) {
-    throw new Error('Not BackupFile v3');
+  if (backupFile.version !== 4) {
+    throw new Error('Not BackupFile v4');
   }
-  console.log('  ✓ Is BackupFile v3');
+  console.log('  ✓ Is BackupFile v4');
 
   if ('ethereumAddress' in backupFile || json.toLowerCase().includes(address.slice(2).toLowerCase())) {
     throw new Error('Plain address in the backup file');

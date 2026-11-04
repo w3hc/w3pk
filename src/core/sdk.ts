@@ -1509,7 +1509,7 @@ export class Web3Passkey {
    * - Sync wallet across devices
    * - Split among guardians for social recovery
    *
-   * Creates a password backup (BackupFile v3, Argon2id): the backup that
+   * Creates a password backup (BackupFile v4, Argon2id): the backup that
    * restores without a passkey. A PRF backup comes from exportForSync().
    *
    * @param password - Encrypts the backup
@@ -1573,6 +1573,7 @@ export class Web3Passkey {
    * @param shares - Array of guardian share objects (JSON strings or parsed objects)
    * @param password - Password of the backup the shares rebuild
    * @throws AddressChangeError when logged in with another address, without `allowAddressChange`
+   * @throws InvalidGuardianShareError naming a corrupted, edited, mixed-up or old-format share
    */
   async recoverFromGuardians(
     shares: Array<string | GuardianShare>,
@@ -1598,7 +1599,7 @@ export class Web3Passkey {
    * logged-in one needs `allowAddressChange: true`, which the app sets once
    * the user confirms the replacement.
    *
-   * @throws UnsupportedBackupVersionError for a file that isn't BackupFile v3
+   * @throws UnsupportedBackupVersionError for a file that isn't BackupFile v4
    * @throws SyncBootstrapError ('CREDENTIAL_MISMATCH') for a PRF backup of another passkey than the logged-in one
    * @throws AddressChangeError for a backup of another address without `allowAddressChange`
    * @throws AuthenticationError if the passkey prompt is cancelled, and PrfUnsupportedError if the authenticator returns no PRF output, when logged in (nothing stored changes)

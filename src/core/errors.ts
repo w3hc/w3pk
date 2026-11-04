@@ -163,26 +163,43 @@ export class RemovedBackupMethodError extends Web3PasskeyError {
   }
 }
 
+const V2_TOOL_URL = "https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html";
+const V3_TOOL_URL =
+  "https://github.com/w3hc/w3pk/blob/b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html";
+
 /**
- * The backup file isn't BackupFile v3. w3pk restores v3 files only: decrypt
- * an older password backup offline with the v0.10.6 extract-mnemonic tool,
- * then create a new backup.
+ * The backup file isn't BackupFile v4. w3pk restores v4 files only: decrypt
+ * an older password backup offline with the extract-mnemonic tool that
+ * reads its format, then create a new backup.
  */
 export class UnsupportedBackupVersionError extends Web3PasskeyError {
-  /** The rebuilt file, when it came from guardian shares, for the offline tool */
-  public backupFileJson?: string;
-
   constructor(public version: unknown, method?: string) {
     const format = version === undefined ? "v2 or earlier" : `version ${String(version)}`;
     const next =
       method === "prf"
         ? "Export a new backup with exportForSync() on a device where the wallet is."
-        : "Decrypt a v2 password backup with the v0.10.6 offline tool (https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html), then create a new backup.";
+        : version === 3
+          ? `Decrypt a v3 password backup with the offline tool that reads v3 (${V3_TOOL_URL}), then create a new backup.`
+          : `Decrypt a v2 password backup with the v0.10.6 offline tool (${V2_TOOL_URL}), then create a new backup.`;
     super(
-      `This backup file uses an unsupported format (${format}). w3pk restores BackupFile v3 only. ${next}`,
+      `This backup file uses an unsupported format (${format}). w3pk restores BackupFile v4 only. ${next}`,
       "BACKUP_VERSION_UNSUPPORTED"
     );
     this.name = "UnsupportedBackupVersionError";
+  }
+}
+
+/**
+ * A guardian share is corrupted, edited, from another split or in an old
+ * format: `shareIndex` and `guardianName` name it
+ */
+export class InvalidGuardianShareError extends Web3PasskeyError {
+  constructor(public shareIndex: unknown, public guardianName: unknown, reason: string) {
+    super(
+      `Guardian share ${String(shareIndex)} (${String(guardianName)}) ${reason}`,
+      "GUARDIAN_SHARE_INVALID"
+    );
+    this.name = "InvalidGuardianShareError";
   }
 }
 

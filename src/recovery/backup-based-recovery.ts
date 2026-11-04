@@ -7,7 +7,7 @@
 
 import type { BackupFile } from '../backup/types';
 import { validateBackupFile } from '../backup/backup-file';
-import { UnsupportedBackupVersionError } from '../core/errors';
+import { InvalidGuardianShareError } from '../core/errors';
 import {
   splitSecret,
   combineShares,
@@ -16,6 +16,7 @@ import {
   bytesToHex,
   hexToBytes,
 } from './shamir';
+import { concatBytes } from '@noble/hashes/utils.js';
 
 export interface GuardianShare {
   guardianId: string;
@@ -25,6 +26,75 @@ export interface GuardianShare {
   threshold: number; // Number of shares required to recover (M in M-of-N)
   createdAt: string;
   walletAddress: string; // For verification
+  splitId: string; // Hex, 16 random bytes shared by every share of one split
+  checksum: string; // Hex, from guardianShareChecksum()
+}
+
+export const GUARDIAN_SHARE_VERSION = 2;
+
+const SHARE_CHECKSUM_LABEL = 'w3pk-guardian-share-v2';
+
+/**
+ * SHA-256 of the label `w3pk-guardian-share-v2`, the split id, the share
+ * index, the threshold, the lowercased wallet address, the guardian's name,
+ * the creation date and the share bytes. The strings and byte fields are
+ * length-prefixed (4 bytes big-endian), the index and threshold are one byte
+ * each. It names a corrupted, edited or mislabelled share before the shares
+ * are combined. It's no MAC: a guardian who recomputes it after editing the
+ * share gets past it, and the backup's AES-GCM tag refuses the result.
+ */
+export async function guardianShareChecksum(
+  share: Pick<
+    GuardianShare,
+    'splitId' | 'shareIndex' | 'threshold' | 'walletAddress' | 'guardianName' | 'createdAt' | 'shareData'
+  >
+): Promise<string> {
+  const encoder = new TextEncoder();
+  const prefixed = (value: Uint8Array) => {
+    const length = new Uint8Array(4);
+    new DataView(length.buffer).setUint32(0, value.length);
+    return concatBytes(length, value);
+  };
+  const data = concatBytes(
+    prefixed(encoder.encode(SHARE_CHECKSUM_LABEL)),
+    prefixed(hexToBytes(share.splitId)),
+    Uint8Array.of(share.shareIndex, share.threshold),
+    prefixed(encoder.encode(share.walletAddress.toLowerCase())),
+    prefixed(encoder.encode(share.guardianName)),
+    prefixed(encoder.encode(share.createdAt)),
+    prefixed(hexToBytes(share.shareData))
+  );
+  return bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(data))));
+}
+
+const HEX = /^(?:[0-9a-f]{2})+$/i;
+const SPLIT_ID = /^[0-9a-f]{32}$/i;
+
+function isByte(value: unknown, min: number): value is number {
+  return Number.isInteger(value) && (value as number) >= min && (value as number) <= 255;
+}
+
+async function checkShare(share: GuardianShare): Promise<void> {
+  const fail = (reason: string): never => {
+    throw new InvalidGuardianShareError(share.shareIndex, share.guardianName, reason);
+  };
+  if (
+    typeof share.shareData !== 'string' ||
+    !HEX.test(share.shareData) ||
+    typeof share.splitId !== 'string' ||
+    !SPLIT_ID.test(share.splitId) ||
+    typeof share.checksum !== 'string' ||
+    typeof share.walletAddress !== 'string' ||
+    typeof share.guardianName !== 'string' ||
+    typeof share.createdAt !== 'string' ||
+    !isByte(share.shareIndex, 1) ||
+    !isByte(share.threshold, 2)
+  ) {
+    fail('is malformed or uses an old format: ask the wallet owner to set up social recovery again');
+  }
+  if ((await guardianShareChecksum(share)) !== share.checksum.toLowerCase()) {
+    fail("is corrupted or was edited: its checksum doesn't match");
+  }
 }
 
 export interface SocialRecoverySetup {
@@ -33,6 +103,21 @@ export interface SocialRecoverySetup {
   guardianShares: GuardianShare[];
   backupFile: BackupFile; // The encrypted wallet data (for reference)
   setupDate: string;
+}
+
+function shareFileFields(share: GuardianShare) {
+  return {
+    type: 'w3pk-guardian-share',
+    version: GUARDIAN_SHARE_VERSION,
+    guardianName: share.guardianName,
+    walletAddress: share.walletAddress,
+    shareData: share.shareData,
+    shareIndex: share.shareIndex,
+    threshold: share.threshold,
+    createdAt: share.createdAt,
+    splitId: share.splitId,
+    checksum: share.checksum,
+  };
 }
 
 export class SocialRecovery {
@@ -69,16 +154,23 @@ export class SocialRecovery {
     // Split using Shamir Secret Sharing
     const shares = splitSecret(secretBytes, threshold, guardians.length);
 
-    // Create guardian share objects
-    const guardianShares: GuardianShare[] = guardians.map((guardian, index) => ({
-      guardianId: crypto.randomUUID(),
-      guardianName: guardian.name,
-      shareData: bytesToHex(shares[index]),
-      shareIndex: index + 1,
-      threshold, // Store the original threshold in each share
-      createdAt: new Date().toISOString(),
-      walletAddress,
-    }));
+    const splitId = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+    const createdAt = new Date().toISOString();
+    const guardianShares: GuardianShare[] = await Promise.all(
+      guardians.map(async (guardian, index) => {
+        const share = {
+          guardianId: crypto.randomUUID(),
+          guardianName: guardian.name,
+          shareData: bytesToHex(shares[index]),
+          shareIndex: index + 1,
+          threshold,
+          createdAt,
+          walletAddress,
+          splitId,
+        };
+        return { ...share, checksum: await guardianShareChecksum(share) };
+      })
+    );
 
     return {
       threshold,
@@ -93,13 +185,39 @@ export class SocialRecovery {
    * Combine guardian shares to recover the encrypted wallet data
    *
    * @param shares - Array of guardian shares (must have at least threshold shares)
+   * @throws InvalidGuardianShareError naming a corrupted or edited share, one
+   * from another split, a duplicate, or a share in an old format
    */
   async recoverFromShares(shares: GuardianShare[]): Promise<BackupFile> {
     if (shares.length < 2) {
       throw new Error('At least 2 shares required for recovery');
     }
 
-    // Extract threshold from first share
+    await Promise.all(shares.map(checkShare));
+
+    const splitCounts = new Map<string, number>();
+    const splitOf = (share: GuardianShare) => share.splitId.toLowerCase();
+    for (const share of shares) {
+      splitCounts.set(splitOf(share), (splitCounts.get(splitOf(share)) ?? 0) + 1);
+    }
+    const splitId = [...splitCounts].reduce((best, entry) => (entry[1] > best[1] ? entry : best))[0];
+    const reference = shares.find((share) => splitOf(share) === splitId)!;
+    const stranger = shares.find((share) => splitOf(share) !== splitId);
+    if (stranger) {
+      throw new InvalidGuardianShareError(
+        stranger.shareIndex,
+        stranger.guardianName,
+        `comes from another social recovery setup than share ${reference.shareIndex} (${reference.guardianName})`
+      );
+    }
+    const seen = new Set<number>();
+    for (const share of shares) {
+      if (seen.has(share.shareIndex)) {
+        throw new InvalidGuardianShareError(share.shareIndex, share.guardianName, 'is given twice');
+      }
+      seen.add(share.shareIndex);
+    }
+
     const threshold = shares[0].threshold;
     const firstAddress = shares[0].walletAddress;
 
@@ -116,7 +234,7 @@ export class SocialRecovery {
     // Verify all shares are for the same wallet and have consistent threshold
     const allMatch = shares.every(
       share =>
-        share.walletAddress === firstAddress &&
+        share.walletAddress.toLowerCase() === firstAddress.toLowerCase() &&
         share.threshold === threshold
     );
 
@@ -139,14 +257,7 @@ export class SocialRecovery {
       throw new Error('Recovered data is not a backup file - corrupted shares');
     }
 
-    try {
-      return validateBackupFile(recovered);
-    } catch (error) {
-      if (error instanceof UnsupportedBackupVersionError) {
-        error.backupFileJson = backupJson;
-      }
-      throw error;
-    }
+    return validateBackupFile(recovered);
   }
 
   /**
@@ -162,14 +273,7 @@ export class SocialRecovery {
     shareJson: string;
   }> {
     const invitation = {
-      type: 'w3pk-guardian-share',
-      version: 1,
-      guardianName: share.guardianName,
-      walletAddress: share.walletAddress,
-      shareData: share.shareData,
-      shareIndex: share.shareIndex,
-      threshold: share.threshold,
-      createdAt: share.createdAt,
+      ...shareFileFields(share),
       message: message || `You have been chosen as a recovery guardian for wallet ${share.walletAddress.substring(0, 10)}...`,
     };
 
@@ -198,6 +302,8 @@ Guardian: ${share.guardianName}
 Wallet Address: ${share.walletAddress}
 Share Index: ${share.shareIndex}
 Created: ${new Date(share.createdAt).toLocaleDateString()}
+Split ID: ${share.splitId}
+Checksum: ${share.checksum}
 
 ${message || `You have been chosen as a recovery guardian for this wallet.`}
 
@@ -242,12 +348,22 @@ ${share.shareData}
 
   /**
    * Parse guardian share from JSON
+   *
+   * @throws InvalidGuardianShareError for a share in an old format
    */
   parseGuardianShare(shareJson: string): GuardianShare {
     const data = JSON.parse(shareJson);
 
     if (data.type !== 'w3pk-guardian-share') {
       throw new Error('Invalid guardian share format');
+    }
+
+    if (data.version !== GUARDIAN_SHARE_VERSION) {
+      throw new InvalidGuardianShareError(
+        data.shareIndex,
+        data.guardianName,
+        `uses format version ${String(data.version)}, which w3pk no longer reads: combine version 1 shares with w3pk v0.11.1, or ask the wallet owner to set up social recovery again`
+      );
     }
 
     if (!data.threshold) {
@@ -262,6 +378,8 @@ ${share.shareData}
       threshold: data.threshold,
       createdAt: data.createdAt,
       walletAddress: data.walletAddress,
+      splitId: data.splitId,
+      checksum: data.checksum,
     };
   }
 
@@ -296,20 +414,7 @@ ${share.shareData}
     blob: Blob;
     filename: string;
   } {
-    const json = JSON.stringify(
-      {
-        type: 'w3pk-guardian-share',
-        version: 1,
-        guardianName: share.guardianName,
-        walletAddress: share.walletAddress,
-        shareData: share.shareData,
-        shareIndex: share.shareIndex,
-        threshold: share.threshold,
-        createdAt: share.createdAt,
-      },
-      null,
-      2
-    );
+    const json = JSON.stringify(shareFileFields(share), null, 2);
 
     const blob = new Blob([json], { type: 'application/json' });
     const filename = `w3pk-guardian-${share.guardianName.replace(/\s+/g, '-')}-share-${share.shareIndex}.json`;
