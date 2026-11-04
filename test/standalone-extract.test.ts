@@ -9,6 +9,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Wallet } from 'ethers';
 import { BackupFileManager } from '../src/backup/backup-file';
+import { deriveOriginPath, getOriginSpecificAddress } from '../src/wallet/origin-derivation';
+import { deriveWalletFromPath } from '../src/wallet/generate';
+import type { SecurityMode } from '../src/types';
 import { startTestSuite, endTestSuite, runTest, passTest, assert, assertEqual } from './test-utils';
 
 const html = readFileSync(join(__dirname, '..', 'standalone', 'extract-mnemonic.html'), 'utf8');
@@ -30,6 +33,17 @@ function pageContext(): PageDecrypt {
 
 function pageDecrypt(decrypt: PageDecrypt, backup: unknown, password: string): Promise<string> {
   return decrypt(JSON.parse(JSON.stringify(backup)), password);
+}
+
+type PageDerive = {
+  deriveOriginPath: (origin: string, mode?: string, tag?: string) => Promise<string>;
+  deriveWalletFromPath: (mnemonic: string, path: string) => { address: string; privateKey: string };
+};
+
+function deriveContext(): PageDerive {
+  return new Function(
+    `${inlineScript('derive')}\n${inlineScript('w3pk-derive')}\nreturn { deriveOriginPath, deriveWalletFromPath };`
+  )();
 }
 
 async function capture(fn: () => Promise<unknown>): Promise<unknown> {
@@ -97,6 +111,74 @@ async function runTests() {
     };
     const hugeError = await capture(() => pageDecrypt(context, huge, PASSWORD));
     assert(/Argon2id/.test(messageOf(hugeError)), 'memory over the bound is rejected');
+    passTest('rejected');
+  });
+
+  await runTest('Loads nothing from the network and no ethers', async () => {
+    assert(
+      html.includes(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'none'">`),
+      'CSP blocks every request'
+    );
+    assert(html.indexOf('Content-Security-Policy') < html.indexOf('<script'), 'CSP comes before the first script');
+    assert(!/<script[^>]+\bsrc=/i.test(html), 'no <script src>');
+    assert(!/<link\b/i.test(html), 'no <link>');
+    assert(!/<img\b/i.test(html), 'no <img>');
+    assert(!/\b(fetch|XMLHttpRequest|WebSocket|EventSource|importScripts)\s*\(/.test(html), 'no request API calls');
+    assert(!/ethers/i.test(html), 'no ethers reference');
+    assert(html.includes('<!-- derive:start -->') && html.includes('<!-- derive:end -->'), 'derive markers present');
+    passTest(`derive bundle ${inlineScript('derive').length} bytes`);
+  });
+
+  await runTest('Derives the same origin wallets and registration address as the SDK', async () => {
+    const page = deriveContext();
+    const cases: [string, SecurityMode, string][] = [
+      ['https://example.com', 'STANDARD', 'MAIN'],
+      ['https://Example.com:443/path?q=1', 'STRICT', 'main'],
+      ['http://localhost:3000', 'YOLO', 'GAMING'],
+      ['https://app.example.org:8443', 'YOLO', 'trading'],
+      ['https://example.com', 'PRIMARY', 'MAIN'],
+    ];
+    const mnemonics = [
+      'test test test test test test test test test test test junk',
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art',
+    ];
+
+    for (const mnemonic of mnemonics) {
+      for (const [origin, mode, tag] of cases) {
+        const path = await page.deriveOriginPath(origin, mode, tag);
+        assertEqual(path, await deriveOriginPath(origin, mode, tag), `path for ${origin} ${mode} ${tag}`);
+        const sdk = await getOriginSpecificAddress(mnemonic, origin, mode, tag);
+        assertEqual(path, sdk.path, `path matches getOriginSpecificAddress for ${origin} ${mode} ${tag}`);
+        const wallet = page.deriveWalletFromPath(mnemonic, path);
+        assertEqual(wallet.privateKey, deriveWalletFromPath(mnemonic, path).privateKey, `key at ${path}`);
+        assertEqual(wallet.address, sdk.address, `address for ${origin} ${mode} ${tag}`);
+      }
+
+      for (const path of ["m/44'/60'/0'/0/0", "m/44'/60'/0'/0/7"]) {
+        const wallet = page.deriveWalletFromPath(mnemonic, path);
+        const sdk = deriveWalletFromPath(mnemonic, path);
+        assertEqual(wallet.address, sdk.address, `address at ${path}`);
+        assertEqual(wallet.privateKey, sdk.privateKey, `key at ${path}`);
+      }
+    }
+
+    assertEqual(
+      page.deriveWalletFromPath(mnemonics[0], "m/44'/60'/0'/0/0").address,
+      '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
+      'known registration address'
+    );
+    passTest(`${cases.length * mnemonics.length} origin wallets match`);
+  });
+
+  await runTest('Rejects malformed paths and unknown modes', async () => {
+    const page = deriveContext();
+    const mnemonic = 'test test test test test test test test test test test junk';
+    for (const path of ['', 'm', "m/44'/x", "44'/60'", 'm/2147483648', "m/2147483648'"]) {
+      const error = await capture(async () => page.deriveWalletFromPath(mnemonic, path));
+      assert(/Invalid derivation path/.test(messageOf(error)), `rejects ${JSON.stringify(path)}`);
+    }
+    const modeError = await capture(() => page.deriveOriginPath('https://example.com', 'ADMIN', 'MAIN'));
+    assert(/Unknown security mode/.test(messageOf(modeError)), 'rejects an unknown mode');
     passTest('rejected');
   });
 

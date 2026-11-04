@@ -301,7 +301,7 @@ To try it, [examples/w3pk_backup_example_2026-11-02.json](../examples/w3pk_backu
 
 1. **Offline-First Design**
    - All processing happens in the browser
-   - No network requests after page load
+   - No network requests, before or after page load: every script is inline
    - Can work completely disconnected from internet
 
 2. **File Upload**
@@ -335,7 +335,7 @@ To try it, [examples/w3pk_backup_example_2026-11-02.json](../examples/w3pk_backu
      return new TextDecoder().decode(plain);
    }
    ```
-   The reference page inlines a bundle of `argon2idAsync` so it needs no CDN (`pnpm build:standalone` regenerates it). For v2 files, use the [v0.10.6 tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html).
+   The reference page inlines a bundle of `argon2idAsync`, and one of the BIP-39, BIP-32 and secp256k1 primitives for its wallet derivation, so it needs no CDN (`pnpm build:standalone` regenerates them). For v2 files, use the [v0.10.6 tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html).
 
 5. **Display Mnemonic Securely**
    ```html
