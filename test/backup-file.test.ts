@@ -231,6 +231,102 @@ async function runTests() {
     passTest('rejected with a typed error');
   });
 
+  await runTest('v3 files are rejected and point to the tool that reads them', async () => {
+    const { backupFile } = await manager.createPasswordBackup(newWallet().mnemonic, PASSWORD);
+    const v3 = { ...backupFile, version: 3 };
+    const error = await capture(() => manager.parseBackupFile(JSON.stringify(v3)));
+    assert(error instanceof UnsupportedBackupVersionError && error.version === 3, 'password v3: UnsupportedBackupVersionError');
+    assert(
+      (error as Error).message.includes('b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html'),
+      'password v3: names the last tool that reads v3'
+    );
+    const restoreError = await capture(() => manager.restoreWithPassword(v3 as unknown as BackupFile, PASSWORD));
+    assert(restoreError instanceof UnsupportedBackupVersionError, 'restoreWithPassword refuses v3 too');
+
+    const prf = await capture(() =>
+      manager.parseBackupFile(JSON.stringify({ ...v3, encryptionMethod: 'prf' }))
+    );
+    assert((prf as Error).message.includes('exportForSync()'), 'prf v3: asks for a new export');
+    passTest('rejected');
+  });
+
+  await runTest('Editing any metadata field makes the restore fail', async () => {
+    const { mnemonic } = newWallet();
+    const credential = { id: 'credential-id', publicKey: 'public-key' };
+    const { backupFile } = await manager.createPasswordBackup(mnemonic, PASSWORD, credential, 'alice');
+    const kdf = backupFile.passwordEncryption!;
+    const otherSalt = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+
+    const passwordEdits: [string, BackupFile][] = [
+      ['createdAt', { ...backupFile, createdAt: new Date(0).toISOString() }],
+      ['credential.id', { ...backupFile, credential: { ...credential, id: 'other-id' } }],
+      ['credential.publicKey', { ...backupFile, credential: { ...credential, publicKey: 'other-key' } }],
+      ['credential removed', { ...backupFile, credential: undefined }],
+      ['username', { ...backupFile, username: 'mallory' }],
+      ['username removed', { ...backupFile, username: undefined }],
+      ['salt', { ...backupFile, passwordEncryption: { ...kdf, salt: otherSalt } }],
+      ['memoryKiB', { ...backupFile, passwordEncryption: { ...kdf, memoryKiB: 32768 } }],
+      ['passes', { ...backupFile, passwordEncryption: { ...kdf, passes: 2 } }],
+      ['parallelism', { ...backupFile, passwordEncryption: { ...kdf, parallelism: 2 } }],
+    ];
+    for (const [field, edited] of passwordEdits) {
+      const json = JSON.stringify(edited);
+      const error = await capture(async () =>
+        manager.restoreWithPassword(await manager.parseBackupFile(json), PASSWORD)
+      );
+      assert(error instanceof CryptoError, `password ${field}: CryptoError`);
+    }
+
+    const extra = await capture(() =>
+      manager.parseBackupFile(JSON.stringify({ ...backupFile, ethereumAddress: '0x01' }))
+    );
+    assert(extra instanceof Error && /unknown fields/.test(extra.message), 'an unknown field is rejected');
+    const extraKdf = await capture(() =>
+      manager.parseBackupFile(JSON.stringify({ ...backupFile, passwordEncryption: { ...kdf, iv: 'AAAA' } }))
+    );
+    assert(extraKdf instanceof Error, 'an unknown Argon2id field is rejected');
+
+    const prfOutput = crypto.getRandomValues(new Uint8Array(32));
+    const prfSalt = 'c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdHNhbHQ';
+    const prf = (await manager.createPrfBackup(mnemonic, credential, 'alice', prfSalt, prfOutput)).backupFile;
+    const prfEdits: [string, BackupFile][] = [
+      ['createdAt', { ...prf, createdAt: new Date(0).toISOString() }],
+      ['credential.id', { ...prf, credential: { ...credential, id: 'other-id' } }],
+      ['credential.publicKey', { ...prf, credential: { ...credential, publicKey: 'other-key' } }],
+      ['username', { ...prf, username: 'mallory' }],
+      ['prfSalt', { ...prf, prfSalt: prfSalt.slice(0, -1) + 'A' }],
+    ];
+    for (const [field, edited] of prfEdits) {
+      const error = await capture(async () =>
+        manager.restoreWithPrf(await manager.parseBackupFile(JSON.stringify(edited)), prfOutput)
+      );
+      assert(error instanceof CryptoError, `prf ${field}: CryptoError`);
+    }
+    assertEqual((await manager.restoreWithPrf(prf, prfOutput)).mnemonic, mnemonic, 'the unedited PRF file restores');
+    passTest(`${passwordEdits.length} password and ${prfEdits.length} PRF edits refused`);
+  });
+
+  await runTest('The additional data is the documented encoding', async () => {
+    const aad = backupAdditionalData({
+      version: 4,
+      createdAt: 'T',
+      encryptionMethod: 'prf',
+      credential: { id: 'i', publicKey: 'pk' },
+      prfSalt: 's',
+      username: 'é',
+    });
+    const hex = Array.from(aad, (b) => b.toString(16).padStart(2, '0')).join('');
+    const str = (text: string) => {
+      const bytes = new TextEncoder().encode(text);
+      return '01' + bytes.length.toString(16).padStart(8, '0') + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    };
+    const expected =
+      str('w3pk-backup-v4') + '0100000004' + str('T') + str('prf') +
+      '00'.repeat(5) + str('i') + str('pk') + str('s') + str('é');
+    assertEqual(hex, expected, 'fixed order, length-prefixed, absent fields as 0x00');
+    passTest(`${aad.length} bytes`);
+  });
+
   await runTest('Social recovery splits and rebuilds a v4 file', async () => {
     const { mnemonic, address } = newWallet();
     const recovery = new SocialRecovery();
