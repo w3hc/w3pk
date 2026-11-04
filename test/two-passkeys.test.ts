@@ -13,6 +13,8 @@
 import { Wallet } from "ethers";
 import { Web3Passkey } from "../src/index";
 import { BackupFileManager } from "../src/backup/backup-file";
+import { SessionManager } from "../src/core/session";
+import { derivePrfSessionKey } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
 console.log("\n==================================================");
@@ -310,6 +312,30 @@ async function runTests() {
       allowed.length === 1 &&
         arrayBufferToBase64Url(allowed[0].id as ArrayBuffer) === a.id,
       "the prompt offers passkey A only"
+    );
+  }
+  console.log("");
+
+  console.log("Test: silent restore picks the latest passkey's session");
+  {
+    const [a, b] = await registerTwoPasskeys({});
+    const config = { enabled: true, requireReauth: false };
+    const remember = async (passkey: Passkey) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const key = await derivePrfSessionKey(crypto.getRandomValues(new Uint8Array(32)), true);
+      await new SessionManager(1, config).startSession(MNEMONIC, passkey.id, ADDRESS, key, "STANDARD");
+    };
+
+    await remember(a);
+    await remember(b);
+    assert(
+      (await new SessionManager(1, config).attemptSilentRestore())?.credentialId === b.id,
+      "after passkey B, restores passkey B"
+    );
+    await remember(a);
+    assert(
+      (await new SessionManager(1, config).attemptSilentRestore())?.credentialId === a.id,
+      "after passkey A, restores passkey A"
     );
   }
   console.log("");

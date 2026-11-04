@@ -19,7 +19,8 @@
  */
 
 import type { SecurityMode } from "../types";
-import type { PersistentSessionConfig } from "./persistent-session";
+import type { StoredCredential } from "../auth/storage";
+import type { PersistentSessionConfig, PersistentSessionData } from "./persistent-session";
 import { PersistentSessionStorage } from "./persistent-session";
 import {
   encryptData,
@@ -299,32 +300,36 @@ export class SessionManager {
         return null;
       }
 
-      // Try to restore from each credential's persistent session
-      // Usually there's only one, but we check all to be safe
+      // Each passkey keeps its own session: restore the latest one
+      let latest: { credential: StoredCredential; session: PersistentSessionData } | null = null;
       for (const credential of credentials) {
-        const persistentSession = await this.persistentStorage.retrieve(credential.id);
+        const session = await this.persistentStorage.retrieve(credential.id);
 
-        if (!persistentSession) {
+        if (!session) {
           continue;
         }
 
-        if (
-          persistentSession.ethereumAddress.toLowerCase() !==
-          credential.ethereumAddress.toLowerCase()
-        ) {
+        if (session.ethereumAddress.toLowerCase() !== credential.ethereumAddress.toLowerCase()) {
           console.warn('[w3pk] Address mismatch, skipping this session');
           continue;
         }
 
         // Silent restore needs the stored key; records written under
         // requireReauth deliberately don't have one
-        if (!persistentSession.sessionKey) {
+        if (!session.sessionKey) {
           continue;
         }
 
+        if (!latest || session.createdAt > latest.session.createdAt) {
+          latest = { credential, session };
+        }
+      }
+
+      if (latest) {
+        const { credential, session } = latest;
         const mnemonic = await decryptData(
-          persistentSession.encryptedMnemonic,
-          await importSessionKey(persistentSession.sessionKey)
+          session.encryptedMnemonic,
+          await importSessionKey(session.sessionKey!)
         );
 
         this.cacheSession(mnemonic, credential.id);
