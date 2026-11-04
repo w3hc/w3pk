@@ -76,12 +76,7 @@ export class SessionManager {
     prfSessionKey?: CryptoKey,
     securityMode?: SecurityMode
   ): Promise<void> {
-    const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
-    this.session = {
-      mnemonic,
-      expiresAt,
-      credentialId,
-    };
+    this.cacheSession(mnemonic, credentialId);
 
     // Persist session if enabled and not STRICT mode
     if (
@@ -121,6 +116,22 @@ export class SessionManager {
         console.warn('[w3pk] Failed to persist session:', error);
       }
     }
+  }
+
+  /**
+   * Keep the mnemonic in memory for the session duration; a duration of 0
+   * keeps nothing
+   */
+  private cacheSession(mnemonic: string, credentialId: string): void {
+    if (this.sessionDuration <= 0) {
+      this.session = null;
+      return;
+    }
+    this.session = {
+      mnemonic,
+      expiresAt: new Date(Date.now() + this.sessionDuration).toISOString(),
+      credentialId,
+    };
   }
 
   /**
@@ -248,13 +259,7 @@ export class SessionManager {
         prfSessionKey
       );
 
-      // Start in-memory session with restored mnemonic
-      const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
-      this.session = {
-        mnemonic,
-        expiresAt,
-        credentialId,
-      };
+      this.cacheSession(mnemonic, credentialId);
 
       return mnemonic;
     } catch (error) {
@@ -323,13 +328,7 @@ export class SessionManager {
           await importSessionKey(persistentSession.sessionKey)
         );
 
-        // Start in-memory session with restored mnemonic
-        const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
-        this.session = {
-          mnemonic,
-          expiresAt,
-          credentialId: credential.id,
-        };
+        this.cacheSession(mnemonic, credential.id);
 
         return {
           mnemonic,
