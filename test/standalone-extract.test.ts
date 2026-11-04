@@ -115,6 +115,11 @@ async function runTests() {
   });
 
   await runTest('Loads nothing from the network and no ethers', async () => {
+    assert(
+      html.includes(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">`),
+      'CSP blocks every request'
+    );
+    assert(html.indexOf('Content-Security-Policy') < html.indexOf('<script'), 'CSP comes before the first script');
     assert(!/<script[^>]+\bsrc=/i.test(html), 'no <script src>');
     assert(!/<link\b/i.test(html), 'no <link>');
     assert(!/<img\b/i.test(html), 'no <img>');
@@ -135,7 +140,7 @@ async function runTests() {
     ];
     const mnemonics = [
       'test test test test test test test test test test test junk',
-      Wallet.createRandom().mnemonic!.phrase,
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art',
     ];
 
     for (const mnemonic of mnemonics) {
