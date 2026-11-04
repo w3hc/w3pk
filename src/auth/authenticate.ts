@@ -14,8 +14,13 @@ import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
 import { parseDerSignature } from "../utils/crypto";
 
+/**
+ * @param credentialId - Offer only this passkey; without it, every passkey
+ *   with metadata on this device
+ */
 export async function login(
-  userVerification: UserVerificationRequirement = "required"
+  userVerification: UserVerificationRequirement = "required",
+  credentialId?: string
 ): Promise<AuthResult> {
   try {
     const storage = new CredentialStorage();
@@ -24,14 +29,14 @@ export async function login(
     let allowCredentials: Array<{ id: string; type: "public-key"; transports?: AuthenticatorTransport[] }> = [];
 
     try {
-      const allCredentials = await storage.getAllCredentials();
-      if (allCredentials.length > 0) {
-        allowCredentials = allCredentials.map(cred => ({
-          id: cred.id,
-          type: "public-key" as const,
-          transports: ["internal", "hybrid", "usb", "nfc", "ble"] as AuthenticatorTransport[],
-        }));
-      }
+      const ids = credentialId
+        ? [credentialId]
+        : (await storage.getAllCredentials()).map(cred => cred.id);
+      allowCredentials = ids.map(id => ({
+        id,
+        type: "public-key" as const,
+        transports: ["internal", "hybrid", "usb", "nfc", "ble"] as AuthenticatorTransport[],
+      }));
     } catch (storageError) {
       // Silent fallback to discoverable credentials flow
     }

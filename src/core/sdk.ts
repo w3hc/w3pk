@@ -228,7 +228,10 @@ export class Web3Passkey {
       throw new WalletError("No wallet found. Generate a wallet first.");
     }
 
-    const authResult = await login(this.config.userVerification);
+    const authResult = await login(
+      this.config.userVerification,
+      this.currentUser.credentialId
+    );
     if (!authResult.user) {
       throw new WalletError("Authentication failed");
     }
@@ -796,7 +799,10 @@ export class Web3Passkey {
       const phrase = (mnemonic ?? "").trim().split(/\s+/).join(" ");
       const ethereumAddress = createWalletFromMnemonic(phrase).address;
 
-      const authResult = await login(this.config.userVerification);
+      const authResult = await login(
+        this.config.userVerification,
+        this.currentUser.credentialId
+      );
       if (authResult.user?.credentialId !== this.currentUser.credentialId) {
         throw new WalletError("Authenticate with the logged-in passkey to import a mnemonic");
       }

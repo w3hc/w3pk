@@ -69,6 +69,7 @@ interface Passkey {
 const authenticator = {
   passkeys: [] as Passkey[],
   selected: null as Passkey | null,
+  requests: [] as PublicKeyCredentialRequestOptions[],
 };
 
 function rawToDer(raw: Uint8Array): Uint8Array {
@@ -178,6 +179,7 @@ Object.defineProperty(globalThis, "navigator", {
         };
       },
       get: async ({ publicKey }: { publicKey: PublicKeyCredentialRequestOptions }) => {
+        authenticator.requests.push(publicKey);
         const passkey = authenticator.selected;
         if (!passkey) throw Object.assign(new Error("Cancelled"), { name: "NotAllowedError" });
 
@@ -293,6 +295,24 @@ async function runTests() {
     }
     console.log("");
   }
+
+  console.log("Test: re-authentication offers only the logged-in passkey");
+  {
+    const [a] = await registerTwoPasskeys({});
+    authenticator.selected = a;
+    const sdk = new Web3Passkey();
+    await sdk.login();
+    authenticator.requests = [];
+    const mnemonic = await (sdk as any).getMnemonicFromSession(true);
+    const allowed = authenticator.requests[0]?.allowCredentials ?? [];
+    assert(mnemonic === MNEMONIC, "the wallet opens");
+    assert(
+      allowed.length === 1 &&
+        arrayBufferToBase64Url(allowed[0].id as ArrayBuffer) === a.id,
+      "the prompt offers passkey A only"
+    );
+  }
+  console.log("");
 
   console.log("==================================================");
   console.log(`✅ Two Passkeys Tests: ${passed} passed, ${failed} failed`);
