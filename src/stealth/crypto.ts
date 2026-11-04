@@ -6,6 +6,7 @@
  */
 
 import { ethers } from "ethers";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { CryptoError } from "../core/errors";
 
 /**
@@ -132,13 +133,10 @@ export function generateStealthAddress(
     const reducedScalar = reduceScalarModN(hashedSharedSecret);
 
     // Compute stealth public key: P_stealth = spending_pubkey + (s_h × G)
-    const stealthPubKey = addPublicKeys(
-      spendingPubKey,
-      multiplyGeneratorByScalar(reducedScalar)
-    );
+    const stealthPubKey = computeStealthPublicKey(spendingPubKey, reducedScalar);
 
     // Derive stealth address from stealth public key
-    const stealthAddress = publicKeyToAddress(stealthPubKey);
+    const stealthAddress = ethers.computeAddress(stealthPubKey);
 
     return {
       stealthAddress,
@@ -195,13 +193,10 @@ export function checkStealthAddress(
     const reducedScalar = reduceScalarModN(hashedSharedSecret);
 
     // Compute stealth public key: P_stealth = spending_pubkey + (s_h × G)
-    const stealthPubKey = addPublicKeys(
-      spendingPubKey,
-      multiplyGeneratorByScalar(reducedScalar)
-    );
+    const stealthPubKey = computeStealthPublicKey(spendingPubKey, reducedScalar);
 
     // Derive stealth address from stealth public key
-    const derivedAddress = publicKeyToAddress(stealthPubKey);
+    const derivedAddress = ethers.computeAddress(stealthPubKey);
 
     // Check if addresses match
     if (derivedAddress.toLowerCase() !== stealthAddress.toLowerCase()) {
@@ -245,7 +240,7 @@ export function computeStealthPrivateKey(
     const reducedScalar = reduceScalarModN(hashedSharedSecret);
 
     // Compute stealth private key: privkey_stealth = spending_privkey + s_h (mod n)
-    const stealthPrivKey = addPrivateKeys(spendingKey, reducedScalar);
+    const stealthPrivKey = addPrivateKey(spendingKey, reducedScalar);
 
     return stealthPrivKey;
   } catch (error) {
@@ -328,62 +323,27 @@ function computeSharedSecret(privateKey: string, publicKey: string): string {
 }
 
 /**
- * Multiply the generator point G by a scalar
- * Returns compressed public key
+ * Compute the stealth public key P_stealth = spending_pubkey + (scalar × G)
+ *
+ * @throws CryptoError if the sum is the point at infinity
  */
-function multiplyGeneratorByScalar(scalar: string): string {
+export function computeStealthPublicKey(
+  spendingPubKey: string,
+  scalar: bigint
+): string {
+  const { Point } = secp256k1;
+  let point;
   try {
-    const wallet = new ethers.Wallet(scalar);
-    return wallet.signingKey.compressedPublicKey;
+    point = Point.fromBytes(ethers.getBytes(spendingPubKey)).add(
+      Point.BASE.multiply(scalar)
+    );
   } catch (error) {
-    throw new CryptoError("Failed to multiply generator by scalar", error);
+    throw new CryptoError("Failed to compute stealth public key", error);
   }
-}
-
-/**
- * Add two public keys using elliptic curve point addition
- * P1 + P2
- */
-function addPublicKeys(pubKey1: string, pubKey2: string): string {
-  try {
-    const key1 = ethers.SigningKey.computePublicKey(pubKey1, false); // Uncompressed
-    const key2 = ethers.SigningKey.computePublicKey(pubKey2, false); // Uncompressed
-
-    // Extract x and y coordinates (remove 0x04 prefix)
-    const x1 = BigInt("0x" + key1.slice(4, 68));
-    const y1 = BigInt("0x" + key1.slice(68));
-    const x2 = BigInt("0x" + key2.slice(4, 68));
-    const y2 = BigInt("0x" + key2.slice(68));
-
-    // SECP256k1 curve parameters
-    const p = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F");
-
-    // Point addition on elliptic curve
-    // If points are the same, use point doubling
-    if (x1 === x2 && y1 === y2) {
-      // Point doubling: lambda = (3*x1^2) / (2*y1)
-      const numerator = (3n * x1 * x1) % p;
-      const denominator = (2n * y1) % p;
-      const lambda = (numerator * modInverse(denominator, p)) % p;
-
-      const x3 = (lambda * lambda - 2n * x1) % p;
-      const y3 = (lambda * (x1 - x3) - y1) % p;
-
-      return compressPublicKey((x3 + p) % p, (y3 + p) % p);
-    }
-
-    // Regular point addition: lambda = (y2 - y1) / (x2 - x1)
-    const numerator = ((y2 - y1) % p + p) % p;
-    const denominator = ((x2 - x1) % p + p) % p;
-    const lambda = (numerator * modInverse(denominator, p)) % p;
-
-    const x3 = (lambda * lambda - x1 - x2) % p;
-    const y3 = (lambda * (x1 - x3) - y1) % p;
-
-    return compressPublicKey((x3 + p) % p, (y3 + p) % p);
-  } catch (error) {
-    throw new CryptoError("Failed to add public keys", error);
+  if (point.is0()) {
+    throw new CryptoError("Stealth public key is the point at infinity");
   }
+  return "0x" + point.toHex(true);
 }
 
 /**
@@ -394,87 +354,27 @@ function addPublicKeys(pubKey1: string, pubKey2: string): string {
  * @returns Reduced scalar in valid range
  * @throws CryptoError if scalar is zero after reduction
  */
-function reduceScalarModN(scalar: string): string {
-  try {
-    // SECP256k1 curve order
-    const n = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141");
-
-    const s = BigInt(scalar);
-    const reduced = s % n;
-
-    // Reject zero scalar
-    if (reduced === 0n) {
-      throw new Error("Scalar reduced to zero (invalid)");
-    }
-
-    // Convert back to hex with proper padding
-    return "0x" + reduced.toString(16).padStart(64, "0");
-  } catch (error) {
-    throw new CryptoError("Failed to reduce scalar modulo curve order", error);
+function reduceScalarModN(scalar: string): bigint {
+  const reduced = secp256k1.Point.Fn.create(ethers.toBigInt(ethers.getBytes(scalar)));
+  if (reduced === 0n) {
+    throw new CryptoError("Scalar reduced to zero (invalid)");
   }
+  return reduced;
 }
 
 /**
- * Add two private keys modulo the curve order
- * (privkey1 + privkey2) mod n
+ * Add a scalar to a private key modulo the curve order
+ * (privkey + scalar) mod n
+ *
+ * @throws CryptoError if the sum is zero
  */
-function addPrivateKeys(privKey1: string, privKey2: string): string {
-  try {
-    // SECP256k1 curve order
-    const n = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141");
-
-    const k1 = BigInt(privKey1);
-    const k2 = BigInt(privKey2);
-
-    const sum = (k1 + k2) % n;
-
-    // Convert back to hex with proper padding
-    return "0x" + sum.toString(16).padStart(64, "0");
-  } catch (error) {
-    throw new CryptoError("Failed to add private keys", error);
+function addPrivateKey(privKey: string, scalar: bigint): string {
+  const sum = secp256k1.Point.Fn.add(
+    ethers.toBigInt(ethers.getBytes(privKey)),
+    scalar
+  );
+  if (sum === 0n) {
+    throw new CryptoError("Stealth private key is zero");
   }
+  return ethers.toBeHex(sum, 32);
 }
-
-/**
- * Compress a public key (x, y) to compressed format
- */
-function compressPublicKey(x: bigint, y: bigint): string {
-  const prefix = y % 2n === 0n ? "02" : "03";
-  return "0x" + prefix + x.toString(16).padStart(64, "0");
-}
-
-/**
- * Compute modular inverse using Extended Euclidean Algorithm
- */
-function modInverse(a: bigint, m: bigint): bigint {
-  a = ((a % m) + m) % m;
-  let [oldR, r] = [a, m];
-  let [oldS, s] = [1n, 0n];
-
-  while (r !== 0n) {
-    const quotient = oldR / r;
-    [oldR, r] = [r, oldR - quotient * r];
-    [oldS, s] = [s, oldS - quotient * s];
-  }
-
-  return ((oldS % m) + m) % m;
-}
-
-/**
- * Derive Ethereum address from compressed public key
- */
-function publicKeyToAddress(compressedPubKey: string): string {
-  try {
-    // Decompress the public key first
-    const uncompressedPubKey = ethers.SigningKey.computePublicKey(compressedPubKey, false);
-
-    // Take keccak256 of uncompressed public key (without 0x04 prefix)
-    const pubKeyHash = ethers.keccak256("0x" + uncompressedPubKey.slice(4));
-
-    // Take last 20 bytes as address
-    return ethers.getAddress("0x" + pubKeyHash.slice(-40));
-  } catch (error) {
-    throw new CryptoError("Failed to derive address from public key", error);
-  }
-}
-
