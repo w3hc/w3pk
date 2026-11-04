@@ -9,55 +9,7 @@ import {
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
 import { verifyClientData, verifyRpIdHash } from "./authenticate";
-
-/**
- * Extract the public key from WebAuthn attestation object
- * The public key is in COSE format, we need to extract it and convert to SPKI
- */
-async function extractPublicKeyFromAttestation(
-  attestationObject: ArrayBuffer
-): Promise<string | null> {
-  try {
-    const authData = getAuthData(attestationObject);
-    if (!authData) return null;
-
-    // AuthData structure:
-    // - 32 bytes: RP ID hash
-    // - 1 byte: flags
-    // - 4 bytes: signature counter
-    // - variable: attested credential data (if AT flag is set)
-
-    const flags = authData[32];
-    const attestedCredentialDataIncluded = (flags & 0x40) !== 0;
-
-    if (!attestedCredentialDataIncluded) {
-      return null;
-    }
-
-    // Skip: RP ID hash (32) + flags (1) + counter (4) = 37 bytes
-    let offset = 37;
-
-    // AAGUID: 16 bytes (skip)
-    offset += 16;
-
-    // Credential ID length: 2 bytes
-    const credIdLength = (authData[offset] << 8) | authData[offset + 1];
-    offset += 2;
-
-    // Credential ID (skip)
-    offset += credIdLength;
-
-    // Credential public key in COSE format
-    const cosePublicKey = authData.slice(offset);
-
-    // Convert COSE to SPKI format
-    const spkiKey = await coseToSpki(cosePublicKey);
-    return arrayBufferToBase64Url(spkiKey);
-  } catch (error) {
-    console.error("Failed to extract public key:", error);
-    return null;
-  }
-}
+import { credentialPublicKeyFromAuthData } from "./attestation";
 
 function getAuthData(attestationObject: ArrayBuffer): Uint8Array | null {
   const attestationBuffer = new Uint8Array(attestationObject);
@@ -99,69 +51,6 @@ function findAuthDataOffset(buffer: Uint8Array): number {
   }
 
   return -1;
-}
-
-async function coseToSpki(coseKey: Uint8Array): Promise<ArrayBuffer> {
-  // Parse COSE key (simplified for ES256 / P-256)
-  // COSE format is CBOR map with keys:
-  // 1: kty (2 = EC2)
-  // 3: alg (-7 = ES256)
-  // -1: crv (1 = P-256)
-  // -2: x coordinate (32 bytes)
-  // -3: y coordinate (32 bytes)
-
-  // Find x and y coordinates in CBOR structure
-  const x = extractCoseCoordinate(coseKey, -2);
-  const y = extractCoseCoordinate(coseKey, -3);
-
-  if (!x || !y) {
-    throw new Error("Failed to extract EC coordinates from COSE key");
-  }
-
-  // Build uncompressed EC point: 0x04 || x || y
-  const publicKeyBytes = new Uint8Array(65);
-  publicKeyBytes[0] = 0x04; // Uncompressed point
-  publicKeyBytes.set(x, 1);
-  publicKeyBytes.set(y, 33);
-
-  // Wrap in SPKI format for P-256
-  // This is the DER-encoded SPKI structure for P-256 public keys
-  const spkiPrefix = new Uint8Array([
-    0x30, 0x59, // SEQUENCE, length 89
-    0x30, 0x13, // SEQUENCE, length 19
-    0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // OID: ecPublicKey
-    0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, // OID: P-256
-    0x03, 0x42, 0x00, // BIT STRING, length 66
-  ]);
-
-  const spki = new Uint8Array(spkiPrefix.length + publicKeyBytes.length);
-  spki.set(spkiPrefix, 0);
-  spki.set(publicKeyBytes, spkiPrefix.length);
-
-  return spki.buffer;
-}
-
-function extractCoseCoordinate(coseKey: Uint8Array, key: number): Uint8Array | null {
-  // Look for the CBOR integer key (negative numbers are 0x20-0x3f range)
-  const keyByte = key < 0 ? 0x20 + (-1 - key) : key;
-
-  for (let i = 0; i < coseKey.length - 33; i++) {
-    if (coseKey[i] === keyByte) {
-      // Next byte should be 0x58 0x20 (byte string, length 32)
-      if (coseKey[i + 1] === 0x58 && coseKey[i + 2] === 0x20) {
-        return coseKey.slice(i + 3, i + 35);
-      }
-      // Or just 0x58 followed by length byte
-      if (coseKey[i + 1] === 0x58) {
-        const length = coseKey[i + 2];
-        if (length === 32) {
-          return coseKey.slice(i + 3, i + 35);
-        }
-      }
-    }
-  }
-
-  return null;
 }
 
 export async function register(
@@ -239,12 +128,7 @@ export async function register(
       throw new Error("User presence flag not set");
     }
 
-    // Extract public key from attestation object
-    const publicKey = await extractPublicKeyFromAttestation(attestationObject);
-
-    if (!publicKey) {
-      throw new Error("Public key not returned from authenticator");
-    }
+    const publicKey = arrayBufferToBase64Url(await credentialPublicKeyFromAuthData(authData));
 
     await storage.saveCredential({
       id: credential.id,
