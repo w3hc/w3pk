@@ -63,7 +63,7 @@ import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
-import { SIWE_HEADER } from "../siwe";
+import { SIWE_HEADER, assertSiweDomain } from "../siwe";
 import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
   AuthenticationError,
@@ -109,6 +109,19 @@ export type ZKMethods = {
     ? (...args: A) => Promise<Awaited<R>>
     : () => Promise<ZKProofModule[K]>;
 };
+
+// A lenient decoder can't produce the ASCII header from invalid bytes, so a
+// message without it in the lenient text isn't SIWE; one with it must be
+// valid UTF-8, or a verifier decoding it leniently could accept it unchecked
+function siweText(message: string | Uint8Array): string | undefined {
+  if (typeof message === 'string') return message.includes(SIWE_HEADER) ? message : undefined;
+  if (!new TextDecoder().decode(message).includes(SIWE_HEADER)) return undefined;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(message);
+  } catch {
+    throw new WalletError("Invalid SIWE message: not valid UTF-8");
+  }
+}
 
 export class Web3Passkey {
   private config: InternalConfig;
@@ -890,14 +903,13 @@ export class Web3Passkey {
       const origin = getCurrentOrigin();
 
       // EIP-4361: reject a SIWE message whose domain isn't this page's, also
-      // when it comes as a plain EIP-191 message, which signs the same bytes
-      if (
-        signingMethod === 'SIWE' ||
-        (signingMethod === 'EIP191' && typeof message === 'string' && message.includes(SIWE_HEADER))
-      ) {
-        const { assertSiweDomain } = await import("../siwe");
-        assertSiweDomain(message as string, origin);
-      }
+      // when it comes as a plain EIP-191 message, which signs the same bytes,
+      // or as bytes that decode to one, as personal_sign passes hex
+      const text =
+        signingMethod === 'SIWE' ? (message as string)
+        : signingMethod === 'EIP191' ? siweText(message)
+        : undefined;
+      if (text !== undefined) assertSiweDomain(text, origin);
 
       // Checked before the passkey prompt that rawHash always triggers
       if (signingMethod === 'rawHash' && !/^(0x)?[0-9a-fA-F]{64}$/.test(message as string)) {

@@ -719,7 +719,7 @@ interface SignatureResult {
 - Uses EIP-191 prefix (for EOA accounts)
 - See https://docs.login.xyz for message format
 - Use `createSiweMessage()` helper for proper formatting
-- The message's `domain` must match the current origin (host and port, and scheme when the domain names one), or `signMessage()` throws. The same check runs on an `EIP191` message that contains the SIWE header, including `personal_sign` through the EIP-1193 provider
+- The message's `domain` must match the current origin (host and port, and scheme when the domain names one), or `signMessage()` throws. The same check runs on an `EIP191` message, a string or UTF-8 bytes, that contains the SIWE header, including hex `personal_sign` and `eth_sign` data through the EIP-1193 provider; bytes that contain the header but aren't valid UTF-8 throw
 - `validateSiweMessage()` always checks `Expiration Time` and `Not Before`, and requires RFC 3339 dates
 - Not supported in PRIMARY mode (throws): use STANDARD, STRICT or YOLO
 

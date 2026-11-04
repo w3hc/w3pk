@@ -464,6 +464,36 @@ Issued At: 2021-09-30T16:25:24Z`;
       throw new Error(`Expected a SIWE message signed as EIP-191 to be checked, got: "${eip191}"`);
     }
 
+    const bytesCauseOf = async (bytes: Uint8Array) => {
+      try {
+        await sdk.signMessage(bytes);
+      } catch (error) {
+        return (error as any).originalError?.message ?? (error as Error).message;
+      }
+      return "";
+    };
+    const encode = (text: string) => new TextEncoder().encode(text);
+
+    const otherBytes = await bytesCauseOf(encode(siweFor("evil.example")));
+    if (!otherBytes.includes("does not match the current origin")) {
+      throw new Error(`Expected a SIWE message as bytes to be checked, got: "${otherBytes}"`);
+    }
+
+    const sameBytes = await bytesCauseOf(encode(siweFor(host)));
+    if (!sameBytes.includes("Must be authenticated")) {
+      throw new Error(`Expected a SIWE message as bytes for "${host}" to pass, got: "${sameBytes}"`);
+    }
+
+    const invalidSiwe = await bytesCauseOf(new Uint8Array([...encode(siweFor(host)), 0xff]));
+    if (!invalidSiwe.includes("not valid UTF-8")) {
+      throw new Error(`Expected a SIWE message with invalid UTF-8 to be refused, got: "${invalidSiwe}"`);
+    }
+
+    const notText = await bytesCauseOf(new Uint8Array([0xff, 0x00, 0xfe, 0x80]));
+    if (!notText.includes("Must be authenticated")) {
+      throw new Error(`Expected invalid UTF-8 bytes to skip the check, got: "${notText}"`);
+    }
+
     console.log(`  ✓ Rejected: ${mismatch}`);
     console.log("✅ SIWE domain check works");
   }

@@ -574,6 +574,47 @@ async function runTests() {
     passTest("Handlers typed per EIP-1193 event compile; mistyped ones don't");
   });
 
+  // ------------------------------------------------------------------
+  // 22. Hex-encoded SIWE messages get the domain check
+  // ------------------------------------------------------------------
+  await runTest("personal_sign checks the domain of a hex SIWE message", async () => {
+    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const provider = sdk.getEIP1193Provider();
+    const host = new URL(window.location.origin).host;
+    const siweHex = (domain: string) =>
+      hexlify(
+        new TextEncoder().encode(`${domain} wants you to sign in with your Ethereum account:
+0x1234567890123456789012345678901234567890
+
+URI: https://${domain}
+Version: 1
+Chain ID: 1
+Nonce: 32891756
+Issued At: 2021-09-30T16:25:24Z`)
+      );
+    const causeOf = async (method: string, params: unknown[]) => {
+      try {
+        await provider.request({ method, params });
+      } catch (error) {
+        return (error as any).originalError?.message ?? (error as Error).message;
+      }
+      return "";
+    };
+    const account = "0x1234567890123456789012345678901234567890";
+
+    for (const [method, params] of [
+      ["personal_sign", [siweHex("evil.example"), account]],
+      ["eth_sign", [account, siweHex("evil.example")]],
+    ] as const) {
+      const cause = await causeOf(method, [...params]);
+      assert(cause.includes("does not match the current origin"), `${method}: got "${cause}"`);
+    }
+
+    const same = await causeOf("personal_sign", [siweHex(host), account]);
+    assert(same.includes("Must be authenticated"), `same domain: got "${same}"`);
+    passTest("Hex SIWE messages for another domain are refused, for this one they pass");
+  });
+
   endTestSuite();
 }
 
