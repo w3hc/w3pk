@@ -1869,12 +1869,13 @@ export class Web3Passkey {
    * Derive the hybrid ML-KEM-1024 + X25519 public key from the current wallet
    *
    * Returns the public key that can be shared with others for encryption.
-   * The hybrid keypair is derived deterministically from the wallet's private key.
+   * The hybrid keypair is derived deterministically from the wallet's BIP-39 seed,
+   * the current origin, the mode, the tag and the context.
    *
    * @param options - Optional configuration
    * @param options.context - Context string for domain separation (default: MLKEM_DEFAULT_CONTEXT)
-   * @param options.mode - Security mode (default: 'YOLO' to access private key)
-   * @param options.tag - Tag for address derivation (default: 'MAIN')
+   * @param options.mode - Security mode (default: 'STANDARD')
+   * @param options.tag - Tag (default: 'MAIN')
    * @param options.requireAuth - Force WebAuthn re-authentication
    * @returns Base64-encoded hybrid public key (1600 bytes: ML-KEM-1024 || X25519)
    *
@@ -1906,8 +1907,8 @@ export class Web3Passkey {
    * @param recipientPublicKeys - Array of recipient hybrid public keys (base64 strings or Uint8Arrays, 1600 bytes)
    * @param options - Optional configuration
    * @param options.context - Context string for key derivation (default: MLKEM_DEFAULT_CONTEXT)
-   * @param options.mode - Security mode (default: 'YOLO' to access private key)
-   * @param options.tag - Tag for address derivation (default: 'MAIN')
+   * @param options.mode - Security mode (default: 'STANDARD')
+   * @param options.tag - Tag (default: 'MAIN')
    * @param options.requireAuth - Force WebAuthn re-authentication
    * @returns Encrypted payload that can be decrypted by sender or recipients
    *
@@ -1946,13 +1947,13 @@ export class Web3Passkey {
    * Decrypt ML-KEM encrypted data using current wallet
    *
    * Decrypts data that was encrypted for this wallet.
-   * The hybrid keypair is derived from your wallet's private key. Only v3 payloads are read.
+   * The hybrid keypair is derived from your wallet's BIP-39 seed. Only v3 payloads are read.
    *
    * @param payload - The encrypted payload (from mlkemEncrypt)
    * @param options - Optional configuration
    * @param options.context - Context string for key derivation (default: MLKEM_DEFAULT_CONTEXT, must match encryption)
-   * @param options.mode - Security mode (default: 'YOLO' to access private key)
-   * @param options.tag - Tag for address derivation (default: 'MAIN')
+   * @param options.mode - Security mode (default: 'STANDARD')
+   * @param options.tag - Tag (default: 'MAIN')
    * @param options.requireAuth - Force WebAuthn re-authentication
    * @returns Decrypted plaintext
    *

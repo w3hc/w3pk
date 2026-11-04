@@ -3,8 +3,10 @@ import { x25519 } from '@noble/curves/ed25519.js';
 import { extract, expand } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { sha3_256 } from '@noble/hashes/sha3.js';
-import { concatBytes as concat, hexToBytes as nobleHexToBytes, type CHash } from '@noble/hashes/utils.js';
+import { concatBytes as concat, type CHash } from '@noble/hashes/utils.js';
 import { equalBytes } from '@noble/curves/utils.js';
+import { normalizeOrigin, DEFAULT_MODE, DEFAULT_TAG } from '../wallet/origin-derivation';
+import type { SecurityMode } from '../types';
 
 /**
  * Hybrid KEM keypair: ML-KEM-1024 and X25519, concatenated
@@ -29,6 +31,20 @@ export interface EncryptedPayload {
 /** Default context string for hybrid keypair derivation */
 export const MLKEM_DEFAULT_CONTEXT = 'mlkem-v1';
 
+/**
+ * Domain of a hybrid keypair: the origin, mode and tag of the wallet it belongs to,
+ * and a free context string
+ */
+export interface MLKemDerivationOptions {
+  origin: string;
+  mode?: SecurityMode;
+  tag?: string;
+  context?: string;
+}
+
+const BIP39_SEED_LENGTH = 64;
+const SECURITY_MODES: readonly SecurityMode[] = ['STANDARD', 'STRICT', 'YOLO', 'PRIMARY'];
+
 const ML_KEM_PUBLIC_KEY_LENGTH = 1568;
 const ML_KEM_PRIVATE_KEY_LENGTH = 3168;
 const ML_KEM_CIPHERTEXT_LENGTH = 1568;
@@ -46,7 +62,7 @@ const SEALED_KEY_LENGTH = DATA_KEY_LENGTH + AUTH_TAG_LENGTH;
 
 const encoder = new TextEncoder();
 
-const KEYPAIR_SALT = encoder.encode('w3pk-kem-keypair-v3');
+const KEYPAIR_SALT = encoder.encode('w3pk-kem-keypair-v4');
 const COMBINER_LABEL = encoder.encode('w3pk-MLKEM1024-X25519-v3');
 
 // Not IANA-registered: only domain-separates the HPKE key schedule
@@ -90,10 +106,6 @@ function base64ToArrayBuffer(base64: string): Uint8Array {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  return nobleHexToBytes(hex.startsWith('0x') ? hex.slice(2) : hex);
 }
 
 function toBytes(key: string | Uint8Array): Uint8Array {
@@ -193,32 +205,67 @@ function splitPrivateKey(privateKey: Uint8Array) {
   return { skM, skX, pkM, pkX: x25519.getPublicKey(skX) };
 }
 
+function lengthPrefixed(value: string): Uint8Array {
+  const bytes = encoder.encode(value);
+  return concat(i2osp(bytes.length, 4), bytes);
+}
+
+function keypairInfo(
+  purpose: string,
+  origin: string,
+  mode: SecurityMode,
+  tag: string,
+  context: string
+): Uint8Array {
+  return concat(...[purpose, origin, mode, tag, context].map(lengthPrefixed));
+}
+
 /**
- * Derive a deterministic hybrid keypair (ML-KEM-1024 + X25519) from any private key material
+ * Derive a deterministic hybrid keypair (ML-KEM-1024 + X25519) from a BIP-39 seed
  *
- * HKDF-SHA256 extracts a PRK from the input (salt `w3pk-kem-keypair-v3`), then expands
- * a 64-byte ML-KEM-1024 seed (info `ml-kem-1024:<context>`) and a 32-byte X25519 secret
- * key (info `x25519:<context>`).
+ * HKDF-SHA256 extracts a PRK from the 64-byte BIP-39 seed (salt `w3pk-kem-keypair-v4`),
+ * then expands a 64-byte ML-KEM-1024 seed and a 32-byte X25519 secret key. Each info is
+ * the purpose (`ml-kem-1024` or `x25519`), the normalized origin, the mode, the uppercased
+ * tag and the context, each prefixed with its UTF-8 length as a 4-byte big-endian integer.
  *
- * @param privateKey - Private key material (hex string with optional 0x prefix, or Uint8Array)
- * @param context - Context string for domain separation (default: MLKEM_DEFAULT_CONTEXT)
+ * Only hash functions sit between the seed and the KEM keys: no secp256k1 key enters
+ * the derivation, so a published signing key reveals nothing about them.
+ *
+ * @param seed - 64-byte BIP-39 seed (PBKDF2-HMAC-SHA512 of the mnemonic, as in BIP-39)
+ * @param options.origin - Origin URL, normalized as for origin-specific addresses
+ * @param options.mode - Security mode (default: 'STANDARD')
+ * @param options.tag - Tag, uppercased (default: 'MAIN')
+ * @param options.context - Context string for domain separation (default: MLKEM_DEFAULT_CONTEXT)
  * @returns Hybrid keypair (publicKey: 1600 bytes, privateKey: 3200 bytes)
  *
  * @example
  * ```typescript
- * const keypair = await deriveMLKemKeypair('0x1234...', 'my-app');
+ * import { Mnemonic, getBytes } from 'ethers';
+ *
+ * const seed = getBytes(Mnemonic.fromPhrase(mnemonic).computeSeed());
+ * const keypair = await deriveMLKemKeypair(seed, { origin: 'https://example.com' });
  * ```
  */
 export async function deriveMLKemKeypair(
-  privateKey: string | Uint8Array,
-  context: string = MLKEM_DEFAULT_CONTEXT
+  seed: Uint8Array,
+  options: MLKemDerivationOptions
 ): Promise<MLKemKeypair> {
+  if (!(seed instanceof Uint8Array) || seed.length !== BIP39_SEED_LENGTH) {
+    throw new Error(`Invalid BIP-39 seed: expected ${BIP39_SEED_LENGTH} bytes`);
+  }
+  const mode = options.mode || DEFAULT_MODE;
+  if (!SECURITY_MODES.includes(mode)) {
+    throw new Error(`Unknown security mode: ${String(mode)}`);
+  }
+  const origin = normalizeOrigin(options.origin);
+  const tag = (options.tag || DEFAULT_TAG).toUpperCase();
+  const context = options.context || MLKEM_DEFAULT_CONTEXT;
+
   const mlkem = await createMlKem1024();
 
-  const ikm = typeof privateKey === 'string' ? hexToBytes(privateKey) : privateKey;
-  const prk = extract(sha256, ikm, KEYPAIR_SALT);
-  const seedM = expand(sha256, prk, encoder.encode(`ml-kem-1024:${context}`), 64);
-  const skX = expand(sha256, prk, encoder.encode(`x25519:${context}`), X25519_LENGTH);
+  const prk = extract(sha256, seed, KEYPAIR_SALT);
+  const seedM = expand(sha256, prk, keypairInfo('ml-kem-1024', origin, mode, tag, context), 64);
+  const skX = expand(sha256, prk, keypairInfo('x25519', origin, mode, tag, context), X25519_LENGTH);
 
   try {
     const [pkM, skM] = mlkem.deriveKeyPair(seedM);
@@ -233,9 +280,6 @@ export async function deriveMLKemKeypair(
     zeroize(prk);
     zeroize(seedM);
     zeroize(skX);
-    if (typeof privateKey === 'string') {
-      zeroize(ikm);
-    }
   }
 }
 
@@ -411,24 +455,24 @@ async function decryptWithKeyBytes(payload: EncryptedPayload, privateKeyBytes: U
 }
 
 /**
- * Encrypt with a hybrid keypair derived from private key material
+ * Encrypt with a hybrid keypair derived from a BIP-39 seed
  *
  * Derives the sender's keypair and adds its public key as the first recipient,
  * so the sender can decrypt later.
  *
  * @param plaintext - The data to encrypt
- * @param senderPrivateKey - Sender's private key (hex string or Uint8Array)
+ * @param senderSeed - Sender's 64-byte BIP-39 seed
  * @param recipientPublicKeys - Recipient hybrid public keys (from deriveMLKemKeypair)
- * @param senderContext - Context for the sender's key derivation (default: MLKEM_DEFAULT_CONTEXT)
+ * @param senderOptions - Origin, mode, tag and context of the sender's keypair
  * @returns Encrypted payload with sender + recipients
  */
 export async function mlkemEncryptWithKey(
   plaintext: string,
-  senderPrivateKey: string | Uint8Array,
+  senderSeed: Uint8Array,
   recipientPublicKeys: Array<string | Uint8Array>,
-  senderContext: string = MLKEM_DEFAULT_CONTEXT
+  senderOptions: MLKemDerivationOptions
 ): Promise<EncryptedPayload> {
-  const senderKeypair = await deriveMLKemKeypair(senderPrivateKey, senderContext);
+  const senderKeypair = await deriveMLKemKeypair(senderSeed, senderOptions);
 
   try {
     return await mlkemEncrypt(plaintext, [senderKeypair.publicKey, ...recipientPublicKeys]);
@@ -438,19 +482,19 @@ export async function mlkemEncryptWithKey(
 }
 
 /**
- * Decrypt with a hybrid keypair derived from private key material
+ * Decrypt with a hybrid keypair derived from a BIP-39 seed
  *
  * @param payload - The encrypted payload
- * @param privateKey - Private key material (hex string or Uint8Array)
- * @param context - Context for key derivation (default: MLKEM_DEFAULT_CONTEXT)
+ * @param seed - 64-byte BIP-39 seed
+ * @param options - Origin, mode, tag and context of the keypair (must match encryption)
  * @returns Decrypted plaintext
  */
 export async function mlkemDecryptWithKey(
   payload: EncryptedPayload,
-  privateKey: string | Uint8Array,
-  context: string = MLKEM_DEFAULT_CONTEXT
+  seed: Uint8Array,
+  options: MLKemDerivationOptions
 ): Promise<string> {
-  const keypair = await deriveMLKemKeypair(privateKey, context);
+  const keypair = await deriveMLKemKeypair(seed, options);
 
   try {
     return await mlkemDecrypt(payload, keypair.privateKey);

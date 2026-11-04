@@ -130,7 +130,7 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 
 ## ML-KEM Encryption
 
-w3pk encrypts data for one or more recipients with a **hybrid ML-KEM-1024 + X25519 KEM**, framed as [HPKE](https://www.rfc-editor.org/rfc/rfc9180) (payload `version: 3`), with deterministic key derivation from private keys. See [`src/crypto/mlkem.ts`](../src/crypto/mlkem.ts).
+w3pk encrypts data for one or more recipients with a **hybrid ML-KEM-1024 + X25519 KEM**, framed as [HPKE](https://www.rfc-editor.org/rfc/rfc9180) (payload `version: 3`), with deterministic key derivation from the BIP-39 seed. See [`src/crypto/mlkem.ts`](../src/crypto/mlkem.ts).
 
 ### Why hybrid
 
@@ -153,9 +153,9 @@ Payloads of any other version (v1: AES key XOR-ed with the raw ML-KEM shared sec
 
 ### What a leaked key exposes
 
-The user's KEM keys are **long-lived** and deterministic: there is no forward secrecy. Anyone who obtains a private key, or the wallet key it is derived from, can decrypt **every payload ever sealed to it**, past and future. Rotating means deriving a keypair under a new `context` and re-encrypting what must stay secret.
+The user's KEM keys are **long-lived** and deterministic: there is no forward secrecy. Anyone who obtains a private key, or the mnemonic it is derived from, can decrypt **every payload ever sealed to it**, past and future. Rotating means deriving a keypair under a new `context` and re-encrypting what must stay secret.
 
-The keys are derived from the wallet's Ethereum private key, so they are only as secret as the mnemonic, including how it is stored on the device.
+The keys are derived from the wallet's BIP-39 seed through hash functions only, so they are only as secret as the mnemonic, including how it is stored on the device. No secp256k1 key enters the derivation: a signing key whose public key is published (and so recoverable by a quantum computer) reveals nothing about the KEM keys.
 
 ### FrodoKEM
 
@@ -165,13 +165,19 @@ FrodoKEM-1344 rests on plain LWE, without the algebraic structure ML-KEM relies 
 
 ```typescript
 import { deriveMLKemKeypair } from 'w3pk';
+import { Mnemonic, getBytes } from 'ethers';
 
-const ethPrivateKey = '0x1234...';
-const keypair = await deriveMLKemKeypair(ethPrivateKey, 'my-app');
+const seed = getBytes(Mnemonic.fromPhrase(mnemonic).computeSeed());
+const keypair = await deriveMLKemKeypair(seed, {
+  origin: 'https://example.com',
+  mode: 'STANDARD',   // default
+  tag: 'MAIN',        // default
+  context: 'my-app',  // default 'mlkem-v1'
+});
 // { publicKey: Uint8Array(1600), privateKey: Uint8Array(3200) }
 ```
 
-HKDF-SHA256 extracts a PRK from the input with salt `w3pk-kem-keypair-v3`, then expands a 64-byte ML-KEM-1024 seed (info `ml-kem-1024:<context>`) and a 32-byte X25519 secret key (info `x25519:<context>`). The public key is `pk_M (1568) || pk_X (32)` and the private key `sk_M (3168) || sk_X (32)`. The same input always gives the same keypair, and all intermediate secrets are zeroized.
+The input is the 64-byte [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) seed: PBKDF2-HMAC-SHA512 of the NFKD mnemonic, salt `mnemonic`, 2048 iterations, no passphrase. HKDF-SHA256 extracts a PRK from it with salt `w3pk-kem-keypair-v4`, then expands a 64-byte ML-KEM-1024 seed and a 32-byte X25519 secret key. Each `info` is five fields, each prefixed with its UTF-8 length as a 4-byte big-endian integer: the purpose (`ml-kem-1024` or `x25519`), the origin normalized as for origin-specific addresses (`normalizeOrigin` in [`src/wallet/origin-derivation.ts`](../src/wallet/origin-derivation.ts)), the mode, the uppercased tag and the context. The public key is `pk_M (1568) || pk_X (32)` and the private key `sk_M (3168) || sk_X (32)`. The same seed and options always give the same keypair, any change to the origin, mode, tag or context gives an unrelated one, and all intermediate secrets are zeroized.
 
 ### Encrypt/decrypt with a w3pk instance (recommended)
 
@@ -190,23 +196,24 @@ const encrypted = await w3pk.mlkemEncrypt('my secret data', [serverPubKey]);
 const plaintext = await w3pk.mlkemDecrypt(encrypted);
 ```
 
-Your Ethereum private key never leaves the w3pk instance, matching the security model of `signMessage()` and `sendTransaction()`.
+The seed and the KEM private key never leave the w3pk instance, matching the security model of `signMessage()` and `sendTransaction()`. The keypair is bound to the current origin, the mode and the tag.
 
 **Supported modes:**
-- ✅ **STANDARD** (default) — private key derived internally
-- ✅ **STRICT** — same as STANDARD, always requires WebAuthn re-authentication
-- ✅ **YOLO** — private key available to app
-- ❌ **PRIMARY** — not supported; uses P-256 WebAuthn keys, not Ethereum keys, so there's no secp256k1 material to derive an ML-KEM seed from
+- ✅ **STANDARD** (default)
+- ✅ **STRICT** — always requires WebAuthn re-authentication
+- ✅ **YOLO**
+- ❌ **PRIMARY** — not supported
 
 ### Low-level API
 
 ```typescript
 import { deriveMLKemKeypair, mlkemEncryptWithKey, mlkemDecryptWithKey, mlkemEncrypt, mlkemDecrypt } from 'w3pk';
 
-// Derive-from-key convenience wrappers
-const serverKeypair = await deriveMLKemKeypair(serverEthKey, 'server');
-const encrypted = await mlkemEncryptWithKey('my secret data', myEthPrivateKey, [serverKeypair.publicKey], 'client');
-const plaintext = await mlkemDecryptWithKey(encrypted, myEthPrivateKey, 'client');
+// Derive-from-seed convenience wrappers
+const origin = 'https://example.com';
+const serverKeypair = await deriveMLKemKeypair(serverSeed, { origin, context: 'server' });
+const encrypted = await mlkemEncryptWithKey('my secret data', mySeed, [serverKeypair.publicKey], { origin, context: 'client' });
+const plaintext = await mlkemDecryptWithKey(encrypted, mySeed, { origin, context: 'client' });
 
 // Direct, key-management-agnostic API
 const encryptedDirect = await mlkemEncrypt('my secret data', [publicKey1, publicKey2]);
@@ -217,21 +224,21 @@ const plaintextDirect = await mlkemDecrypt(encryptedDirect, privateKey);
 
 #### `w3pk.deriveMLKemPublicKey(options?): Promise<string>`
 Derives your hybrid public key (base64, 1600 bytes) for sharing.
-**Options:** `context` (default `'mlkem-v1'`), `mode` (`STANDARD`/`STRICT`/`YOLO`), `tag`, `origin`, `requireAuth`.
+**Options:** `context` (default `'mlkem-v1'`), `mode` (`STANDARD`/`STRICT`/`YOLO`, default `STANDARD`), `tag` (default `MAIN`), `requireAuth`. The origin is always the current one.
 
 #### `w3pk.mlkemEncrypt(plaintext, recipientPublicKeys, options?): Promise<EncryptedPayload>`
 Encrypts for yourself plus additional recipients. Same options as above.
 
 #### `w3pk.mlkemDecrypt(payload, options?): Promise<string>`
-Decrypts data encrypted for your wallet. `context`/`mode`/`tag`/`origin`/`requireAuth` must match encryption.
+Decrypts data encrypted for your wallet. The origin, `context`, `mode` and `tag` must match encryption.
 
-#### `deriveMLKemKeypair(privateKey, context?): Promise<MLKemKeypair>`
-Low-level deterministic keypair derivation. Returns `{ publicKey: Uint8Array(1600), privateKey: Uint8Array(3200) }`.
+#### `deriveMLKemKeypair(seed, { origin, mode?, tag?, context? }): Promise<MLKemKeypair>`
+Low-level deterministic keypair derivation from a 64-byte BIP-39 seed. Throws on a seed of any other length, an unknown mode or an invalid origin. Returns `{ publicKey: Uint8Array(1600), privateKey: Uint8Array(3200) }`.
 
-#### `mlkemEncryptWithKey(plaintext, senderPrivateKey, recipientPublicKeys, senderContext?): Promise<EncryptedPayload>`
+#### `mlkemEncryptWithKey(plaintext, senderSeed, recipientPublicKeys, senderOptions): Promise<EncryptedPayload>`
 Derives the sender's keypair, then encrypts for sender + recipients (sender's public key is auto-included as first recipient).
 
-#### `mlkemDecryptWithKey(payload, privateKey, context?): Promise<string>`
+#### `mlkemDecryptWithKey(payload, seed, options): Promise<string>`
 Derives a keypair, then decrypts.
 
 #### `mlkemEncrypt(plaintext, publicKeys): Promise<EncryptedPayload>`
@@ -295,7 +302,7 @@ This is a placeholder for design intent, not a commitment to this exact shape �
 ### Operational runbook (draft — to be finalized before the first trigger fires)
 
 1. **Dry run on testnet first.** Hybrid signing gets exercised against a testnet deployment of the relevant EIP-8141 validation frame before any mainnet opt-in ships.
-2. **ML-KEM context rotation.** `deriveMLKemKeypair`'s `context` parameter already provides domain separation; if the ML-KEM implementation itself ever needs replacing (library vulnerability, algorithm deprecation), bump the payload version and the derivation salt, as v3 did for the hybrid KEM (`w3pk-kem-keypair-v3`), rather than reusing the old ones.
+2. **ML-KEM context rotation.** `deriveMLKemKeypair`'s `context` parameter already provides domain separation; if the ML-KEM implementation itself ever needs replacing (library vulnerability, algorithm deprecation), bump the payload version and the derivation salt, as v3 did for the hybrid KEM and v4 for the seed-based derivation (`w3pk-kem-keypair-v4`), rather than reusing the old ones.
 3. **Fail closed on hybrid mismatch.** If a hybrid account's classical and PQ signatures disagree (one verifies, one doesn't), the transaction is rejected outright. There is no partial-trust mode where either signature alone is accepted once hybrid mode is active for an account.
 4. **No global cutover switch.** Hybrid mode is opt-in per account via the trigger table above. w3pk does not flip existing wallets to hybrid or PQ-only signing without explicit user action, even after Ethereum completes its own migration (fork milestones L*/M* and beyond).
 
@@ -372,12 +379,13 @@ Dormant-funds exposure — the governance question nobody has answered — is mu
 
 ## Document Maintenance
 
-**Version:** 2.2
-**Last Updated:** 2026-11-01
+**Version:** 2.3
+**Last Updated:** 2026-11-04
 **Next Review:** 2027-03-13 (6 months, or sooner if the Hegotá fork's EIP-8141 status changes)
 **Maintained By:** Julien Béranger ([@julienbrg](https://github.com/julienbrg))
 
 **Changelog:**
+- 2026-11-04: KEM keys derive from the BIP-39 seed, origin, mode, tag and context instead of the origin's secp256k1 signing key (salt `w3pk-kem-keypair-v4`, [#263](https://github.com/w3hc/w3pk/issues/263)); every ML-KEM key changes
 - 2026-11-01: Encrypted payloads move to v3, HPKE over a hybrid ML-KEM-1024 + X25519 KEM ([#137](https://github.com/w3hc/w3pk/issues/137)); documented the combiner, the FrodoKEM decision and what a leaked key exposes; v1 and v2 are no longer readable
 - 2026-09-13: Added "Roadmap maturity: closing the gaps" — internally-owned review checkpoints, a labeled not-yet-implemented crypto-agility target design, a draft operational runbook (testnet dry run, ML-KEM context rotation, fail-closed hybrid verification, no global cutover), and a dependency PQ-posture table (`mlkem`, `ethers`, WebAuthn/FIDO2), per NIST SP 1800-38 and CISA quantum-readiness guidance
 - 2026-09-13: Complete rewrite aligned with the Ethereum Foundation's public post-quantum roadmap (pq.ethereum.org, the lean Ethereum announcement, and the EIPs cited above)
