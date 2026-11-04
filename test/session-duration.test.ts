@@ -1,6 +1,8 @@
 import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { SessionManager } from "../src/core/session";
+import { PersistentSessionStorage } from "../src/core/persistent-session";
+import { derivePrfSessionKey } from "../src/wallet/crypto";
 import {
   startTestSuite,
   endTestSuite,
@@ -35,6 +37,26 @@ async function runTests() {
       threw = true;
     }
     assert(threw, "extendSession() throws");
+  });
+
+  await runTest("sessionDuration: 0 keeps the persistent session", async () => {
+    const address = "0x1234567890123456789012345678901234567890";
+    const storage = new PersistentSessionStorage();
+    await storage.clear();
+
+    const manager = new SessionManager(0, { enabled: true });
+    const prfKey = await derivePrfSessionKey(crypto.getRandomValues(new Uint8Array(32)));
+    await manager.startSession(MNEMONIC, "cred-id", address, prfKey, "STANDARD");
+
+    assert(manager.getMnemonic() === null, "getMnemonic() returns null");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert((await storage.retrieve(address)) !== null, "persistent session survives");
+
+    const restored = await manager.restoreFromPersistentStorage(address, "cred-id", prfKey);
+    assert(restored === MNEMONIC, "restore returns the mnemonic");
+    assert(manager.getMnemonic() === null, "restore caches nothing");
+
+    await storage.clear();
   });
 
   await runTest("setSessionDuration(0) caches nothing", async () => {
