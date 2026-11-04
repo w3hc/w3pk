@@ -17,6 +17,7 @@ import {
   logInfo,
   logWarning,
   assert,
+  assertEqual,
   assertTruthy,
 } from "./test-utils";
 
@@ -141,6 +142,42 @@ async function runTests() {
       `Expected only https://secure.example, got ${JSON.stringify(endpoints)}`
     );
     passTest("http, ws, other schemes and placeholder URLs are filtered out");
+  });
+
+  // Test 6: the cache is keyed by chainsJsonUrl
+  await runTest("Cache is keyed by chainsJsonUrl", async () => {
+    const chainsUrl = (name: string) =>
+      "data:application/json," + encodeURIComponent(JSON.stringify([{
+        name, chain: "TEST", chainId: 31337, networkId: 31337, shortName: "test",
+        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+        rpc: [`https://${name}.example`],
+      }]));
+    const urlA = chainsUrl("a");
+    const urlB = chainsUrl("b");
+
+    try {
+      clearCache();
+      assertEqual((await getChainById(31337, { chainsJsonUrl: urlA }))?.name, "a", "first URL");
+      assertEqual((await getChainById(31337, { chainsJsonUrl: urlB }))?.name, "b", "second URL after the first is cached");
+      assertEqual((await getChainById(31337, { chainsJsonUrl: urlA }))?.name, "a", "first URL still cached on its own");
+      passTest("Sequential calls for two URLs each get their own data");
+
+      clearCache();
+      const [a, b] = await Promise.all([
+        getEndpoints(31337, { chainsJsonUrl: urlA }),
+        getEndpoints(31337, { chainsJsonUrl: urlB }),
+      ]);
+      assertEqual(JSON.stringify(a), JSON.stringify(["https://a.example"]), "concurrent first URL");
+      assertEqual(JSON.stringify(b), JSON.stringify(["https://b.example"]), "concurrent second URL");
+      assertEqual(
+        JSON.stringify(await getEndpoints(31337, { chainsJsonUrl: urlA })),
+        JSON.stringify(["https://a.example"]),
+        "first URL cached after concurrent calls"
+      );
+      passTest("Concurrent calls for two URLs each get their own data");
+    } finally {
+      clearCache();
+    }
   });
 
   endTestSuite();
