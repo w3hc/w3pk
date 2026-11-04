@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`sessionDuration: 0` caches nothing** ([#261](https://github.com/w3hc/w3pk/issues/261)). The constructor passed `config.sessionDuration || 1`, so 0 became a one-hour session and the mnemonic stayed in memory, although `docs/SECURITY.md` recommends 0 to force a prompt on every operation
   - The constructor keeps 0 (`??`), and `SessionManager` keeps no in-memory session when the duration is 0, including after a persistent-session restore
   - A session counts as expired from its expiry time (`>=`), in one shared check
-  - A persistent session stored with a duration of 0 is no longer wiped by the next session check
   - `test/session-duration.test.ts` covers it
 
 ## [0.11.1] - 2026-11-03
