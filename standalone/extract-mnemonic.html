@@ -423,7 +423,7 @@
 <body>
     <div class="container">
         <h1>W3PK Mnemonic Extractor</h1>
-        <p class="subtitle">Extract your mnemonic phrase from a BackupFile v3 password backup</p>
+        <p class="subtitle">Extract your mnemonic phrase from a BackupFile v4 password backup</p>
 
         <div class="warning">
             <div class="warning-title">Security Notice</div>
@@ -679,6 +679,58 @@
         // Same derivation as w3pk/src/backup/encryption.ts and backup-file.ts
         const ARGON2ID_MAX_PARAMS = { memoryKiB: 65536, passes: 3, parallelism: 4 };
         const V2_TOOL_URL = 'https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html';
+        const V3_TOOL_URL = 'https://github.com/w3hc/w3pk/blob/b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html';
+
+        function olderToolMessage(version) {
+            if (version === 3) {
+                return `This backup uses the v3 format, which this tool no longer reads. Decrypt it with the tool that reads v3 (${V3_TOOL_URL}), then create a new backup.`;
+            }
+            if (version === undefined || version === 2) {
+                return `This backup uses the v2 format, which this tool no longer reads. Decrypt it with the v0.10.6 tool (${V2_TOOL_URL}), then create a new backup.`;
+            }
+            return `This backup uses format version ${version}, which this tool doesn't read.`;
+        }
+
+        // Same encoding as backupAdditionalData() in w3pk/src/backup/backup-file.ts
+        function backupAdditionalData(backup) {
+            const parts = [];
+            const u32 = (value) => {
+                const bytes = new Uint8Array(4);
+                new DataView(bytes.buffer).setUint32(0, value);
+                return bytes;
+            };
+            const str = (value) => {
+                if (value === undefined) return void parts.push(Uint8Array.of(0));
+                const bytes = new TextEncoder().encode(value);
+                parts.push(Uint8Array.of(1), u32(bytes.length), bytes);
+            };
+            const int = (value) => {
+                if (value === undefined) return void parts.push(Uint8Array.of(0));
+                parts.push(Uint8Array.of(1), u32(value));
+            };
+            const kdf = backup.passwordEncryption;
+            str('w3pk-backup-v4');
+            int(backup.version);
+            str(backup.createdAt);
+            str(backup.encryptionMethod);
+            str(kdf?.kdf);
+            str(kdf?.salt);
+            int(kdf?.memoryKiB);
+            int(kdf?.passes);
+            int(kdf?.parallelism);
+            str(backup.credential?.id);
+            str(backup.credential?.publicKey);
+            str(backup.prfSalt);
+            str(backup.username);
+
+            const out = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+            let offset = 0;
+            for (const part of parts) {
+                out.set(part, offset);
+                offset += part.length;
+            }
+            return out;
+        }
 
         function base64ToBytes(base64) {
             return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -689,8 +741,8 @@
         }
 
         function checkPasswordBackup(backup) {
-            if (backup.version !== 3) {
-                throw new Error(`This is not a BackupFile v3. For a v2 backup, use the v0.10.6 tool: ${V2_TOOL_URL}`);
+            if (backup.version !== 4) {
+                throw new Error(olderToolMessage(backup.version));
             }
             const kdf = backup.passwordEncryption;
             if (
@@ -726,12 +778,12 @@
             let plaintext;
             try {
                 plaintext = await crypto.subtle.decrypt(
-                    { name: 'AES-GCM', iv: combined.slice(0, 12) },
+                    { name: 'AES-GCM', iv: combined.slice(0, 12), additionalData: backupAdditionalData(backup) },
                     key,
                     combined.slice(12)
                 );
             } catch {
-                throw new Error('Wrong password or corrupted backup');
+                throw new Error('Wrong password, or the backup file was modified or corrupted');
             }
             return new TextDecoder().decode(plaintext);
         }
@@ -770,7 +822,7 @@
                 }
 
                 document.getElementById('createdAt').textContent = new Date(backupData.createdAt).toLocaleString();
-                document.getElementById('format').textContent = backupData.version === 3 ? 'BackupFile v3' : 'v2 or earlier';
+                document.getElementById('format').textContent = backupData.version === undefined ? 'v2 or earlier' : `BackupFile v${backupData.version}`;
                 document.getElementById('encryptionMethod').textContent = backupData.encryptionMethod.toUpperCase();
                 backupInfo.style.display = 'block';
 
@@ -782,8 +834,8 @@
 
                 if (backupData.encryptionMethod === 'passkey' || backupData.encryptionMethod === 'hybrid') {
                     fail(`This ${backupData.encryptionMethod} backup uses a removed method: its key came from the passkey's public data, not from the passkey. w3pk no longer restores it. Log in where your wallet is and create a new password backup.`);
-                } else if (backupData.version !== 3) {
-                    fail(`This backup uses the v2 format, which this tool no longer reads. Decrypt it with the v0.10.6 tool (${V2_TOOL_URL}), then create a new backup.`);
+                } else if (backupData.version !== 4) {
+                    fail(olderToolMessage(backupData.version));
                 } else if (backupData.encryptionMethod === 'prf') {
                     fail('This backup is encrypted with your passkey (PRF). It cannot be decrypted with a password. Use the W3PK SDK to restore it with your passkey.');
                 } else {
