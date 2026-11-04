@@ -157,6 +157,29 @@ The user's KEM keys are **long-lived** and deterministic: there is no forward se
 
 The keys are derived from the wallet's BIP-39 seed through hash functions only, so they are only as secret as the mnemonic, including how it is stored on the device. No secp256k1 key enters the derivation: a signing key whose public key is published (and so recoverable by a quantum computer) reveals nothing about the KEM keys.
 
+### No sender authentication
+
+Payloads have no sender authentication. Every recipient learns the shared data key, so any recipient can seal new content for the others, and anyone with the recipients' public keys can encrypt to them. A payload that decrypts proves nothing about who sent it.
+
+To prove who sent a payload, sign it and have recipients verify the signature against the sender's address, known out of band, before trusting the plaintext:
+
+```typescript
+import { verifyMessage } from 'ethers';
+
+// Sender
+const encrypted = await w3pk.mlkemEncrypt('my secret data', [recipientPubKey]);
+const message = JSON.stringify(encrypted);
+const { signature, address } = await w3pk.signMessage(message);
+
+// Recipient
+if (verifyMessage(message, signature).toLowerCase() !== senderAddress.toLowerCase()) {
+  throw new Error('Payload not signed by the expected sender');
+}
+const plaintext = await w3pk.mlkemDecrypt(JSON.parse(message));
+```
+
+`signMessage()` signs with secp256k1, so this authentication is classical: unlike the encryption, it doesn't hold against a quantum adversary.
+
 ### FrodoKEM
 
 FrodoKEM-1344 rests on plain LWE, without the algebraic structure ML-KEM relies on, so it would hedge against structured-lattice attacks. It is not used, for two reasons: no audited JavaScript implementation exists, so it would need WebAssembly, and each recipient entry would grow by about 21 KB. Revisit if an audited implementation appears.
@@ -227,7 +250,7 @@ Derives your hybrid public key (base64, 1600 bytes) for sharing.
 **Options:** `context` (default `'mlkem-v1'`), `mode` (`STANDARD`/`STRICT`/`YOLO`, default `STANDARD`), `tag` (default `MAIN`), `requireAuth`. The origin is always the current one.
 
 #### `w3pk.mlkemEncrypt(plaintext, recipientPublicKeys, options?): Promise<EncryptedPayload>`
-Encrypts for yourself plus additional recipients. Same options as above.
+Encrypts for yourself plus additional recipients. Same options as above. No sender authentication: sign the payload with `signMessage()` (see [No sender authentication](#no-sender-authentication)).
 
 #### `w3pk.mlkemDecrypt(payload, options?): Promise<string>`
 Decrypts data encrypted for your wallet. The origin, `context`, `mode` and `tag` must match encryption.
@@ -242,7 +265,7 @@ Derives the sender's keypair, then encrypts for sender + recipients (sender's pu
 Derives a keypair, then decrypts.
 
 #### `mlkemEncrypt(plaintext, publicKeys): Promise<EncryptedPayload>`
-Raw encryption for one or more recipients. Each `publicKeys` entry is base64 or `Uint8Array`, 1600 bytes.
+Raw encryption for one or more recipients. Each `publicKeys` entry is base64 or `Uint8Array`, 1600 bytes. No sender authentication: any recipient can seal new content for the others.
 **Returns:** `{ version: 3, recipients: [{ publicKey, enc, ciphertext }], encryptedData, iv, authTag }`: `enc` is 1600 bytes (1568 ML-KEM ciphertext + 32 X25519 ephemeral key), `ciphertext` is the 48-byte sealed data key, `iv` is 12 bytes and `authTag` 16 bytes.
 
 #### `mlkemDecrypt(payload, privateKey): Promise<string>`
@@ -256,6 +279,7 @@ Decrypts a v3 payload. The recipient entry is found by the public key derived fr
 - ✅ Key zeroization — shared secrets wiped from memory after use
 - ✅ Cross-platform — browser and Node.js
 - ⚠️ No forward secrecy — a leaked KEM private key exposes every payload sealed to it
+- ⚠️ No sender authentication — any recipient can seal new content for the others; sign the payload to prove who sent it (see [No sender authentication](#no-sender-authentication))
 - ⚠️ Deterministic derivation from the Ethereum private key means KEM key secrecy is capped by secp256k1 key secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
 
 ---
