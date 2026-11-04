@@ -161,24 +161,33 @@ The keys are derived from the wallet's BIP-39 seed through hash functions only, 
 
 Payloads have no sender authentication. Every recipient learns the shared data key, so any recipient can seal new content for the others, and anyone with the recipients' public keys can encrypt to them. A payload that decrypts proves nothing about who sent it.
 
-To prove who sent a payload, sign it and have recipients verify the signature against the sender's address, known out of band, before trusting the plaintext:
+To prove who wrote the content, sign it inside the payload: sign the plaintext together with the recipients' public keys and a timestamp, encrypt the signed message, and have each recipient verify the signature after decrypting. Signing the ciphertext instead doesn't work: anyone can strip the signature and sign the same ciphertext as themselves.
 
 ```typescript
 import { verifyMessage } from 'ethers';
 
 // Sender
-const encrypted = await w3pk.mlkemEncrypt('my secret data', [recipientPubKey]);
-const message = JSON.stringify(encrypted);
-const { signature, address } = await w3pk.signMessage(message);
+const to = [recipientPubKey];
+const message = JSON.stringify({ data: 'my secret data', to, at: Date.now() });
+const { signature } = await w3pk.signMessage(message, { mode: 'STANDARD', tag: 'MAIN' });
+const encrypted = await w3pk.mlkemEncrypt(JSON.stringify({ message, signature }), to);
 
-// Recipient
-if (verifyMessage(message, signature).toLowerCase() !== senderAddress.toLowerCase()) {
-  throw new Error('Payload not signed by the expected sender');
+// Recipient: senderAddress and myPubKey are known in advance, not read from the payload
+const signed = JSON.parse(await w3pk.mlkemDecrypt(encrypted));
+if (verifyMessage(signed.message, signed.signature).toLowerCase() !== senderAddress.toLowerCase()) {
+  throw new Error('Not signed by the expected sender');
 }
-const plaintext = await w3pk.mlkemDecrypt(JSON.parse(message));
+const { data, to: intended, at } = JSON.parse(signed.message);
+if (!intended.includes(myPubKey) || Date.now() - at > MAX_AGE_MS) {
+  throw new Error('Not addressed to me, or stale');
+}
 ```
 
-`signMessage()` signs with secp256k1, so this authentication is classical: unlike the encryption, it doesn't hold against a quantum adversary.
+- Verify the exact signed string, as transmitted: `JSON.stringify` isn't canonical, so re-serializing a parsed object can change the bytes.
+- `to` stops a recipient from forwarding signed content to someone else as if it were addressed to them, and `at` (or a nonce) lets recipients refuse replays.
+- The signing address depends on the origin, mode and tag passed to `signMessage()`: recipients must hold that exact address. Use STANDARD, STRICT or YOLO: the PRIMARY address comes from the passkey's P-256 key and isn't recovered from an EIP-191 signature. In STRICT mode, signing prompts for the passkey once more.
+- Without a w3pk instance, sign with any secp256k1 key, such as an ethers `Wallet`'s `signMessage()`.
+- The signature is secp256k1, so this authentication is classical: unlike the encryption, it doesn't hold against a quantum adversary.
 
 ### FrodoKEM
 
@@ -250,7 +259,7 @@ Derives your hybrid public key (base64, 1600 bytes) for sharing.
 **Options:** `context` (default `'mlkem-v1'`), `mode` (`STANDARD`/`STRICT`/`YOLO`, default `STANDARD`), `tag` (default `MAIN`), `requireAuth`. The origin is always the current one.
 
 #### `w3pk.mlkemEncrypt(plaintext, recipientPublicKeys, options?): Promise<EncryptedPayload>`
-Encrypts for yourself plus additional recipients. Same options as above. No sender authentication: sign the payload with `signMessage()` (see [No sender authentication](#no-sender-authentication)).
+Encrypts for yourself plus additional recipients. Same options as above. No sender authentication: sign the content inside the payload with `signMessage()` (see [No sender authentication](#no-sender-authentication)).
 
 #### `w3pk.mlkemDecrypt(payload, options?): Promise<string>`
 Decrypts data encrypted for your wallet. The origin, `context`, `mode` and `tag` must match encryption.
@@ -279,7 +288,7 @@ Decrypts a v3 payload. The recipient entry is found by the public key derived fr
 - ✅ Key zeroization — shared secrets wiped from memory after use
 - ✅ Cross-platform — browser and Node.js
 - ⚠️ No forward secrecy — a leaked KEM private key exposes every payload sealed to it
-- ⚠️ No sender authentication — any recipient can seal new content for the others; sign the payload to prove who sent it (see [No sender authentication](#no-sender-authentication))
+- ⚠️ No sender authentication — any recipient can seal new content for the others; sign the content inside the payload to prove who wrote it (see [No sender authentication](#no-sender-authentication))
 - ⚠️ Deterministic derivation from the wallet's BIP-39 seed means KEM key secrecy is capped by the mnemonic's secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
 
 ---

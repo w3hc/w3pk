@@ -1937,9 +1937,11 @@ export class Web3Passkey {
    * Your hybrid keypair is derived from your wallet, so you can always decrypt later.
    *
    * Payloads have no sender authentication: every recipient learns the shared data key,
-   * so any recipient can seal new content for the others. To prove you sent a payload,
-   * sign it with `signMessage()` (e.g. over `JSON.stringify(encrypted)`) and have
-   * recipients verify the signature against your address before trusting the plaintext.
+   * so any recipient can seal new content for the others. To prove you wrote the content,
+   * sign the plaintext, the recipients' public keys and a timestamp with `signMessage()`,
+   * encrypt the signed message, and have recipients verify the signature against your
+   * address after decrypting. Signing the ciphertext doesn't work: anyone can strip the
+   * signature and sign it as themselves. See docs/POST_QUANTUM.md.
    *
    * @param plaintext - The data to encrypt
    * @param recipientPublicKeys - Array of recipient hybrid public keys (base64 strings or Uint8Arrays, 1600 bytes)
@@ -1987,7 +1989,7 @@ export class Web3Passkey {
    * Decrypts data that was encrypted for this wallet.
    * The hybrid keypair is derived from your wallet's BIP-39 seed. Only v3 payloads are read.
    * Decryption doesn't prove who sent the payload: any recipient can seal new content for
-   * the others, so verify the sender's signature over the payload (see `mlkemEncrypt()`).
+   * the others, so verify the sender's signature inside the payload (see `mlkemEncrypt()`).
    *
    * @param payload - The encrypted payload (from mlkemEncrypt)
    * @param options - Optional configuration

@@ -291,9 +291,11 @@ export async function deriveMLKemKeypair(
  * over a hybrid ML-KEM-1024 + X25519 KEM.
  *
  * Payloads have no sender authentication: every recipient learns the shared data key,
- * so any recipient can seal new content for the others. To prove who sent a payload,
- * sign it (e.g. `w3pk.signMessage()` over the serialized payload) and have recipients
- * verify the signature before trusting the plaintext.
+ * so any recipient can seal new content for the others. To prove who wrote the content,
+ * sign the plaintext, the recipients' public keys and a timestamp with a secp256k1 key
+ * (`w3pk.signMessage()`, or an ethers `Wallet`), encrypt the signed message, and have
+ * recipients verify the signature after decrypting. Signing the ciphertext doesn't work:
+ * anyone can strip the signature and sign it as themselves. See docs/POST_QUANTUM.md.
  *
  * @param plaintext - The data to encrypt
  * @param publicKeys - Hybrid public keys (base64 strings or Uint8Arrays, 1600 bytes each)

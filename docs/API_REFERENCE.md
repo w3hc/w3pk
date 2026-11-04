@@ -3349,7 +3349,7 @@ const encrypted = await w3pk.mlkemEncrypt(
 );
 ```
 
-**No sender authentication:** every recipient learns the shared data key, so any recipient can seal new content for the others. To prove you sent a payload, sign it with `signMessage()` (e.g. over `JSON.stringify(encrypted)`) and have recipients verify the signature against your address. See [POST_QUANTUM.md](./POST_QUANTUM.md#no-sender-authentication).
+**No sender authentication:** every recipient learns the shared data key, so any recipient can seal new content for the others. To prove you wrote the content, sign the plaintext, the recipients' public keys and a timestamp with `signMessage()`, encrypt the signed message, and have recipients verify the signature against your address after decrypting. Signing the ciphertext doesn't work: anyone can strip the signature and sign it as themselves. See [POST_QUANTUM.md](./POST_QUANTUM.md#no-sender-authentication).
 
 ---
 
@@ -3443,7 +3443,7 @@ console.log('Recipients:', encrypted.recipients.length)
 - ✅ **Multi-recipient support** - Encrypt once for multiple recipients
 - ✅ **Key zeroization** - All secrets securely wiped from memory
 - ✅ **Authenticated encryption** - AES-256-GCM with 128-bit auth tag
-- ⚠️ **No sender authentication** - every recipient learns the shared data key, so any recipient can seal new content for the others. Sign the payload (e.g. `w3pk.signMessage()`) to prove who sent it. See [POST_QUANTUM.md](./POST_QUANTUM.md#no-sender-authentication)
+- ⚠️ **No sender authentication** - every recipient learns the shared data key, so any recipient can seal new content for the others. Sign the content inside the payload (e.g. `w3pk.signMessage()`, or an ethers `Wallet`'s `signMessage()`) to prove who wrote it. See [POST_QUANTUM.md](./POST_QUANTUM.md#no-sender-authentication)
 
 ---
 
@@ -3467,7 +3467,7 @@ const plaintext = await mlkemDecrypt(encrypted, privateKey)
 
 **Throws:** Error if decryption fails (unsupported version, invalid key, no matching recipient, or a tampered `enc`, sealed key or payload)
 
-Decryption doesn't prove who sent the payload: verify the sender's signature over it (see `mlkemEncrypt()`).
+Decryption doesn't prove who sent the payload: verify the sender's signature inside it (see `mlkemEncrypt()`).
 
 **Related:**
 - See [POST_QUANTUM.md](../docs/POST_QUANTUM.md) for full quantum readiness roadmap
