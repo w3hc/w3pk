@@ -12,6 +12,7 @@
 import { Wallet } from "ethers";
 import {
   Web3Passkey,
+  AuthenticationError,
   SyncBootstrapError,
   RemovedBackupMethodError,
   UnsupportedBackupVersionError,
@@ -382,6 +383,47 @@ async function runTests() {
       `${label}: no credential metadata is saved`
     );
   }
+
+  console.log("Test 3c: with metadata, the assertion passes login()'s checks");
+  {
+    const json = await passwordBackupFromDeviceA(publicKey);
+    const credentials = new CredentialStorage(localStorage as unknown as Storage);
+    const otherKeyPair = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    );
+    const otherPublicKey = arrayBufferToBase64Url(
+      await crypto.subtle.exportKey("spki", otherKeyPair.publicKey)
+    );
+
+    for (const [label, setup] of [
+      ["a counter behind the stored one", async () => {
+        await saveCredential(publicKey);
+        await credentials.updateSignatureCounter(CREDENTIAL_ID, 1_000_000);
+      }],
+      ["a stored public key from another passkey", () => saveCredential(otherPublicKey)],
+    ] as const) {
+      localStorage.clear();
+      await setup();
+      const { sdk, authEvents } = freshSdk();
+      const error = await capture(() => sdk.syncWalletWithPasskey(json, PASSWORD));
+      assert(error instanceof AuthenticationError, `${label}: throws AuthenticationError`);
+      assert(!sdk.isAuthenticated && !authEvents.includes(true), `${label}: no login`);
+      assert(
+        (await new LocalStorageWalletStorage(localStorage as unknown as Storage).retrieve(ADDRESS)) === null,
+        `${label}: no wallet is stored`
+      );
+    }
+
+    localStorage.clear();
+    await saveCredential(publicKey);
+    const { sdk } = freshSdk();
+    await sdk.syncWalletWithPasskey(json, PASSWORD);
+    const stored = await credentials.getCredentialById(CREDENTIAL_ID);
+    assert((stored?.signCount ?? 0) > 0, "a successful sync saves the counter");
+  }
+  console.log("");
 
   console.log("Test 4: fresh device refuses what it can't bootstrap");
   {
