@@ -168,7 +168,7 @@ async function runStorageTests() {
     };
 
     await storage.store(sessionData);
-    const retrieved = await storage.retrieve(testAddress);
+    const retrieved = await storage.retrieve(testCredentialId);
 
     assert(retrieved !== null, 'Session was stored and retrieved');
     assert(retrieved?.ethereumAddress === testAddress, 'Ethereum address matches');
@@ -176,8 +176,8 @@ async function runStorageTests() {
     assert(retrieved?.securityMode === 'STANDARD', 'Security mode is STANDARD');
     assert(retrieved?.sessionKey === sessionKey, 'Stored key survives the roundtrip');
     assert(
-      backing.getItem(`w3pk_session_${testAddress}`) !== null,
-      'Session is stored in localStorage under w3pk_session_<address>'
+      backing.getItem(`w3pk_session_${testCredentialId}`) !== null,
+      'Session is stored in localStorage under w3pk_session_<credentialId>'
     );
 
     if (retrieved?.sessionKey) {
@@ -234,7 +234,7 @@ async function runStorageTests() {
     };
 
     await storage.store(sessionData);
-    const retrieved = await storage.retrieve(testAddress);
+    const retrieved = await storage.retrieve(testCredentialId);
 
     assert(retrieved !== null, 'YOLO session was stored');
     assert(retrieved?.securityMode === 'YOLO', 'Security mode is YOLO');
@@ -260,7 +260,7 @@ async function runStorageTests() {
     };
 
     await storage.store(sessionData);
-    const retrieved = await storage.retrieve(testAddress);
+    const retrieved = await storage.retrieve(testCredentialId);
 
     assert(retrieved === null, 'Expired session returns null');
   } catch (error) {
@@ -284,8 +284,8 @@ async function runStorageTests() {
     };
 
     await storage.store(sessionData);
-    await storage.delete(testAddress);
-    const retrieved = await storage.retrieve(testAddress);
+    await storage.delete(testCredentialId);
+    const retrieved = await storage.retrieve(testCredentialId);
 
     assert(retrieved === null, 'Session was deleted');
   } catch (error) {
@@ -307,16 +307,16 @@ async function runStorageTests() {
       securityMode: 'STANDARD',
       createdAt: Date.now(),
     };
-    const otherAddress = '0x0000000000000000000000000000000000000001';
+    const otherCredentialId = 'other-credential-id';
     await storage.store(base);
-    await storage.store({ ...base, ethereumAddress: otherAddress, expiresAt: Date.now() - 1000 });
+    await storage.store({ ...base, credentialId: otherCredentialId, expiresAt: Date.now() - 1000 });
 
     await storage.cleanupExpired();
-    assert(backing.getItem(`w3pk_session_${otherAddress}`) === null, 'Expired session was cleaned up');
-    assert((await storage.retrieve(testAddress)) !== null, 'Live session survives cleanup');
+    assert(backing.getItem(`w3pk_session_${otherCredentialId}`) === null, 'Expired session was cleaned up');
+    assert((await storage.retrieve(testCredentialId)) !== null, 'Live session survives cleanup');
 
     await storage.clear();
-    assert((await storage.retrieve(testAddress)) === null, 'clear removes sessions');
+    assert((await storage.retrieve(testCredentialId)) === null, 'clear removes sessions');
     assert(backing.getItem('w3pk_credential_index') === '[]', 'clear keeps credential metadata');
   } catch (error) {
     console.log('  ❌ Error:', error);

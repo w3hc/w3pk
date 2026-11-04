@@ -21,6 +21,7 @@
 import { register } from "../auth/register";
 import { login } from "../auth/authenticate";
 import { LocalStorageWalletStorage } from "../wallet/storage";
+import type { EncryptedWalletData } from "../wallet/types";
 import {
   createWalletFromMnemonic,
   generateBIP39Wallet,
@@ -218,7 +219,8 @@ export class Web3Passkey {
       throw new WalletError("Must be authenticated. Call login() first.");
     }
 
-    const walletData = await this.walletStorage.retrieve(
+    const walletData = await this.retrieveWallet(
+      this.currentUser.credentialId,
       this.currentUser.ethereumAddress
     );
 
@@ -226,9 +228,16 @@ export class Web3Passkey {
       throw new WalletError("No wallet found. Generate a wallet first.");
     }
 
-    const authResult = await login(this.config.userVerification);
+    const authResult = await login(
+      this.config.userVerification,
+      this.currentUser.credentialId
+    );
     if (!authResult.user) {
       throw new WalletError("Authentication failed");
+    }
+    // The record is encrypted under the logged-in passkey's PRF output
+    if (authResult.user.credentialId !== this.currentUser.credentialId) {
+      throw new WalletError("Authenticate with the logged-in passkey");
     }
     if (!authResult.prfOutput) {
       throw new PrfUnsupportedError(authResult.user.credentialId);
@@ -256,6 +265,20 @@ export class Web3Passkey {
     );
 
     return mnemonic;
+  }
+
+  /**
+   * The passkey's wallet record, if it holds the wallet the passkey points
+   * at: an interrupted address change can leave one without the other
+   */
+  private async retrieveWallet(
+    credentialId: string,
+    ethereumAddress: string
+  ): Promise<EncryptedWalletData | null> {
+    const walletData = await this.walletStorage.retrieve(credentialId);
+    return walletData?.ethereumAddress.toLowerCase() === ethereumAddress.toLowerCase()
+      ? walletData
+      : null;
   }
 
   /**
@@ -296,20 +319,13 @@ export class Web3Passkey {
         userVerification: this.config.userVerification,
       });
 
-      const storage = new CredentialStorage();
-      const credential = await storage.getCredentialByAddress(ethereumAddress);
+      const { credentialId } = registration;
 
       this.currentUser = {
         username: options.username,
         ethereumAddress,
-        credentialId: credential?.id || '',
+        credentialId,
       };
-
-      if (!credential) {
-        throw new WalletError("Credential not found after registration");
-      }
-
-      const credentialId = credential.id;
 
       // Some platforms evaluate the PRF at creation; if this one didn't,
       // one assertion does. Without PRF, the wallet stays in memory only.
@@ -385,7 +401,8 @@ export class Web3Passkey {
         const credential = await storage.getCredentialById(silentRestore.credentialId);
 
         // Verify wallet exists
-        const walletData = await this.walletStorage.retrieve(
+        const walletData = await this.retrieveWallet(
+          silentRestore.credentialId,
           silentRestore.ethereumAddress
         );
 
@@ -416,7 +433,8 @@ export class Web3Passkey {
         throw new AuthenticationError("Login failed");
       }
 
-      const walletData = await this.walletStorage.retrieve(
+      const walletData = await this.retrieveWallet(
+        result.user.credentialId,
         result.user.ethereumAddress
       );
 
@@ -765,9 +783,9 @@ export class Web3Passkey {
 
   /**
    * Import a mnemonic phrase as the logged-in passkey's wallet, replacing
-   * the stored one. The imported wallet is stored under its own address
-   * before the credential points at it, and the previous wallet is deleted
-   * only after. The previous wallet's persistent session is deleted first.
+   * the stored one in the passkey's record. If pointing the credential at
+   * it fails, the previous record is put back. The previous wallet's
+   * persistent session is deleted first.
    *
    * @throws WalletError if not logged in, or the phrase isn't a valid BIP39 mnemonic
    * @throws AuthenticationError if the passkey prompt is cancelled, and PrfUnsupportedError if the authenticator returns no PRF output (nothing stored changes)
@@ -781,7 +799,10 @@ export class Web3Passkey {
       const phrase = (mnemonic ?? "").trim().split(/\s+/).join(" ");
       const ethereumAddress = createWalletFromMnemonic(phrase).address;
 
-      const authResult = await login(this.config.userVerification);
+      const authResult = await login(
+        this.config.userVerification,
+        this.currentUser.credentialId
+      );
       if (authResult.user?.credentialId !== this.currentUser.credentialId) {
         throw new WalletError("Authenticate with the logged-in passkey to import a mnemonic");
       }

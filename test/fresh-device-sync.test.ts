@@ -348,7 +348,7 @@ async function runTests() {
       await sdk.syncWalletWithPasskey(json, PASSWORD);
       assert(sdk.isAuthenticated, "user is logged in");
       assert(
-        (await new LocalStorageWalletStorage(localStorage as unknown as Storage).retrieve(ADDRESS)) === null,
+        (await new LocalStorageWalletStorage(localStorage as unknown as Storage).retrieve(CREDENTIAL_ID)) === null,
         "no wallet is stored on the device"
       );
       const next = freshSdk();
@@ -411,7 +411,7 @@ async function runTests() {
       assert(error instanceof AuthenticationError, `${label}: throws AuthenticationError`);
       assert(!sdk.isAuthenticated && !authEvents.includes(true), `${label}: no login`);
       assert(
-        (await new LocalStorageWalletStorage(localStorage as unknown as Storage).retrieve(ADDRESS)) === null,
+        (await new LocalStorageWalletStorage(localStorage as unknown as Storage).retrieve(CREDENTIAL_ID)) === null,
         `${label}: no wallet is stored`
       );
     }

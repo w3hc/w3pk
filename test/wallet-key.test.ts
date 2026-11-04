@@ -212,8 +212,8 @@ async function registerWithMnemonic(sdk: Web3Passkey): Promise<string> {
 }
 
 async function decryptsWithWalletKey(address: string): Promise<boolean> {
-  const stored = await wallets().retrieve(address);
-  if (!stored) return false;
+  const stored = await wallets().retrieve(CREDENTIAL_ID);
+  if (stored?.ethereumAddress !== address) return false;
   const key = await deriveWalletKey(authenticator.prfOutput);
   return decryptData(stored.encryptedMnemonic, key).then(
     (m) => m === MNEMONIC,
@@ -223,7 +223,8 @@ async function decryptsWithWalletKey(address: string): Promise<boolean> {
 
 /** Replace the stored record with one under a key that isn't the wallet key */
 async function storeUnderOldKey(address: string): Promise<void> {
-  const stored = (await wallets().retrieve(address))!;
+  const stored = (await wallets().retrieve(CREDENTIAL_ID))!;
+  if (stored.ethereumAddress !== address) throw new Error("no record for this address");
   const oldKey = await crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
     false,
@@ -284,7 +285,7 @@ async function runTests() {
     const sdk = new Web3Passkey();
     const address = await registerWithMnemonic(sdk);
     assert(sdk.isAuthenticated, "the user is logged in");
-    assert((await wallets().retrieve(address)) === null, "no wallet is stored on the device");
+    assert((await wallets().retrieve(CREDENTIAL_ID)) === null, "no wallet is stored on the device");
 
     const next = new Web3Passkey();
     const error = await next.login().then(() => undefined, (e) => e);

@@ -219,8 +219,8 @@ async function loggedInWith(publicKey: string, mnemonic: string): Promise<Web3Pa
 }
 
 async function storedMnemonic(address: string): Promise<string | undefined> {
-  const stored = await wallets().retrieve(address);
-  if (!stored) return undefined;
+  const stored = await wallets().retrieve(CREDENTIAL_ID);
+  if (stored?.ethereumAddress !== address) return undefined;
   const key = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
   return decryptData(stored.encryptedMnemonic, key);
 }
@@ -250,7 +250,7 @@ async function runTests() {
 
   async function assertKeepsWalletA(sdk: Web3Passkey) {
     assert((await storedMnemonic(ADDRESS_A)) === MNEMONIC_A, "wallet A stays stored");
-    assert((await wallets().retrieve(ADDRESS_B)) === null, "wallet B isn't stored");
+    assert((await wallets().retrieve(CREDENTIAL_ID))?.ethereumAddress !== ADDRESS_B, "wallet B isn't stored");
     assert(
       (await credentials().getCredentialById(CREDENTIAL_ID))?.ethereumAddress === ADDRESS_A,
       "the credential still points at wallet A"
@@ -260,8 +260,8 @@ async function runTests() {
   }
 
   async function assertReplacedByB(sdk: Web3Passkey) {
-    assert((await storedMnemonic(ADDRESS_B)) === MNEMONIC_B, "wallet B is stored under B's address");
-    assert((await wallets().retrieve(ADDRESS_A)) === null, "wallet A is deleted");
+    assert((await storedMnemonic(ADDRESS_B)) === MNEMONIC_B, "wallet B is stored in the passkey's record");
+    assert((await storedMnemonic(ADDRESS_A)) === undefined, "wallet A's record is replaced");
     assert(
       (await credentials().getCredentialById(CREDENTIAL_ID))?.ethereumAddress === ADDRESS_B,
       "the credential points at wallet B"
@@ -329,10 +329,10 @@ async function runTests() {
   console.log("Test 4: with allowAddressChange, wallet B replaces wallet A");
   {
     const sdk = await loggedInWith(publicKey, MNEMONIC_A);
-    localStorage.setItem(`w3pk_session_${ADDRESS_A}`, "{}");
+    localStorage.setItem(`w3pk_session_${CREDENTIAL_ID}`, "{}");
     const result = await sdk.restoreFromBackupFile(backupB, PASSWORD, { allowAddressChange: true });
     assert(result.ethereumAddress === ADDRESS_B, "returns wallet B's address");
-    assert(localStorage.getItem(`w3pk_session_${ADDRESS_A}`) === null, "wallet A's persistent session is deleted");
+    assert(localStorage.getItem(`w3pk_session_${CREDENTIAL_ID}`) === null, "wallet A's persistent session is deleted");
     assert(authenticator.calls === 1, "one passkey prompt");
     assert(
       (await credentials().getCredentialById(CREDENTIAL_ID))?.signCount === authenticator.signCount,
@@ -440,7 +440,7 @@ async function runTests() {
       const error = await capture(() => sync(sdk));
       assert(error instanceof AddressChangeError, "without allowAddressChange, throws AddressChangeError");
       assert((await storedMnemonic(ADDRESS_A)) === MNEMONIC_A, "wallet A stays stored");
-      assert((await wallets().retrieve(ADDRESS_B)) === null, "wallet B isn't stored");
+      assert((await wallets().retrieve(CREDENTIAL_ID))?.ethereumAddress !== ADDRESS_B, "wallet B isn't stored");
       assert(
         (await credentials().getCredentialById(CREDENTIAL_ID))?.ethereumAddress === ADDRESS_A,
         "the credential still points at wallet A"

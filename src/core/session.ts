@@ -19,7 +19,8 @@
  */
 
 import type { SecurityMode } from "../types";
-import type { PersistentSessionConfig } from "./persistent-session";
+import type { StoredCredential } from "../auth/storage";
+import type { PersistentSessionConfig, PersistentSessionData } from "./persistent-session";
 import { PersistentSessionStorage } from "./persistent-session";
 import {
   encryptData,
@@ -240,16 +241,15 @@ export class SessionManager {
     }
 
     try {
-      const persistentSession = await this.persistentStorage.retrieve(ethereumAddress);
+      const persistentSession = await this.persistentStorage.retrieve(credentialId);
 
       if (!persistentSession) {
         return null;
       }
 
-      // Verify credential ID matches
-      if (persistentSession.credentialId !== credentialId) {
-        console.warn('[w3pk] Credential ID mismatch, clearing persistent session');
-        await this.persistentStorage.delete(ethereumAddress);
+      if (persistentSession.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
+        console.warn('[w3pk] Address mismatch, clearing persistent session');
+        await this.persistentStorage.delete(credentialId);
         return null;
       }
 
@@ -266,7 +266,7 @@ export class SessionManager {
       console.warn('[w3pk] Failed to restore persistent session:', error);
       // Clean up corrupted session
       try {
-        await this.persistentStorage.delete(ethereumAddress);
+        await this.persistentStorage.delete(credentialId);
       } catch {}
       return null;
     }
@@ -300,32 +300,36 @@ export class SessionManager {
         return null;
       }
 
-      // Try to restore from each credential's persistent session
-      // Usually there's only one, but we check all to be safe
+      // Each passkey keeps its own session: restore the latest one
+      let latest: { credential: StoredCredential; session: PersistentSessionData } | null = null;
       for (const credential of credentials) {
-        const persistentSession = await this.persistentStorage.retrieve(
-          credential.ethereumAddress
-        );
+        const session = await this.persistentStorage.retrieve(credential.id);
 
-        if (!persistentSession) {
+        if (!session) {
           continue;
         }
 
-        // Verify credential ID matches
-        if (persistentSession.credentialId !== credential.id) {
-          console.warn('[w3pk] Credential ID mismatch, skipping this session');
+        if (session.ethereumAddress.toLowerCase() !== credential.ethereumAddress.toLowerCase()) {
+          console.warn('[w3pk] Address mismatch, skipping this session');
           continue;
         }
 
         // Silent restore needs the stored key; records written under
         // requireReauth deliberately don't have one
-        if (!persistentSession.sessionKey) {
+        if (!session.sessionKey) {
           continue;
         }
 
+        if (!latest || session.createdAt > latest.session.createdAt) {
+          latest = { credential, session };
+        }
+      }
+
+      if (latest) {
+        const { credential, session } = latest;
         const mnemonic = await decryptData(
-          persistentSession.encryptedMnemonic,
-          await importSessionKey(persistentSession.sessionKey)
+          session.encryptedMnemonic,
+          await importSessionKey(session.sessionKey!)
         );
 
         this.cacheSession(mnemonic, credential.id);
@@ -374,13 +378,12 @@ export class SessionManager {
   }
 
   /**
-   * Delete the persistent session stored for an address, e.g. once its
-   * wallet is replaced
+   * Delete a passkey's persistent session, e.g. once its wallet is replaced
    *
    * @throws {StorageError} if the session could not be deleted
    */
-  async deletePersistentSession(ethereumAddress: string): Promise<void> {
-    await this.persistentStorage.delete(ethereumAddress);
+  async deletePersistentSession(credentialId: string): Promise<void> {
+    await this.persistentStorage.delete(credentialId);
   }
 
   /**

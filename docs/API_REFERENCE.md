@@ -649,7 +649,7 @@ Import a mnemonic phrase as the logged-in passkey's wallet, replacing the stored
 
 **Behavior:**
 - One passkey assertion with the logged-in passkey releases the key the wallet is stored under
-- The imported wallet is stored under its own address; the passkey, `user` and the session then point at that address, and the previous wallet is deleted last
+- The imported wallet replaces the passkey's wallet record; the passkey, `user` and the session then point at its address. If pointing the passkey at it fails, the previous record is put back
 - The previous wallet's persistent session is deleted before anything is stored, so a remember-me session can't restore the replaced mnemonic
 - `onAuthStateChanged(true, user)` fires with the new address
 - Replacing the wallet needs no `allowAddressChange`: importing is an explicit replace, so the app confirms it with the user before calling

@@ -39,9 +39,9 @@ export interface PersistentSessionData {
   sessionKey?: string;
   /** Expiration timestamp */
   expiresAt: number;
-  /** WebAuthn credential ID */
+  /** WebAuthn credential ID (used as key) */
   credentialId: string;
-  /** User's ethereum address (used as key) */
+  /** User's ethereum address */
   ethereumAddress: string;
   /** Security mode for this session */
   securityMode: SecurityMode;
@@ -94,19 +94,19 @@ export class PersistentSessionStorage {
     }
 
     try {
-      this.storage.setItem(KEY_PREFIX + data.ethereumAddress, JSON.stringify(data));
+      this.storage.setItem(KEY_PREFIX + data.credentialId, JSON.stringify(data));
     } catch (error) {
       throw new StorageError("Failed to store persistent session", error);
     }
   }
 
   /**
-   * Retrieve a persistent session by ethereum address
+   * Retrieve a passkey's persistent session
    */
-  async retrieve(ethereumAddress: string): Promise<PersistentSessionData | null> {
+  async retrieve(credentialId: string): Promise<PersistentSessionData | null> {
     let session: PersistentSessionData | null;
     try {
-      const raw = this.storage.getItem(KEY_PREFIX + ethereumAddress);
+      const raw = this.storage.getItem(KEY_PREFIX + credentialId);
       session = raw ? (JSON.parse(raw) as PersistentSessionData) : null;
     } catch (error) {
       throw new StorageError("Failed to retrieve persistent session", error);
@@ -114,7 +114,7 @@ export class PersistentSessionStorage {
 
     // Auto-cleanup expired sessions
     if (session && Date.now() > session.expiresAt) {
-      await this.delete(ethereumAddress);
+      await this.delete(credentialId);
       return null;
     }
 
@@ -124,9 +124,9 @@ export class PersistentSessionStorage {
   /**
    * Delete a persistent session
    */
-  async delete(ethereumAddress: string): Promise<void> {
+  async delete(credentialId: string): Promise<void> {
     try {
-      this.storage.removeItem(KEY_PREFIX + ethereumAddress);
+      this.storage.removeItem(KEY_PREFIX + credentialId);
     } catch (error) {
       throw new StorageError("Failed to delete persistent session", error);
     }

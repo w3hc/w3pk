@@ -1,7 +1,7 @@
 /**
- * importMnemonic(): the imported wallet is stored under its own address,
- * the credential, user and wallet point at it, and the previous wallet is
- * deleted only after
+ * importMnemonic(): the imported wallet replaces the passkey's record, the
+ * credential, user and wallet point at it, and the previous record is put
+ * back if the credential can't be updated
  *
  * Mocks navigator.credentials.get with a P-256 key that signs real
  * assertions, and a PRF computed as the spec describes,
@@ -22,6 +22,7 @@ console.log("🔐 Import Mnemonic Test");
 console.log("==================================================\n");
 
 const log: string[] = [];
+const failCredentialWriteAfterWallet = { enabled: false, armed: false };
 
 class MemoryStorage {
   private items = new Map<string, string>();
@@ -35,6 +36,12 @@ class MemoryStorage {
     return this.items.get(k) ?? null;
   }
   setItem(k: string, v: string) {
+    if (failCredentialWriteAfterWallet.enabled) {
+      if (k.startsWith("w3pk_wallet_")) failCredentialWriteAfterWallet.armed = true;
+      else if (failCredentialWriteAfterWallet.armed && k.startsWith("w3pk_credential_")) {
+        throw new Error("QuotaExceededError");
+      }
+    }
     log.push(`set ${k}`);
     this.items.set(k, String(v));
   }
@@ -219,8 +226,8 @@ async function loggedInWith(
 }
 
 async function storedMnemonic(address: string): Promise<string | undefined> {
-  const stored = await wallets().retrieve(address);
-  if (!stored) return undefined;
+  const stored = await wallets().retrieve(CREDENTIAL_ID);
+  if (stored?.ethereumAddress !== address) return undefined;
   const key = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
   return decryptData(stored.encryptedMnemonic, key);
 }
@@ -250,7 +257,7 @@ async function runTests() {
 
   async function assertKeepsWalletA(sdk: Web3Passkey) {
     assert((await storedMnemonic(ADDRESS_A)) === MNEMONIC_A, "wallet A stays stored");
-    assert((await wallets().retrieve(ADDRESS_B)) === null, "wallet B isn't stored");
+    assert((await wallets().retrieve(CREDENTIAL_ID))?.ethereumAddress !== ADDRESS_B, "wallet B isn't stored");
     assert(
       (await credentials().getCredentialById(CREDENTIAL_ID))?.ethereumAddress === ADDRESS_A,
       "the credential still points at wallet A"
@@ -266,8 +273,8 @@ async function runTests() {
     const sdk = await loggedInWith(publicKey, MNEMONIC_A);
     await sdk.importMnemonic(`  ${MNEMONIC_B.split(" ").join("  ")}\n`);
     assert(authenticator.calls === 1, "one passkey prompt");
-    assert((await storedMnemonic(ADDRESS_B)) === MNEMONIC_B, "wallet B is stored under B's address and decrypts");
-    assert((await wallets().retrieve(ADDRESS_A)) === null, "wallet A is deleted");
+    assert((await storedMnemonic(ADDRESS_B)) === MNEMONIC_B, "wallet B is stored in the passkey's record and decrypts");
+    assert((await storedMnemonic(ADDRESS_A)) === undefined, "wallet A's record is replaced");
     assert(
       (await credentials().getCredentialById(CREDENTIAL_ID))?.ethereumAddress === ADDRESS_B,
       "the credential points at wallet B"
@@ -281,13 +288,43 @@ async function runTests() {
     assert((sdk as any).currentWallet?.mnemonic === MNEMONIC_B, "the wallet in memory holds B's phrase");
     assert((await sdk.deriveWallet()).address !== undefined, "the session works");
 
-    const storeB = log.indexOf(`set w3pk_wallet_${ADDRESS_B}`);
-    const deleteA = log.indexOf(`remove w3pk_wallet_${ADDRESS_A}`);
+    const storeB = log.indexOf(`set w3pk_wallet_${CREDENTIAL_ID}`);
     const updateCredential = log.findIndex(
       (e, i) => i > storeB && e.startsWith("set w3pk_credential_") && !e.endsWith("index")
     );
     assert(storeB !== -1 && updateCredential !== -1, "the credential is updated after wallet B is stored");
-    assert(deleteA > updateCredential, "wallet A is deleted last");
+    assert(!log.some((e) => e.startsWith("remove w3pk_wallet_")), "no wallet record is deleted");
+  }
+  console.log("");
+
+  console.log("Test 1b: a failed credential update puts wallet A's record back");
+  {
+    const sdk = await loggedInWith(publicKey, MNEMONIC_A);
+    Object.assign(failCredentialWriteAfterWallet, { enabled: true, armed: false });
+    const error = await capture(() => sdk.importMnemonic(MNEMONIC_B));
+    Object.assign(failCredentialWriteAfterWallet, { enabled: false, armed: false });
+    assert(error !== undefined, "throws");
+    assert(log.includes(`set w3pk_wallet_${CREDENTIAL_ID}`), "wallet B was stored first");
+    await assertKeepsWalletA(sdk);
+  }
+  console.log("");
+
+  console.log("Test 1c: a failed credential update leaves no record when there was none");
+  {
+    const sdk = await loggedInWith(publicKey, MNEMONIC_A);
+    await wallets().delete(CREDENTIAL_ID);
+    Object.assign(failCredentialWriteAfterWallet, { enabled: true, armed: false });
+    const error = await capture(() => sdk.importMnemonic(MNEMONIC_B));
+    Object.assign(failCredentialWriteAfterWallet, { enabled: false, armed: false });
+    assert(
+      error instanceof Error && error.message === "Failed to update credential address",
+      "throws the credential update's error"
+    );
+    assert((await wallets().retrieve(CREDENTIAL_ID)) === null, "wallet B's record is deleted");
+    assert(
+      (await credentials().getCredentialById(CREDENTIAL_ID))?.ethereumAddress === ADDRESS_A,
+      "the credential still points at wallet A"
+    );
   }
   console.log("");
 
@@ -364,7 +401,7 @@ async function runTests() {
       persistentSession: { enabled: true, requireReauth: false },
     });
     localStorage.setItem(
-      `w3pk_session_${ADDRESS_A}`,
+      `w3pk_session_${CREDENTIAL_ID}`,
       JSON.stringify({
         encryptedMnemonic: "stale",
         sessionKey: "stale",
@@ -375,9 +412,15 @@ async function runTests() {
         createdAt: Date.now(),
       })
     );
+    log.length = 0;
     await sdk.importMnemonic(MNEMONIC_B);
-    assert(localStorage.getItem(`w3pk_session_${ADDRESS_A}`) === null, "wallet A's persistent session is deleted");
-    assert(localStorage.getItem(`w3pk_session_${ADDRESS_B}`) !== null, "wallet B's persistent session is stored");
+    const deleteSession = log.indexOf(`remove w3pk_session_${CREDENTIAL_ID}`);
+    assert(
+      deleteSession !== -1 && deleteSession < log.indexOf(`set w3pk_wallet_${CREDENTIAL_ID}`),
+      "wallet A's persistent session is deleted before wallet B is stored"
+    );
+    const session = JSON.parse(localStorage.getItem(`w3pk_session_${CREDENTIAL_ID}`) ?? "null");
+    assert(session?.ethereumAddress === ADDRESS_B, "wallet B's persistent session is stored");
   }
   console.log("");
 

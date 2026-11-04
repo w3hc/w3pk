@@ -299,11 +299,12 @@ async function restorePrfBackup(
 /**
  * Set this device up for a passkey and a synced wallet: saves the
  * passkey's metadata (or points it at the wallet), stores the wallet
- * under the key derived from `prfOutput` and starts a session. The wallet
- * is stored before the passkey points at it, and the passkey's previous
- * wallet is deleted only after. The previous wallet's persistent session
- * is deleted before anything else is written. Without `prfOutput`, the
- * wallet and the session stay in memory only.
+ * under the key derived from `prfOutput` in the passkey's own record and
+ * starts a session. Other passkeys of the wallet keep their records. If
+ * pointing the passkey at the new wallet fails, its previous record (or
+ * none) is put back. The passkey's persistent session of its previous wallet is
+ * deleted before anything else is written. Without `prfOutput`, the wallet and the
+ * session stay in memory only.
  *
  * @throws AddressChangeError if the passkey has another wallet on this device and `allowAddressChange` is false
  * @throws PrfUnsupportedError if it has another wallet and there is no `prfOutput` to store the new one with
@@ -331,13 +332,17 @@ export async function bootstrapCredential(
   // Only a remember-me cache: deleting it first means no later failure
   // leaves the replaced mnemonic readable
   if (addressChanged) {
-    await ctx.sessionManager.deletePersistentSession(stored!.ethereumAddress);
+    await ctx.sessionManager.deletePersistentSession(credential.id);
   }
+
+  const previousWallet = addressChanged
+    ? await ctx.walletStorage.retrieve(credential.id)
+    : null;
 
   if (prfOutput) {
     await ctx.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
   } else if (!stored) {
-    await ctx.walletStorage.delete(ethereumAddress);
+    await ctx.walletStorage.delete(credential.id);
   }
 
   // register() refuses a username already on this device
@@ -357,8 +362,17 @@ export async function bootstrapCredential(
       lastUsed: now,
     });
   } else if (addressChanged) {
-    await storage.updateCredentialAddress(credential.id, ethereumAddress);
-    await ctx.walletStorage.delete(stored.ethereumAddress);
+    try {
+      await storage.updateCredentialAddress(credential.id, ethereumAddress);
+    } catch (error) {
+      await (previousWallet
+        ? ctx.walletStorage.store(previousWallet)
+        : ctx.walletStorage.delete(credential.id)
+      ).catch((rollbackError) =>
+        console.warn('[w3pk] Failed to put back the previous wallet record:', rollbackError)
+      );
+      throw error;
+    }
   }
 
   ctx.currentUser = {
@@ -451,7 +465,7 @@ export async function exportForSync(
   const mnemonic = await ctx.getMnemonicFromSession();
 
   const walletData = await ctx.walletStorage.retrieve(
-    ctx.currentUser.ethereumAddress
+    ctx.currentUser.credentialId
   );
   if (!walletData) {
     throw new WalletError("No wallet data found");

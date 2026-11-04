@@ -166,7 +166,7 @@ function extractCoseCoordinate(coseKey: Uint8Array, key: number): Uint8Array | n
 
 export async function register(
   options: RegisterOptions
-): Promise<{ signature: ArrayBuffer; prfOutput?: ArrayBuffer }> {
+): Promise<{ credentialId: string; signature: ArrayBuffer; prfOutput?: ArrayBuffer }> {
   try {
     const { username, ethereumAddress, userVerification = "required" } = options;
 
@@ -263,7 +263,7 @@ export async function register(
       ? credential.getClientExtensionResults?.().prf?.results?.first
       : undefined;
 
-    return { signature: attestationObject, prfOutput };
+    return { credentialId: credential.id, signature: attestationObject, prfOutput };
   } catch (error) {
     throw new RegistrationError(
       error instanceof Error ? error.message : "Registration failed",

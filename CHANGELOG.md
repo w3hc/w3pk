@@ -45,6 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `PasskeySelectionResult` (internal) drops `publicKey` and `ethereumAddress`; the stored metadata is read where it is checked
   - `test/fresh-device-sync.test.ts` covers a counter behind the stored one, a stored key from another passkey, the saved counter and a wrong password
 
+### Fixed
+
+- **Two passkeys for one wallet both log in** ([#267](https://github.com/w3hc/w3pk/issues/267)). Wallet records were stored by address only (`w3pk_wallet_<address>`), so registering a second passkey for a wallet the device already held, with `registerWithBackupFile()` or a restore, replaced the first passkey's record, and logging in with the first passkey threw `WalletMissingError`
+  - **Wallet records are stored under `w3pk_wallet_<credentialId>` and persistent sessions under `w3pk_session_<credentialId>`.** Records stored under an address are not read anymore: there is no migration, so a passkey whose wallet was stored by an earlier version gets `WalletMissingError` and restores from a backup, and a remembered session prompts once. `logout()` clears the old sessions
+  - `register()` uses the id of the passkey it just created; it looked the credential up by address, which found the wallet's first passkey
+  - A record that holds another address than its passkey's counts as missing, and if pointing a passkey at a new wallet fails, its previous record (or none) is put back
+  - Re-authentication for a logged-in user (the prompt behind signing, exports and `importMnemonic()`) offers only the logged-in passkey, whose PRF output the record is encrypted under; `login(userVerification, credentialId?)` takes it
+  - Silent restore picks the most recent persistent session when several passkeys have one
+  - `SessionManager.deletePersistentSession()` takes a credential id
+  - `test/two-passkeys.test.ts` registers a second passkey from a backup and logs in with both, with and without persistent sessions
+
 ## [0.11.1] - 2026-11-03
 
 ### Security
