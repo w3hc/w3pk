@@ -1087,9 +1087,9 @@ At `login()`, the same assertion that authenticates evaluates the PRF at the sam
 
 ```typescript
 // Attacker has copied this origin's localStorage
-const stolenCredentialId  = "..."   // from w3pk_wallet_<address>
+const stolenCredentialId  = "..."   // from w3pk_wallet_<credentialId>
 const stolenPublicKey     = "..."   // from w3pk_credential_<id>
-const stolenEncryptedSeed = "..."   // from w3pk_wallet_<address>
+const stolenEncryptedSeed = "..."   // from w3pk_wallet_<credentialId>
 
 // No key can be derived from these: the PRF output stays in the authenticator
 // ❌ seed not recoverable offline
@@ -1112,7 +1112,7 @@ const stolenEncryptedSeed = "..."   // from w3pk_wallet_<address>
 }
 ```
 
-#### LocalStorage (Encrypted Wallet, `w3pk_wallet_<address>`)
+#### LocalStorage (Encrypted Wallet, `w3pk_wallet_<credentialId>`)
 ```json
 {
   "ethereumAddress": "0x1234...5678",
@@ -1178,7 +1178,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │ localStorage (Origin-Scoped)                           │ │
-│  │ Key: w3pk_wallet_<address>                             │ │
+│  │ Key: w3pk_wallet_<credentialId>                        │ │
 │  │                                                          │ │
 │  │ {                                                        │ │
 │  │   "ethereumAddress": "0x1234...",     // PUBLIC        │ │
@@ -2520,7 +2520,7 @@ const w3pk = createWeb3Passkey({
 }
 
 // localStorage (origin-scoped by browser)
-// Key: w3pk_wallet_<address>
+// Key: w3pk_wallet_<credentialId>
 {
   "ethereumAddress": "0x1234...",
   "encryptedMnemonic": "v1kT...",  // AES-GCM encrypted

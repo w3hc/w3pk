@@ -246,7 +246,7 @@ STEP 4: Encrypt & Store
 │  localStorage              │  localStorage              │
 │  ─────────────             │  ─────────────             │
 │                            │                            │
-│  w3pk_credential_*:        │  w3pk_wallet_<address>:    │
+│  w3pk_credential_*:        │  w3pk_wallet_<id>:         │
 │  {                         │  {                         │
 │    id: "abc123",           │    ethereumAddress,        │
 │    publicKey,              │    encryptedMnemonic,      │
@@ -282,7 +282,7 @@ STEP 2: Fetch Stored Data
 ┌────────────────────────────┬────────────────────────────┐
 │  localStorage              │  localStorage              │
 │                            │                            │
-│  Get by credentialId:      │  Get by address:           │
+│  Get by credentialId:      │  Get by credentialId:      │
 │  → publicKey               │  → encryptedMnemonic       │
 └─────────────┬──────────────┴──────────────┬─────────────┘
               │                             │
@@ -404,10 +404,10 @@ User wants to send 1 ETH
 ### Wallet Storage
 
 **Storage**: localStorage, next to the credential metadata, so browser eviction removes both or neither
-**Key**: `w3pk_wallet_<ethereumAddress>`
+**Key**: `w3pk_wallet_<credentialId>`, one record per passkey: two passkeys of one wallet each keep the mnemonic encrypted under their own PRF output
 **Purpose**: Encrypted wallet storage
 
-Persistent sessions use `w3pk_session_<ethereumAddress>` and backup metadata `w3pk_backups`, in the same localStorage.
+Persistent sessions use `w3pk_session_<credentialId>` and backup metadata `w3pk_backups`, in the same localStorage.
 
 ```typescript
 // Example record in localStorage
@@ -792,7 +792,7 @@ Scenarios:
 }
 ```
 
-### What's in `w3pk_wallet_<address>`?
+### What's in `w3pk_wallet_<credentialId>`?
 
 ```json
 {
