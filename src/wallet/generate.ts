@@ -90,6 +90,10 @@ export function deriveWalletFromPath(
       throw new Error("Invalid mnemonic: must be at least 12 words");
     }
 
+    if (typeof path !== "string" || !/^m(\/\d+'?)+$/.test(path)) {
+      throw new Error(`Invalid derivation path: ${path}`);
+    }
+
     const wallet = ethers.HDNodeWallet.fromPhrase(
       mnemonic.trim(),
       undefined,

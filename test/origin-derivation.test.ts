@@ -11,7 +11,7 @@ import {
   DEFAULT_TAG,
   DEFAULT_MODE,
 } from "../src/wallet/origin-derivation";
-import { deriveWalletFromMnemonic } from "../src/wallet/generate";
+import { deriveWalletFromMnemonic, deriveWalletFromPath } from "../src/wallet/generate";
 import type { SecurityMode } from "../src/types";
 
 async function runTests() {
@@ -470,6 +470,13 @@ async function runTests() {
     assert.notStrictEqual(evil.address, victimWallet.address);
     assert.notStrictEqual(evil.address, registration.address);
     assert.notStrictEqual(victimWallet.address, registration.address);
+
+    for (const path of [undefined, null, "", "m", "44'/60'"]) {
+      assert.throws(
+        () => deriveWalletFromPath(testMnemonic, path as unknown as string),
+        "A missing or malformed path never falls back to the registration key"
+      );
+    }
 
     console.log("✅ Origins are isolated");
   }
