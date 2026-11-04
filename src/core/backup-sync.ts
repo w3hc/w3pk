@@ -301,8 +301,9 @@ async function restorePrfBackup(
  * passkey's metadata (or points it at the wallet), stores the wallet
  * under the key derived from `prfOutput` and starts a session. The wallet
  * is stored before the passkey points at it, and the passkey's previous
- * wallet and its persistent session are deleted only after. Without `prfOutput`, the wallet and the
- * session stay in memory only.
+ * wallet is deleted only after. The previous wallet's persistent session
+ * is deleted before anything else is written. Without `prfOutput`, the
+ * wallet and the session stay in memory only.
  *
  * @throws AddressChangeError if the passkey has another wallet on this device and `allowAddressChange` is false
  * @throws PrfUnsupportedError if it has another wallet and there is no `prfOutput` to store the new one with
@@ -325,6 +326,12 @@ export async function bootstrapCredential(
     throw allowAddressChange
       ? new PrfUnsupportedError(credential.id)
       : new AddressChangeError(stored!.ethereumAddress, ethereumAddress);
+  }
+
+  // Only a remember-me cache: deleting it first means no later failure
+  // leaves the replaced mnemonic readable
+  if (addressChanged) {
+    await ctx.sessionManager.deletePersistentSession(stored!.ethereumAddress);
   }
 
   if (prfOutput) {
@@ -352,7 +359,6 @@ export async function bootstrapCredential(
   } else if (addressChanged) {
     await storage.updateCredentialAddress(credential.id, ethereumAddress);
     await ctx.walletStorage.delete(stored.ethereumAddress);
-    await ctx.sessionManager.deletePersistentSession(stored.ethereumAddress);
   }
 
   ctx.currentUser = {
