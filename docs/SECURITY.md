@@ -139,38 +139,44 @@ w3pk now uses **origin-centric security modes** for wallet derivation:
 - ✅ Signatures via `signMessage()` (no key exposure)
 - ✅ Encrypted backups via SDK methods
 
-### Origin keys are non-hardened BIP-32 children
+### Origin keys use hardened derivation
 
-Every origin address is derived at `m/44'/60'/0'/0/{index}`, where `index` comes from the origin, mode and tag. That last step is a non-hardened [BIP-32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#security) derivation: anyone holding one child private key **and** the parent extended public key of `m/44'/60'/0'/0` can compute the parent private key, and from it every sibling, so every other origin's key.
+Every origin address is derived at `m/13'/A'/B'/C'/D'/mode'/tag'`, every level hardened:
 
-w3pk never exposes that extended public key, so a single leaked YOLO-mode private key does not reveal the others on its own. But the isolation between origins rests on the extended public key staying secret, not on the derivation: treat a YOLO private key as sensitive for the whole wallet. The path is kept because hardening it would move every existing origin address.
+- `A'/B'/C'/D'`: the [SLIP-0013](https://github.com/satoshilabs/slips/blob/master/slip-0013.md) service identity of the normalized origin (index 0): the first 16 bytes of `SHA-256(LE32(0) ‖ origin)`, read as four little-endian uint32
+- `mode'`: `STANDARD`=0', `STRICT`=1', `YOLO`=2', `PRIMARY`=3'
+- `tag'`: the first 4 bytes of `SHA-256(TAG)`, big-endian, low 31 bits
+
+The origin levels hold 124 bits of SHA-256 that only the origin controls, so no mode or tag chosen by one origin can reach another origin's subtree. Every level is hardened, so under [BIP-32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#security) a leaked YOLO-mode private key reveals neither its parents nor any other origin's key. Purpose `13'` also keeps every origin key away from the registration address at `m/44'/60'/0'/0/0`.
+
+Before v0.11.2, origin keys were non-hardened children at `m/44'/60'/0'/0/{index}` with a 31-bit `index` from `SHA-256(origin:mode:tag)`: an app could search about 2^31 tags to find one that gave another origin's key ([#262](https://github.com/w3hc/w3pk/issues/262)). Every origin address changed with the fix.
 
 ### Mode-Based Security Examples
 
 ```typescript
 // STANDARD mode (default) - Address only, persistent sessions
 const wallet = await w3pk.deriveWallet()
-// Returns: { address, index, origin, mode: 'STANDARD', tag: 'MAIN' }
+// Returns: { address, path, origin, mode: 'STANDARD', tag: 'MAIN' }
 // ✅ Safe for display
 // ❌ No privateKey in response
 // ✅ Uses cached session (no repeated auth)
 
 // STRICT mode - Address only, NO persistent sessions
 const strictWallet = await w3pk.deriveWallet('STRICT')
-// Returns: { address, index, origin, mode: 'STRICT', tag: 'MAIN' }
+// Returns: { address, path, origin, mode: 'STRICT', tag: 'MAIN' }
 // ✅ Safe for display
 // ❌ No privateKey in response
 // ⚠️ Requires biometric/PIN authentication EVERY time
 
 // YOLO mode - Full access with private key
 const yoloWallet = await w3pk.deriveWallet('YOLO')
-// Returns: { address, privateKey, index, origin, mode: 'YOLO', tag: 'MAIN' }
+// Returns: { address, privateKey, path, origin, mode: 'YOLO', tag: 'MAIN' }
 // ✅ Full access for transactions
 // ⚠️ Application has access to private key
 
 // YOLO mode with custom tag for specific features
 const gamingWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
-// Returns: { address, privateKey, index, origin, mode: 'YOLO', tag: 'GAMING' }
+// Returns: { address, privateKey, path, origin, mode: 'YOLO', tag: 'GAMING' }
 // ✅ Different address from MAIN
 // ✅ Full access for gaming transactions
 ```

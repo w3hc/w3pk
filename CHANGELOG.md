@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The constructor keeps 0 (`??`), and `SessionManager` keeps no in-memory session when the duration is 0, including after a persistent-session restore
   - A session counts as expired from its expiry time (`>=`), in one shared check
   - `test/session-duration.test.ts` covers it
+- **No tag on one origin derives another origin's key** ([#262](https://github.com/w3hc/w3pk/issues/262)). Origin keys sat at `m/44'/60'/0'/0/{index}` with a 31-bit `index` from `SHA-256(origin:mode:tag)`, so an app could search about 2^31 tags for one that gave another origin's index, and its private key in YOLO mode
+  - **Every origin address changes** (STANDARD, STRICT and YOLO, every tag), and so do the ML-KEM keys derived from them. There is no migration: move funds off the old addresses with w3pk v0.11.1 before upgrading. The registration address at `m/44'/60'/0'/0/0` doesn't change
+  - Origin keys are derived at `m/13'/A'/B'/C'/D'/mode'/tag'`, every level hardened: `A'..D'` are the [SLIP-0013](https://github.com/satoshilabs/slips/blob/master/slip-0013.md) identity of the normalized origin (first 16 bytes of `SHA-256(LE32(0) ‖ origin)`), `mode'` is `STANDARD`=0', `STRICT`=1', `YOLO`=2', `PRIMARY`=3', `tag'` is 31 bits of `SHA-256(TAG)`. A leaked YOLO key no longer reveals its parent or sibling keys, which closes the non-hardened-path note in `docs/SECURITY.md`
+  - `deriveIndexFromOriginModeAndTag()` is replaced by `deriveOriginPath()`, which returns the path; `getOriginSpecificAddress()` and `deriveWallet()` return `path` instead of `index`
+  - `deriveWalletFromPath(mnemonic, path)` derives at a full path and throws on a missing or malformed one
+  - `test/origin-derivation.test.ts` has path and address vectors and checks that no mode or tag on one origin reaches another origin's path
 
 ## [0.11.1] - 2026-11-03
 

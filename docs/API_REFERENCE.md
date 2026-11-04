@@ -316,7 +316,7 @@ Origin-centric wallet derivation with three security modes:
 interface DerivedWallet {
   address: string;       // Ethereum address
   privateKey?: string;   // Private key (only in YOLO mode)
-  index?: number;        // BIP32 derivation index
+  path?: string;         // BIP-32 derivation path
   origin?: string;       // Origin URL
   mode?: SecurityMode;   // Security mode used
   tag?: string;          // Tag name
@@ -437,7 +437,7 @@ Derives an origin-specific address from mnemonic with mode and tag support.
 interface OriginWalletInfo {
   address: string;        // Ethereum address
   privateKey?: string;    // Private key (only in YOLO mode)
-  index: number;          // BIP32 derivation index
+  path: string;           // BIP-32 derivation path
   origin: string;         // Normalized origin
   mode: SecurityMode;     // Security mode used
   tag: string;            // Normalized tag (uppercase)
@@ -446,11 +446,10 @@ interface OriginWalletInfo {
 
 **How it works:**
 1. Normalizes the origin URL (lowercase, removes trailing slash, handles standard ports)
-2. Combines origin, mode, and tag: `${origin}:${MODE}:${TAG}`
-3. SHA-256 hashes the combined string
-4. Derives deterministic index from hash (0 to 2^31-1)
-5. Derives wallet at BIP32 path: `m/44'/60'/0'/0/{index}`
-6. Exposes private key only in YOLO mode
+2. Uppercases the tag
+3. Builds the fully hardened path `m/13'/A'/B'/C'/D'/mode'/tag'` with `deriveOriginPath()`
+4. Derives the wallet at that path from the mnemonic's root
+5. Exposes private key only in YOLO mode
 
 **Example:**
 
@@ -525,23 +524,27 @@ console.log(gamingWallet.address === wallet2.address) // true
 
 #### Helper Functions
 
-##### `deriveIndexFromOriginModeAndTag(origin: string, mode?: SecurityMode, tag?: string): Promise<number>`
+##### `deriveOriginPath(origin: string, mode?: SecurityMode, tag?: string): Promise<string>`
 
-Derives deterministic index from origin, security mode, and tag.
+Derives the BIP-32 path of an origin, security mode and tag: `m/13'/A'/B'/C'/D'/mode'/tag'`, every level hardened.
+
+- `A'/B'/C'/D'`: [SLIP-0013](https://github.com/satoshilabs/slips/blob/master/slip-0013.md) service identity of the normalized origin with index 0: the first 16 bytes of `SHA-256(LE32(0) ‖ origin)`, as four little-endian uint32
+- `mode'`: `STANDARD`=0', `STRICT`=1', `YOLO`=2', `PRIMARY`=3'
+- `tag'`: first 4 bytes of `SHA-256(TAG)` (tag uppercased), big-endian, low 31 bits
 
 **Parameters:**
 - `origin: string` - The origin URL (e.g., "https://example.com")
-- `mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
-- `tag?: string` - Optional tag to generate different addresses for same origin (default: "MAIN")
+- `mode?: SecurityMode` - Security mode (default: 'STANDARD')
+- `tag?: string` - Tag, case-insensitive (default: "MAIN")
 
-**Returns:** `Promise<number>` - Deterministic BIP32 index (0 to 2^31-1)
+**Returns:** `Promise<string>` - The derivation path
 
 **Example:**
 ```typescript
-import { deriveIndexFromOriginModeAndTag } from 'w3pk'
+import { deriveOriginPath } from 'w3pk'
 
-const index = await deriveIndexFromOriginModeAndTag('https://example.com', 'YOLO', 'GAMING')
-console.log('Index:', index) // 1870479373
+const path = await deriveOriginPath('https://example.com', 'YOLO', 'GAMING')
+console.log(path) // m/13'/645184497'/1329031'/2055466046'/1660046646'/2'/152488895'
 ```
 
 ##### `normalizeOrigin(origin: string): string`
@@ -1319,7 +1322,7 @@ console.log('will send from:', from)
 2. Resolves `effectiveMode`, `effectiveTag`, `origin` (defaults: `'STANDARD'`, `'MAIN'`, `window.location.origin`)
 3. Sets `currentSecurityMode`
 4. STRICT mode forces fresh authentication; other modes use active session
-5. Derives sender wallet from mnemonic at the mode/tag/origin-specific index — this is the `from` address
+5. Derives sender wallet from mnemonic at the mode/tag/origin-specific path — this is the `from` address
 6. Resolves RPC endpoint; throws if none found
 7. Connects wallet to `JsonRpcProvider` and calls `sendTransaction()`
 8. Returns `{ hash, from, chainId, mode, tag, origin }`
@@ -3494,6 +3497,15 @@ const wallet1 = deriveWalletFromMnemonic(mnemonic, 1)
 
 console.log('Account 0:', wallet0.address)
 console.log('Account 1:', wallet1.address)
+```
+
+#### `deriveWalletFromPath(mnemonic: string, path: string): { address: string; privateKey: string }`
+
+Derive HD wallet at a full BIP-32 path from the mnemonic's root, such as the path returned by `deriveOriginPath()`.
+
+```typescript
+const path = await deriveOriginPath('https://example.com')
+const { address } = deriveWalletFromPath(mnemonic, path)
 ```
 
 ---
