@@ -77,6 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `test/stealth-point.test.ts` has a known vector and checks `P + (−P)` and a zero private key throw
 - **`stealth.signTransaction()` states its cross-origin risk** ([#274](https://github.com/w3hc/w3pk/issues/274)). Stealth keys are the same for every origin, so any origin that enables `stealthAddresses` can sign any transaction from any of the user's stealth addresses, and the passkey prompt doesn't show the transaction
   - The JSDoc, `docs/API_REFERENCE.md`, `docs/SECURITY.md` and the README say so and link [#147](https://github.com/w3hc/w3pk/issues/147)
+- **The ML-KEM docs state that payloads have no sender authentication** ([#275](https://github.com/w3hc/w3pk/issues/275)). Every recipient learns the shared data key, so any recipient can seal new content for the others, and a payload that decrypts proves nothing about who sent it
+  - `docs/POST_QUANTUM.md` has a "No sender authentication" section: sign the plaintext, the recipients' public keys and a timestamp with `signMessage()`, encrypt the signed message, and verify it after decrypting. Signing the ciphertext doesn't work, since anyone can strip the signature and sign it as themselves
+  - The `mlkemEncrypt()`, `mlkemDecrypt()`, `mlkemEncryptWithKey()` and `mlkemDecryptWithKey()` JSDoc, `docs/API_REFERENCE.md` and the README say so
+  - `docs/POST_QUANTUM.md`'s security properties say the KEM keys come from the BIP-39 seed, as since [#263](https://github.com/w3hc/w3pk/issues/263), not from the Ethereum private key
 
 ### Fixed
 
