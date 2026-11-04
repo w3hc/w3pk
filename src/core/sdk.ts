@@ -110,6 +110,16 @@ export type ZKMethods = {
     : () => Promise<ZKProofModule[K]>;
 };
 
+// Strict decoding: bytes that aren't valid UTF-8 can't be a SIWE message
+function decodeUtf8(message: string | Uint8Array): string | undefined {
+  if (typeof message === 'string') return message;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(message);
+  } catch {
+    return undefined;
+  }
+}
+
 export class Web3Passkey {
   private config: InternalConfig;
   private walletStorage: LocalStorageWalletStorage;
@@ -890,13 +900,12 @@ export class Web3Passkey {
       const origin = getCurrentOrigin();
 
       // EIP-4361: reject a SIWE message whose domain isn't this page's, also
-      // when it comes as a plain EIP-191 message, which signs the same bytes
-      if (
-        signingMethod === 'SIWE' ||
-        (signingMethod === 'EIP191' && typeof message === 'string' && message.includes(SIWE_HEADER))
-      ) {
+      // when it comes as a plain EIP-191 message, which signs the same bytes,
+      // or as bytes that decode to one, as personal_sign passes hex
+      const text = signingMethod === 'SIWE' || signingMethod === 'EIP191' ? decodeUtf8(message) : undefined;
+      if (text !== undefined && (signingMethod === 'SIWE' || text.includes(SIWE_HEADER))) {
         const { assertSiweDomain } = await import("../siwe");
-        assertSiweDomain(message as string, origin);
+        assertSiweDomain(text, origin);
       }
 
       // Checked before the passkey prompt that rawHash always triggers
