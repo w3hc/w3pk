@@ -12,6 +12,7 @@ import {
   Web3PasskeyError,
 } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
+import { LocalStorageWalletStorage } from "../src/wallet/storage";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
 console.log("\n==================================================");
@@ -207,6 +208,26 @@ async function runTests() {
     assert(
       (error as WalletMissingError).ethereumAddress === ADDRESS,
       "carries the ethereumAddress"
+    );
+    assert(!sdk.isAuthenticated, "user is not logged in");
+    assert(!authEvents.includes(true), "onAuthStateChanged(true) never fires");
+  }
+  console.log("");
+
+  console.log("Test 3: the passkey's wallet record holds another address");
+  {
+    await new LocalStorageWalletStorage(localStorage as unknown as Storage).store({
+      ethereumAddress: "0x0000000000000000000000000000000000000001",
+      encryptedMnemonic: "ciphertext",
+      credentialId: CREDENTIAL_ID,
+      createdAt: new Date().toISOString(),
+    });
+
+    const { sdk, authEvents, error } = await attemptLogin();
+    assert(error instanceof WalletMissingError, "throws WalletMissingError");
+    assert(
+      (error as WalletMissingError).ethereumAddress === ADDRESS,
+      "carries the credential's address"
     );
     assert(!sdk.isAuthenticated, "user is not logged in");
     assert(!authEvents.includes(true), "onAuthStateChanged(true) never fires");

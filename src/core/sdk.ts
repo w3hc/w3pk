@@ -21,6 +21,7 @@
 import { register } from "../auth/register";
 import { login } from "../auth/authenticate";
 import { LocalStorageWalletStorage } from "../wallet/storage";
+import type { EncryptedWalletData } from "../wallet/types";
 import {
   createWalletFromMnemonic,
   generateBIP39Wallet,
@@ -218,8 +219,9 @@ export class Web3Passkey {
       throw new WalletError("Must be authenticated. Call login() first.");
     }
 
-    const walletData = await this.walletStorage.retrieve(
-      this.currentUser.credentialId
+    const walletData = await this.retrieveWallet(
+      this.currentUser.credentialId,
+      this.currentUser.ethereumAddress
     );
 
     if (!walletData) {
@@ -260,6 +262,20 @@ export class Web3Passkey {
     );
 
     return mnemonic;
+  }
+
+  /**
+   * The passkey's wallet record, if it holds the wallet the passkey points
+   * at: an interrupted address change can leave one without the other
+   */
+  private async retrieveWallet(
+    credentialId: string,
+    ethereumAddress: string
+  ): Promise<EncryptedWalletData | null> {
+    const walletData = await this.walletStorage.retrieve(credentialId);
+    return walletData?.ethereumAddress.toLowerCase() === ethereumAddress.toLowerCase()
+      ? walletData
+      : null;
   }
 
   /**
@@ -382,8 +398,9 @@ export class Web3Passkey {
         const credential = await storage.getCredentialById(silentRestore.credentialId);
 
         // Verify wallet exists
-        const walletData = await this.walletStorage.retrieve(
-          silentRestore.credentialId
+        const walletData = await this.retrieveWallet(
+          silentRestore.credentialId,
+          silentRestore.ethereumAddress
         );
 
         if (!walletData) {
@@ -413,8 +430,9 @@ export class Web3Passkey {
         throw new AuthenticationError("Login failed");
       }
 
-      const walletData = await this.walletStorage.retrieve(
-        result.user.credentialId
+      const walletData = await this.retrieveWallet(
+        result.user.credentialId,
+        result.user.ethereumAddress
       );
 
       if (!walletData) {
