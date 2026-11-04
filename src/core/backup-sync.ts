@@ -183,11 +183,20 @@ export async function syncWalletWithPasskey(
 
   const passkeyResult = await promptPasskeySelection();
   const credentialId = passkeyResult.credentialId;
+  const storage = new CredentialStorage();
+  const stored = await storage.getCredentialById(credentialId);
 
-  // A fresh device has no metadata for the passkey: its public key comes
-  // from the password backup that names it
-  let publicKey = passkeyResult.publicKey;
-  if (!publicKey) {
+  // A known passkey's assertion passes login()'s checks against its stored
+  // metadata. A fresh device has none: the public key comes from the
+  // password backup that names the passkey
+  let publicKey: string;
+  if (stored) {
+    if (!(await verifyAssertion(passkeyResult.assertion, stored, storage, passkeyResult.challenge))) {
+      if (passkeyResult.prfOutput) new Uint8Array(passkeyResult.prfOutput).fill(0);
+      throw new AuthenticationError("Signature verification failed");
+    }
+    publicKey = stored.publicKey;
+  } else {
     if (!backupFile.credential) {
       throw new SyncBootstrapError("NO_CREDENTIAL", credentialId);
     }
