@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`syncWalletWithPasskey()` checks a known passkey's assertion** ([#265](https://github.com/w3hc/w3pk/issues/265)). On the password-backup path, the passkey selection's assertion was checked against a public key only when the device had no metadata for the passkey. When it had some, neither the signature nor the counter was checked before the stored wallet was replaced; #255 closed the same gap in `restoreFromBackupFile()`
   - With metadata, the assertion runs `verifyAssertion()`, `login()`'s check: signature against the stored public key, counter checked and saved. A failure throws `AuthenticationError` before anything stored changes
   - The PRF output is zeroed on any failure after the prompt, a wrong password included
+- **A replaced wallet's persistent session is deleted** ([#266](https://github.com/w3hc/w3pk/issues/266)). When `importMnemonic()`, or a restore or sync with `allowAddressChange`, moved a passkey to another address, the previous wallet was deleted but its `w3pk_session_<address>` stayed in `localStorage`. With `requireReauth: false` the session key is stored next to it, so the replaced mnemonic stayed readable until logout or expiry (7 days by default)
+  - The previous address's persistent session is deleted before anything is stored, so no later failure leaves it behind
+  - `SessionManager.deletePersistentSession(address)` deletes one address's persistent session
+  - `test/import-mnemonic.test.ts` and `test/restore-replace-wallet.test.ts` cover it
   - `PasskeySelectionResult` (internal) drops `publicKey` and `ethereumAddress`; the stored metadata is read where it is checked
   - `test/fresh-device-sync.test.ts` covers a counter behind the stored one, a stored key from another passkey, the saved counter and a wrong password
 
