@@ -959,7 +959,7 @@ The score is recalculated on-demand when you call `getBackupStatus()`, ensuring 
 
 ## 📝 Migration from v3 and v2
 
-BackupFile v3 (0.11.x) and v2 (before 0.11.0) are no longer restored, and neither are guardian shares made by 0.11.x. Before upgrading, create a new backup and set up social recovery again with the new version on a device where the wallet is. To migrate a v3 or v2 password backup without such a device:
+BackupFile v3 (0.11.x) and v2 (before 0.11.0) are no longer restored, and neither are guardian shares made by 0.11.x. After upgrading, create a new backup and set up social recovery again on a device where the wallet is; keep the old files and shares until then. To migrate a v3 or v2 password backup without such a device:
 
 1. Open the offline tool that reads its format: [commit `b14c32c`](https://github.com/w3hc/w3pk/blob/b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html) for v3, [tag `v0.10.6`](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html) for v2, and extract the mnemonic
 2. Import it (`importMnemonic()` while logged in), then create a new backup with `createBackupFile(password)`
