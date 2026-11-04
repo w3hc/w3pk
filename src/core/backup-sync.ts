@@ -185,13 +185,15 @@ export async function syncWalletWithPasskey(
   if (!password) {
     throw new WalletError("Password required to restore password-encrypted backup");
   }
-  const { mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password);
 
   const passkeyResult = await promptPasskeySelection();
   const credentialId = passkeyResult.credentialId;
   let publicKey: string;
+  let mnemonic: string;
+  let ethereumAddress: string;
   try {
     publicKey = await verifySyncAssertion(passkeyResult, backupFile);
+    ({ mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password));
   } catch (error) {
     if (passkeyResult.prfOutput) new Uint8Array(passkeyResult.prfOutput).fill(0);
     throw error;
