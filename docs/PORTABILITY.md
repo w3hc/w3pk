@@ -179,7 +179,7 @@ console.log('Restored wallet address:', ethereumAddress);
 
 #### Backup File Structure
 
-See [Backup File Format (v3)](./RECOVERY.md#-backup-file-format-v3).
+See [Backup File Format (v4)](./RECOVERY.md#-backup-file-format-v4).
 
 #### UI/UX Best Practices
 
@@ -273,7 +273,7 @@ Or pass the password up front: `exportForSync(password)` uses it only when PRF i
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "createdAt": "2026-10-25T10:30:00.000Z",
   "encryptedMnemonic": "base64(iv || AES-256-GCM ciphertext)",
   "encryptionMethod": "prf",
@@ -283,7 +283,7 @@ Or pass the password up front: `exportForSync(password)` uses it only when PRF i
 }
 ```
 
-The key is HKDF-SHA256 over the PRF output evaluated at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`. The public key doesn't decrypt anything; the new device needs it for later logins and checks it against the assertion's signature. The file fits in a QR code (`generateSyncQR()`).
+The key is HKDF-SHA256 over the PRF output evaluated at `SHA-256("w3pk-prf-sync-v1" || prfSalt)`, and every field but `encryptedMnemonic` is AES-GCM additional data, as in a password backup. The public key doesn't decrypt anything; the new device needs it for later logins and checks it against the assertion's signature. The file fits in a QR code (`generateSyncQR()`).
 
 ---
 
@@ -295,7 +295,7 @@ For advanced users who need to export their mnemonic to use in other wallets, W3
 
 See [standalone/extract-mnemonic.html](../standalone/extract-mnemonic.html) for a complete standalone implementation.
 
-To try it, [examples/w3pk_backup_example_2026-11-02.json](../examples/w3pk_backup_example_2026-11-02.json) is a password backup of the public test mnemonic `test test test test test test test test test test test junk`, with the password `test-password`.
+To try it, [examples/w3pk_backup_example_2026-11-04.json](../examples/w3pk_backup_example_2026-11-04.json) is a password backup of the public test mnemonic `test test test test test test test test test test test junk`, with the password `test-password`.
 
 #### Key Features to Implement
 
@@ -314,13 +314,43 @@ To try it, [examples/w3pk_backup_example_2026-11-02.json](../examples/w3pk_backu
    <input type="password" id="backup-password" autocomplete="off">
    ```
 
-4. **Decryption Logic (BackupFile v3, `password`)**
+4. **Decryption Logic (BackupFile v4, `password`)**
    ```typescript
    import { argon2idAsync } from '@noble/hashes/argon2.js';
 
+   // Every field but encryptedMnemonic, in this order. Absent: 0x00.
+   // String: 0x01, UTF-8 length (4 bytes big-endian), bytes. Integer: 0x01, 4 bytes big-endian.
+   function additionalData(backup: any): Uint8Array {
+     const parts: number[] = [];
+     const u32 = (n: number) => parts.push(n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255);
+     const str = (v?: string) => {
+       if (v === undefined) return void parts.push(0);
+       const bytes = new TextEncoder().encode(v);
+       parts.push(1);
+       u32(bytes.length);
+       parts.push(...bytes);
+     };
+     const int = (v?: number) => (v === undefined ? void parts.push(0) : (parts.push(1), u32(v)));
+     const kdf = backup.passwordEncryption;
+     str('w3pk-backup-v4');
+     int(backup.version);
+     str(backup.createdAt);
+     str(backup.encryptionMethod);
+     str(kdf?.kdf);
+     str(kdf?.salt);
+     int(kdf?.memoryKiB);
+     int(kdf?.passes);
+     int(kdf?.parallelism);
+     str(backup.credential?.id);
+     str(backup.credential?.publicKey);
+     str(backup.prfSalt);
+     str(backup.username);
+     return Uint8Array.from(parts);
+   }
+
    async function extractMnemonic(backupFile: File, password: string): Promise<string> {
      const backup = JSON.parse(await backupFile.text());
-     if (backup.version !== 3) throw new Error('Not a BackupFile v3');
+     if (backup.version !== 4) throw new Error('Not a BackupFile v4');
      const { salt, memoryKiB, passes, parallelism } = backup.passwordEncryption;
      const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
@@ -331,11 +361,15 @@ To try it, [examples/w3pk_backup_example_2026-11-02.json](../examples/w3pk_backu
      );
      const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
      const data = b64(backup.encryptedMnemonic); // iv (12 bytes) || ciphertext
-     const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: data.slice(0, 12) }, key, data.slice(12));
+     const plain = await crypto.subtle.decrypt(
+       { name: 'AES-GCM', iv: data.slice(0, 12), additionalData: additionalData(backup) },
+       key,
+       data.slice(12)
+     );
      return new TextDecoder().decode(plain);
    }
    ```
-   The reference page inlines a bundle of `argon2idAsync`, and one of the BIP-39, BIP-32 and secp256k1 primitives for its wallet derivation, so it needs no CDN (`pnpm build:standalone` regenerates them). For v2 files, use the [v0.10.6 tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html).
+   The reference page inlines a bundle of `argon2idAsync`, and one of the BIP-39, BIP-32 and secp256k1 primitives for its wallet derivation, so it needs no CDN (`pnpm build:standalone` regenerates them). For v3 files, use the [tool at commit `b14c32c`](https://github.com/w3hc/w3pk/blob/b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html); for v2 files, the [v0.10.6 tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html).
 
 5. **Display Mnemonic Securely**
    ```html
