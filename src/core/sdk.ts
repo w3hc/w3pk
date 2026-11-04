@@ -767,7 +767,7 @@ export class Web3Passkey {
    * Import a mnemonic phrase as the logged-in passkey's wallet, replacing
    * the stored one. The imported wallet is stored under its own address
    * before the credential points at it, and the previous wallet is deleted
-   * only after.
+   * only after. The previous wallet's persistent session is deleted first.
    *
    * @throws WalletError if not logged in, or the phrase isn't a valid BIP39 mnemonic
    * @throws AuthenticationError if the passkey prompt is cancelled, and PrfUnsupportedError if the authenticator returns no PRF output (nothing stored changes)
