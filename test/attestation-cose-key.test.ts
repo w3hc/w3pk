@@ -1,10 +1,10 @@
 /**
- * The credential public key is decoded from the attested credential data as
+ * The attestation object is decoded as CBOR, and the credential public key is decoded from the attested credential data as
  * CBOR and accepted only as an ES256 key on P-256: kty 2, alg -7, crv 1 and
  * 32-byte x and y on the curve.
  */
 
-import { credentialPublicKeyFromAuthData } from "../src/auth/attestation";
+import { authDataFromAttestationObject, credentialPublicKeyFromAuthData } from "../src/auth/attestation";
 import { runTestSuite, assert } from "./test-utils";
 
 const UP = 0x01;
@@ -54,6 +54,26 @@ function es256(x: ArrayLike<number>, y: ArrayLike<number>, overrides: { kty?: nu
   ]);
 }
 
+function text(s: string): number[] {
+  return [0x60 | s.length, ...new TextEncoder().encode(s)];
+}
+
+function attestationObject(entries: [string, number[]][], tail: number[] = []): ArrayBuffer {
+  return new Uint8Array([0xa0 | entries.length, ...entries.flatMap(([k, v]) => [...text(k), ...v]), ...tail]).buffer;
+}
+
+function rejectedObject(object: () => ArrayBuffer, what: string) {
+  return () => {
+    let threw = false;
+    try {
+      authDataFromAttestationObject(object());
+    } catch {
+      threw = true;
+    }
+    assert(threw, `${what} should be refused`);
+  };
+}
+
 let x: Uint8Array;
 let y: Uint8Array;
 let spki: Uint8Array;
@@ -81,6 +101,53 @@ function refused(data: () => Uint8Array, what: string, message?: string) {
 
 setup().then(() =>
   runTestSuite("Attestation COSE Key Tests", [
+    {
+      name: "authData is read from the attestation object map",
+      fn: () => {
+        const data = authData(es256(x, y));
+        const out = authDataFromAttestationObject(
+          attestationObject([["fmt", text("none")], ["attStmt", [0xa0]], ["authData", bytes(data)]])
+        );
+        assert(out.join() === data.join(), "authData should be returned as encoded");
+      },
+    },
+    {
+      name: "authData pattern inside another field is not mistaken for authData",
+      fn: () => {
+        const data = authData(es256(x, y));
+        const decoy = [...text("authData"), ...bytes(new Uint8Array(40))];
+        const out = authDataFromAttestationObject(
+          attestationObject([
+            ["fmt", text("packed")],
+            ["attStmt", [0xa2, ...text("alg"), ...int(-7), ...text("sig"), ...bytes(decoy)]],
+            ["authData", bytes(data)],
+          ])
+        );
+        assert(out.join() === data.join(), "authData should come from the authData key");
+      },
+    },
+    {
+      name: "attestation object without fmt is refused",
+      fn: rejectedObject(() => attestationObject([["attStmt", [0xa0]], ["authData", bytes(authData(es256(x, y)))]]), "no fmt"),
+    },
+    {
+      name: "attestation object without attStmt is refused",
+      fn: rejectedObject(() => attestationObject([["fmt", text("none")], ["authData", bytes(authData(es256(x, y)))]]), "no attStmt"),
+    },
+    {
+      name: "authData as a text string is refused",
+      fn: rejectedObject(
+        () => attestationObject([["fmt", text("none")], ["attStmt", [0xa0]], ["authData", text("authData")]]),
+        "text authData"
+      ),
+    },
+    {
+      name: "trailing bytes after the attestation object are refused",
+      fn: rejectedObject(
+        () => attestationObject([["fmt", text("none")], ["attStmt", [0xa0]], ["authData", bytes(authData(es256(x, y)))]], [0x00]),
+        "trailing bytes"
+      ),
+    },
     {
       name: "valid ES256 key is decoded to its SPKI",
       fn: async () => {

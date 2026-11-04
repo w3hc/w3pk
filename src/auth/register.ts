@@ -9,49 +9,7 @@ import {
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
 import { verifyClientData, verifyRpIdHash } from "./authenticate";
-import { credentialPublicKeyFromAuthData } from "./attestation";
-
-function getAuthData(attestationObject: ArrayBuffer): Uint8Array | null {
-  const attestationBuffer = new Uint8Array(attestationObject);
-  const authDataOffset = findAuthDataOffset(attestationBuffer);
-  if (authDataOffset === -1) return null;
-  return attestationBuffer.slice(authDataOffset);
-}
-
-function findAuthDataOffset(buffer: Uint8Array): number {
-  // Simple CBOR parser to find authData field
-  // In attestation object, authData is typically the second field
-  // Format: {fmt: "none", attStmt: {}, authData: <bytes>}
-
-  // Look for authData key (0x68, 'a', 'u', 't', 'h', 'D', 'a', 't', 'a')
-  const authDataKey = new Uint8Array([0x68, 0x61, 0x75, 0x74, 0x68, 0x44, 0x61, 0x74, 0x61]);
-
-  for (let i = 0; i < buffer.length - authDataKey.length; i++) {
-    let match = true;
-    for (let j = 0; j < authDataKey.length; j++) {
-      if (buffer[i + j] !== authDataKey[j]) {
-        match = false;
-        break;
-      }
-    }
-    if (match) {
-      // Found authData key, next byte indicates length
-      const lengthIndicator = buffer[i + authDataKey.length];
-      let dataStart = i + authDataKey.length + 1;
-
-      // Handle different CBOR length encodings
-      if (lengthIndicator >= 0x58 && lengthIndicator <= 0x5b) {
-        // Length in next 1-8 bytes
-        const extraBytes = lengthIndicator - 0x57;
-        dataStart += extraBytes;
-      }
-
-      return dataStart;
-    }
-  }
-
-  return -1;
-}
+import { authDataFromAttestationObject, credentialPublicKeyFromAuthData } from "./attestation";
 
 export async function register(
   options: RegisterOptions
@@ -120,8 +78,8 @@ export async function register(
     if (!verifyClientData(credential.response.clientDataJSON, challenge, "webauthn.create")) {
       throw new Error("Invalid client data");
     }
-    const authData = getAuthData(attestationObject);
-    if (!authData || !(await verifyRpIdHash(authData))) {
+    const authData = authDataFromAttestationObject(attestationObject);
+    if (!(await verifyRpIdHash(authData))) {
       throw new Error("RP ID hash mismatch");
     }
     if (!isUserPresent(authData)) {

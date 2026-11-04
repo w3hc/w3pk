@@ -1,4 +1,4 @@
-import { decodeCbor, type CborValue } from "./cbor";
+import { decodeCbor, decodeCborExact, type CborValue } from "./cbor";
 
 const AT = 0x40;
 const ED = 0x80;
@@ -14,6 +14,24 @@ const COSE_EC2_Y = -3;
 const COSE_KTY_EC2 = 2;
 const COSE_ALG_ES256 = -7;
 const COSE_CRV_P256 = 1;
+
+/**
+ * Decodes the attestation object (WebAuthn L3 §6.5.4) and returns its
+ * authenticator data.
+ */
+export function authDataFromAttestationObject(attestationObject: ArrayBuffer): Uint8Array {
+  const value = decodeCborExact(new Uint8Array(attestationObject));
+  if (
+    !(value instanceof Map) ||
+    typeof value.get("fmt") !== "string" ||
+    !(value.get("attStmt") instanceof Map)
+  ) {
+    throw new Error("Invalid attestation object");
+  }
+  const authData = value.get("authData");
+  if (!(authData instanceof Uint8Array)) throw new Error("Invalid attestation object");
+  return authData;
+}
 
 /**
  * Reads the credential public key from the attested credential data

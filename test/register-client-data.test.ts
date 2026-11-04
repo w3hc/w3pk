@@ -25,6 +25,7 @@ interface Overrides {
   rpId?: string;
   flags?: number;
   clientDataJSON?: ArrayBuffer;
+  attestationObject?: ArrayBuffer;
 }
 
 let next: Overrides = {};
@@ -46,11 +47,12 @@ async function attestationObject(rpId: string, flags: number): Promise<ArrayBuff
     ...credId,
     ...cose,
   ];
-  const authDataKey = [0x68, ...new TextEncoder().encode("authData")];
+  const text = (s: string) => [0x60 | s.length, ...new TextEncoder().encode(s)];
   return new Uint8Array([
     0xa3,
-    ...authDataKey,
-    0x59, authData.length >> 8, authData.length & 0xff,
+    ...text("fmt"), ...text("none"),
+    ...text("attStmt"), 0xa0,
+    ...text("authData"), 0x59, authData.length >> 8, authData.length & 0xff,
     ...authData,
   ]).buffer;
 }
@@ -72,7 +74,7 @@ async function setup() {
           rawId: new Uint8Array(16).buffer,
           type: "public-key",
           response: {
-            attestationObject: await attestationObject(
+            attestationObject: next.attestationObject ?? await attestationObject(
               next.rpId ?? RP_ID,
               next.flags ?? UP | UV
             ),
@@ -157,6 +159,16 @@ setup().then(() =>
     {
       name: "another RP ID hash is rejected",
       fn: rejected({ rpId: "evil.example" }, "another RP ID hash", "RP ID hash mismatch"),
+    },
+    {
+      name: "attestation object that is not a CBOR map is rejected",
+      fn: async () => {
+        const { error, stored } = await attemptRegister({
+          attestationObject: new Uint8Array([0x68, ...new TextEncoder().encode("authData"), 0x41, 0x00]).buffer,
+        });
+        assert(error !== undefined, "a bare authData pattern should be rejected");
+        assert(!stored, "a malformed attestation object should not store the credential");
+      },
     },
     {
       name: "missing user-presence flag is rejected",
