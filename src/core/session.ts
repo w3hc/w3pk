@@ -133,7 +133,7 @@ export class SessionManager {
     }
 
     // Check if session expired
-    if (new Date() > new Date(this.session.expiresAt)) {
+    if (new Date() >= new Date(this.session.expiresAt)) {
       // Fire-and-forget: expiry cleanup has no caller to surface errors to
       this.clearSession().catch((error) =>
         console.warn('[w3pk] Failed to clear expired session:', error)
@@ -152,7 +152,7 @@ export class SessionManager {
       return null;
     }
 
-    if (new Date() > new Date(this.session.expiresAt)) {
+    if (new Date() >= new Date(this.session.expiresAt)) {
       // Fire-and-forget: expiry cleanup has no caller to surface errors to
       this.clearSession().catch((error) =>
         console.warn('[w3pk] Failed to clear expired session:', error)
@@ -178,7 +178,7 @@ export class SessionManager {
       return 0;
     }
 
-    if (new Date() > new Date(this.session.expiresAt)) {
+    if (new Date() >= new Date(this.session.expiresAt)) {
       // Fire-and-forget: expiry cleanup has no caller to surface errors to
       this.clearSession().catch((error) =>
         console.warn('[w3pk] Failed to clear expired session:', error)
@@ -197,7 +197,7 @@ export class SessionManager {
       throw new Error("No active session to extend");
     }
 
-    if (new Date() > new Date(this.session.expiresAt)) {
+    if (new Date() >= new Date(this.session.expiresAt)) {
       // Fire-and-forget: expiry cleanup has no caller to surface errors to
       this.clearSession().catch((error) =>
         console.warn('[w3pk] Failed to clear expired session:', error)
