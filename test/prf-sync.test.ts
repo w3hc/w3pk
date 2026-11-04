@@ -351,7 +351,7 @@ async function runTests() {
 
     const stored = await new LocalStorageWalletStorage(
       localStorage as unknown as Storage
-    ).retrieve(ADDRESS);
+    ).retrieve(CREDENTIAL_ID);
     const walletKey = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
     assert(
       (await decryptData(stored!.encryptedMnemonic, walletKey)) === MNEMONIC,

@@ -299,11 +299,12 @@ async function restorePrfBackup(
 /**
  * Set this device up for a passkey and a synced wallet: saves the
  * passkey's metadata (or points it at the wallet), stores the wallet
- * under the key derived from `prfOutput` and starts a session. The wallet
- * is stored before the passkey points at it, and the passkey's previous
- * wallet is deleted only after. The previous wallet's persistent session
- * is deleted before anything else is written. Without `prfOutput`, the
- * wallet and the session stay in memory only.
+ * under the key derived from `prfOutput` in the passkey's own record and
+ * starts a session. Other passkeys of the wallet keep their records. If
+ * pointing the passkey at the new wallet fails, its previous record is
+ * put back. The previous wallet's persistent session is deleted before
+ * anything else is written. Without `prfOutput`, the wallet and the
+ * session stay in memory only.
  *
  * @throws AddressChangeError if the passkey has another wallet on this device and `allowAddressChange` is false
  * @throws PrfUnsupportedError if it has another wallet and there is no `prfOutput` to store the new one with
@@ -334,10 +335,14 @@ export async function bootstrapCredential(
     await ctx.sessionManager.deletePersistentSession(stored!.ethereumAddress);
   }
 
+  const previousWallet = addressChanged
+    ? await ctx.walletStorage.retrieve(credential.id)
+    : null;
+
   if (prfOutput) {
     await ctx.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
   } else if (!stored) {
-    await ctx.walletStorage.delete(ethereumAddress);
+    await ctx.walletStorage.delete(credential.id);
   }
 
   // register() refuses a username already on this device
@@ -357,8 +362,12 @@ export async function bootstrapCredential(
       lastUsed: now,
     });
   } else if (addressChanged) {
-    await storage.updateCredentialAddress(credential.id, ethereumAddress);
-    await ctx.walletStorage.delete(stored.ethereumAddress);
+    try {
+      await storage.updateCredentialAddress(credential.id, ethereumAddress);
+    } catch (error) {
+      if (previousWallet) await ctx.walletStorage.store(previousWallet);
+      throw error;
+    }
   }
 
   ctx.currentUser = {
@@ -451,7 +460,7 @@ export async function exportForSync(
   const mnemonic = await ctx.getMnemonicFromSession();
 
   const walletData = await ctx.walletStorage.retrieve(
-    ctx.currentUser.ethereumAddress
+    ctx.currentUser.credentialId
   );
   if (!walletData) {
     throw new WalletError("No wallet data found");

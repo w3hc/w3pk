@@ -18,8 +18,8 @@ export interface EncryptedWalletData {
 export interface WalletStorage {
   init(): Promise<void>;
   store(data: EncryptedWalletData): Promise<void>;
-  retrieve(ethereumAddress: string): Promise<EncryptedWalletData | null>;
-  delete(ethereumAddress: string): Promise<void>;
+  retrieve(credentialId: string): Promise<EncryptedWalletData | null>;
+  delete(credentialId: string): Promise<void>;
   clear(): Promise<void>;
 }
 

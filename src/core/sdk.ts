@@ -219,7 +219,7 @@ export class Web3Passkey {
     }
 
     const walletData = await this.walletStorage.retrieve(
-      this.currentUser.ethereumAddress
+      this.currentUser.credentialId
     );
 
     if (!walletData) {
@@ -229,6 +229,10 @@ export class Web3Passkey {
     const authResult = await login(this.config.userVerification);
     if (!authResult.user) {
       throw new WalletError("Authentication failed");
+    }
+    // The record is encrypted under the logged-in passkey's PRF output
+    if (authResult.user.credentialId !== this.currentUser.credentialId) {
+      throw new WalletError("Authenticate with the logged-in passkey");
     }
     if (!authResult.prfOutput) {
       throw new PrfUnsupportedError(authResult.user.credentialId);
@@ -379,7 +383,7 @@ export class Web3Passkey {
 
         // Verify wallet exists
         const walletData = await this.walletStorage.retrieve(
-          silentRestore.ethereumAddress
+          silentRestore.credentialId
         );
 
         if (!walletData) {
@@ -410,7 +414,7 @@ export class Web3Passkey {
       }
 
       const walletData = await this.walletStorage.retrieve(
-        result.user.ethereumAddress
+        result.user.credentialId
       );
 
       if (!walletData) {
@@ -758,9 +762,9 @@ export class Web3Passkey {
 
   /**
    * Import a mnemonic phrase as the logged-in passkey's wallet, replacing
-   * the stored one. The imported wallet is stored under its own address
-   * before the credential points at it, and the previous wallet is deleted
-   * only after. The previous wallet's persistent session is deleted first.
+   * the stored one in the passkey's record. If pointing the credential at
+   * it fails, the previous record is put back. The previous wallet's
+   * persistent session is deleted first.
    *
    * @throws WalletError if not logged in, or the phrase isn't a valid BIP39 mnemonic
    * @throws AuthenticationError if the passkey prompt is cancelled, and PrfUnsupportedError if the authenticator returns no PRF output (nothing stored changes)

@@ -44,41 +44,50 @@ const address = '0x1234567890123456789012345678901234567890';
 const otherAddress = '0x0000000000000000000000000000000000000001';
 
 async function runWalletTests() {
+  const credentialId = 'credential-id';
+  const otherCredentialId = 'other-credential-id';
   const backing = memoryStorage();
   const storage = new LocalStorageWalletStorage(backing);
   const wallet: EncryptedWalletData = {
     ethereumAddress: address,
     encryptedMnemonic: 'ciphertext',
-    credentialId: 'credential-id',
+    credentialId,
     createdAt: new Date().toISOString(),
   };
 
   console.log('Test 1: Store and retrieve a wallet');
   await storage.store(wallet);
-  assert(backing.getItem(`w3pk_wallet_${address}`) !== null, 'Wallet is stored under w3pk_wallet_<address>');
-  const retrieved = await storage.retrieve(address);
+  assert(backing.getItem(`w3pk_wallet_${credentialId}`) !== null, 'Wallet is stored under w3pk_wallet_<credentialId>');
+  assert(backing.getItem(`w3pk_wallet_${address}`) === null, 'Nothing is stored under the address');
+  const retrieved = await storage.retrieve(credentialId);
   assert(retrieved?.encryptedMnemonic === 'ciphertext', 'Encrypted mnemonic matches');
-  assert(retrieved?.credentialId === 'credential-id', 'Credential ID matches');
-  assert((await storage.retrieve(otherAddress)) === null, 'Unknown address returns null');
+  assert(retrieved?.ethereumAddress === address, 'Address matches');
+  assert((await storage.retrieve(otherCredentialId)) === null, 'Unknown credential returns null');
   console.log('');
 
-  console.log('Test 2: Delete and clear');
-  await storage.store({ ...wallet, ethereumAddress: otherAddress });
-  await storage.delete(otherAddress);
-  assert((await storage.retrieve(otherAddress)) === null, 'Deleted wallet is gone');
-  assert((await storage.retrieve(address)) !== null, 'Other wallet survives delete');
+  console.log('Test 2: Two passkeys of one wallet keep their own records');
+  await storage.store({ ...wallet, credentialId: otherCredentialId, encryptedMnemonic: 'other-ciphertext' });
+  assert((await storage.retrieve(credentialId))?.encryptedMnemonic === 'ciphertext', 'First record is kept');
+  assert((await storage.retrieve(otherCredentialId))?.encryptedMnemonic === 'other-ciphertext', 'Second record is stored');
+  console.log('');
+
+  console.log('Test 3: Delete and clear');
+  await storage.store({ ...wallet, credentialId: otherCredentialId, ethereumAddress: otherAddress });
+  await storage.delete(otherCredentialId);
+  assert((await storage.retrieve(otherCredentialId)) === null, 'Deleted wallet is gone');
+  assert((await storage.retrieve(credentialId)) !== null, 'Other wallet survives delete');
 
   backing.setItem('w3pk_credential_index', '[]');
   await storage.clear();
-  assert((await storage.retrieve(address)) === null, 'clear removes wallets');
+  assert((await storage.retrieve(credentialId)) === null, 'clear removes wallets');
   assert(backing.getItem('w3pk_credential_index') === '[]', 'clear keeps credential metadata');
   console.log('');
 
-  console.log('Test 3: Defaults to window.localStorage');
+  console.log('Test 4: Defaults to window.localStorage');
   const defaultStorage = new LocalStorageWalletStorage();
   await defaultStorage.store(wallet);
   assert(
-    (globalThis as any).window.localStorage.getItem(`w3pk_wallet_${address}`) !== null,
+    (globalThis as any).window.localStorage.getItem(`w3pk_wallet_${credentialId}`) !== null,
     'Wallet lands in window.localStorage'
   );
   await defaultStorage.clear();

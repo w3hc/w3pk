@@ -1,5 +1,7 @@
 /**
- * localStorage storage for encrypted wallet data
+ * localStorage storage for encrypted wallet data, one record per passkey
+ * under `w3pk_wallet_<credentialId>`: passkeys of the same wallet each keep
+ * the mnemonic encrypted under their own PRF output
  *
  * Lives next to the credential metadata so browser eviction removes both or
  * neither: a credential is never left without its wallet.
@@ -26,7 +28,7 @@ export class LocalStorageWalletStorage implements WalletStorage {
   async store(data: EncryptedWalletData): Promise<void> {
     try {
       this.storage.setItem(
-        KEY_PREFIX + data.ethereumAddress,
+        KEY_PREFIX + data.credentialId,
         JSON.stringify(data)
       );
     } catch (error) {
@@ -34,18 +36,18 @@ export class LocalStorageWalletStorage implements WalletStorage {
     }
   }
 
-  async retrieve(ethereumAddress: string): Promise<EncryptedWalletData | null> {
+  async retrieve(credentialId: string): Promise<EncryptedWalletData | null> {
     try {
-      const raw = this.storage.getItem(KEY_PREFIX + ethereumAddress);
+      const raw = this.storage.getItem(KEY_PREFIX + credentialId);
       return raw ? (JSON.parse(raw) as EncryptedWalletData) : null;
     } catch (error) {
       throw new StorageError("Failed to retrieve wallet data", error);
     }
   }
 
-  async delete(ethereumAddress: string): Promise<void> {
+  async delete(credentialId: string): Promise<void> {
     try {
-      this.storage.removeItem(KEY_PREFIX + ethereumAddress);
+      this.storage.removeItem(KEY_PREFIX + credentialId);
     } catch (error) {
       throw new StorageError("Failed to delete wallet data", error);
     }
