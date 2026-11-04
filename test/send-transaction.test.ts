@@ -19,7 +19,7 @@
 import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
-import { deriveWalletFromMnemonic } from "../src/wallet/generate";
+import { deriveWalletFromPath } from "../src/wallet/generate";
 import {
   startTestSuite,
   endTestSuite,
@@ -316,11 +316,11 @@ async function runTests() {
   await runTest("Wallet derived from mnemonic can sign a transaction", async () => {
     const { Wallet } = await import("ethers");
 
-    // Derive STANDARD wallet (index-based, no privateKey in derived)
+    // Derive STANDARD wallet (path-based, no privateKey in derived)
     const derived = await getOriginSpecificAddress(
       TEST_MNEMONIC, TEST_ORIGIN, "STANDARD", "MAIN"
     );
-    const { privateKey } = deriveWalletFromMnemonic(TEST_MNEMONIC, derived.index);
+    const { privateKey } = deriveWalletFromPath(TEST_MNEMONIC, derived.path);
     const wallet = new Wallet(privateKey);
 
     // Address must match what the derivation layer reports
