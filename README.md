@@ -91,17 +91,17 @@ const primaryWallet = await w3pk.deriveWallet('PRIMARY')
 // STANDARD mode - Default balanced security (recommended)
 // Returns address only, private key stays in SDK for signing
 const mainWallet = await w3pk.deriveWallet('STANDARD')
-// Returns: { address, index, origin, mode: 'STANDARD', tag: 'MAIN' }
+// Returns: { address, path, origin, mode: 'STANDARD', tag: 'MAIN' }
 
 // YOLO mode - Private key exposed to app
 // Use only when app needs direct key access (advanced use cases)
 const gamingWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
-// Returns: { address, privateKey, index, origin, mode: 'YOLO', tag: 'GAMING' }
+// Returns: { address, privateKey, path, origin, mode: 'YOLO', tag: 'GAMING' }
 
 // STRICT mode - Maximum security, re-auth required every time
 // Requires biometric/PIN for each call - impractical for most apps
 const strictWallet = await w3pk.deriveWallet('STRICT', 'SECURE')
-// Returns: { address, privateKey, index, origin, mode: 'STRICT', tag: 'SECURE' }
+// Returns: { address, privateKey, path, origin, mode: 'STRICT', tag: 'SECURE' }
 
 // Different tags generate different addresses
 console.log(mainWallet.address !== gamingWallet.address) // true

@@ -455,12 +455,12 @@ async function runTests() {
   // ------------------------------------------------------------------
   await runTest("personal_sign and eth_sign both produce EIP-191 signatures", async () => {
     const { Wallet } = await import("ethers");
-    const { deriveWalletFromMnemonic } = await import("../src/wallet/generate");
+    const { deriveWalletFromPath } = await import("../src/wallet/generate");
 
     const derived = await getOriginSpecificAddress(
       TEST_MNEMONIC, TEST_ORIGIN, "STANDARD", "MAIN"
     );
-    const { privateKey } = deriveWalletFromMnemonic(TEST_MNEMONIC, derived.index);
+    const { privateKey } = deriveWalletFromPath(TEST_MNEMONIC, derived.path);
     const wallet = new Wallet(privateKey);
 
     const message = "Hello, EIP-1193!";
@@ -486,12 +486,12 @@ async function runTests() {
   // ------------------------------------------------------------------
   await runTest("eth_signTypedData_v4 EIP-712 signing is correct at ethers layer", async () => {
     const { Wallet } = await import("ethers");
-    const { deriveWalletFromMnemonic } = await import("../src/wallet/generate");
+    const { deriveWalletFromPath } = await import("../src/wallet/generate");
 
     const derived = await getOriginSpecificAddress(
       TEST_MNEMONIC, TEST_ORIGIN, "STANDARD", "MAIN"
     );
-    const { privateKey } = deriveWalletFromMnemonic(TEST_MNEMONIC, derived.index);
+    const { privateKey } = deriveWalletFromPath(TEST_MNEMONIC, derived.path);
     const wallet = new Wallet(privateKey);
 
     const domain = {

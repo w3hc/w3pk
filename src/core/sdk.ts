@@ -684,7 +684,7 @@ export class Web3Passkey {
       return {
         address: derived.address,
         privateKey: derived.privateKey,
-        index: derived.index,
+        path: derived.path,
         origin: derived.origin,
         mode: derived.mode,
         tag: derived.tag,
@@ -907,9 +907,9 @@ export class Web3Passkey {
       if (derived.privateKey) {
         wallet = new Wallet(derived.privateKey);
       } else {
-        // For STANDARD/STRICT modes, derive from mnemonic at the specific index
-        const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-        const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
+        // For STANDARD/STRICT modes, derive from mnemonic at the origin path
+        const { deriveWalletFromPath } = await import("../wallet/generate");
+        const { privateKey } = deriveWalletFromPath(mnemonic, derived.path);
         wallet = new Wallet(privateKey);
       }
 
@@ -1211,9 +1211,9 @@ export class Web3Passkey {
       if (derived.privateKey) {
         wallet = new Wallet(derived.privateKey);
       } else {
-        // For STANDARD/STRICT modes, derive from mnemonic at the specific index
-        const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-        const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
+        // For STANDARD/STRICT modes, derive from mnemonic at the origin path
+        const { deriveWalletFromPath } = await import("../wallet/generate");
+        const { privateKey } = deriveWalletFromPath(mnemonic, derived.path);
         wallet = new Wallet(privateKey);
       }
 
@@ -1315,8 +1315,8 @@ export class Web3Passkey {
       if (derived.privateKey) {
         wallet = new Wallet(derived.privateKey);
       } else {
-        const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-        const { privateKey } = deriveWalletFromMnemonic(mnemonic, derived.index);
+        const { deriveWalletFromPath } = await import("../wallet/generate");
+        const { privateKey } = deriveWalletFromPath(mnemonic, derived.path);
         wallet = new Wallet(privateKey);
       }
 

@@ -128,7 +128,7 @@ interface EncryptedWallet {
 }
 ```
 
-**Key Derivation Path** (BIP44):
+**Key Derivation Paths**:
 ```
 Mnemonic (12 words)
     ↓
@@ -136,11 +136,11 @@ Seed (512 bits) via BIP39
     ↓
 Master Private Key via HMAC-SHA512
     ↓
-m/44'/60'/0'/0/0  ← Default Ethereum address
-m/44'/60'/0'/0/1  ← Second address
-m/44'/60'/0'/0/2  ← Third address
-...
+m/44'/60'/0'/0/0                   ← Registration address (BIP44)
+m/13'/A'/B'/C'/D'/mode'/tag'       ← Origin addresses, all levels hardened
 ```
+
+`A'..D'` are the [SLIP-0013](https://github.com/satoshilabs/slips/blob/master/slip-0013.md) service identity of the normalized origin, `mode'` is `STANDARD`=0', `STRICT`=1', `YOLO`=2', `PRIMARY`=3', and `tag'` is 31 bits of `SHA-256(TAG)`. See `deriveOriginPath()`.
 
 ---
 

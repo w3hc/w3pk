@@ -6,11 +6,12 @@
 import assert from "node:assert";
 import {
   getOriginSpecificAddress,
-  deriveIndexFromOriginModeAndTag,
+  deriveOriginPath,
   normalizeOrigin,
   DEFAULT_TAG,
   DEFAULT_MODE,
 } from "../src/wallet/origin-derivation";
+import { deriveWalletFromMnemonic, deriveWalletFromPath } from "../src/wallet/generate";
 import type { SecurityMode } from "../src/types";
 
 async function runTests() {
@@ -27,7 +28,7 @@ async function runTests() {
 
     assert(wallet.address, "Should have an address");
     assert(wallet.privateKey === undefined, "STANDARD mode should NOT expose private key");
-    assert(wallet.index >= 0, "Should have a valid index");
+    assert(wallet.path.startsWith("m/13'/"), "Should have a SLIP-0013 path");
     assert(wallet.origin === origin, "Should preserve origin");
     assert(wallet.mode === DEFAULT_MODE, "Should use STANDARD mode by default");
     assert(wallet.tag === DEFAULT_TAG, "Should use MAIN tag by default");
@@ -35,7 +36,7 @@ async function runTests() {
     console.log(`  Origin: ${wallet.origin}`);
     console.log(`  Mode: ${wallet.mode}`);
     console.log(`  Tag: ${wallet.tag}`);
-    console.log(`  Index: ${wallet.index}`);
+    console.log(`  Path: ${wallet.path}`);
     console.log(`  Address: ${wallet.address}`);
     console.log(`  Private Key: ${wallet.privateKey ? 'EXPOSED (ERROR!)' : 'HIDDEN (CORRECT)'}`);
     console.log("✅ Default STANDARD mode + MAIN tag working correctly (private key hidden)");
@@ -108,8 +109,8 @@ async function runTests() {
       "Same origin, mode, and tag should produce same private key"
     );
     assert(
-      wallet1.index === wallet2.index,
-      "Same origin, mode, and tag should produce same index"
+      wallet1.path === wallet2.path,
+      "Same origin, mode, and tag should produce same path"
     );
 
     console.log(`  Address: ${wallet1.address}`);
@@ -230,29 +231,32 @@ async function runTests() {
     console.log("✅ Tag case insensitivity working correctly");
   }
 
-  // Test 7: Index derivation is deterministic
-  console.log("\nTest 7: Index derivation consistency");
+  // Test 7: Path test vectors
+  console.log("\nTest 7: Path test vectors");
   {
-    const origin = "https://example.com";
+    const originLevels = "m/13'/645184497'/1329031'/2055466046'/1660046646'";
+    const vectors: Array<[string, SecurityMode, string, string, string]> = [
+      ["https://example.com", "STANDARD", "MAIN", `${originLevels}/0'/360918275'`, "0x92dDB500f04b6DC254efCf224c0C5B872E5F2E20"],
+      ["https://example.com", "STRICT", "MAIN", `${originLevels}/1'/360918275'`, "0x1036b53e09272A0143DD340358c61E290F8de123"],
+      ["https://example.com", "YOLO", "GAMING", `${originLevels}/2'/152488895'`, "0xBc27c095f3d21E0F37C2deBb16D4eB2650311eF6"],
+      ["https://victim.example", "STANDARD", "MAIN", "m/13'/1818679429'/515797001'/1452251921'/1598859960'/0'/360918275'", "0x906f2A9958f2cC279abEDc568e5D0ED48692C29f"],
+    ];
 
-    const index1 = await deriveIndexFromOriginModeAndTag(origin, DEFAULT_MODE, "MAIN");
-    const index2 = await deriveIndexFromOriginModeAndTag(origin, DEFAULT_MODE, "MAIN");
-    const index3 = await deriveIndexFromOriginModeAndTag(origin, DEFAULT_MODE, "GAMING");
+    for (const [origin, mode, tag, path, address] of vectors) {
+      assert.strictEqual(await deriveOriginPath(origin, mode, tag), path);
+      const wallet = await getOriginSpecificAddress(testMnemonic, origin, mode, tag);
+      assert.strictEqual(wallet.path, path);
+      assert.strictEqual(wallet.address, address);
+      console.log(`  ${origin} ${mode} ${tag}: ${path}`);
+    }
 
-    assert(index1 === index2, "Same inputs should produce same index");
-    assert(
-      index1 !== index3,
-      "Different tags should produce different indices"
+    assert.strictEqual(
+      await deriveOriginPath("https://example.com", "PRIMARY", "MAIN"),
+      `${originLevels}/3'/360918275'`
     );
-    assert(index1 >= 0 && index1 < 0x7fffffff, "Index should be valid");
-    assert(
-      index3 >= 0 && index3 < 0x7fffffff,
-      "Index should be valid"
-    );
+    await assert.rejects(deriveOriginPath("https://example.com", "BOGUS" as SecurityMode));
 
-    console.log(`  MAIN index:   ${index1}`);
-    console.log(`  GAMING index: ${index3}`);
-    console.log("✅ Index derivation consistent");
+    console.log("✅ Path test vectors match");
   }
 
   // Test 8: Multiple tags on single domain
@@ -265,7 +269,7 @@ async function runTests() {
     for (const tag of tags) {
       const wallet = await getOriginSpecificAddress(testMnemonic, origin, undefined, tag);
       wallets.push(wallet);
-      console.log(`  ${tag.padEnd(8)}: ${wallet.address} (index: ${wallet.index})`);
+      console.log(`  ${tag.padEnd(8)}: ${wallet.address} (path: ${wallet.path})`);
     }
 
     // Verify all addresses are unique
@@ -275,11 +279,10 @@ async function runTests() {
       "All tags should produce unique addresses"
     );
 
-    // Verify all indices are unique
-    const indices = new Set(wallets.map((w) => w.index));
+    const paths = new Set(wallets.map((w) => w.path));
     assert(
-      indices.size === tags.length,
-      "All tags should produce unique indices"
+      paths.size === tags.length,
+      "All tags should produce unique paths"
     );
 
     console.log("✅ Multiple tags working correctly");
@@ -437,6 +440,45 @@ async function runTests() {
 
     console.log(`  Address: ${wallet.address}`);
     console.log("✅ Valid Ethereum addresses generated");
+  }
+
+  // Test 14: No tag on one origin reaches another origin's key
+  console.log("\nTest 14: Cross-origin isolation");
+  {
+    const victim = await deriveOriginPath("https://victim.example", "STANDARD", "MAIN");
+    const victimOrigin = victim.split("/").slice(0, 6).join("/");
+    const registration = deriveWalletFromMnemonic(testMnemonic, 0);
+
+    // The tag that collided with victim.example's index under the old scheme
+    const tags = ["T4CE385B8", "MAIN", "GAMING", "", "0", "victim"];
+    const modes: SecurityMode[] = ["PRIMARY", "STANDARD", "STRICT", "YOLO"];
+
+    for (const mode of modes) {
+      for (const tag of tags) {
+        const path = await deriveOriginPath("https://evil.example", mode, tag);
+        const levels = path.split("/");
+        assert.strictEqual(levels.length, 8, "Path has 7 levels below the root");
+        assert(levels.slice(1).every((level) => level.endsWith("'")), "Every level is hardened");
+        assert.strictEqual(levels[1], "13'", "Purpose is 13'");
+        assert.notStrictEqual(levels.slice(0, 6).join("/"), victimOrigin, "Origin levels differ");
+        assert.notStrictEqual(path, victim);
+      }
+    }
+
+    const evil = await getOriginSpecificAddress(testMnemonic, "https://evil.example", "YOLO", "T4CE385B8");
+    const victimWallet = await getOriginSpecificAddress(testMnemonic, "https://victim.example");
+    assert.notStrictEqual(evil.address, victimWallet.address);
+    assert.notStrictEqual(evil.address, registration.address);
+    assert.notStrictEqual(victimWallet.address, registration.address);
+
+    for (const path of [undefined, null, "", "m", "44'/60'"]) {
+      assert.throws(
+        () => deriveWalletFromPath(testMnemonic, path as unknown as string),
+        "A missing or malformed path never falls back to the registration key"
+      );
+    }
+
+    console.log("✅ Origins are isolated");
   }
 
   console.log("\n✅ All Origin-Specific Address Derivation Tests Passed!\n");

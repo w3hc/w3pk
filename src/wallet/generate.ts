@@ -69,20 +69,35 @@ export function deriveWalletFromMnemonic(
   mnemonic: string,
   index: number = 0
 ): { address: string; privateKey: string } {
+  if (index < 0 || !Number.isInteger(index)) {
+    throw new WalletError(
+      "HD wallet derivation failed: Index must be a non-negative integer"
+    );
+  }
+
+  return deriveWalletFromPath(mnemonic, `m/44'/60'/0'/0/${index}`);
+}
+
+/**
+ * Derive HD wallet at a full BIP-32 path from the mnemonic's root
+ */
+export function deriveWalletFromPath(
+  mnemonic: string,
+  path: string
+): { address: string; privateKey: string } {
   try {
     if (!mnemonic || mnemonic.trim().split(/\s+/).length < 12) {
       throw new Error("Invalid mnemonic: must be at least 12 words");
     }
 
-    if (index < 0 || !Number.isInteger(index)) {
-      throw new Error("Index must be a non-negative integer");
+    if (typeof path !== "string" || !/^m(\/\d+'?)+$/.test(path)) {
+      throw new Error(`Invalid derivation path: ${path}`);
     }
 
-    const derivationPath = `m/44'/60'/0'/0/${index}`;
     const wallet = ethers.HDNodeWallet.fromPhrase(
       mnemonic.trim(),
       undefined,
-      derivationPath
+      path
     );
 
     return {

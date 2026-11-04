@@ -25,8 +25,8 @@ async function runTests() {
 
     // Simulate signing (we need the private key internally for signing)
     const { Wallet } = await import("ethers");
-    const { deriveWalletFromMnemonic } = await import("../src/wallet/generate");
-    const { privateKey } = deriveWalletFromMnemonic(testMnemonic, wallet.index);
+    const { deriveWalletFromPath } = await import("../src/wallet/generate");
+    const { privateKey } = deriveWalletFromPath(testMnemonic, wallet.path);
     const signer = new Wallet(privateKey);
 
     const signature = await signer.signMessage(message);
@@ -49,8 +49,8 @@ async function runTests() {
     const wallet = await getOriginSpecificAddress(testMnemonic, origin, 'STRICT');
 
     const { Wallet } = await import("ethers");
-    const { deriveWalletFromMnemonic } = await import("../src/wallet/generate");
-    const { privateKey } = deriveWalletFromMnemonic(testMnemonic, wallet.index);
+    const { deriveWalletFromPath } = await import("../src/wallet/generate");
+    const { privateKey } = deriveWalletFromPath(testMnemonic, wallet.path);
     const signer = new Wallet(privateKey);
 
     const signature = await signer.signMessage(message);
@@ -106,8 +106,8 @@ async function runTests() {
       const wallet = await getOriginSpecificAddress(testMnemonic, origin, mode);
 
       const { Wallet } = await import("ethers");
-      const { deriveWalletFromMnemonic } = await import("../src/wallet/generate");
-      const { privateKey } = deriveWalletFromMnemonic(testMnemonic, wallet.index);
+      const { deriveWalletFromPath } = await import("../src/wallet/generate");
+      const { privateKey } = deriveWalletFromPath(testMnemonic, wallet.path);
       const signer = new Wallet(privateKey);
 
       const signature = await signer.signMessage(message);

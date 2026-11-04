@@ -106,7 +106,7 @@ export interface GeneratedWallet {
 export interface DerivedWallet {
   address: string;
   privateKey?: string;
-  index?: number;
+  path?: string;
   origin?: string;
   mode?: SecurityMode;
   tag?: string;

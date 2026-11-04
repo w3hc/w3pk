@@ -116,7 +116,7 @@ const auth2 = await w3pk.signAuthorization({
 ```typescript
 // ✅ Recommended for most use cases
 const wallet = await w3pk.deriveWallet()
-// Returns: { address, index, origin, mode: 'STANDARD', tag: 'MAIN' }
+// Returns: { address, path, origin, mode: 'STANDARD', tag: 'MAIN' }
 // No private key exposed
 // Persistent sessions allowed
 ```
@@ -135,7 +135,7 @@ const wallet = await w3pk.deriveWallet()
 ```typescript
 // ✅ For banking, high-value DeFi, or sensitive operations
 const strictWallet = await w3pk.deriveWallet('STRICT')
-// Returns: { address, index, origin, mode: 'STRICT', tag: 'MAIN' }
+// Returns: { address, path, origin, mode: 'STRICT', tag: 'MAIN' }
 // No private key exposed
 // Requires biometric/PIN authentication every time (no persistent sessions)
 ```
@@ -154,7 +154,7 @@ const strictWallet = await w3pk.deriveWallet('STRICT')
 ```typescript
 // ⚠️ Use only when necessary (non-financial apps, games, etc.)
 const yoloWallet = await w3pk.deriveWallet('YOLO')
-// Returns: { address, privateKey, index, origin, mode: 'YOLO', tag: 'MAIN' }
+// Returns: { address, privateKey, path, origin, mode: 'YOLO', tag: 'MAIN' }
 // Private key exposed
 // Persistent sessions allowed
 
