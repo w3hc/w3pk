@@ -5,7 +5,7 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.2] - 2026-11-04
 
 ### Security
 
@@ -38,12 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`syncWalletWithPasskey()` checks a known passkey's assertion** ([#265](https://github.com/w3hc/w3pk/issues/265)). On the password-backup path, the passkey selection's assertion was checked against a public key only when the device had no metadata for the passkey. When it had some, neither the signature nor the counter was checked before the stored wallet was replaced; #255 closed the same gap in `restoreFromBackupFile()`
   - With metadata, the assertion runs `verifyAssertion()`, `login()`'s check: signature against the stored public key, counter checked and saved. A failure throws `AuthenticationError` before anything stored changes
   - The PRF output is zeroed on any failure after the prompt, a wrong password included
+  - `PasskeySelectionResult` (internal) drops `publicKey` and `ethereumAddress`; the stored metadata is read where it is checked
+  - `test/fresh-device-sync.test.ts` covers a counter behind the stored one, a stored key from another passkey, the saved counter and a wrong password
 - **A replaced wallet's persistent session is deleted** ([#266](https://github.com/w3hc/w3pk/issues/266)). When `importMnemonic()`, or a restore or sync with `allowAddressChange`, moved a passkey to another address, the previous wallet was deleted but its `w3pk_session_<address>` stayed in `localStorage`. With `requireReauth: false` the session key is stored next to it, so the replaced mnemonic stayed readable until logout or expiry (7 days by default)
   - The previous address's persistent session is deleted before anything is stored, so no later failure leaves it behind
   - `SessionManager.deletePersistentSession(address)` deletes one address's persistent session
   - `test/import-mnemonic.test.ts` and `test/restore-replace-wallet.test.ts` cover it
-  - `PasskeySelectionResult` (internal) drops `publicKey` and `ethereumAddress`; the stored metadata is read where it is checked
-  - `test/fresh-device-sync.test.ts` covers a counter behind the stored one, a stored key from another passkey, the saved counter and a wrong password
 - **A SIWE message sent as bytes gets the domain check** ([#268](https://github.com/w3hc/w3pk/issues/268)). `signMessage()` checked the domain of an `EIP191` message that contains the SIWE header only when it was a string. `personal_sign` and `eth_sign` sign hex data as bytes, and viem and ethers send SIWE messages as hex, so through the EIP-1193 provider a SIWE message for another domain got signed
   - A byte message whose text contains the SIWE header is decoded as UTF-8 and checked like a string; one that isn't valid UTF-8 throws, so a verifier that decodes it leniently can't accept it unchecked
   - `test/sign-message.test.ts` and `test/eip1193-provider.test.ts` cover raw bytes and hex through `personal_sign` and `eth_sign`
@@ -75,6 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `s_h` is reduced, and added to the spending key, in the curve's scalar field; a zero stealth private key throws `CryptoError` instead of being returned
   - Keys and scalars are parsed as `0x` hex bytes, so an unprefixed key is refused instead of read as decimal
   - `test/stealth-point.test.ts` has a known vector and checks `P + (−P)` and a zero private key throw
+- **`stealth.signTransaction()` states its cross-origin risk** ([#274](https://github.com/w3hc/w3pk/issues/274)). Stealth keys are the same for every origin, so any origin that enables `stealthAddresses` can sign any transaction from any of the user's stealth addresses, and the passkey prompt doesn't show the transaction
+  - The JSDoc, `docs/API_REFERENCE.md`, `docs/SECURITY.md` and the README say so and link [#147](https://github.com/w3hc/w3pk/issues/147)
+- **The ML-KEM docs state that payloads have no sender authentication** ([#275](https://github.com/w3hc/w3pk/issues/275)). Every recipient learns the shared data key, so any recipient can seal new content for the others, and a payload that decrypts proves nothing about who sent it
+  - `docs/POST_QUANTUM.md` has a "No sender authentication" section: sign the plaintext, the recipients' public keys and a timestamp with `signMessage()`, encrypt the signed message, and verify it after decrypting. Signing the ciphertext doesn't work, since anyone can strip the signature and sign it as themselves
+  - The `mlkemEncrypt()`, `mlkemDecrypt()`, `mlkemEncryptWithKey()` and `mlkemDecryptWithKey()` JSDoc, `docs/API_REFERENCE.md` and the README say so
+  - `docs/POST_QUANTUM.md`'s security properties say the KEM keys come from the BIP-39 seed, as since [#263](https://github.com/w3hc/w3pk/issues/263), not from the Ethereum private key
 
 ### Fixed
 
@@ -90,11 +96,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Each URL has its own entry and expiry; `clearCache()` clears them all
   - Concurrent calls for one URL share a fetch, and a failed fetch is not cached
   - `test/chainlist.test.ts` covers two URLs, sequential and concurrent, a shared fetch and a retry after a failure
-
-### Documentation
-
-- **`stealth.signTransaction()` states its cross-origin risk** ([#274](https://github.com/w3hc/w3pk/issues/274)). Stealth keys are the same for every origin, so any origin that enables `stealthAddresses` can sign any transaction from any of the user's stealth addresses, and the passkey prompt doesn't show the transaction
-  - The JSDoc, `docs/API_REFERENCE.md`, `docs/SECURITY.md` and the README say so and link [#147](https://github.com/w3hc/w3pk/issues/147)
 
 ## [0.11.1] - 2026-11-03
 

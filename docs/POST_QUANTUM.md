@@ -157,6 +157,38 @@ The user's KEM keys are **long-lived** and deterministic: there is no forward se
 
 The keys are derived from the wallet's BIP-39 seed through hash functions only, so they are only as secret as the mnemonic, including how it is stored on the device. No secp256k1 key enters the derivation: a signing key whose public key is published (and so recoverable by a quantum computer) reveals nothing about the KEM keys.
 
+### No sender authentication
+
+Payloads have no sender authentication. Every recipient learns the shared data key, so any recipient can seal new content for the others, and anyone with the recipients' public keys can encrypt to them. A payload that decrypts proves nothing about who sent it.
+
+To prove who wrote the content, sign it inside the payload: sign the plaintext together with the recipients' public keys and a timestamp, encrypt the signed message, and have each recipient verify the signature after decrypting. Signing the ciphertext instead doesn't work: anyone can strip the signature and sign the same ciphertext as themselves.
+
+```typescript
+import { verifyMessage } from 'ethers';
+
+// Sender
+const to = [recipientPubKey];
+const message = JSON.stringify({ data: 'my secret data', to, at: Date.now() });
+const { signature } = await w3pk.signMessage(message, { mode: 'STANDARD', tag: 'MAIN' });
+const encrypted = await w3pk.mlkemEncrypt(JSON.stringify({ message, signature }), to);
+
+// Recipient: senderAddress and myPubKey are known in advance, not read from the payload
+const signed = JSON.parse(await w3pk.mlkemDecrypt(encrypted));
+if (verifyMessage(signed.message, signed.signature).toLowerCase() !== senderAddress.toLowerCase()) {
+  throw new Error('Not signed by the expected sender');
+}
+const { data, to: intended, at } = JSON.parse(signed.message);
+if (!intended.includes(myPubKey) || Date.now() - at > MAX_AGE_MS) {
+  throw new Error('Not addressed to me, or stale');
+}
+```
+
+- Verify the exact signed string, as transmitted: `JSON.stringify` isn't canonical, so re-serializing a parsed object can change the bytes.
+- `to` stops a recipient from forwarding signed content to someone else as if it were addressed to them, and `at` (or a nonce) lets recipients refuse replays.
+- The signing address depends on the origin, mode and tag passed to `signMessage()`: recipients must hold that exact address. Use STANDARD, STRICT or YOLO: the PRIMARY address comes from the passkey's P-256 key and isn't recovered from an EIP-191 signature. In STRICT mode, signing prompts for the passkey once more.
+- Without a w3pk instance, sign with any secp256k1 key, such as an ethers `Wallet`'s `signMessage()`.
+- The signature is secp256k1, so this authentication is classical: unlike the encryption, it doesn't hold against a quantum adversary.
+
 ### FrodoKEM
 
 FrodoKEM-1344 rests on plain LWE, without the algebraic structure ML-KEM relies on, so it would hedge against structured-lattice attacks. It is not used, for two reasons: no audited JavaScript implementation exists, so it would need WebAssembly, and each recipient entry would grow by about 21 KB. Revisit if an audited implementation appears.
@@ -227,7 +259,7 @@ Derives your hybrid public key (base64, 1600 bytes) for sharing.
 **Options:** `context` (default `'mlkem-v1'`), `mode` (`STANDARD`/`STRICT`/`YOLO`, default `STANDARD`), `tag` (default `MAIN`), `requireAuth`. The origin is always the current one.
 
 #### `w3pk.mlkemEncrypt(plaintext, recipientPublicKeys, options?): Promise<EncryptedPayload>`
-Encrypts for yourself plus additional recipients. Same options as above.
+Encrypts for yourself plus additional recipients. Same options as above. No sender authentication: sign the content inside the payload with `signMessage()` (see [No sender authentication](#no-sender-authentication)).
 
 #### `w3pk.mlkemDecrypt(payload, options?): Promise<string>`
 Decrypts data encrypted for your wallet. The origin, `context`, `mode` and `tag` must match encryption.
@@ -242,7 +274,7 @@ Derives the sender's keypair, then encrypts for sender + recipients (sender's pu
 Derives a keypair, then decrypts.
 
 #### `mlkemEncrypt(plaintext, publicKeys): Promise<EncryptedPayload>`
-Raw encryption for one or more recipients. Each `publicKeys` entry is base64 or `Uint8Array`, 1600 bytes.
+Raw encryption for one or more recipients. Each `publicKeys` entry is base64 or `Uint8Array`, 1600 bytes. No sender authentication: any recipient can seal new content for the others.
 **Returns:** `{ version: 3, recipients: [{ publicKey, enc, ciphertext }], encryptedData, iv, authTag }`: `enc` is 1600 bytes (1568 ML-KEM ciphertext + 32 X25519 ephemeral key), `ciphertext` is the 48-byte sealed data key, `iv` is 12 bytes and `authTag` 16 bytes.
 
 #### `mlkemDecrypt(payload, privateKey): Promise<string>`
@@ -256,7 +288,8 @@ Decrypts a v3 payload. The recipient entry is found by the public key derived fr
 - ✅ Key zeroization — shared secrets wiped from memory after use
 - ✅ Cross-platform — browser and Node.js
 - ⚠️ No forward secrecy — a leaked KEM private key exposes every payload sealed to it
-- ⚠️ Deterministic derivation from the Ethereum private key means KEM key secrecy is capped by secp256k1 key secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
+- ⚠️ No sender authentication — any recipient can seal new content for the others; sign the content inside the payload to prove who wrote it (see [No sender authentication](#no-sender-authentication))
+- ⚠️ Deterministic derivation from the wallet's BIP-39 seed means KEM key secrecy is capped by the mnemonic's secrecy — this scheme protects data confidentiality against a future quantum adversary, but does not add independent key-generation entropy beyond the wallet's existing secret
 
 ---
 

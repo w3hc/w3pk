@@ -355,6 +355,8 @@ const encrypted = await w3pk.mlkemEncrypt('secret', [pubKey])
 const plaintext = await w3pk.mlkemDecrypt(encrypted)
 ```
 
+Payloads have no sender authentication: any recipient can seal new content for the others. Sign the content inside the payload with `signMessage()` to prove who wrote it ([POST_QUANTUM.md](./docs/POST_QUANTUM.md#no-sender-authentication)).
+
 ### Backup & Recovery
 
 ```typescript
