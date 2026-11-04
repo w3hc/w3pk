@@ -12,7 +12,7 @@ interface CacheEntry {
   timestamp: number;
 }
 
-let cache: CacheEntry | null = null;
+const cache = new Map<string, CacheEntry>();
 
 /**
  * Patterns that indicate an RPC URL requires an API key
@@ -58,14 +58,13 @@ async function getChainsData(options?: ChainlistOptions): Promise<Chain[]> {
   const cacheDuration = options?.cacheDuration ?? DEFAULT_CACHE_DURATION;
   const now = Date.now();
 
-  // Check if cache is valid
-  if (cache && now - cache.timestamp < cacheDuration) {
-    return cache.data;
+  const cached = cache.get(chainsJsonUrl);
+  if (cached && now - cached.timestamp < cacheDuration) {
+    return cached.data;
   }
 
-  // Fetch fresh data
   const data = await fetchChains(chainsJsonUrl);
-  cache = { data, timestamp: now };
+  cache.set(chainsJsonUrl, { data, timestamp: now });
 
   return data;
 }
@@ -139,7 +138,7 @@ export async function getChainById(
  * Clear the chains data cache
  */
 export function clearCache(): void {
-  cache = null;
+  cache.clear();
 }
 
 // Export types
