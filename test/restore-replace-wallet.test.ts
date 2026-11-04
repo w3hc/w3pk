@@ -329,8 +329,10 @@ async function runTests() {
   console.log("Test 4: with allowAddressChange, wallet B replaces wallet A");
   {
     const sdk = await loggedInWith(publicKey, MNEMONIC_A);
+    localStorage.setItem(`w3pk_session_${ADDRESS_A}`, "{}");
     const result = await sdk.restoreFromBackupFile(backupB, PASSWORD, { allowAddressChange: true });
     assert(result.ethereumAddress === ADDRESS_B, "returns wallet B's address");
+    assert(localStorage.getItem(`w3pk_session_${ADDRESS_A}`) === null, "wallet A's persistent session is deleted");
     assert(authenticator.calls === 1, "one passkey prompt");
     assert(
       (await credentials().getCredentialById(CREDENTIAL_ID))?.signCount === authenticator.signCount,

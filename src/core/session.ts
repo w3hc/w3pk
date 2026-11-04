@@ -374,6 +374,16 @@ export class SessionManager {
   }
 
   /**
+   * Delete the persistent session stored for an address, e.g. once its
+   * wallet is replaced
+   *
+   * @throws {StorageError} if the session could not be deleted
+   */
+  async deletePersistentSession(ethereumAddress: string): Promise<void> {
+    await this.persistentStorage.delete(ethereumAddress);
+  }
+
+  /**
    * Whether the PRF session key is stored for silent restore, in which case
    * it must be derived extractable
    */

@@ -183,7 +183,11 @@ async function setupAuthenticator(): Promise<string> {
 const credentials = () => new CredentialStorage(localStorage as unknown as Storage);
 const wallets = () => new LocalStorageWalletStorage(localStorage as unknown as Storage);
 
-async function loggedInWith(publicKey: string, mnemonic: string): Promise<Web3Passkey> {
+async function loggedInWith(
+  publicKey: string,
+  mnemonic: string,
+  config: ConstructorParameters<typeof Web3Passkey>[0] = {}
+): Promise<Web3Passkey> {
   localStorage.clear();
   const address = Wallet.fromPhrase(mnemonic).address;
   const now = new Date().toISOString();
@@ -203,7 +207,7 @@ async function loggedInWith(publicKey: string, mnemonic: string): Promise<Web3Pa
     createdAt: now,
   });
 
-  const sdk = new Web3Passkey();
+  const sdk = new Web3Passkey(config);
   (sdk as any).currentUser = {
     username: USERNAME,
     ethereumAddress: address,
@@ -351,6 +355,29 @@ async function runTests() {
   {
     const error = await capture(() => new Web3Passkey().importMnemonic(MNEMONIC_B));
     assert(error instanceof WalletError, "throws WalletError");
+  }
+  console.log("");
+
+  console.log("Test 8: importing wallet B deletes wallet A's persistent session");
+  {
+    const sdk = await loggedInWith(publicKey, MNEMONIC_A, {
+      persistentSession: { enabled: true, requireReauth: false },
+    });
+    localStorage.setItem(
+      `w3pk_session_${ADDRESS_A}`,
+      JSON.stringify({
+        encryptedMnemonic: "stale",
+        sessionKey: "stale",
+        expiresAt: Date.now() + 60 * 60 * 1000,
+        credentialId: CREDENTIAL_ID,
+        ethereumAddress: ADDRESS_A,
+        securityMode: "STANDARD",
+        createdAt: Date.now(),
+      })
+    );
+    await sdk.importMnemonic(MNEMONIC_B);
+    assert(localStorage.getItem(`w3pk_session_${ADDRESS_A}`) === null, "wallet A's persistent session is deleted");
+    assert(localStorage.getItem(`w3pk_session_${ADDRESS_B}`) !== null, "wallet B's persistent session is stored");
   }
   console.log("");
 
