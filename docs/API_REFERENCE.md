@@ -1551,7 +1551,7 @@ const w3pk = createWeb3Passkey({
 
 All stealth address methods are accessed via `w3pk.stealth.*`
 
-Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, so it can see every stealth payment to the user. w3pk never returns the spending private key or a stealth private key (a stealth private key plus the viewing key would give back the spending key); it signs from stealth addresses itself with `signTransaction()`. Each `signTransaction()` call runs a fresh passkey assertion, even with an active session. Still, only enable stealth addresses in apps you trust with stealth funds: the user approves a prompt, not the transaction the app asks w3pk to sign.
+Stealth keys are shared across origins: every app that enables stealth addresses gets the same meta-address and viewing key, so it can see every stealth payment to the user. w3pk never returns the spending private key or a stealth private key (a stealth private key plus the viewing key would give back the spending key); it signs from stealth addresses itself with `signTransaction()`. Each `signTransaction()` call runs a fresh passkey assertion, even with an active session. Still, only enable stealth addresses in apps you trust with stealth funds: the user approves a prompt, not the transaction the app asks w3pk to sign. A confirmation popup on the wallet origin will fix this ([#147](https://github.com/w3hc/w3pk/issues/147)).
 
 > **🔒 Security Note:** The ERC-5564 implementation properly reduces all scalars modulo the secp256k1 curve order to prevent unspendable funds. The same reduced scalar is used consistently in both public-key operations (`s_h × G`) and private-key operations (`spendingKey + s_h`) to ensure the derived stealth address always matches the derived private key.
 
@@ -1667,6 +1667,8 @@ myPayments.forEach(payment => {
 ### `stealth.signTransaction(announcement: Announcement, tx: StealthTransaction): Promise<string>`
 
 Sign an EIP-1559 transaction from a stealth address found for the current user. The stealth private key is derived and used inside w3pk, never returned. Every call runs a fresh passkey assertion, even with an active session. The transaction is signed, not sent: broadcast it with your own RPC (`eth_sendRawTransaction`).
+
+> **Cross-origin risk:** stealth keys are the same for every origin, so any origin that enables `stealthAddresses` can sign any transaction from any of the user's stealth addresses. The passkey prompt is generic and doesn't show the transaction. Only enable stealth addresses in apps you trust with stealth funds. A confirmation popup on the wallet origin will fix this ([#147](https://github.com/w3hc/w3pk/issues/147)).
 
 **Parameters:**
 - `announcement: Announcement` - The announcement of the stealth address to sign from
