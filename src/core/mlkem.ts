@@ -1,8 +1,9 @@
-import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
+import { pbkdf2Async } from "@noble/hashes/pbkdf2.js";
 import { sha512 } from "@noble/hashes/sha2.js";
+import { Mnemonic } from "ethers";
 import type { SecurityMode } from "../types";
 import { getCurrentOrigin, DEFAULT_TAG } from "../wallet/origin-derivation";
-import type { EncryptedPayload, MLKemDerivationOptions } from "../crypto/mlkem";
+import { MLKEM_DEFAULT_CONTEXT, type EncryptedPayload, type MLKemDerivationOptions } from "../crypto/mlkem";
 import { WalletError } from "./errors";
 import type { SdkContext } from "./context";
 
@@ -15,8 +16,9 @@ interface MlkemOptions {
   requireAuth?: boolean;
 }
 
-export function bip39Seed(mnemonic: string): Uint8Array {
-  return pbkdf2(sha512, mnemonic.normalize("NFKD"), "mnemonic", { c: 2048, dkLen: 64 });
+export function bip39Seed(mnemonic: string): Promise<Uint8Array> {
+  const phrase = Mnemonic.fromPhrase(mnemonic).phrase.normalize("NFKD");
+  return pbkdf2Async(sha512, phrase, "mnemonic", { c: 2048, dkLen: 64 });
 }
 
 async function withSeed<T>(
@@ -38,11 +40,11 @@ async function withSeed<T>(
     origin: getCurrentOrigin(),
     mode,
     tag: options?.tag || DEFAULT_TAG,
-    context: options?.context,
+    context: options?.context || MLKEM_DEFAULT_CONTEXT,
   };
 
   const mnemonic = await ctx.getMnemonicFromSession(requireAuth, mode);
-  const seed = bip39Seed(mnemonic);
+  const seed = await bip39Seed(mnemonic);
   try {
     return await run(seed, derivation);
   } finally {
