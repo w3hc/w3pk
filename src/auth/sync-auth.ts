@@ -16,10 +16,9 @@ import { validateUsername } from "../utils/validation";
 
 export interface PasskeySelectionResult {
   credentialId: string;
-  publicKey: string;
-  ethereumAddress?: string; // May be undefined if credential is not in local storage yet
+  /** From a pre-0.11.1 passkey's user handle */
   username?: string;
-  /** The selection assertion, to verify against a public key from a backup */
+  /** The selection assertion, unverified */
   assertion: AuthenticationCredential;
   /** Base64url challenge the assertion answers */
   challenge: string;
@@ -105,29 +104,9 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
       : undefined;
     const username = usernameFromUserHandle(credential.response.userHandle);
 
-    // Try to get the stored credential metadata
-    const storedCredential = await storage.getCredentialById(credentialId);
-
-    if (!storedCredential) {
-      // Passkey authenticated but not in local storage yet
-      // This is expected in the sync scenario - the user has the passkey but not the wallet data
-      return {
-        credentialId,
-        publicKey: "", // Will need to be derived or provided from backup
-        ethereumAddress: undefined,
-        username,
-        assertion: credential,
-        challenge,
-        prfOutput,
-      };
-    }
-
-    // Passkey found in local storage
     return {
       credentialId,
-      publicKey: storedCredential.publicKey,
-      ethereumAddress: storedCredential.ethereumAddress,
-      username: storedCredential.username,
+      username,
       assertion: credential,
       challenge,
       prfOutput,
