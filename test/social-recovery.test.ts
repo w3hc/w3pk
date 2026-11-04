@@ -329,12 +329,17 @@ async function runTests() {
 
     const relabelled = await rejection([files[0], JSON.stringify({ ...bob, threshold: 3 })]);
     named(relabelled, 2, "Bob", "edited threshold");
+    named(await rejection([files[0], JSON.stringify({ ...bob, guardianName: "Charlie" })]), 2, "Charlie", "renamed share");
+
+    const upper = { ...bob, shareData: bob.shareData.toUpperCase(), splitId: bob.splitId.toUpperCase() };
+    const fromUpper = await new Web3Passkey().recoverFromGuardians([files[0], JSON.stringify(upper)], PASSWORD);
+    assertEqual(fromUpper.ethereumAddress, ADDRESS, "uppercase hex is accepted");
 
     const again = await sdk.setupSocialRecovery(guardians, 2, PASSWORD);
     const againFiles = await shareFiles(sdk, again.guardianShares);
     const otherSplit = await rejection([files[0], files[1], againFiles[2]]);
     named(otherSplit, 3, "Charlie", "share from another split of the same wallet");
-    assert(/another social recovery setup/.test(otherSplit.message), "another split: says so");
+    assert(/another social recovery setup than share 1 \(Alice\)/.test(otherSplit.message), "another split: names the share it differs from");
 
     const other = loggedInSdk(OTHER_MNEMONIC);
     const otherFiles = await shareFiles(other, (await other.setupSocialRecovery(guardians, 2, PASSWORD)).guardianShares);
