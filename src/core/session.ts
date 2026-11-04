@@ -76,12 +76,7 @@ export class SessionManager {
     prfSessionKey?: CryptoKey,
     securityMode?: SecurityMode
   ): Promise<void> {
-    const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
-    this.session = {
-      mnemonic,
-      expiresAt,
-      credentialId,
-    };
+    this.cacheSession(mnemonic, credentialId);
 
     // Persist session if enabled and not STRICT mode
     if (
@@ -124,6 +119,36 @@ export class SessionManager {
   }
 
   /**
+   * Keep the mnemonic in memory for the session duration; a duration of 0
+   * keeps nothing
+   */
+  private cacheSession(mnemonic: string, credentialId: string): void {
+    if (this.sessionDuration <= 0) {
+      this.session = null;
+      return;
+    }
+    this.session = {
+      mnemonic,
+      expiresAt: new Date(Date.now() + this.sessionDuration).toISOString(),
+      credentialId,
+    };
+  }
+
+  /**
+   * Clear the session if its expiry time has passed
+   */
+  private expireIfDue(): boolean {
+    if (!this.session || Date.now() < new Date(this.session.expiresAt).getTime()) {
+      return false;
+    }
+    // Fire-and-forget: expiry cleanup has no caller to surface errors to
+    this.clearSession().catch((error) =>
+      console.warn('[w3pk] Failed to clear expired session:', error)
+    );
+    return true;
+  }
+
+  /**
    * Get the cached mnemonic if session is still valid
    * Returns null if session expired or doesn't exist
    */
@@ -132,12 +157,7 @@ export class SessionManager {
       return null;
     }
 
-    // Check if session expired
-    if (new Date() > new Date(this.session.expiresAt)) {
-      // Fire-and-forget: expiry cleanup has no caller to surface errors to
-      this.clearSession().catch((error) =>
-        console.warn('[w3pk] Failed to clear expired session:', error)
-      );
+    if (this.expireIfDue()) {
       return null;
     }
 
@@ -152,11 +172,7 @@ export class SessionManager {
       return null;
     }
 
-    if (new Date() > new Date(this.session.expiresAt)) {
-      // Fire-and-forget: expiry cleanup has no caller to surface errors to
-      this.clearSession().catch((error) =>
-        console.warn('[w3pk] Failed to clear expired session:', error)
-      );
+    if (this.expireIfDue()) {
       return null;
     }
 
@@ -178,11 +194,7 @@ export class SessionManager {
       return 0;
     }
 
-    if (new Date() > new Date(this.session.expiresAt)) {
-      // Fire-and-forget: expiry cleanup has no caller to surface errors to
-      this.clearSession().catch((error) =>
-        console.warn('[w3pk] Failed to clear expired session:', error)
-      );
+    if (this.expireIfDue()) {
       return 0;
     }
 
@@ -197,11 +209,7 @@ export class SessionManager {
       throw new Error("No active session to extend");
     }
 
-    if (new Date() > new Date(this.session.expiresAt)) {
-      // Fire-and-forget: expiry cleanup has no caller to surface errors to
-      this.clearSession().catch((error) =>
-        console.warn('[w3pk] Failed to clear expired session:', error)
-      );
+    if (this.expireIfDue()) {
       throw new Error("Session expired, cannot extend");
     }
 
@@ -251,13 +259,7 @@ export class SessionManager {
         prfSessionKey
       );
 
-      // Start in-memory session with restored mnemonic
-      const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
-      this.session = {
-        mnemonic,
-        expiresAt,
-        credentialId,
-      };
+      this.cacheSession(mnemonic, credentialId);
 
       return mnemonic;
     } catch (error) {
@@ -326,13 +328,7 @@ export class SessionManager {
           await importSessionKey(persistentSession.sessionKey)
         );
 
-        // Start in-memory session with restored mnemonic
-        const expiresAt = new Date(Date.now() + this.sessionDuration).toISOString();
-        this.session = {
-          mnemonic,
-          expiresAt,
-          credentialId: credential.id,
-        };
+        this.cacheSession(mnemonic, credential.id);
 
         return {
           mnemonic,

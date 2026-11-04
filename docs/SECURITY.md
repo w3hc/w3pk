@@ -54,7 +54,7 @@ What "Remember Me" still changes is the **exposure window**, not the trust model
 **Reasonable to accept** for a hot wallet on a user's own device — it's the same bargain as "stay logged in" everywhere. **Guidance:**
 
 - Leave it disabled (the default) if every unlock should require a biometric/PIN prompt.
-- Keep the duration short for higher-value wallets. `sessionDuration: 0` forces a prompt on every operation.
+- Keep the duration short for higher-value wallets. `sessionDuration: 0` keeps nothing in memory, so every operation prompts; the persistent session still follows `persistentSession`.
 - `requireReauth: true` (default) still prompts on page refresh and keeps the blob hardware-bound; `requireReauth: false` restores silently for the whole duration.
 - Do not enable it on shared or untrusted devices.
 
