@@ -10,7 +10,7 @@
 
 The W3PK backup system provides a simplified portable approach to wallet backups. A single backup file can be used for multiple purposes: restoration, registration, cross-device sync, and social recovery.
 
-W3PK uses a **universal backup file format** (BackupFile v3) as the foundation for all recovery workflows. Think of it as a portable encrypted file that can be used for multiple purposes.
+W3PK uses a **universal backup file format** (BackupFile v4) as the foundation for all recovery workflows. Think of it as a portable encrypted file that can be used for multiple purposes.
 
 ---
 
@@ -90,13 +90,13 @@ While `hasBackup` is `false`, the security score is capped at 20 and its level i
 
 ---
 
-## 🎯 Backup File Format (v3)
+## 🎯 Backup File Format (v4)
 
 All workflows use the same universal format:
 
 ```typescript
 interface BackupFile {
-  version: 3;
+  version: 4;
   createdAt: string;              // ISO 8601 timestamp
   encryptedMnemonic: string;      // base64(iv || AES-256-GCM ciphertext)
   encryptionMethod: 'password' | 'prf';
@@ -117,11 +117,13 @@ interface BackupFile {
 
 The file holds no address, in clear or hashed: it doesn't say whose wallet it is. Restores derive the address from the decrypted mnemonic, and AES-GCM rejects a wrong key or an altered ciphertext.
 
+Every other field is AES-GCM additional data, so the tag covers it too: editing `credential`, `username`, `prfSalt`, `createdAt` or the Argon2id parameters makes the restore fail, and a field the format doesn't define is rejected. The additional data is the label `w3pk-backup-v4`, then `version`, `createdAt`, `encryptionMethod`, `passwordEncryption.kdf`, `.salt`, `.memoryKiB`, `.passes`, `.parallelism`, `credential.id`, `credential.publicKey`, `prfSalt` and `username`, in that order. An absent field is `0x00`; a string is `0x01`, its UTF-8 length as 4 bytes big-endian, then its bytes; an integer is `0x01` then 4 bytes big-endian. `backupAdditionalData()` in `src/backup/backup-file.ts` builds it, and the offline extractor has the same function.
+
 ### Example Backup File
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "createdAt": "2026-11-01T17:02:43.393Z",
   "encryptedMnemonic": "4XBZgFB0Lek9PCtj+0ew4mo3jbsHGIJVb17eXsftc5Sqi710SW+h8EZ67I4...",
   "encryptionMethod": "password",
@@ -136,9 +138,9 @@ The file holds no address, in clear or hashed: it doesn't say whose wallet it is
 }
 ```
 
-### v2 files
+### v3 and v2 files
 
-w3pk restores v3 files only, with no compatibility layer. A v2 file (no `version` field) throws `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`). To recover a v2 password backup, open the [v0.10.6 offline tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html), extract the mnemonic, import it, then create a new backup. A v2 `prf` file can't be converted: export a new one with `exportForSync()` on a device where the wallet is. Guardian shares made before v3 rebuild a v2 file: the error then carries it as `backupFileJson`, for the v0.10.6 tool.
+w3pk restores v4 files only, with no compatibility layer. A v3 file, or a v2 file (no `version` field), throws `UnsupportedBackupVersionError` (`code: 'BACKUP_VERSION_UNSUPPORTED'`). To recover a v3 password backup, open the [offline tool that reads v3](https://github.com/w3hc/w3pk/blob/b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html) (`standalone/extract-mnemonic.html` at commit `b14c32c`); for a v2 one, the [v0.10.6 offline tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html). Extract the mnemonic, import it, then create a new backup. A v3 or v2 `prf` file can't be converted: export a new one with `exportForSync()` on a device where the wallet is.
 
 ---
 
@@ -366,11 +368,13 @@ await sdk.register({ username: 'username' });
 ```
 
 **Encryption**:
-1. User creates password-encrypted BackupFile v3 (Argon2id + AES-256-GCM)
+1. User creates password-encrypted BackupFile v4 (Argon2id + AES-256-GCM)
 2. Serialize BackupFile to JSON
 3. Split JSON using Shamir Secret Sharing (M-of-N threshold)
-4. Each guardian gets one encrypted fragment
+4. Each guardian gets one encrypted fragment, with its setup's `splitId` and a checksum
 5. Recovery requires: threshold shares + original password
+
+**Share checksums**: each share file (`version: 2`) holds `splitId` (16 random bytes, the same for every share of one setup) and `checksum`, the SHA-256 of the label `w3pk-guardian-share-v2`, `splitId`, `shareIndex`, `threshold`, the lowercased `walletAddress`, `guardianName`, `createdAt` and the share bytes (strings and bytes length-prefixed with 4 bytes big-endian, the index and threshold one byte each). Before the shares are combined, `recoverFromGuardians()` throws `InvalidGuardianShareError` naming the share (`shareIndex`, `guardianName`) that is corrupted or edited, comes from another setup, is given twice, or is a `version: 1` share from 0.11.x. The checksum is not a MAC: a guardian who edits a share on purpose and recomputes it isn't named, and the backup's AES-GCM tag refuses the rebuilt file. To use `version: 1` shares, combine them with w3pk v0.11.1 (`SocialRecovery.recoverFromShares()`) and decrypt the rebuilt v3 file with the tool that reads v3, or set up social recovery again.
 
 **Use Case**: Forgot password, lost all devices, ultimate safety net
 
@@ -418,10 +422,11 @@ await sdk.register({ username: 'username' });
 
 1. **Never Exposes Mnemonic**: Mnemonic is always encrypted in backup files
 2. **No Address in the File**: A stolen file doesn't say whose wallet it is; AES-GCM detects corruption or a wrong password
-3. **Versioned Format**: `version: 3`; other versions fail with `UnsupportedBackupVersionError`
-4. **Memory-Hard Password KDF**: Argon2id makes offline guessing costly on GPUs
-5. **Shamir Secret Sharing**: No single guardian can recover wallet alone
-6. **Multiple Encryption Options**: Choose security/convenience tradeoff
+3. **Versioned Format**: `version: 4`; other versions fail with `UnsupportedBackupVersionError`
+4. **Authenticated Metadata**: every field but the ciphertext is AES-GCM additional data, so an edited field fails the restore
+5. **Memory-Hard Password KDF**: Argon2id makes offline guessing costly on GPUs
+6. **Shamir Secret Sharing**: No single guardian can recover wallet alone
+7. **Multiple Encryption Options**: Choose security/convenience tradeoff
 
 ### **Social Recovery Cryptography**
 
@@ -432,7 +437,7 @@ Example: 3-of-5 scheme
 
 Step 1: Create Encrypted Backup File
 - User creates password-encrypted backup file
-- Backup contains: { version: 3, encryptedMnemonic, passwordEncryption, ... }
+- Backup contains: { version: 4, encryptedMnemonic, passwordEncryption, ... }
 - Encryption: Argon2id(password) → AES-256-GCM
 - Result: BackupFile JSON (already encrypted)
 
@@ -443,13 +448,14 @@ Step 2: Split Backup File
 - Result: 5 shares of encrypted data
 
 Step 3: Distribute Shares
-- Each guardian gets one share (hex-encoded fragment)
+- Each guardian gets one share (hex-encoded fragment), its split id and its checksum
 - Shares are fragments of the encrypted backup file
 - Guardians never see the plaintext mnemonic
 - Guardians don't have the password
 
 Recovery Process:
 - Collect 3+ shares from guardians
+- Check each share's checksum and split id, naming a wrong one
 - Combine shares → reconstruct BackupFile JSON
 - Decrypt with password → extract mnemonic
 - Register new passkey or import to existing
@@ -689,7 +695,8 @@ All tests pass:
 - ✅ Guardian invitation generation with QR codes
 - ✅ Downloadable backup file creation
 - ✅ No address in the file; Argon2id parameters and bounds
-- ✅ Offline extractor decrypts v3 password files (`test/standalone-extract.test.ts`)
+- ✅ Edited metadata, v3 files, and corrupted or mixed-up guardian shares are refused (`test/backup-file.test.ts`, `test/social-recovery.test.ts`)
+- ✅ Offline extractor decrypts v4 password files (`test/standalone-extract.test.ts`)
 - ✅ Offline extractor loads nothing from the network and derives the same wallets as the SDK (`test/standalone-extract.test.ts`)
 
 ---
@@ -950,17 +957,17 @@ The score is recalculated on-demand when you call `getBackupStatus()`, ensuring 
 
 ---
 
-## 📝 Migration from v2
+## 📝 Migration from v3 and v2
 
-BackupFile v2 (before 0.11.0) is no longer restored. To migrate a v2 password backup:
+BackupFile v3 (0.11.x) and v2 (before 0.11.0) are no longer restored, and neither are guardian shares made by 0.11.x. Before upgrading, create a new backup and set up social recovery again with the new version on a device where the wallet is. To migrate a v3 or v2 password backup without such a device:
 
-1. Open the [v0.10.6 offline tool](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html) (`standalone/extract-mnemonic.html` at tag `v0.10.6`) and extract the mnemonic
+1. Open the offline tool that reads its format: [commit `b14c32c`](https://github.com/w3hc/w3pk/blob/b14c32c658cc740aff78a1bbdb1cdb75c3b15a87/standalone/extract-mnemonic.html) for v3, [tag `v0.10.6`](https://github.com/w3hc/w3pk/blob/v0.10.6/standalone/extract-mnemonic.html) for v2, and extract the mnemonic
 2. Import it (`importMnemonic()` while logged in), then create a new backup with `createBackupFile(password)`
 3. Replace all stored backups and set up guardian shares again
 
 ## 🧰 Offline Extractor
 
-`standalone/extract-mnemonic.html` decrypts v3 password backups in the browser, with no server and no network request: Argon2id is inlined (a bundle of `@noble/hashes`), and AES-GCM comes from WebCrypto. Its "Derive Wallets" section is offline too: an inlined bundle of `@noble/hashes` (PBKDF2, HMAC-SHA512, Keccak-256) and `@noble/curves` (secp256k1) gives the BIP-39 seed, BIP-32 keys and EIP-55 addresses. It derives an origin wallet at `m/13'/A'/B'/C'/D'/mode'/tag'`, the same path as `deriveOriginPath()`, and an index wallet at `m/44'/60'/0'/0/{index}`, where index 0 is the registration address. Regenerate both bundles after upgrading `@noble/hashes` or `@noble/curves` with `pnpm build:standalone`. For v2 files, use the v0.10.6 tool linked above.
+`standalone/extract-mnemonic.html` decrypts v4 password backups in the browser, with the metadata as AES-GCM additional data,, with no server and no network request: Argon2id is inlined (a bundle of `@noble/hashes`), and AES-GCM comes from WebCrypto. Its "Derive Wallets" section is offline too: an inlined bundle of `@noble/hashes` (PBKDF2, HMAC-SHA512, Keccak-256) and `@noble/curves` (secp256k1) gives the BIP-39 seed, BIP-32 keys and EIP-55 addresses. It derives an origin wallet at `m/13'/A'/B'/C'/D'/mode'/tag'`, the same path as `deriveOriginPath()`, and an index wallet at `m/44'/60'/0'/0/{index}`, where index 0 is the registration address. Regenerate both bundles after upgrading `@noble/hashes` or `@noble/curves` with `pnpm build:standalone`. For v3 and v2 files, use the tools linked above.
 
 ---
 
