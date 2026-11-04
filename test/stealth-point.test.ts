@@ -8,6 +8,7 @@ import {
   computeStealthPrivateKey,
   computeStealthPublicKey,
 } from "../src/stealth/crypto";
+import { ethers } from "ethers";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { CryptoError } from "../src/core/errors";
 
@@ -61,5 +62,22 @@ if (!threw) {
   throw new Error("P + (−P) did not throw the point-at-infinity error");
 }
 console.log("✓ P + (−P) throws");
+
+const { Fn } = secp256k1.Point;
+const sh = Fn.sub(BigInt(expectedPrivKey), BigInt(keys.spendingKey));
+const cancellingSpendingKey = ethers.toBeHex(Fn.neg(sh), 32);
+let threwZero = false;
+try {
+  computeStealthPrivateKey(keys.viewingKey, cancellingSpendingKey, ephemeralPubKey);
+} catch (error) {
+  threwZero =
+    error instanceof CryptoError &&
+    error.originalError instanceof CryptoError &&
+    error.originalError.message === "Stealth private key is zero";
+}
+if (!threwZero) {
+  throw new Error("Zero stealth private key did not throw");
+}
+console.log("✓ Zero stealth private key throws");
 
 console.log("\n✅ Stealth point math tests passed\n");
