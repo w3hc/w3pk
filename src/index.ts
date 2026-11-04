@@ -193,6 +193,7 @@ export {
   MLKEM_DEFAULT_CONTEXT,
   type EncryptedPayload,
   type MLKemKeypair,
+  type MLKemDerivationOptions,
 } from "./crypto/mlkem";
 
 export default createWeb3Passkey;
