@@ -203,6 +203,14 @@ export class StealthAddressModule {
    * The transaction is signed, not sent: broadcast it with your own RPC
    * (`eth_sendRawTransaction`).
    *
+   * Cross-origin risk: stealth keys are the same for every origin, so any
+   * origin that enables this module can sign any transaction from any of the
+   * user's stealth addresses. The passkey prompt is generic and doesn't show
+   * the transaction, so the user can't tell what they approve. Only enable
+   * stealth addresses in apps you trust with stealth funds. A confirmation
+   * popup on the wallet origin will fix this:
+   * https://github.com/w3hc/w3pk/issues/147
+   *
    * @param announcement - The announcement of the stealth address to sign from
    * @param tx - Fully populated transaction (nonce, gas limit and fees included)
    * @returns The serialized signed transaction
