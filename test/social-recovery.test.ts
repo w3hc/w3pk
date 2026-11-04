@@ -5,7 +5,7 @@
  */
 
 import { Wallet } from "ethers";
-import { Web3Passkey, WeakPasswordError } from "../src/index";
+import { InvalidGuardianShareError, Web3Passkey, WeakPasswordError } from "../src/index";
 import {
   splitSecret,
   combineShares,
@@ -288,6 +288,70 @@ async function runTests() {
           .then(() => {}),
       "not a guardian share"
     );
+    passTest();
+  });
+
+  await runTest("a wrong or corrupted share is named in the error", async () => {
+    const sdk = loggedInSdk();
+    const guardians = [{ name: "Alice" }, { name: "Bob" }, { name: "Charlie" }];
+    const { guardianShares } = await sdk.setupSocialRecovery(guardians, 2, PASSWORD);
+    const files = await shareFiles(sdk, guardianShares);
+    const file = JSON.parse(files[0]);
+    assertEqual(file.version, 2, "share file is version 2");
+    assert(/^[0-9a-f]{32}$/.test(file.splitId), "share file holds the split id");
+    assert(/^[0-9a-f]{64}$/.test(file.checksum), "share file holds the checksum");
+    assert(new Set(guardianShares.map((s) => s.splitId)).size === 1, "one split id per setup");
+
+    async function rejection(shares: Array<string | object>): Promise<InvalidGuardianShareError> {
+      try {
+        await new Web3Passkey().recoverFromGuardians(shares as any, PASSWORD);
+      } catch (error) {
+        assert(error instanceof InvalidGuardianShareError, `InvalidGuardianShareError, got ${error}`);
+        assertEqual((error as InvalidGuardianShareError).code, "GUARDIAN_SHARE_INVALID", "code");
+        return error as InvalidGuardianShareError;
+      }
+      throw new Error("recovery succeeded");
+    }
+    function named(error: InvalidGuardianShareError, index: number, name: string, label: string) {
+      assertEqual(error.shareIndex, index, `${label}: shareIndex`);
+      assertEqual(error.guardianName, name, `${label}: guardianName`);
+      assert(error.message.startsWith(`Guardian share ${index} (${name})`), `${label}: message names it`);
+    }
+
+    const bob = JSON.parse(files[1]);
+    const flipped = bob.shareData.slice(0, 10) + (bob.shareData[10] === "0" ? "1" : "0") + bob.shareData.slice(11);
+    const corrupted = await rejection([files[0], JSON.stringify({ ...bob, shareData: flipped })]);
+    named(corrupted, 2, "Bob", "corrupted share");
+    assert(/checksum/.test(corrupted.message), "corrupted share: says the checksum doesn't match");
+
+    const truncated = await rejection([files[0], JSON.stringify({ ...bob, shareData: bob.shareData.slice(0, -1) })]);
+    named(truncated, 2, "Bob", "truncated share");
+
+    const relabelled = await rejection([files[0], JSON.stringify({ ...bob, threshold: 3 })]);
+    named(relabelled, 2, "Bob", "edited threshold");
+
+    const again = await sdk.setupSocialRecovery(guardians, 2, PASSWORD);
+    const againFiles = await shareFiles(sdk, again.guardianShares);
+    const otherSplit = await rejection([files[0], files[1], againFiles[2]]);
+    named(otherSplit, 3, "Charlie", "share from another split of the same wallet");
+    assert(/another social recovery setup/.test(otherSplit.message), "another split: says so");
+
+    const other = loggedInSdk(OTHER_MNEMONIC);
+    const otherFiles = await shareFiles(other, (await other.setupSocialRecovery(guardians, 2, PASSWORD)).guardianShares);
+    named(await rejection([files[0], files[1], otherFiles[2]]), 3, "Charlie", "share of another wallet");
+
+    named(await rejection([files[0], files[0]]), 1, "Alice", "the same share twice");
+
+    const { splitId: _, checksum: __, ...v1 } = file;
+    const old = await rejection([JSON.stringify({ ...v1, version: 1 }), files[1]]);
+    named(old, 1, "Alice", "version 1 share");
+    assert(/set up social recovery again/.test(old.message), "version 1 share: says what to do");
+
+    const { checksum: ___, ...noChecksum } = guardianShares[0];
+    named(await rejection([noChecksum, guardianShares[1]]), 1, "Alice", "share object without checksum");
+
+    const restored = await new Web3Passkey().recoverFromGuardians([files[2], files[0]], PASSWORD);
+    assertEqual(restored.ethereumAddress, ADDRESS, "the untouched shares still restore");
     passTest();
   });
 
