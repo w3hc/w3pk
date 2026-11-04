@@ -47,7 +47,7 @@ if (!result.isForUser || result.stealthAddress !== expectedAddress) {
 }
 console.log("✓ Stealth address matches the known vector");
 
-const scalar = "0x" + "05".padStart(64, "0");
+const scalar = 5n;
 const negated = "0x" + secp256k1.Point.BASE.multiply(5n).negate().toHex(true);
 let threw = false;
 try {

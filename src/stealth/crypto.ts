@@ -240,7 +240,7 @@ export function computeStealthPrivateKey(
     const reducedScalar = reduceScalarModN(hashedSharedSecret);
 
     // Compute stealth private key: privkey_stealth = spending_privkey + s_h (mod n)
-    const stealthPrivKey = addPrivateKeys(spendingKey, reducedScalar);
+    const stealthPrivKey = addPrivateKey(spendingKey, reducedScalar);
 
     return stealthPrivKey;
   } catch (error) {
@@ -329,13 +329,13 @@ function computeSharedSecret(privateKey: string, publicKey: string): string {
  */
 export function computeStealthPublicKey(
   spendingPubKey: string,
-  scalar: string
+  scalar: bigint
 ): string {
   const { Point } = secp256k1;
   let point;
   try {
-    point = Point.fromHex(spendingPubKey.replace(/^0x/, "")).add(
-      Point.BASE.multiply(BigInt(scalar))
+    point = Point.fromBytes(ethers.getBytes(spendingPubKey)).add(
+      Point.BASE.multiply(scalar)
     );
   } catch (error) {
     throw new CryptoError("Failed to compute stealth public key", error);
@@ -354,22 +354,25 @@ export function computeStealthPublicKey(
  * @returns Reduced scalar in valid range
  * @throws CryptoError if scalar is zero after reduction
  */
-function reduceScalarModN(scalar: string): string {
-  const reduced = secp256k1.Point.Fn.create(BigInt(scalar));
+function reduceScalarModN(scalar: string): bigint {
+  const reduced = secp256k1.Point.Fn.create(ethers.toBigInt(ethers.getBytes(scalar)));
   if (reduced === 0n) {
     throw new CryptoError("Scalar reduced to zero (invalid)");
   }
-  return ethers.toBeHex(reduced, 32);
+  return reduced;
 }
 
 /**
- * Add two private keys modulo the curve order
- * (privkey1 + privkey2) mod n
+ * Add a scalar to a private key modulo the curve order
+ * (privkey + scalar) mod n
  *
  * @throws CryptoError if the sum is zero
  */
-function addPrivateKeys(privKey1: string, privKey2: string): string {
-  const sum = secp256k1.Point.Fn.add(BigInt(privKey1), BigInt(privKey2));
+function addPrivateKey(privKey: string, scalar: bigint): string {
+  const sum = secp256k1.Point.Fn.add(
+    ethers.toBigInt(ethers.getBytes(privKey)),
+    scalar
+  );
   if (sum === 0n) {
     throw new CryptoError("Stealth private key is zero");
   }
