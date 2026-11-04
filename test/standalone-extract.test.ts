@@ -116,7 +116,7 @@ async function runTests() {
 
   await runTest('Loads nothing from the network and no ethers', async () => {
     assert(
-      html.includes(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">`),
+      html.includes(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'none'">`),
       'CSP blocks every request'
     );
     assert(html.indexOf('Content-Security-Policy') < html.indexOf('<script'), 'CSP comes before the first script');
