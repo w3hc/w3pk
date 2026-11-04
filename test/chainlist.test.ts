@@ -180,6 +180,52 @@ async function runTests() {
     }
   });
 
+  // Test 7: concurrent calls for one URL share a fetch, failures are not cached
+  await runTest("Concurrent calls for one URL share a fetch", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetched: string[] = [];
+    let fail = false;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      fetched.push(String(input));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (fail) throw new Error("offline");
+      return new Response(JSON.stringify([{ chainId: 31337, rpc: ["https://shared.example"] }]));
+    }) as typeof fetch;
+
+    try {
+      clearCache();
+      const url = "https://chains.example/chains.json";
+      const results = await Promise.all([
+        getEndpoints(31337, { chainsJsonUrl: url }),
+        getEndpoints(31337, { chainsJsonUrl: url }),
+        getChainById(31337, { chainsJsonUrl: url }),
+      ]);
+      assertEqual(fetched.length, 1, "one fetch for three concurrent calls");
+      assertEqual(JSON.stringify(results[1]), JSON.stringify(["https://shared.example"]), "shared result");
+      passTest("Three concurrent calls ran one fetch");
+
+      clearCache();
+      fetched.length = 0;
+      fail = true;
+      const failed = await Promise.allSettled([
+        getEndpoints(31337, { chainsJsonUrl: url }),
+        getEndpoints(31337, { chainsJsonUrl: url }),
+      ]);
+      assert(failed.every((r) => r.status === "rejected"), "Both calls should reject");
+      fail = false;
+      assertEqual(
+        JSON.stringify(await getEndpoints(31337, { chainsJsonUrl: url })),
+        JSON.stringify(["https://shared.example"]),
+        "fetches again after a failure"
+      );
+      assertEqual(fetched.length, 2, "failed fetch not cached");
+      passTest("A failed fetch is shared, then retried");
+    } finally {
+      globalThis.fetch = originalFetch;
+      clearCache();
+    }
+  });
+
   endTestSuite();
 }
 
