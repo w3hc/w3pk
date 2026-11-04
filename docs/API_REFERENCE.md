@@ -3290,10 +3290,12 @@ Derive your hybrid ML-KEM-1024 + X25519 public key for sharing with others.
 {
   context?: string;        // Domain separation (default: MLKEM_DEFAULT_CONTEXT, 'mlkem-v1')
   mode?: SecurityMode;     // 'STANDARD', 'STRICT', or 'YOLO' (default: 'STANDARD')
-  tag?: string;            // Address derivation tag (default: 'MAIN')
+  tag?: string;            // Tag (default: 'MAIN')
   requireAuth?: boolean;   // Force re-auth (default: false, always true in STRICT)
 }
 ```
+
+The keypair is derived from the wallet's BIP-39 seed, the current origin, the mode, the tag and the context.
 
 **Returns:** Base64-encoded hybrid public key (1600 bytes: ML-KEM-1024 encapsulation key || X25519 public key)
 
@@ -3306,7 +3308,7 @@ const myPubKey = await w3pk.deriveMLKemPublicKey();
 // Share myPubKey with others
 ```
 
-**Note:** PRIMARY mode not supported (uses P-256 WebAuthn keys).
+**Note:** PRIMARY mode not supported.
 
 ---
 
@@ -3357,13 +3359,16 @@ Low-level functions for direct key management:
 import { mlkemEncrypt, mlkemDecrypt, deriveMLKemKeypair, type EncryptedPayload } from 'w3pk'
 ```
 
-##### `deriveMLKemKeypair(privateKey: string | Uint8Array, context?: string): Promise<MLKemKeypair>`
+##### `deriveMLKemKeypair(seed: Uint8Array, options: MLKemDerivationOptions): Promise<MLKemKeypair>`
 
-Derive a deterministic hybrid keypair (ML-KEM-1024 + X25519) from any private key: HKDF-SHA256 extracts with salt `w3pk-kem-keypair-v3`, then expands a 64-byte ML-KEM seed (info `ml-kem-1024:<context>`) and a 32-byte X25519 secret key (info `x25519:<context>`).
+Derive a deterministic hybrid keypair (ML-KEM-1024 + X25519) from a 64-byte BIP-39 seed: HKDF-SHA256 extracts with salt `w3pk-kem-keypair-v4`, then expands a 64-byte ML-KEM seed and a 32-byte X25519 secret key. Each info holds the purpose (`ml-kem-1024` or `x25519`), the normalized origin, the mode, the uppercased tag and the context, each prefixed with its 4-byte big-endian UTF-8 length. No secp256k1 key enters the derivation. See [POST_QUANTUM.md](./POST_QUANTUM.md#deterministic-key-derivation).
 
 **Parameters:**
-- `privateKey` - Ethereum private key (hex with optional `0x` prefix or Uint8Array)
-- `context` - Context string for domain separation (default: `MLKEM_DEFAULT_CONTEXT`, `'mlkem-v1'`, exported from `w3pk`)
+- `seed` - 64-byte BIP-39 seed (e.g. `getBytes(Mnemonic.fromPhrase(mnemonic).computeSeed())` with ethers)
+- `options.origin` - Origin URL, normalized as for origin-specific addresses
+- `options.mode` - Security mode (default: `'STANDARD'`)
+- `options.tag` - Tag, uppercased (default: `'MAIN'`)
+- `options.context` - Context string for domain separation (default: `MLKEM_DEFAULT_CONTEXT`, `'mlkem-v1'`, exported from `w3pk`)
 
 **Returns:**
 ```typescript
@@ -3375,7 +3380,7 @@ Derive a deterministic hybrid keypair (ML-KEM-1024 + X25519) from any private ke
 
 **Example:**
 ```typescript
-const keypair = await deriveMLKemKeypair('0x1234...', 'my-app');
+const keypair = await deriveMLKemKeypair(seed, { origin: 'https://example.com', context: 'my-app' });
 ```
 
 ---
