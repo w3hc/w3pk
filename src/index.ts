@@ -93,7 +93,7 @@ export {
   DEFAULT_TAG,
   DEFAULT_MODE,
   getOriginSpecificAddress,
-  deriveIndexFromOriginModeAndTag,
+  deriveOriginPath,
   deriveAddressFromP256PublicKey,
 } from "./wallet/origin-derivation";
 
@@ -136,6 +136,7 @@ export {
   generateBIP39Wallet,
   createWalletFromMnemonic,
   deriveWalletFromMnemonic,
+  deriveWalletFromPath,
 } from "./wallet/generate";
 
 export {

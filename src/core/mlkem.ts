@@ -44,8 +44,8 @@ export async function deriveMLKemPublicKey(ctx: MlkemContext, options?: {
     privateKey = derived.privateKey;
   } else {
     // STANDARD/STRICT modes: derive from mnemonic
-    const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-    const wallet = deriveWalletFromMnemonic(mnemonic, derived.index);
+    const { deriveWalletFromPath } = await import("../wallet/generate");
+    const wallet = deriveWalletFromPath(mnemonic, derived.path);
     privateKey = wallet.privateKey;
   }
 
@@ -93,8 +93,8 @@ export async function mlkemEncrypt(
     privateKey = derived.privateKey;
   } else {
     // STANDARD/STRICT modes: derive from mnemonic
-    const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-    const wallet = deriveWalletFromMnemonic(mnemonic, derived.index);
+    const { deriveWalletFromPath } = await import("../wallet/generate");
+    const wallet = deriveWalletFromPath(mnemonic, derived.path);
     privateKey = wallet.privateKey;
   }
 
@@ -144,8 +144,8 @@ export async function mlkemDecrypt(
     privateKey = derived.privateKey;
   } else {
     // STANDARD/STRICT modes: derive from mnemonic
-    const { deriveWalletFromMnemonic } = await import("../wallet/generate");
-    const wallet = deriveWalletFromMnemonic(mnemonic, derived.index);
+    const { deriveWalletFromPath } = await import("../wallet/generate");
+    const wallet = deriveWalletFromPath(mnemonic, derived.path);
     privateKey = wallet.privateKey;
   }
 

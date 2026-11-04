@@ -1,4 +1,4 @@
-import { deriveWalletFromMnemonic } from "./generate";
+import { deriveWalletFromPath } from "./generate";
 import { WalletError } from "../core/errors";
 import type { SecurityMode } from "../types";
 import { keccak256 } from "ethers";
@@ -6,8 +6,6 @@ import { base64UrlToArrayBuffer } from "../utils/base64";
 
 export const DEFAULT_MODE: SecurityMode = "STANDARD";
 export const DEFAULT_TAG = "MAIN";
-
-const MAX_INDEX = 0x7fffffff;
 
 /**
  * Normalize origin URL for consistent derivation
@@ -33,31 +31,60 @@ export function normalizeOrigin(origin: string): string {
   }
 }
 
+const HARDENED_MASK = 0x7fffffff;
+
+const MODE_LEVELS: Record<SecurityMode, number> = {
+  STANDARD: 0,
+  STRICT: 1,
+  YOLO: 2,
+  PRIMARY: 3,
+};
+
+async function sha256(data: BufferSource): Promise<DataView> {
+  return new DataView(await crypto.subtle.digest('SHA-256', data));
+}
+
 /**
- * Derive deterministic index from origin, mode, and tag using SHA-256
- * Ensures valid BIP32 non-hardened index in range [0, 2^31-1]
+ * Derive the BIP-32 path of an origin, mode and tag:
+ * `m/13'/A'/B'/C'/D'/mode'/tag'`, every level hardened.
+ *
+ * - A..D: SLIP-0013 service identity of the normalized origin with index 0:
+ *   the first 16 bytes of SHA-256(LE32(0) || origin), as four little-endian uint32
+ * - mode: STANDARD=0', STRICT=1', YOLO=2', PRIMARY=3'
+ * - tag: first 4 bytes of SHA-256(uppercased tag), big-endian, low 31 bits
+ *
+ * The origin levels carry 124 bits of SHA-256, so no tag or mode chosen on one
+ * origin reaches another origin's subtree, and with hardened levels a leaked
+ * child key reveals nothing about its siblings or parents.
  */
-export async function deriveIndexFromOriginModeAndTag(
+export async function deriveOriginPath(
   origin: string,
   mode: SecurityMode = DEFAULT_MODE,
   tag: string = DEFAULT_TAG
-): Promise<number> {
+): Promise<string> {
   try {
-    const normalizedOrigin = normalizeOrigin(origin);
-    const combined = `${normalizedOrigin}:${mode}:${tag.toUpperCase()}`;
+    if (!Object.prototype.hasOwnProperty.call(MODE_LEVELS, mode)) {
+      throw new Error(`Unknown security mode: ${mode}`);
+    }
 
     const encoder = new TextEncoder();
-    const data = encoder.encode(combined);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const uri = encoder.encode(normalizeOrigin(origin));
+    const identity = new Uint8Array(4 + uri.length);
+    identity.set(uri, 4);
 
-    const view = new DataView(hashBuffer);
-    const uint32 = view.getUint32(0, false);
-    const index = uint32 % MAX_INDEX;
+    const originHash = await sha256(identity);
+    const originLevels = [0, 4, 8, 12].map(
+      (offset) => originHash.getUint32(offset, true) & HARDENED_MASK
+    );
 
-    return index;
+    const tagHash = await sha256(encoder.encode(tag.toUpperCase()));
+    const tagLevel = tagHash.getUint32(0, false) & HARDENED_MASK;
+
+    const levels = [13, ...originLevels, MODE_LEVELS[mode], tagLevel];
+    return `m/${levels.map((level) => `${level}'`).join('/')}`;
   } catch (error) {
     throw new WalletError(
-      `Failed to derive index from origin "${origin}", mode "${mode}", and tag "${tag}"`,
+      `Failed to derive path from origin "${origin}", mode "${mode}", and tag "${tag}"`,
       error
     );
   }
@@ -71,13 +98,7 @@ export async function deriveIndexFromOriginModeAndTag(
  * - STRICT mode: Private key NOT exposed, persistent sessions NOT allowed
  * - YOLO mode: Private key exposed, persistent sessions allowed
  *
- * The key is derived at `m/44'/60'/0'/0/{index}`, a non-hardened BIP-32 child.
- * Under BIP-32, a leaked non-hardened child private key together with the
- * parent extended public key (`m/44'/60'/0'/0`) reveals the parent private key
- * and every sibling, so every origin's key. w3pk never exposes that extended
- * public key, but a YOLO-mode private key must be treated as sensitive for the
- * whole wallet, not only for its origin. The path is kept as is because
- * changing it would move every origin address.
+ * The key is derived at the fully hardened path from `deriveOriginPath`.
  */
 export async function getOriginSpecificAddress(
   mnemonic: string,
@@ -87,7 +108,7 @@ export async function getOriginSpecificAddress(
 ): Promise<{
   address: string;
   privateKey?: string;
-  index: number;
+  path: string;
   origin: string;
   mode: SecurityMode;
   tag: string;
@@ -96,19 +117,19 @@ export async function getOriginSpecificAddress(
     const effectiveMode = mode || DEFAULT_MODE;
     const effectiveTag = (tag || DEFAULT_TAG).toUpperCase();
     const normalizedOrigin = normalizeOrigin(origin);
-    const index = await deriveIndexFromOriginModeAndTag(normalizedOrigin, effectiveMode, effectiveTag);
-    const { address, privateKey } = deriveWalletFromMnemonic(mnemonic, index);
+    const path = await deriveOriginPath(normalizedOrigin, effectiveMode, effectiveTag);
+    const { address, privateKey } = deriveWalletFromPath(mnemonic, path);
 
     const result: {
       address: string;
       privateKey?: string;
-      index: number;
+      path: string;
       origin: string;
       mode: SecurityMode;
       tag: string;
     } = {
       address,
-      index,
+      path,
       origin: normalizedOrigin,
       mode: effectiveMode,
       tag: effectiveTag,
