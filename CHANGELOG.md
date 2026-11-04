@@ -47,6 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A SIWE message sent as bytes gets the domain check** ([#268](https://github.com/w3hc/w3pk/issues/268)). `signMessage()` checked the domain of an `EIP191` message that contains the SIWE header only when it was a string. `personal_sign` and `eth_sign` sign hex data as bytes, and viem and ethers send SIWE messages as hex, so through the EIP-1193 provider a SIWE message for another domain got signed
   - A byte message whose text contains the SIWE header is decoded as UTF-8 and checked like a string; one that isn't valid UTF-8 throws, so a verifier that decodes it leniently can't accept it unchecked
   - `test/sign-message.test.ts` and `test/eip1193-provider.test.ts` cover raw bytes and hex through `personal_sign` and `eth_sign`
+- **Registration offers ES256 only and decodes the attestation as CBOR** ([#269](https://github.com/w3hc/w3pk/issues/269)). `pubKeyCredParams` offered RS256 (`-257`), but the public key was read by scanning the attestation bytes for the EC2 `x` and `y` patterns, with no check of `kty`, `alg` or `crv`: an RS256 authenticator left an orphan passkey, and a match inside an RSA modulus stored random bytes as the P-256 key
+  - `pubKeyCredParams` lists ES256 (`-7`) only
+  - `src/auth/cbor.ts` is a strict CBOR decoder for the subset WebAuthn uses (integers, byte and text strings, arrays, maps, `false`, `true`, `null`, definite lengths only); it refuses tags, floats, indefinite lengths, duplicate map keys and integers outside the safe range. No dependency is added
+  - The attestation object is decoded as a map with `fmt`, `attStmt` and `authData`, instead of searching its bytes for the `authData` key
+  - The COSE key must have `kty` 2 (EC2), `alg` -7, `crv` 1 (P-256) and 32-byte `x` and `y` forming a point on P-256; nothing but the authenticator extensions (when `ED` is set) may follow it
+  - When registration fails after the passkey is created and before anything is stored, `PublicKeyCredential.signalUnknownCredential()` asks the authenticator to drop it, where the browser supports it
+  - `test/cbor.test.ts`, `test/attestation-cose-key.test.ts` and `test/register-client-data.test.ts` cover it, including RS256, Ed25519, ES384, P-384, wrong coordinate lengths and an RSA modulus that contains the old scan pattern
 
 ### Fixed
 

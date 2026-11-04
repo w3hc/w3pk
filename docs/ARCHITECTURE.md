@@ -70,7 +70,7 @@ They remain **separate systems** with different keys, algorithms, and purposes.
 **Technology**:
 - Standard: W3C WebAuthn, FIDO2, CTAP2
 - Curve: P-256 (NIST secp256r1)
-- Algorithm: ECDSA with ES256 or RS256
+- Algorithm: ECDSA with ES256 (the only algorithm offered at registration)
 - Storage: Hardware Secure Enclave / TPM
 - Managed by: Operating System
 
