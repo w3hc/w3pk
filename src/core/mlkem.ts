@@ -15,7 +15,7 @@ interface MlkemOptions {
   requireAuth?: boolean;
 }
 
-function bip39Seed(mnemonic: string): Uint8Array {
+export function bip39Seed(mnemonic: string): Uint8Array {
   return pbkdf2(sha512, mnemonic.normalize("NFKD"), "mnemonic", { c: 2048, dkLen: 64 });
 }
 
