@@ -19,11 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A session counts as expired from its expiry time (`>=`), in one shared check
   - `test/session-duration.test.ts` covers it
 - **No tag on one origin derives another origin's key** ([#262](https://github.com/w3hc/w3pk/issues/262)). Origin keys sat at `m/44'/60'/0'/0/{index}` with a 31-bit `index` from `SHA-256(origin:mode:tag)`, so an app could search about 2^31 tags for one that gave another origin's index, and its private key in YOLO mode
-  - **Every origin address changes** (STANDARD, STRICT and YOLO, every tag), and so do the ML-KEM keys derived from them. There is no migration: move funds off the old addresses with w3pk v0.11.1 before upgrading. The registration address at `m/44'/60'/0'/0/0` doesn't change
+  - **Every origin address changes** (STANDARD, STRICT and YOLO, every tag). There is no migration: move funds off the old addresses with w3pk v0.11.1 before upgrading. The registration address at `m/44'/60'/0'/0/0` doesn't change
   - Origin keys are derived at `m/13'/A'/B'/C'/D'/mode'/tag'`, every level hardened: `A'..D'` are the [SLIP-0013](https://github.com/satoshilabs/slips/blob/master/slip-0013.md) identity of the normalized origin (first 16 bytes of `SHA-256(LE32(0) ‖ origin)`), `mode'` is `STANDARD`=0', `STRICT`=1', `YOLO`=2', `PRIMARY`=3', `tag'` is 31 bits of `SHA-256(TAG)`. A leaked YOLO key no longer reveals its parent or sibling keys, which closes the non-hardened-path note in `docs/SECURITY.md`
   - `deriveIndexFromOriginModeAndTag()` is replaced by `deriveOriginPath()`, which returns the path; `getOriginSpecificAddress()` and `deriveWallet()` return `path` instead of `index`
   - `deriveWalletFromPath(mnemonic, path)` derives at a full path and throws on a missing or malformed one
   - `test/origin-derivation.test.ts` has path and address vectors and checks that no mode or tag on one origin reaches another origin's path
+- **ML-KEM keys no longer come from the signing key** ([#263](https://github.com/w3hc/w3pk/issues/263)). `deriveMLKemKeypair` ran HKDF over the origin's secp256k1 private key, the key the app signs with. Once that address signs anything its public key is public, a quantum computer can recover the private key, and every recorded payload sealed to it decrypts, so the hybrid added no post-quantum protection
+  - **Every ML-KEM key changes**, for every origin, mode, tag and context. Payloads sealed to the old keys can't be decrypted. There is no migration: decrypt what you need with w3pk v0.11.1 and re-encrypt after upgrading
+  - The KEM keys come from the 64-byte BIP-39 seed through hash functions only: HKDF-SHA256 with salt `w3pk-kem-keypair-v4`, and in each info the purpose, the normalized origin, the mode, the uppercased tag and the context, each with a 4-byte length prefix. No secp256k1 key enters the derivation
+  - `deriveMLKemKeypair(seed, { origin, mode?, tag?, context? })` replaces `deriveMLKemKeypair(privateKey, context?)`; `mlkemEncryptWithKey` and `mlkemDecryptWithKey` take the seed and the same options. `MLKemDerivationOptions` is exported
+  - `w3pk.deriveMLKemPublicKey()`, `w3pk.mlkemEncrypt()` and `w3pk.mlkemDecrypt()` derive from the session mnemonic's seed, the current origin, the mode and the tag
+  - `test/mlkem.test.ts` reproduces the derivation from the seed alone and checks separation across origin, mode, tag and context
 
 ## [0.11.1] - 2026-11-03
 
