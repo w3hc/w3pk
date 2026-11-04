@@ -309,6 +309,25 @@ async function runTests() {
   }
   console.log("");
 
+  console.log("Test 1c: a failed credential update leaves no record when there was none");
+  {
+    const sdk = await loggedInWith(publicKey, MNEMONIC_A);
+    await wallets().delete(CREDENTIAL_ID);
+    Object.assign(failCredentialWriteAfterWallet, { enabled: true, armed: false });
+    const error = await capture(() => sdk.importMnemonic(MNEMONIC_B));
+    Object.assign(failCredentialWriteAfterWallet, { enabled: false, armed: false });
+    assert(
+      error instanceof Error && error.message === "Failed to update credential address",
+      "throws the credential update's error"
+    );
+    assert((await wallets().retrieve(CREDENTIAL_ID)) === null, "wallet B's record is deleted");
+    assert(
+      (await credentials().getCredentialById(CREDENTIAL_ID))?.ethereumAddress === ADDRESS_A,
+      "the credential still points at wallet A"
+    );
+  }
+  console.log("");
+
   console.log("Test 2: an authenticator without PRF keeps wallet A");
   {
     const sdk = await loggedInWith(publicKey, MNEMONIC_A);

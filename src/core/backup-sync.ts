@@ -301,8 +301,8 @@ async function restorePrfBackup(
  * passkey's metadata (or points it at the wallet), stores the wallet
  * under the key derived from `prfOutput` in the passkey's own record and
  * starts a session. Other passkeys of the wallet keep their records. If
- * pointing the passkey at the new wallet fails, its previous record is
- * put back. The passkey's persistent session of its previous wallet is
+ * pointing the passkey at the new wallet fails, its previous record (or
+ * none) is put back. The passkey's persistent session of its previous wallet is
  * deleted before anything else is written. Without `prfOutput`, the wallet and the
  * session stay in memory only.
  *
@@ -365,7 +365,12 @@ export async function bootstrapCredential(
     try {
       await storage.updateCredentialAddress(credential.id, ethereumAddress);
     } catch (error) {
-      if (previousWallet) await ctx.walletStorage.store(previousWallet);
+      await (previousWallet
+        ? ctx.walletStorage.store(previousWallet)
+        : ctx.walletStorage.delete(credential.id)
+      ).catch((rollbackError) =>
+        console.warn('[w3pk] Failed to put back the previous wallet record:', rollbackError)
+      );
       throw error;
     }
   }
