@@ -127,14 +127,15 @@ export function generateChallenge(): string {
 
 export async function encryptData(
   data: string,
-  key: CryptoKey
+  key: CryptoKey,
+  additionalData?: BufferSource
 ): Promise<string> {
   try {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encodedData = new TextEncoder().encode(data);
 
     const encrypted = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
+      { name: "AES-GCM", iv, ...(additionalData && { additionalData }) },
       key,
       encodedData
     );
@@ -155,7 +156,8 @@ export async function encryptData(
 
 export async function decryptData(
   encryptedData: string,
-  key: CryptoKey
+  key: CryptoKey,
+  additionalData?: BufferSource
 ): Promise<string> {
   try {
     if (!encryptedData || encryptedData.length < 16) {
@@ -180,7 +182,7 @@ export async function decryptData(
     }
 
     const decrypted = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv },
+      { name: "AES-GCM", iv, ...(additionalData && { additionalData }) },
       key,
       encrypted
     );
