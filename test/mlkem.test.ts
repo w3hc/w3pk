@@ -3,7 +3,6 @@
  * Tests for hybrid ML-KEM-1024 + X25519 HPKE encryption, decryption, and deterministic key derivation
  *
  * NOTE: This file contains TEST FIXTURES only - not real secrets!
- * Test private key: Standard Ethereum test vector
  */
 
 import {
@@ -14,7 +13,14 @@ import {
   mlkemDecryptWithKey,
   hpkeKeySchedule,
 } from '../src/crypto/mlkem';
-import { sha512 } from '@noble/hashes/sha2.js';
+import { bip39Seed, deriveMLKemPublicKey } from '../src/core/mlkem';
+import { getOriginSpecificAddress } from '../src/wallet/origin-derivation';
+import { deriveWalletFromPath } from '../src/wallet/generate';
+import { Mnemonic, getBytes } from 'ethers';
+import { extract, expand } from '@noble/hashes/hkdf.js';
+import { sha256, sha512 } from '@noble/hashes/sha2.js';
+import { createMlKem1024 } from 'mlkem';
+import { x25519 } from '@noble/curves/ed25519.js';
 import {
   startTestSuite,
   endTestSuite,
@@ -30,25 +36,26 @@ import {
 async function runTests() {
   startTestSuite('ML-KEM Post-Quantum Encryption Tests');
 
-  // Test private keys (standard test vectors - NOT real keys!)
-  const testPrivateKey1 = '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-  const testPrivateKey2 = '0xfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+  const testSeed1 = new Uint8Array(64).map((_, i) => i);
+  const testSeed2 = new Uint8Array(64).map((_, i) => 255 - i);
+  const origin = 'https://example.com';
+  const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString('hex');
 
   // Test 1: Deterministic Key Derivation
-  await runTest('Derive ML-KEM keypair from Ethereum private key', async () => {
-    const keypair1 = await deriveMLKemKeypair(testPrivateKey1, 'test-context');
-    const keypair2 = await deriveMLKemKeypair(testPrivateKey1, 'test-context');
+  await runTest('Derive ML-KEM keypair from a BIP-39 seed', async () => {
+    const keypair1 = await deriveMLKemKeypair(testSeed1, { origin, context: 'test-context' });
+    const keypair2 = await deriveMLKemKeypair(testSeed1, { origin, context: 'test-context' });
 
     // Same input should produce same output (deterministic)
     assertEqual(
       Buffer.from(keypair1.publicKey).toString('hex'),
       Buffer.from(keypair2.publicKey).toString('hex'),
-      'Same private key + context should produce same public key'
+      'Same seed + options should produce same public key'
     );
     assertEqual(
       Buffer.from(keypair1.privateKey).toString('hex'),
       Buffer.from(keypair2.privateKey).toString('hex'),
-      'Same private key + context should produce same private key'
+      'Same seed + options should produce same private key'
     );
 
     // Check key sizes
@@ -60,8 +67,8 @@ async function runTests() {
 
   // Test 2: Context-based Domain Separation
   await runTest('Different contexts produce different keys', async () => {
-    const keypair1 = await deriveMLKemKeypair(testPrivateKey1, 'context-1');
-    const keypair2 = await deriveMLKemKeypair(testPrivateKey1, 'context-2');
+    const keypair1 = await deriveMLKemKeypair(testSeed1, { origin, context: 'context-1' });
+    const keypair2 = await deriveMLKemKeypair(testSeed1, { origin, context: 'context-2' });
 
     const pubKey1Hex = Buffer.from(keypair1.publicKey).toString('hex');
     const pubKey2Hex = Buffer.from(keypair2.publicKey).toString('hex');
@@ -78,7 +85,7 @@ async function runTests() {
   await runTest('Single recipient encryption and decryption', async () => {
     const plaintext = 'This is a secret message for quantum-safe encryption testing';
 
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin, context: 'test' });
 
     // Encrypt
     const encrypted = await mlkemEncrypt(plaintext, keypair.publicKey);
@@ -101,8 +108,8 @@ async function runTests() {
   await runTest('Multi-recipient encryption', async () => {
     const plaintext = 'Secret data for multiple recipients';
 
-    const keypair1 = await deriveMLKemKeypair(testPrivateKey1, 'user1');
-    const keypair2 = await deriveMLKemKeypair(testPrivateKey2, 'user2');
+    const keypair1 = await deriveMLKemKeypair(testSeed1, { origin, context: 'user1' });
+    const keypair2 = await deriveMLKemKeypair(testSeed2, { origin, context: 'user2' });
 
     // Encrypt for both recipients
     const encrypted = await mlkemEncrypt(plaintext, [keypair1.publicKey, keypair2.publicKey]);
@@ -123,21 +130,21 @@ async function runTests() {
   await runTest('mlkemEncryptWithKey convenience function', async () => {
     const plaintext = 'Testing convenience function';
 
-    const serverKeypair = await deriveMLKemKeypair(testPrivateKey2, 'server');
+    const serverKeypair = await deriveMLKemKeypair(testSeed2, { origin, context: 'server' });
 
     // Encrypt using client's private key (client auto-added as recipient)
     const encrypted = await mlkemEncryptWithKey(
       plaintext,
-      testPrivateKey1,
+      testSeed1,
       [serverKeypair.publicKey],
-      'client'
+      { origin, context: 'client' }
     );
 
     // Should have 2 recipients: client (auto-added) + server
     assertEqual(encrypted.recipients.length, 2, 'Should have 2 recipients (client + server)');
 
     // Client can decrypt
-    const clientDecrypted = await mlkemDecryptWithKey(encrypted, testPrivateKey1, 'client');
+    const clientDecrypted = await mlkemDecryptWithKey(encrypted, testSeed1, { origin, context: 'client' });
     assertEqual(clientDecrypted, plaintext, 'Client should decrypt successfully');
 
     // Server can decrypt
@@ -151,8 +158,8 @@ async function runTests() {
   await runTest('Decryption with wrong private key should fail', async () => {
     const plaintext = 'Secret message';
 
-    const keypair1 = await deriveMLKemKeypair(testPrivateKey1, 'user1');
-    const keypair2 = await deriveMLKemKeypair(testPrivateKey2, 'user2');
+    const keypair1 = await deriveMLKemKeypair(testSeed1, { origin, context: 'user1' });
+    const keypair2 = await deriveMLKemKeypair(testSeed2, { origin, context: 'user2' });
 
     const encrypted = await mlkemEncrypt(plaintext, keypair1.publicKey);
 
@@ -174,7 +181,7 @@ async function runTests() {
   await runTest('Encrypt and decrypt empty string', async () => {
     const plaintext = '';
 
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin, context: 'test' });
 
     const encrypted = await mlkemEncrypt(plaintext, keypair.publicKey);
     const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey);
@@ -189,7 +196,7 @@ async function runTests() {
     // Generate 10KB of test data
     const plaintext = 'A'.repeat(10000);
 
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin, context: 'test' });
 
     const encrypted = await mlkemEncrypt(plaintext, keypair.publicKey);
     const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey);
@@ -204,7 +211,7 @@ async function runTests() {
   await runTest('Encrypt and decrypt Unicode characters', async () => {
     const plaintext = '你好世界 🌍 Test émojis 🔐 Spëcîål çhãrs';
 
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin, context: 'test' });
 
     const encrypted = await mlkemEncrypt(plaintext, keypair.publicKey);
     const decrypted = await mlkemDecrypt(encrypted, keypair.privateKey);
@@ -212,23 +219,6 @@ async function runTests() {
     assertEqual(decrypted, plaintext, 'Unicode characters should be preserved');
 
     passTest('Unicode handling working correctly');
-  });
-
-  // Test 11: Hex String vs Uint8Array Input
-  await runTest('Accept both hex string and Uint8Array for private key', async () => {
-    const hexKey = testPrivateKey1;
-    const uint8Key = Buffer.from(hexKey.slice(2), 'hex');
-
-    const keypair1 = await deriveMLKemKeypair(hexKey, 'test');
-    const keypair2 = await deriveMLKemKeypair(uint8Key, 'test');
-
-    assertEqual(
-      Buffer.from(keypair1.publicKey).toString('hex'),
-      Buffer.from(keypair2.publicKey).toString('hex'),
-      'Hex and Uint8Array input should produce same result'
-    );
-
-    passTest('Input format flexibility working');
   });
 
   const rejectionOf = async (fn: () => Promise<unknown>): Promise<Error> => {
@@ -239,6 +229,115 @@ async function runTests() {
     }
     throw new Error('Expected promise to reject');
   };
+
+  await runTest('Origin, mode, tag and context each separate the keys', async () => {
+    const base = await deriveMLKemKeypair(testSeed1, { origin });
+    const variants = await Promise.all([
+      deriveMLKemKeypair(testSeed1, { origin: 'https://other.example.com' }),
+      deriveMLKemKeypair(testSeed1, { origin, mode: 'STRICT' }),
+      deriveMLKemKeypair(testSeed1, { origin, mode: 'YOLO' }),
+      deriveMLKemKeypair(testSeed1, { origin, tag: 'GAMING' }),
+      deriveMLKemKeypair(testSeed1, { origin, context: 'other' }),
+      deriveMLKemKeypair(testSeed2, { origin }),
+    ]);
+    const publicKeys = new Set([base, ...variants].map(k => hex(k.publicKey)));
+    assertEqual(publicKeys.size, variants.length + 1, 'Every variant gives a distinct public key');
+
+    const xKeys = new Set([base, ...variants].map(k => hex(k.publicKey.subarray(1568))));
+    assertEqual(xKeys.size, variants.length + 1, 'Every variant gives a distinct X25519 key');
+
+    passTest('Origin, mode, tag and context separation working');
+  });
+
+  await runTest('Field boundaries are unambiguous', async () => {
+    const a = await deriveMLKemKeypair(testSeed1, { origin, tag: 'AB', context: 'c' });
+    const b = await deriveMLKemKeypair(testSeed1, { origin, tag: 'A', context: 'Bc' });
+    assert(hex(a.publicKey) !== hex(b.publicKey), 'Shifting a byte between tag and context changes the key');
+
+    passTest('Length-prefixed info fields');
+  });
+
+  await runTest('Defaults and normalization match origin-specific addresses', async () => {
+    const explicit = await deriveMLKemKeypair(testSeed1, {
+      origin,
+      mode: 'STANDARD',
+      tag: 'MAIN',
+      context: 'mlkem-v1',
+    });
+    const defaults = await deriveMLKemKeypair(testSeed1, { origin });
+    assertEqual(hex(defaults.publicKey), hex(explicit.publicKey), 'Defaults are STANDARD, MAIN, mlkem-v1');
+
+    const unnormalized = await deriveMLKemKeypair(testSeed1, { origin: 'HTTPS://Example.com:443/path', tag: 'main' });
+    assertEqual(hex(unnormalized.publicKey), hex(explicit.publicKey), 'Origin normalized, tag uppercased');
+
+    passTest('Defaults and normalization consistent');
+  });
+
+  await runTest('Keys come from the seed through HKDF only', async () => {
+    const enc = new TextEncoder();
+    const field = (value: string) => {
+      const bytes = enc.encode(value);
+      const out = new Uint8Array(4 + bytes.length);
+      new DataView(out.buffer).setUint32(0, bytes.length, false);
+      out.set(bytes, 4);
+      return out;
+    };
+    const info = (purpose: string) =>
+      Buffer.concat([purpose, origin, 'STANDARD', 'MAIN', 'mlkem-v1'].map(field));
+
+    const prk = extract(sha256, testSeed1, enc.encode('w3pk-kem-keypair-v4'));
+    const mlkem = await createMlKem1024();
+    const [pkM] = mlkem.deriveKeyPair(expand(sha256, prk, info('ml-kem-1024'), 64));
+    const pkX = x25519.getPublicKey(expand(sha256, prk, info('x25519'), 32));
+
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin });
+    assertEqual(hex(keypair.publicKey), hex(Buffer.concat([pkM, pkX])), 'Matches the documented HKDF derivation');
+
+    passTest('Derivation reproduced from the seed alone');
+  });
+
+  await runTest('BIP-39 seed matches ethers and the SDK no longer uses the signing key', async () => {
+    const mnemonic = 'test test test test test test test test test test test junk';
+    const seed = bip39Seed(mnemonic);
+    assertEqual(hex(seed), Mnemonic.fromPhrase(mnemonic).computeSeed().slice(2), 'Seed matches ethers computeSeed');
+
+    const previousWindow = (globalThis as any).window;
+    (globalThis as any).window = { location: { origin } };
+    try {
+      const ctx = {
+        currentUser: {} as any,
+        getMnemonicFromSession: async () => mnemonic,
+      };
+      const sdkKey = await deriveMLKemPublicKey(ctx, { tag: 'main' });
+      const expected = await deriveMLKemKeypair(getBytes(Mnemonic.fromPhrase(mnemonic).computeSeed()), { origin });
+      assertEqual(sdkKey, Buffer.from(expected.publicKey).toString('base64'), 'SDK derives from the seed, origin, mode and tag');
+
+      const { path } = await getOriginSpecificAddress(mnemonic, origin);
+      const signingKey = getBytes(deriveWalletFromPath(mnemonic, path).privateKey);
+      const signingSeed = new Uint8Array(64);
+      signingSeed.set(signingKey);
+      const fromSigningKey = await deriveMLKemKeypair(signingSeed, { origin });
+      assert(hex(fromSigningKey.publicKey) !== hex(expected.publicKey), 'Signing key does not give the KEM key');
+    } finally {
+      (globalThis as any).window = previousWindow;
+    }
+
+    passTest('SDK derivation independent of the signing key');
+  });
+
+  await runTest('Invalid seed and mode rejected', async () => {
+    const shortSeed = await rejectionOf(() => deriveMLKemKeypair(new Uint8Array(32), { origin }));
+    assertEqual(shortSeed.message, 'Invalid BIP-39 seed: expected 64 bytes', 'Short seed rejected');
+
+    const badMode = await rejectionOf(() => deriveMLKemKeypair(testSeed1, { origin, mode: 'NOPE' as any }));
+    assertEqual(badMode.message, 'Unknown security mode: NOPE', 'Unknown mode rejected');
+
+    const badOrigin = await rejectionOf(() => deriveMLKemKeypair(testSeed1, { origin: 'not a url' }));
+    assert(badOrigin.message.startsWith('Invalid origin URL'), 'Invalid origin rejected');
+
+    passTest('Inputs validated');
+  });
+
 
   const flipByte = (base64: string, index: number): string => {
     const bytes = Buffer.from(base64, 'base64');
@@ -276,7 +375,7 @@ async function runTests() {
   });
 
   await runTest('Encrypt writes v3 HPKE payloads', async () => {
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin, context: 'test' });
     const encrypted = await mlkemEncrypt('v3 format', keypair.publicKey);
     const [recipient] = encrypted.recipients;
 
@@ -291,9 +390,9 @@ async function runTests() {
   await runTest('v3 round-trip for three recipients', async () => {
     const plaintext = 'three recipients';
     const keypairs = await Promise.all([
-      deriveMLKemKeypair(testPrivateKey1, 'a'),
-      deriveMLKemKeypair(testPrivateKey1, 'b'),
-      deriveMLKemKeypair(testPrivateKey2, 'c'),
+      deriveMLKemKeypair(testSeed1, { origin, context: 'a' }),
+      deriveMLKemKeypair(testSeed1, { origin, context: 'b' }),
+      deriveMLKemKeypair(testSeed2, { origin, context: 'c' }),
     ]);
     const encrypted = await mlkemEncrypt(plaintext, keypairs.map(k => Buffer.from(k.publicKey).toString('base64')));
 
@@ -308,7 +407,7 @@ async function runTests() {
   });
 
   await runTest('v1 and v2 payloads are rejected', async () => {
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin, context: 'test' });
     const encrypted = await mlkemEncrypt('old formats', keypair.publicKey);
 
     const v1: any = { ...encrypted };
@@ -324,7 +423,7 @@ async function runTests() {
   });
 
   await runTest('Altering the X25519 or ML-KEM part fails to decrypt', async () => {
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin, context: 'test' });
 
     for (const [part, index] of [['ML-KEM ciphertext', 0], ['ML-KEM ciphertext end', 1567], ['X25519 ephemeral key', 1568], ['X25519 ephemeral key end', 1599]] as const) {
       const encrypted = await mlkemEncrypt('tamper test', keypair.publicKey);
@@ -345,8 +444,8 @@ async function runTests() {
   });
 
   await runTest('A recipient entry only opens for the recipient it was sealed to', async () => {
-    const alice = await deriveMLKemKeypair(testPrivateKey1, 'alice');
-    const bob = await deriveMLKemKeypair(testPrivateKey2, 'bob');
+    const alice = await deriveMLKemKeypair(testSeed1, { origin, context: 'alice' });
+    const bob = await deriveMLKemKeypair(testSeed2, { origin, context: 'bob' });
     const encrypted = await mlkemEncrypt('binding', [alice.publicKey, bob.publicKey]);
 
     const [toAlice, toBob] = encrypted.recipients;
@@ -362,10 +461,10 @@ async function runTests() {
   });
 
   await runTest('Recipients outside the payload are rejected', async () => {
-    const keypair1 = await deriveMLKemKeypair(testPrivateKey1, 'user1');
+    const keypair1 = await deriveMLKemKeypair(testSeed1, { origin, context: 'user1' });
     const encrypted = await mlkemEncrypt('outsider', keypair1.publicKey);
 
-    const outsider = await deriveMLKemKeypair(testPrivateKey1, 'outsider');
+    const outsider = await deriveMLKemKeypair(testSeed1, { origin, context: 'outsider' });
     const error = await rejectionOf(() => mlkemDecrypt(encrypted, outsider.privateKey));
     assertEqual(error.message, 'Public key not found in recipients list', 'Outsider rejected');
 
@@ -373,7 +472,7 @@ async function runTests() {
   });
 
   await runTest('Key sizes and private key integrity are enforced', async () => {
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin, context: 'test' });
 
     const pkError = await rejectionOf(() => mlkemEncrypt('size', keypair.publicKey.subarray(0, 1568)));
     assertEqual(pkError.message, 'Invalid public key size: 1568 (expected 1600)', 'ML-KEM-only public key rejected');
@@ -391,7 +490,7 @@ async function runTests() {
   });
 
   await runTest('IV must be 12 bytes and auth tag 16 bytes', async () => {
-    const keypair = await deriveMLKemKeypair(testPrivateKey1, 'test');
+    const keypair = await deriveMLKemKeypair(testSeed1, { origin, context: 'test' });
 
     const badIv = await mlkemEncrypt('iv test', keypair.publicKey);
     badIv.iv = Buffer.alloc(16).toString('base64');
