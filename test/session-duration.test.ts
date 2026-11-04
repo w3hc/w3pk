@@ -50,7 +50,7 @@ async function runTests() {
 
     assert(manager.getMnemonic() === null, "getMnemonic() returns null");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert((await storage.retrieve(address)) !== null, "persistent session survives");
+    assert((await storage.retrieve("cred-id")) !== null, "persistent session survives");
 
     const restored = await manager.restoreFromPersistentStorage(address, "cred-id", prfKey);
     assert(restored === MNEMONIC, "restore returns the mnemonic");

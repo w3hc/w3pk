@@ -382,7 +382,7 @@ async function runTests() {
       persistentSession: { enabled: true, requireReauth: false },
     });
     localStorage.setItem(
-      `w3pk_session_${ADDRESS_A}`,
+      `w3pk_session_${CREDENTIAL_ID}`,
       JSON.stringify({
         encryptedMnemonic: "stale",
         sessionKey: "stale",
@@ -393,9 +393,15 @@ async function runTests() {
         createdAt: Date.now(),
       })
     );
+    log.length = 0;
     await sdk.importMnemonic(MNEMONIC_B);
-    assert(localStorage.getItem(`w3pk_session_${ADDRESS_A}`) === null, "wallet A's persistent session is deleted");
-    assert(localStorage.getItem(`w3pk_session_${ADDRESS_B}`) !== null, "wallet B's persistent session is stored");
+    const deleteSession = log.indexOf(`remove w3pk_session_${CREDENTIAL_ID}`);
+    assert(
+      deleteSession !== -1 && deleteSession < log.indexOf(`set w3pk_wallet_${CREDENTIAL_ID}`),
+      "wallet A's persistent session is deleted before wallet B is stored"
+    );
+    const session = JSON.parse(localStorage.getItem(`w3pk_session_${CREDENTIAL_ID}`) ?? "null");
+    assert(session?.ethereumAddress === ADDRESS_B, "wallet B's persistent session is stored");
   }
   console.log("");
 

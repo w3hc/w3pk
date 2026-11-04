@@ -302,8 +302,8 @@ async function restorePrfBackup(
  * under the key derived from `prfOutput` in the passkey's own record and
  * starts a session. Other passkeys of the wallet keep their records. If
  * pointing the passkey at the new wallet fails, its previous record is
- * put back. The previous wallet's persistent session is deleted before
- * anything else is written. Without `prfOutput`, the wallet and the
+ * put back. The passkey's persistent session of its previous wallet is
+ * deleted before anything else is written. Without `prfOutput`, the wallet and the
  * session stay in memory only.
  *
  * @throws AddressChangeError if the passkey has another wallet on this device and `allowAddressChange` is false
@@ -332,7 +332,7 @@ export async function bootstrapCredential(
   // Only a remember-me cache: deleting it first means no later failure
   // leaves the replaced mnemonic readable
   if (addressChanged) {
-    await ctx.sessionManager.deletePersistentSession(stored!.ethereumAddress);
+    await ctx.sessionManager.deletePersistentSession(credential.id);
   }
 
   const previousWallet = addressChanged
