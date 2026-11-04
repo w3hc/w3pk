@@ -5,6 +5,12 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **`pnpm audit --prod` reports only the `elliptic` advisory** ([#277](https://github.com/w3hc/w3pk/issues/277)). `pnpm.overrides` raise `brace-expansion` to `>=5.0.12` and `minimatch` to `>=11.0.1` in `snarkjs > ejs > jake > filelist`, which clears 7 denial-of-service advisories. None of them reached the browser bundle. `elliptic`, through `circomlibjs > ethers@5`, has no patched version
+
 ## [0.11.1] - 2026-11-03
 
 ### Security
