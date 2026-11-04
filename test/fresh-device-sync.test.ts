@@ -422,6 +422,14 @@ async function runTests() {
     await sdk.syncWalletWithPasskey(json, PASSWORD);
     const stored = await credentials.getCredentialById(CREDENTIAL_ID);
     assert((stored?.signCount ?? 0) > 0, "a successful sync saves the counter");
+
+    const wrong = freshSdk();
+    const error = await capture(() => wrong.sdk.syncWalletWithPasskey(json, "Wrong" + PASSWORD));
+    assert(error !== undefined && !(error instanceof AuthenticationError), "a wrong password throws before the passkey check");
+    assert(
+      (await credentials.getCredentialById(CREDENTIAL_ID))?.signCount === stored?.signCount,
+      "a wrong password leaves the counter unchanged"
+    );
   }
   console.log("");
 
