@@ -134,7 +134,7 @@ const eip712Sig = await w3pk.signMessage(JSON.stringify(typedData), {
   eip712PrimaryType: 'Transfer'
 })
 
-// Raw hash (always prompts for the passkey)
+// Raw hash: a 32-byte hex hash (64 hex characters, optional 0x), always prompts for the passkey
 const rawSig = await w3pk.signMessage(hash, {
   signingMethod: 'rawHash'
 })
