@@ -5,6 +5,23 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The README matches the code** ([#311](https://github.com/w3hc/w3pk/issues/311))
+  - The viem install lists `ethers`, a required peer dependency
+  - `signMessage()` examples destructure `{ signature }`; `createSiweMessage` and `parseEther` are imported; `rawHash` takes a 32-byte hex hash
+  - The EIP-1193 table names the account (`mode` and `tag`, STANDARD and MAIN by default) and chain (1 by default) defaults
+  - STRICT doesn't return `privateKey`
+  - PRIMARY: `signMessageWithPasskey()` returns `publicKey`, SIWE and `sendTransaction()` throw, and no key controls the `keccak256(x ‖ y)` address
+  - Silent session restore (`requireReauth: false`) stores the PRF-derived key next to the encrypted session
+  - `getEndpoints()` returns `rpcUrls` first, then Chainlist's public endpoints
+  - Chainlist is fetched live, and EIP-7702 detection covers 329 known networks and probes the RPC for the others
+  - Paying a stealth recipient uses the exported `generateStealthAddress(metaAddress)`, and `getKeys()` returns the viewing key
+  - `getCurrentBuildHash()` hashes the build published on unpkg, and `getPackageVersion()` gives the installed version
+  - The documentation list links `ARCHITECTURE.md` and `EIP_7702.md`
+
 ## [0.11.2] - 2026-11-04
 
 ### Security
