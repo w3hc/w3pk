@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **P-256 smart account contracts for `PRIMARY` mode** ([#295](https://github.com/w3hc/w3pk/issues/295))
+  - `contracts/` is a Foundry project with `W3pkAccount`, an ERC-4337 account (EntryPoint v0.9) owned by the passkey, on OpenZeppelin 5.7.0 `Account`, `AccountERC7579Hooked`, `SignerWebAuthn` and `ERC7739`, not upgradeable
+  - `W3pkAccountFactory` deploys each account as an ERC-1167 clone and initializes it in the same call, at a CREATE2 address salted with `keccak256(abi.encode(x, y, keccak256(bytes(tag))))`
+  - The factory, implementation and accounts have the same addresses on every chain; the first deployment is on Ethereum Sepolia
+  - CI runs `forge fmt --check`, `forge test` with fuzzing and a gas report, and Slither
+
 ### Changed
 
 - **The README matches the code** ([#311](https://github.com/w3hc/w3pk/issues/311))
