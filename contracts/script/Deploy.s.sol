@@ -15,7 +15,7 @@ contract Deploy is Script {
     /// @dev Deterministic deployment proxy, at the same address on every chain
     address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     /// @dev CREATE2 salt of the factory
-    bytes32 constant SALT = bytes32(0);
+    bytes32 constant SALT = bytes32(uint256(1));
 
     /**
      * @notice Deploys the factory if needed and prints the chain ID, the factory and implementation
