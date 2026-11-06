@@ -104,7 +104,7 @@ const gamingWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
 // STRICT mode - Maximum security, re-auth required every time
 // Requires biometric/PIN for each call - impractical for most apps
 const strictWallet = await w3pk.deriveWallet('STRICT', 'SECURE')
-// Returns: { address, privateKey, path, origin, mode: 'STRICT', tag: 'SECURE' }
+// Returns: { address, path, origin, mode: 'STRICT', tag: 'SECURE' }
 
 // Different tags generate different addresses
 console.log(mainWallet.address !== gamingWallet.address) // true
