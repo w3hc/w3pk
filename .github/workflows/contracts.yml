@@ -41,4 +41,5 @@ jobs:
       - uses: crytic/slither-action@v0.4.1
         with:
           target: contracts
+          slither-config: contracts/slither.config.json
           fail-on: medium
