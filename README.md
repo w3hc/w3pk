@@ -319,7 +319,11 @@ const w3pk = createWeb3Passkey({
 // Get stealth meta-address
 const metaAddress = await w3pk.stealth?.getStealthMetaAddress()
 
-// Generate stealth address for recipient
+// Pay someone: generate a one-time address from their meta-address (no passkey needed)
+import { generateStealthAddress } from 'w3pk'
+const { stealthAddress, ephemeralPubKey, viewTag } = generateStealthAddress(theirMetaAddress)
+
+// Generate a one-time address for your own meta-address
 const announcement = await w3pk.stealth?.generateStealthAddress()
 
 // Check if announcement is for you
@@ -348,7 +352,7 @@ const signedTx = await w3pk.stealth?.signTransaction(announcement, {
 })
 ```
 
-Stealth keys are shared across origins, and w3pk never returns the spending private key or a stealth private key: it signs from stealth addresses itself. Any app that enables stealth addresses can sign any transaction from them, and the passkey prompt doesn't show the transaction ([#147](https://github.com/w3hc/w3pk/issues/147)).
+Stealth keys are shared across origins, and w3pk never returns the spending private key or a stealth private key: it signs from stealth addresses itself. `w3pk.stealth?.getKeys()` does return the viewing private key, which lets an app see every payment to the user but not spend them. Any app that enables stealth addresses can sign any transaction from them, and the passkey prompt doesn't show the transaction ([#147](https://github.com/w3hc/w3pk/issues/147)).
 
 ### Post-quantum encryption
 
