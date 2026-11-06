@@ -99,6 +99,43 @@ contract W3pkAccountTest is Test {
         assertEq(_validate(_realAccount(), REAL_CHALLENGE, _encode(r, s, authData, cdj)), SIG_OK);
     }
 
+    address constant P256_PRECOMPILE = address(0x100);
+
+    function test_eip7951PrecompileVerifiesRealAssertion() public view {
+        (bytes32 r, bytes32 s, bytes memory authData, string memory cdj) = _realChrome();
+        bytes32 digest = sha256(abi.encodePacked(authData, sha256(bytes(cdj))));
+        (bool ok, bytes memory result) = P256_PRECOMPILE.staticcall(abi.encode(digest, r, s, REAL_X, REAL_Y));
+        assertTrue(ok);
+        assertEq(abi.decode(result, (uint256)), 1);
+    }
+
+    function test_userOpVerifiedThroughEip7951() public {
+        (bytes32 r, bytes32 s, bytes memory authData, string memory cdj) = _realChrome();
+        bytes memory signature = _encode(r, s, authData, cdj);
+        W3pkAccount a = _realAccount();
+        PackedUserOperation memory op;
+        op.sender = address(a);
+        op.signature = signature;
+
+        vm.prank(ENTRYPOINT);
+        uint256 gasBefore = gasleft();
+        uint256 result = a.validateUserOp(op, REAL_CHALLENGE, 0);
+        uint256 gasUsed = gasBefore - gasleft();
+
+        assertEq(result, SIG_OK);
+        // The precompile costs 6,900 gas; OZ's Solidity fallback costs over 200k
+        assertLt(gasUsed, 100_000);
+    }
+
+    function test_accountTrustsEip7951Result() public {
+        bytes32 hash = keccak256("userOp");
+        bytes memory forged = _assertion(0xb0b, hash, 0x05, "webauthn.get");
+        assertEq(_validate(account, hash, forged), SIG_FAILED);
+
+        vm.mockCall(P256_PRECOMPILE, bytes(""), abi.encode(uint256(1)));
+        assertEq(_validate(account, hash, forged), SIG_OK);
+    }
+
     function test_realSafariAssertion() public {
         (bytes32 r, bytes32 s, bytes memory authData, string memory cdj) = _realSafari();
         assertEq(_validate(_realAccount(), REAL_CHALLENGE, _encode(r, s, authData, cdj)), SIG_OK);
