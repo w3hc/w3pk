@@ -23,6 +23,12 @@ import {W3pkAccount} from "../src/W3pkAccount.sol";
 import {W3pkAccountFactory} from "../src/W3pkAccountFactory.sol";
 import {MockHook, MockExecutor} from "./mocks/MockModules.sol";
 
+/**
+ * @title W3pkAccountTest
+ * @notice Tests of {W3pkAccount}: real and synthetic WebAuthn assertions, EIP-7951 verification, ERC-1271
+ * through ERC-7739, execution, ERC-7579 modules, initialization, and fuzzing of signature parsing
+ * and malleability.
+ */
 contract W3pkAccountTest is Test {
     address constant ENTRYPOINT = address(ERC4337Utils.ENTRYPOINT_V09);
     bytes4 constant MAGIC = 0x1626ba7e;

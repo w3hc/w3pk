@@ -6,6 +6,11 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {W3pkAccount} from "../src/W3pkAccount.sol";
 import {W3pkAccountFactory} from "../src/W3pkAccountFactory.sol";
 
+/**
+ * @title W3pkAccountFactoryTest
+ * @notice Tests of {W3pkAccountFactory}: deterministic addresses across chains, salt derivation,
+ * idempotent creation, and that no other key or deployer can produce an account's address.
+ */
 contract W3pkAccountFactoryTest is Test {
     address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
