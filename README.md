@@ -417,17 +417,17 @@ const result = await new RecoverySimulator().simulateScenario(
 ### Build Verification
 
 ```typescript
-import { getCurrentBuildHash } from 'w3pk'
+import { getCurrentBuildHash, getPackageVersion } from 'w3pk'
 import { ethers } from 'ethers'
-import packageJson from './package.json'
 
-// Get installed w3pk version from package.json
-const installedVersion = packageJson.dependencies['w3pk'].replace(/^[~^]/, '') // Remove ^ or ~
+// Installed w3pk version
+const installedVersion = getPackageVersion()
 
-// Get IPFS hash of installed build
+// IPFS hash of the build published on unpkg for that version
+// (not the code actually running: hash the files you ship at build time to check those)
 const hash = await getCurrentBuildHash()
 console.log('Installed version:', installedVersion)
-console.log('Local build hash:', hash)
+console.log('Published build hash:', hash)
 
 // Verify against DAO-maintained onchain registry (OP Mainnet)
 const REGISTRY = '0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a'
