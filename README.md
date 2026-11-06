@@ -11,8 +11,8 @@ Passwordless Web3 authentication SDK with encrypted wallets and privacy features
 ## Install
 ```bash
 npm install w3pk ethers
-# or
-npm install w3pk viem
+# or, with viem (ethers v6 is a required peer dependency either way)
+npm install w3pk ethers viem
 ```
 
 ## Quick Start
@@ -31,7 +31,7 @@ const { address, username } = await w3pk.register({ username: 'alice' })
 await w3pk.login()
 
 // Sign messages (EIP-191, SIWE, EIP-712, rawHash)
-const signature = await w3pk.signMessage('Hello World')
+const { signature, address } = await w3pk.signMessage('Hello World')
 
 // Send transactions on-chain
 const tx = await w3pk.sendTransaction({ to: '0x...', value: 1n * 10n**18n, chainId: 1 })
@@ -56,8 +56,8 @@ const endpoints = await w3pk.getEndpoints(1)
 - ERC-5564 stealth addresses (opt-in)
 - ZK primitives (zero-knowledge proof generation and verification, Baby Jubjub keys, exponential ElGamal and circuit artifact verification against onchain pins in `w3pk/zk`, passkey-bound Semaphore identities with `getSemaphoreIdentity()`, and proofs over a passkey-bound secret the app never sees with `zkProve()`)
 - Hybrid post-quantum encryption (HPKE over ML-KEM-1024 + X25519)
-- Chainlist support (2390+ networks)
-- EIP-7702 network detection (329+ networks)
+- Chainlist support (every network on chainid.network, fetched live)
+- EIP-7702 network detection (329 known networks, RPC probing for the others)
 - EIP-7951 PRIMARY mode (P-256 passkey signing)
 - Build verification (IPFS CID hashing + DAO-maintained onchain registry)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
@@ -104,7 +104,7 @@ const gamingWallet = await w3pk.deriveWallet('YOLO', 'GAMING')
 // STRICT mode - Maximum security, re-auth required every time
 // Requires biometric/PIN for each call - impractical for most apps
 const strictWallet = await w3pk.deriveWallet('STRICT', 'SECURE')
-// Returns: { address, privateKey, path, origin, mode: 'STRICT', tag: 'SECURE' }
+// Returns: { address, path, origin, mode: 'STRICT', tag: 'SECURE' }
 
 // Different tags generate different addresses
 console.log(mainWallet.address !== gamingWallet.address) // true
@@ -116,9 +116,11 @@ console.log(mainWallet.address !== gamingWallet.address) // true
 
 ```typescript
 // EIP-191 (default)
-const sig = await w3pk.signMessage('Hello World')
+// Returns: { signature, address, mode, tag, origin }
+const { signature } = await w3pk.signMessage('Hello World')
 
 // SIWE (Sign-In with Ethereum)
+import { createSiweMessage } from 'w3pk'
 const siweMessage = createSiweMessage({ ... })
 const siweSig = await w3pk.signMessage(siweMessage, {
   signingMethod: 'SIWE'
@@ -132,7 +134,7 @@ const eip712Sig = await w3pk.signMessage(JSON.stringify(typedData), {
   eip712PrimaryType: 'Transfer'
 })
 
-// Raw hash (always prompts for the passkey)
+// Raw hash: a 32-byte hex hash (64 hex characters, optional 0x), always prompts for the passkey
 const rawSig = await w3pk.signMessage(hash, {
   signingMethod: 'rawHash'
 })
@@ -195,7 +197,7 @@ const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
 
 **ethers v6**
 ```typescript
-import { BrowserProvider } from 'ethers'
+import { BrowserProvider, parseEther } from 'ethers'
 const provider = new BrowserProvider(eip1193)
 const signer = await provider.getSigner()
 const tx = await signer.sendTransaction({ to: '0x...', value: parseEther('1') })
@@ -203,7 +205,7 @@ const tx = await signer.sendTransaction({ to: '0x...', value: parseEther('1') })
 
 **viem**
 ```typescript
-import { createWalletClient, custom } from 'viem'
+import { createWalletClient, custom, parseEther } from 'viem'
 import { mainnet } from 'viem/chains'
 const client = createWalletClient({ chain: mainnet, transport: custom(eip1193) })
 const [address] = await client.getAddresses()
@@ -214,8 +216,8 @@ const hash = await client.sendTransaction({ to: '0x...', value: parseEther('1') 
 
 | Method | Action |
 |--------|--------|
-| `eth_accounts` / `eth_requestAccounts` | Returns derived address |
-| `eth_chainId` | Returns active chain as hex |
+| `eth_accounts` / `eth_requestAccounts` | Returns the address for the provider's `mode` and `tag` options (STANDARD and MAIN by default) |
+| `eth_chainId` | Returns the active chain as hex (the `chainId` option, 1 by default) |
 | `eth_sendTransaction` | Delegates to `sendTransaction()` |
 | `personal_sign` / `eth_sign` | EIP-191 message signing |
 | `eth_signTypedData_v4` | EIP-712 typed data signing, bound to the active chain |
@@ -257,12 +259,12 @@ await w3pk.clearSession()
 
 **Note:** STRICT mode never allows persistent sessions.
 
-**PRF-keyed storage:** the wallet stored on the device and persistent sessions are encrypted under keys derived from the WebAuthn PRF extension (an authenticator-held secret, released only during a biometric/PIN-verified assertion), so storage alone can't decrypt them. Authenticators without PRF support keep no wallet on the device and get in-memory sessions only: the wallet comes back from a backup on the next visit. There is no weaker at-rest fallback. See [Security Architecture](./docs/SECURITY.md) for details.
+**PRF-keyed storage:** the wallet stored on the device and persistent sessions are encrypted under keys derived from the WebAuthn PRF extension (an authenticator-held secret, released only during a biometric/PIN-verified assertion), so storage alone can't decrypt them. The exception is silent restore (`requireReauth: false`): the PRF-derived key is stored in `localStorage` next to the encrypted session, so any script on the origin can decrypt it until it expires. Authenticators without PRF support keep no wallet on the device and get in-memory sessions only: the wallet comes back from a backup on the next visit. There is no weaker at-rest fallback. See [Security Architecture](./docs/SECURITY.md) for details.
 
 ### RPC Endpoints
 
 ```typescript
-// Get public RPC endpoints for any chain
+// Get RPC endpoints for any chain: your `rpcUrls` first, then Chainlist's public endpoints
 const endpoints = await w3pk.getEndpoints(1)      // Ethereum
 const optimismRpc = await w3pk.getEndpoints(10)   // Optimism
 const arbitrumRpc = await w3pk.getEndpoints(42161) // Arbitrum
@@ -302,8 +304,10 @@ const primaryAddr = await w3pk.getAddress('PRIMARY')
 
 // Sign with P-256 passkey directly (no private key)
 const result = await w3pk.signMessageWithPasskey("Hello World")
-// Returns: { signature: { r, s }, messageHash, signedHash, address }
+// Returns: { signature: { r, s }, messageHash, signedHash, address, publicKey: { qx, qy } }
 ```
+
+The PRIMARY address is `keccak256(x ‖ y)` of the passkey's P-256 public key. No secp256k1 key controls it, so funds sent there can't be moved: don't use it as a receiving address. `sendTransaction()` and SIWE signing throw in PRIMARY mode.
 
 ### ERC-5564 Stealth Addresses
 
@@ -315,7 +319,11 @@ const w3pk = createWeb3Passkey({
 // Get stealth meta-address
 const metaAddress = await w3pk.stealth?.getStealthMetaAddress()
 
-// Generate stealth address for recipient
+// Pay someone: generate a one-time address from their meta-address (no passkey needed)
+import { generateStealthAddress } from 'w3pk'
+const { stealthAddress, ephemeralPubKey, viewTag } = generateStealthAddress(theirMetaAddress)
+
+// Generate a one-time address for your own meta-address
 const announcement = await w3pk.stealth?.generateStealthAddress()
 
 // Check if announcement is for you
@@ -344,7 +352,7 @@ const signedTx = await w3pk.stealth?.signTransaction(announcement, {
 })
 ```
 
-Stealth keys are shared across origins, and w3pk never returns the spending private key or a stealth private key: it signs from stealth addresses itself. Any app that enables stealth addresses can sign any transaction from them, and the passkey prompt doesn't show the transaction ([#147](https://github.com/w3hc/w3pk/issues/147)).
+Stealth keys are shared across origins, and w3pk never returns the spending private key or a stealth private key: it signs from stealth addresses itself. `w3pk.stealth?.getKeys()` does return the viewing private key, which lets an app see every payment to the user but not spend them. Any app that enables stealth addresses can sign any transaction from them, and the passkey prompt doesn't show the transaction ([#147](https://github.com/w3hc/w3pk/issues/147)).
 
 ### Post-quantum encryption
 
@@ -409,17 +417,17 @@ const result = await new RecoverySimulator().simulateScenario(
 ### Build Verification
 
 ```typescript
-import { getCurrentBuildHash } from 'w3pk'
+import { getCurrentBuildHash, getPackageVersion } from 'w3pk'
 import { ethers } from 'ethers'
-import packageJson from './package.json'
 
-// Get installed w3pk version from package.json
-const installedVersion = packageJson.dependencies['w3pk'].replace(/^[~^]/, '') // Remove ^ or ~
+// Installed w3pk version
+const installedVersion = getPackageVersion()
 
-// Get IPFS hash of installed build
+// IPFS hash of the build published on unpkg for that version
+// (not the code actually running: hash the files you ship at build time to check those)
 const hash = await getCurrentBuildHash()
 console.log('Installed version:', installedVersion)
-console.log('Local build hash:', hash)
+console.log('Published build hash:', hash)
 
 // Verify against DAO-maintained onchain registry (OP Mainnet)
 const REGISTRY = '0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a'
@@ -452,7 +460,9 @@ Host applications should verify their installed W3PK build against this registry
 - [Quick Start Guide](./docs/QUICK_START.md)
 - [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md)
 - [API Reference](./docs/API_REFERENCE.md)
+- [Architecture](./docs/ARCHITECTURE.md)
 - [Build Verification](./docs/BUILD_VERIFICATION.md)
+- [EIP-7702](./docs/EIP_7702.md)
 - [EIP-7951](./docs/EIP-7951.md)
 - [Security Architecture](./docs/SECURITY.md)
 - [Post-Quantum Cryptography](./docs/POST_QUANTUM.md) - Quantum-safe migration roadmap
