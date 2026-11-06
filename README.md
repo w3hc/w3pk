@@ -31,7 +31,7 @@ const { address, username } = await w3pk.register({ username: 'alice' })
 await w3pk.login()
 
 // Sign messages (EIP-191, SIWE, EIP-712, rawHash)
-const signature = await w3pk.signMessage('Hello World')
+const { signature, address } = await w3pk.signMessage('Hello World')
 
 // Send transactions on-chain
 const tx = await w3pk.sendTransaction({ to: '0x...', value: 1n * 10n**18n, chainId: 1 })
@@ -116,7 +116,8 @@ console.log(mainWallet.address !== gamingWallet.address) // true
 
 ```typescript
 // EIP-191 (default)
-const sig = await w3pk.signMessage('Hello World')
+// Returns: { signature, address, mode, tag, origin }
+const { signature } = await w3pk.signMessage('Hello World')
 
 // SIWE (Sign-In with Ethereum)
 const siweMessage = createSiweMessage({ ... })
