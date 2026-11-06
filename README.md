@@ -120,6 +120,7 @@ console.log(mainWallet.address !== gamingWallet.address) // true
 const { signature } = await w3pk.signMessage('Hello World')
 
 // SIWE (Sign-In with Ethereum)
+import { createSiweMessage } from 'w3pk'
 const siweMessage = createSiweMessage({ ... })
 const siweSig = await w3pk.signMessage(siweMessage, {
   signingMethod: 'SIWE'
@@ -196,7 +197,7 @@ const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
 
 **ethers v6**
 ```typescript
-import { BrowserProvider } from 'ethers'
+import { BrowserProvider, parseEther } from 'ethers'
 const provider = new BrowserProvider(eip1193)
 const signer = await provider.getSigner()
 const tx = await signer.sendTransaction({ to: '0x...', value: parseEther('1') })
@@ -204,7 +205,7 @@ const tx = await signer.sendTransaction({ to: '0x...', value: parseEther('1') })
 
 **viem**
 ```typescript
-import { createWalletClient, custom } from 'viem'
+import { createWalletClient, custom, parseEther } from 'viem'
 import { mainnet } from 'viem/chains'
 const client = createWalletClient({ chain: mainnet, transport: custom(eip1193) })
 const [address] = await client.getAddresses()
