@@ -11,8 +11,8 @@ Passwordless Web3 authentication SDK with encrypted wallets and privacy features
 ## Install
 ```bash
 npm install w3pk ethers
-# or
-npm install w3pk viem
+# or, with viem (ethers v6 is a required peer dependency either way)
+npm install w3pk ethers viem
 ```
 
 ## Quick Start
