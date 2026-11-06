@@ -216,8 +216,8 @@ const hash = await client.sendTransaction({ to: '0x...', value: parseEther('1') 
 
 | Method | Action |
 |--------|--------|
-| `eth_accounts` / `eth_requestAccounts` | Returns derived address |
-| `eth_chainId` | Returns active chain as hex |
+| `eth_accounts` / `eth_requestAccounts` | Returns the address for the provider's `mode` and `tag` options (STANDARD and MAIN by default) |
+| `eth_chainId` | Returns the active chain as hex (the `chainId` option, 1 by default) |
 | `eth_sendTransaction` | Delegates to `sendTransaction()` |
 | `personal_sign` / `eth_sign` | EIP-191 message signing |
 | `eth_signTypedData_v4` | EIP-712 typed data signing, bound to the active chain |
