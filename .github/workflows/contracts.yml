@@ -21,6 +21,8 @@ jobs:
           submodules: recursive
 
       - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.9.0
 
       - name: Format
         run: forge fmt --check
