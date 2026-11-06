@@ -304,8 +304,10 @@ const primaryAddr = await w3pk.getAddress('PRIMARY')
 
 // Sign with P-256 passkey directly (no private key)
 const result = await w3pk.signMessageWithPasskey("Hello World")
-// Returns: { signature: { r, s }, messageHash, signedHash, address }
+// Returns: { signature: { r, s }, messageHash, signedHash, address, publicKey: { qx, qy } }
 ```
+
+The PRIMARY address is `keccak256(x ‖ y)` of the passkey's P-256 public key. No secp256k1 key controls it, so funds sent there can't be moved: don't use it as a receiving address. `sendTransaction()` and SIWE signing throw in PRIMARY mode.
 
 ### ERC-5564 Stealth Addresses
 
