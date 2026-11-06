@@ -264,7 +264,7 @@ await w3pk.clearSession()
 ### RPC Endpoints
 
 ```typescript
-// Get public RPC endpoints for any chain
+// Get RPC endpoints for any chain: your `rpcUrls` first, then Chainlist's public endpoints
 const endpoints = await w3pk.getEndpoints(1)      // Ethereum
 const optimismRpc = await w3pk.getEndpoints(10)   // Optimism
 const arbitrumRpc = await w3pk.getEndpoints(42161) // Arbitrum
