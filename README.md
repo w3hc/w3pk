@@ -460,7 +460,9 @@ Host applications should verify their installed W3PK build against this registry
 - [Quick Start Guide](./docs/QUICK_START.md)
 - [Integration Guidelines](./docs/INTEGRATION_GUIDELINES.md)
 - [API Reference](./docs/API_REFERENCE.md)
+- [Architecture](./docs/ARCHITECTURE.md)
 - [Build Verification](./docs/BUILD_VERIFICATION.md)
+- [EIP-7702](./docs/EIP_7702.md)
 - [EIP-7951](./docs/EIP-7951.md)
 - [Security Architecture](./docs/SECURITY.md)
 - [Post-Quantum Cryptography](./docs/POST_QUANTUM.md) - Quantum-safe migration roadmap
