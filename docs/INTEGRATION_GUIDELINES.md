@@ -503,6 +503,7 @@ await w3pk.sendTransaction(
 
 - `hash` is the transaction that included the UserOperation, so `waitForTransactionReceipt({ hash })` works; `userOpHash` identifies the UserOperation at the bundler
 - `sendTransaction()` waits for inclusion, up to `options.timeout` (60 s by default), and throws with the revert reason if the UserOperation reverted
+- Concurrent sends from one account, tag and chain are sent one after another, each once the previous one is included or has failed; `options.timeout` counts from each one's own submission
 - `options.bundlerUrl` and `options.paymasterUrl` override the config per call; `nonce` is ignored, since the EntryPoint sets it, and `gasLimit` only raises the bundler's `callGasLimit` estimate
 - Only PRIMARY mode takes an array: STANDARD, STRICT and YOLO send one EOA transaction
 

@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **EIP-1193 sends after a chain switch use the new chain's endpoint** ([#321](https://github.com/w3hc/w3pk/issues/321))
   - The provider's `rpcUrl` and `bundlerUrl` options serve the initial chain only, in every mode: after `wallet_switchEthereumChain`, `eth_sendTransaction` in `STRICT`, `STANDARD` and `YOLO` uses `rpcUrls` for the new chain instead of the initial chain's `rpcUrl`, as `PRIMARY` already did
+- **Concurrent `PRIMARY` sends no longer sign the same nonce** ([#322](https://github.com/w3hc/w3pk/issues/322))
+  - `PRIMARY` sends from one account (same passkey, tag and chain) on one SDK instance run one after another: each reads its EntryPoint nonce once the previous UserOperation is included or has failed, so both land, with consecutive nonces, and only the first deploys the account
+  - A failed send doesn't block the next; `timeout` counts from each send's own submission
+  - Other tags and chains, and `STRICT`, `STANDARD` and `YOLO` sends, are unchanged
 - **Unsupported EIP-1193 methods reject with code `4200`** ([#323](https://github.com/w3hc/w3pk/issues/323))
   - In every mode, a method the provider doesn't serve rejects with an error whose `code` is `4200` (Unsupported Method) instead of a `WalletError` without a code
 
