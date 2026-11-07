@@ -51,6 +51,7 @@ interface Web3PasskeyConfig {
   zkProofs?: ZKProofConfig;          // Enable ZK proofs
   userVerification?: 'required' | 'preferred';  // WebAuthn user verification (default: 'required')
   rpcUrls?: Record<number, string[]>;  // RPC endpoints per chain ID; sendTransaction() requires one for the chain
+  smartAccount?: { factoryAddress?: string; initCodeHash?: string };  // PRIMARY smart account factory (default: W3PK_ACCOUNT_FACTORY, W3PK_ACCOUNT_INIT_CODE_HASH)
 }
 
 interface PersistentSessionConfig {
@@ -304,9 +305,10 @@ Origin-centric wallet derivation with three security modes:
 - **`STANDARD` (default)**: Address only (no private key), persistent sessions allowed
 - **`STRICT`**: Address only (no private key), no persistent sessions (requires auth each time)
 - **`YOLO`**: Full access (address + private key), persistent sessions allowed
+- **`PRIMARY`**: Address of the passkey's P-256 smart account for the tag, deployed or not, and the passkey's `publicKey` (no private key)
 
 **Parameters:**
-- `mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
+- `mode?: SecurityMode` - Security mode: 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
 - `tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
 
@@ -381,7 +383,7 @@ Lightweight method to get the public address for a specific security mode and ta
 const mainAddr = await w3pk.getAddress()
 console.log('Main address:', mainAddr)
 
-// Get PRIMARY address (P-256 from passkey)
+// Get PRIMARY address (the passkey's P-256 smart account, one per tag)
 const primaryAddr = await w3pk.getAddress('PRIMARY')
 console.log('PRIMARY address:', primaryAddr)
 
@@ -577,7 +579,7 @@ console.log('Current origin:', origin) // e.g., 'https://app.example.com'
 
 Derive Ethereum address from P-256 public key (EIP-7951 compatible).
 
-This is used internally for PRIMARY mode to derive addresses directly from WebAuthn passkey public keys.
+No key controls this address. PRIMARY mode uses `getSmartAccountAddress()` instead.
 
 **Parameters:**
 - `publicKeySpki: string` - Public key in SPKI format (base64url encoded)
@@ -602,11 +604,27 @@ const address = await deriveAddressFromP256PublicKey(publicKeySpki)
 console.log('P-256 address:', address) // 0x...
 ```
 
-**Use Cases:**
-- PRIMARY mode address derivation
-- EIP-7951 account abstraction wallets
-- WebAuthn-native smart contract wallets
-- Passkey-first authentication without seed phrases
+---
+
+##### `getSmartAccountAddress(publicKeySpki: string, tag?: string, config?: SmartAccountConfig): Promise<string>`
+
+Counterfactual CREATE2 address of the passkey's `W3pkAccount` for a tag, as `W3pkAccountFactory.getAddress` returns it, deployed or not. No RPC call. `getAddress('PRIMARY', tag)` and `deriveWallet('PRIMARY', tag)` return it.
+
+**Parameters:**
+- `publicKeySpki: string` - Public key in SPKI format (base64url encoded)
+- `tag?: string` - Account tag (default: 'MAIN')
+- `config?: { factoryAddress?: string; initCodeHash?: string }` - Overrides of `W3PK_ACCOUNT_FACTORY` and `W3PK_ACCOUNT_INIT_CODE_HASH`
+
+**Returns:** `Promise<string>` - Checksummed address
+
+The salt is `getSmartAccountSalt(qx, qy, tag)`, `keccak256(abi.encode(qx, qy, keccak256(bytes(tag))))`, with `qx` and `qy` from `getP256Coordinates(publicKeySpki)`. Each tag gives its own account, and accounts of the same passkey are linkable onchain through their shared owner.
+
+```typescript
+import { getSmartAccountAddress } from 'w3pk'
+
+const main = await getSmartAccountAddress(publicKeySpki)
+const gaming = await getSmartAccountAddress(publicKeySpki, 'GAMING')
+```
 
 **Related:**
 - See [EIP-7951 Implementation Guide](../docs/EIP-7951.md) (if exists)

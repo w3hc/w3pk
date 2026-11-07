@@ -299,7 +299,7 @@ const authorization = await w3pk.signAuthorization({
 ### EIP-7951 PRIMARY Mode
 
 ```typescript
-// Get PRIMARY address (P-256 passkey-derived)
+// Get PRIMARY address (the passkey's P-256 smart account, one per tag)
 const primaryAddr = await w3pk.getAddress('PRIMARY')
 
 // Sign with P-256 passkey directly (no private key)
@@ -307,7 +307,7 @@ const result = await w3pk.signMessageWithPasskey("Hello World")
 // Returns: { signature: { r, s }, messageHash, signedHash, address, publicKey: { qx, qy } }
 ```
 
-The PRIMARY address is `keccak256(x ‖ y)` of the passkey's P-256 public key. No secp256k1 key controls it, so funds sent there can't be moved: don't use it as a receiving address. `sendTransaction()` and SIWE signing throw in PRIMARY mode.
+The PRIMARY address is the counterfactual address of the passkey's [P-256 smart account](./docs/EIP-7951.md#primary-smart-account), computed offchain with no RPC call. Each tag has its own account; accounts of the same passkey are linkable onchain through their shared owner. `signMessageWithPasskey()` still returns the old `keccak256(x ‖ y)` address, which no key controls. `sendTransaction()` and SIWE signing throw in PRIMARY mode.
 
 ### ERC-5564 Stealth Addresses
 
