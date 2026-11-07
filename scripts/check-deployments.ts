@@ -1,8 +1,8 @@
 /**
  * Checks on every target chain, over public RPCs, that `W3pkAccountFactory` is
  * deployed at `W3PK_ACCOUNT_FACTORY`, that its `implementation()` is the
- * expected address, and that the implementation's ERC-1167 clone init code
- * hash is `W3PK_ACCOUNT_INIT_CODE_HASH`
+ * expected address, with code, and that this address's ERC-1167 clone init
+ * code hash is `W3PK_ACCOUNT_INIT_CODE_HASH`
  *
  *   pnpm check:deployments
  *
@@ -34,21 +34,30 @@ function cloneInitCodeHash(implementation: string): string {
 
 async function check({ chainId, rpcUrl }: (typeof CHAINS)[number]): Promise<string[]> {
   const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
+  const actualChainId = Number(await provider.send("eth_chainId", []));
+  if (actualChainId !== chainId) return [`RPC is on chain ${actualChainId}`];
   if ((await provider.getCode(W3PK_ACCOUNT_FACTORY)) === "0x") return ["factory not deployed"];
-  const errors: string[] = [];
   const factory = new Contract(W3PK_ACCOUNT_FACTORY, ["function implementation() view returns (address)"], provider);
-  const implementation: string = await factory.implementation();
-  if (implementation !== EXPECTED_IMPLEMENTATION) errors.push(`implementation() is ${implementation}`);
-  if ((await provider.getCode(implementation)) === "0x") errors.push("implementation not deployed");
-  const hash = cloneInitCodeHash(implementation);
-  if (hash !== W3PK_ACCOUNT_INIT_CODE_HASH) errors.push(`clone init code hash is ${hash}`);
-  return errors;
+  let implementation: string;
+  try {
+    implementation = await factory.implementation();
+  } catch {
+    return ["implementation() call failed: the factory isn't W3pkAccountFactory"];
+  }
+  if (implementation !== EXPECTED_IMPLEMENTATION) return [`implementation() is ${implementation}`];
+  if ((await provider.getCode(implementation)) === "0x") return ["implementation not deployed"];
+  return [];
 }
 
 async function main(): Promise<void> {
   console.log(`factory              ${W3PK_ACCOUNT_FACTORY}`);
   console.log(`implementation       ${EXPECTED_IMPLEMENTATION}`);
   console.log(`clone init code hash ${W3PK_ACCOUNT_INIT_CODE_HASH}\n`);
+  const hash = cloneInitCodeHash(EXPECTED_IMPLEMENTATION);
+  if (hash !== W3PK_ACCOUNT_INIT_CODE_HASH) {
+    console.log(`FAIL the implementation's clone init code hash is ${hash}`);
+    process.exit(1);
+  }
 
   const results = await Promise.all(
     CHAINS.map((chain) => check(chain).catch((error: Error) => [`RPC error: ${error.message}`]))
