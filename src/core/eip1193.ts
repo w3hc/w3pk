@@ -84,9 +84,9 @@ export function createEIP1193Provider(
   let activeChainId = options?.chainId ?? 1;
   const initialChainId = activeChainId;
   const isPrimary = options?.mode === 'PRIMARY';
-  // In PRIMARY mode, a chain the endpoints don't serve falls back to the config's
+  // options.rpcUrl and bundlerUrl serve the initial chain only; other chains use the config's
   const endpoints = () =>
-    isPrimary && activeChainId !== initialChainId
+    activeChainId !== initialChainId
       ? {}
       : { rpcUrl: options?.rpcUrl, bundlerUrl: options?.bundlerUrl };
   const primarySigning = () => (isPrimary ? { chainId: activeChainId, rpcUrl: endpoints().rpcUrl } : {});
