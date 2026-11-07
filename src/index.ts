@@ -99,6 +99,15 @@ export {
 } from "./wallet/origin-derivation";
 
 export {
+  W3PK_ACCOUNT_FACTORY,
+  W3PK_ACCOUNT_INIT_CODE_HASH,
+  getP256Coordinates,
+  getSmartAccountSalt,
+  getSmartAccountAddress,
+  type SmartAccountConfig,
+} from "./wallet/smart-account";
+
+export {
   RecoverySimulator,
   getExplainer,
   getAllTopics,
