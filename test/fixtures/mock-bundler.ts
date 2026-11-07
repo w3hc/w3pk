@@ -47,6 +47,8 @@ export interface MockBundlerOptions {
   paymasterData?: string;
   /** Whether pm_getPaymasterStubData answers isFinal */
   isFinal?: boolean;
+  /** eth_estimateUserOperationGas answer (default: GAS_ESTIMATE) */
+  gasEstimate?: typeof GAS_ESTIMATE;
 }
 
 export interface MockBundler {
@@ -108,6 +110,7 @@ export function verifiesWebAuthn(signature: string, hash: string): boolean {
 
 export async function startMockBundler(options: MockBundlerOptions = {}): Promise<MockBundler> {
   const chainId = options.chainId ?? 1;
+  const gasEstimate = options.gasEstimate ?? GAS_ESTIMATE;
   const state = {
     calls: [] as { method: string; params: any[] }[],
     included: [] as Record<string, string>[],
@@ -201,11 +204,11 @@ export async function startMockBundler(options: MockBundlerOptions = {}): Promis
         if (ep !== ENTRY_POINT_V09) throw new RpcError(-32602, `unsupported EntryPoint ${ep}`);
         checkFactory(op);
         const estimate: Record<string, string> = {
-          preVerificationGas: toBeHex(GAS_ESTIMATE.preVerificationGas),
-          verificationGasLimit: toBeHex(GAS_ESTIMATE.verificationGasLimit),
-          callGasLimit: toBeHex(GAS_ESTIMATE.callGasLimit),
+          preVerificationGas: toBeHex(gasEstimate.preVerificationGas),
+          verificationGasLimit: toBeHex(gasEstimate.verificationGasLimit),
+          callGasLimit: toBeHex(gasEstimate.callGasLimit),
         };
-        if (op.paymaster) estimate.paymasterVerificationGasLimit = toBeHex(GAS_ESTIMATE.paymasterVerificationGasLimit);
+        if (op.paymaster) estimate.paymasterVerificationGasLimit = toBeHex(gasEstimate.paymasterVerificationGasLimit);
         return estimate;
       }
       case "eth_sendUserOperation": {
@@ -221,7 +224,7 @@ export async function startMockBundler(options: MockBundlerOptions = {}): Promis
         if (op.paymaster && op.paymasterData !== (options.paymasterData ?? "0x1234")) {
           throw new RpcError(-32501, "AA34 paymaster signature error");
         }
-        if (op.verificationGasLimit < GAS_ESTIMATE.verificationGasLimit) {
+        if (op.verificationGasLimit < gasEstimate.verificationGasLimit) {
           throw new RpcError(-32602, "verificationGasLimit below the estimate");
         }
         if (options.neverInclude) return hash;
