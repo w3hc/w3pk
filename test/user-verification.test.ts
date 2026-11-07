@@ -336,15 +336,15 @@ async function runTests() {
     await sdk.login();
     assert(sdk.isAuthenticated, "verified login opens the wallet");
 
-    reset(UP);
+    reset(UP | UV);
     try {
-      await sdk.signMessageWithPasskey("hello");
+      await sdk.signMessage("hello", { mode: "PRIMARY", chainId: 1 });
     } catch {
       // only the request options matter here
     }
     assert(
-      authenticator.getCalls[0]?.userVerification === "preferred",
-      "signMessageWithPasskey() requests 'preferred'"
+      authenticator.getCalls[0]?.userVerification === "required",
+      "PRIMARY signMessage() requests 'required': the account checks UV"
     );
 
     await storeWallet(publicKey);

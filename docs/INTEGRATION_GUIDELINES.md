@@ -87,8 +87,7 @@ const auth2 = await w3pk.signAuthorization({
 - `getAddress()` - Get address for mode/tag
 
 **Signing Methods:**
-- `signMessage()` - Sign with EIP-191, SIWE, EIP-712, or rawHash
-- `signMessageWithPasskey()` - Sign with WebAuthn P-256 (PRIMARY mode)
+- `signMessage()` - Sign with EIP-191, SIWE, EIP-712, or rawHash; in PRIMARY mode, as the P-256 smart account (EIP-1271)
 - `signAuthorization()` - Sign EIP-7702 authorization
 
 **Backup & Recovery:**
@@ -245,7 +244,21 @@ const result = await w3pk.signMessage(message, {
 })
 ```
 
-SIWE works in STANDARD, STRICT and YOLO modes; PRIMARY mode throws. Get the address with the same mode and tag you sign with. In production, have the server issue the nonce and tie it to the address, as EIP-4361 recommends; see [examples/siwe-login.ts](../examples/siwe-login.ts).
+SIWE works in every mode. In PRIMARY mode the signature comes from the smart account, so verify it with viem rather than `verifySiweSignature()`, as shown below. Get the address with the same mode and tag you sign with. In production, have the server issue the nonce and tie it to the address, as EIP-4361 recommends; see [examples/siwe-login.ts](../examples/siwe-login.ts).
+
+**Verifying on a backend:** PRIMARY signatures come from a contract, so `ethers.verifyMessage()` and `verifySiweSignature()` can't recover them. viem's [`verifyMessage`](https://viem.sh/docs/actions/public/verifyMessage) and [`verifyTypedData`](https://viem.sh/docs/actions/public/verifyTypedData) on a public client verify EOA, ERC-1271 and ERC-6492 signatures alike, so one call covers every mode:
+
+```typescript
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+const client = createPublicClient({ chain: mainnet, transport: http() })
+
+const valid = await client.verifyMessage({ address, message, signature })
+const validTyped = await client.verifyTypedData({ address, domain, types, primaryType, message, signature })
+```
+
+Use a client for the chain the message was signed for: the signature doesn't verify on another chain.
 
 **Use for:**
 - Web3 authentication flows
@@ -778,7 +791,7 @@ The authenticator decides whether to prompt. Built-in authenticators usually sti
 
 What changes with `'preferred'`:
 
-- `register()`, `login()` and `signMessageWithPasskey()` ask for `'preferred'`
+- `register()` and `login()` ask for `'preferred'`; PRIMARY `signMessage()` still requires verification, since the account checks it
 - `derivePrfSecret()` and PRF device sync still require verification, so their secrets don't change
 - A login that isn't user-verified gets an in-memory session only: no persistent session is stored or restored from it
 

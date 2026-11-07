@@ -1,4 +1,4 @@
-import { AbiCoder, getCreate2Address, hexlify, keccak256, toUtf8Bytes } from "ethers";
+import { AbiCoder, Interface, getCreate2Address, hexlify, keccak256, toUtf8Bytes } from "ethers";
 import { WalletError } from "../core/errors";
 import { base64UrlToArrayBuffer } from "../utils/base64";
 import { DEFAULT_TAG } from "./origin-derivation";
@@ -73,4 +73,22 @@ export async function getSmartAccountAddress(
     getSmartAccountSalt(qx, qy, tag),
     config.initCodeHash ?? W3PK_ACCOUNT_INIT_CODE_HASH
   );
+}
+
+const FACTORY_INTERFACE = new Interface([
+  "function createAccount(bytes32 qx, bytes32 qy, string tag) returns (address)",
+]);
+
+/**
+ * Calldata of `W3pkAccountFactory.createAccount` for the passkey's account
+ *
+ * @param publicKeySpki - Public key in SPKI format (base64url encoded)
+ * @param tag - Account tag (default: "MAIN")
+ */
+export async function getCreateAccountCalldata(
+  publicKeySpki: string,
+  tag: string = DEFAULT_TAG
+): Promise<string> {
+  const { qx, qy } = await getP256Coordinates(publicKeySpki);
+  return FACTORY_INTERFACE.encodeFunctionData("createAccount", [qx, qy, tag]);
 }

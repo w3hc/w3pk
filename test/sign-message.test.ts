@@ -393,24 +393,24 @@ Issued At: 2021-09-30T16:25:24Z`;
     console.log("✅ EIP-712 signing works");
   }
 
-  // Test 12: SIWE signing is rejected in PRIMARY mode
-  console.log("\nTest 12: SIWE signing is rejected in PRIMARY mode");
+  // Test 12: rawHash signing is rejected in PRIMARY mode
+  console.log("\nTest 12: rawHash signing is rejected in PRIMARY mode");
   {
     const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
 
     let cause = "";
     try {
-      await sdk.signMessage(message, { mode: "PRIMARY", signingMethod: "SIWE" });
+      await sdk.signMessage("0x" + "ab".repeat(32), { mode: "PRIMARY", signingMethod: "rawHash" });
     } catch (error) {
       cause = (error as any).originalError?.message ?? "";
     }
 
-    if (!cause.includes("SIWE signing is not supported in PRIMARY mode")) {
-      throw new Error(`Expected PRIMARY mode SIWE rejection, got: "${cause}"`);
+    if (!cause.includes("rawHash signing is not supported in PRIMARY mode")) {
+      throw new Error(`Expected PRIMARY mode rawHash rejection, got: "${cause}"`);
     }
 
     console.log(`  ✓ Rejected: ${cause}`);
-    console.log("✅ PRIMARY mode SIWE rejection works");
+    console.log("✅ PRIMARY mode rawHash rejection works");
   }
 
   // Test 13: SIWE signing rejects a message for another domain
@@ -563,7 +563,7 @@ Issued At: 2021-09-30T16:25:24Z`;
   console.log("  • EIP-712: Can sign structured typed data");
   console.log("  • Validation: rawHash requires exactly 32 bytes");
   console.log("  • Comparison: EIP-191 and rawHash produce different signatures");
-  console.log("  • PRIMARY mode: SIWE signing is rejected");
+  console.log("  • PRIMARY mode: rawHash signing is rejected");
   console.log("");
 }
 

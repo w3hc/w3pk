@@ -63,7 +63,7 @@ interface PersistentSessionConfig {
 
 **PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. On authenticators without PRF support, no persistent session is stored — the device falls back to in-memory sessions only (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored next to the blob in localStorage to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
 
-**User verification:** `userVerification` sets the WebAuthn [user verification](https://www.w3.org/TR/webauthn-3/#user-verification) requirement for `register()`, `login()` and `signMessageWithPasskey()`. With `'required'` (the default), every prompt asks for a biometric or PIN. With `'preferred'`, authenticators that can skip the check, such as security keys and unlocked password managers, sign in with one click; the authenticator decides, not the app. Registration accepts any authenticator either way: a built-in one, a phone through a QR code, a security key or a password manager. PRF calls (`derivePrfSecret()`, PRF device sync) always require user verification, since an unverified assertion would return a different PRF output. A login whose assertion isn't user-verified gets an in-memory session only, never a persistent one.
+**User verification:** `userVerification` sets the WebAuthn [user verification](https://www.w3.org/TR/webauthn-3/#user-verification) requirement for `register()` and `login()`; PRIMARY `signMessage()` always asks for `'required'`, since the account checks the UV flag. With `'required'` (the default), every prompt asks for a biometric or PIN. With `'preferred'`, authenticators that can skip the check, such as security keys and unlocked password managers, sign in with one click; the authenticator decides, not the app. Registration accepts any authenticator either way: a built-in one, a phone through a QR code, a security key or a password manager. PRF calls (`derivePrfSecret()`, PRF device sync) always require user verification, since an unverified assertion would return a different PRF output. A login whose assertion isn't user-verified gets an in-memory session only, never a persistent one.
 
 **Example:**
 
@@ -696,10 +696,12 @@ You can specify a different mode, tag, and signing method to customize the signa
 
 **Parameters:**
 - `message: string | Uint8Array` - Message to sign (or hash for rawHash method, JSON for EIP712); bytes are signed as-is and only with EIP191
-- `options.mode?: SecurityMode` - Security mode: 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
+- `options.mode?: SecurityMode` - Security mode: 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
 - `options.tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
-- `options.signingMethod?: SigningMethod` - Signing method: 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash' (default: 'EIP191')
+- `options.signingMethod?: SigningMethod` - Signing method: 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash' (default: 'EIP191'; rawHash throws in PRIMARY mode)
+- `options.chainId?: number` - PRIMARY mode: chain the signature is bound to. Required for EIP191; SIWE reads the message's `Chain ID` and EIP712 `eip712Domain.chainId` when it's not set
+- `options.rpcUrl?: string` - PRIMARY mode: RPC endpoint used to check whether the account is deployed (default: the first `rpcUrls` endpoint for the chain)
 - `options.eip712Domain?: TypedDataDomain` - EIP-712 domain separator (ethers' [`TypedDataDomain`](https://docs.ethers.org/v6/api/hashing/#TypedDataDomain)) (required for EIP712 method)
 - `options.eip712Types?: object` - EIP-712 type definitions (required for EIP712 method)
 - `options.eip712PrimaryType?: string` - Primary type name (required for EIP712 method)
@@ -739,7 +741,7 @@ interface SignatureResult {
 - Use `createSiweMessage()` helper for proper formatting
 - The message's `domain` must match the current origin (host and port, and scheme when the domain names one), or `signMessage()` throws. The same check runs on an `EIP191` message, a string or UTF-8 bytes, that contains the SIWE header, including hex `personal_sign` and `eth_sign` data through the EIP-1193 provider; bytes that contain the header but aren't valid UTF-8 throw
 - `validateSiweMessage()` always checks `Expiration Time` and `Not Before`, and requires RFC 3339 dates
-- Not supported in PRIMARY mode (throws): use STANDARD, STRICT or YOLO
+- In PRIMARY mode, the chain comes from the message's `Chain ID`
 
 **EIP-712 Signing:**
 - Signs structured typed data according to EIP-712 standard
@@ -757,8 +759,37 @@ interface SignatureResult {
 - Use when you need manual control over hash computation
 - Always prompts for a fresh user-verified passkey assertion, even during an active session: the hash could be an EIP-7702 authorization digest
 
+**PRIMARY mode:**
+
+The passkey signs as its [P-256 smart account](./EIP-7951.md#primary-smart-account), whose address `result.address` is. There is no key to keep in a session, so every call prompts for a fresh user-verified passkey assertion.
+
+- EIP-191 and SIWE messages are signed as an [ERC-7739](https://eips.ethereum.org/EIPS/eip-7739) `PersonalSign`, EIP-712 messages as a `TypedDataSign`, both under the account's EIP-712 domain (`W3pkAccount`, `1`, the chain, the account). A signature for one account or chain doesn't verify on another.
+- The account checks them in `isValidSignature(hash, signature)` ([EIP-1271](https://eips.ethereum.org/EIPS/eip-1271)), with `hash` the message's EIP-191 or EIP-712 hash, as any verifier computes it.
+- If the account isn't deployed, or no RPC endpoint is set for the chain, the signature is wrapped as [ERC-6492](https://eips.ethereum.org/EIPS/eip-6492): verifiers that support it deploy the account through the factory, then call `isValidSignature`. A contract calling `isValidSignature` directly needs the bare signature: deploy the account and set `rpcUrls` or `options.rpcUrl`.
+- `rawHash` throws: a bare hash through EIP-1271 would skip ERC-7739's replay protection.
+
+```typescript
+const { signature, address } = await w3pk.signMessage('Hello World', { mode: 'PRIMARY', chainId: 1 })
+
+const siwe = await w3pk.signMessage(siweMessage, { mode: 'PRIMARY', signingMethod: 'SIWE' })
+```
+
+**Verifying on a backend:** PRIMARY signatures come from a contract, so `ethers.verifyMessage()` and `verifySiweSignature()` can't recover them. viem's [`verifyMessage`](https://viem.sh/docs/actions/public/verifyMessage) and [`verifyTypedData`](https://viem.sh/docs/actions/public/verifyTypedData) on a public client verify EOA, ERC-1271 and ERC-6492 signatures alike, so one call covers every mode:
+
+```typescript
+import { createPublicClient, http } from 'viem'
+import { mainnet } from 'viem/chains'
+
+const client = createPublicClient({ chain: mainnet, transport: http() })
+
+const valid = await client.verifyMessage({ address, message, signature })
+const validTyped = await client.verifyTypedData({ address, domain, types, primaryType, message, signature })
+```
+
+Use a client for the chain the message was signed for: the signature doesn't verify on another chain.
+
 **What happens:**
-1. Derives wallet based on mode and tag
+1. Derives wallet based on mode and tag (PRIMARY: see above)
 2. Checks for active session (unless STRICT mode or rawHash forces auth)
 3. If no session - prompts for biometric authentication
 4. Signs message using specified signing method
@@ -1012,95 +1043,6 @@ console.log('Delegation revoked!')
 - [EIP-7702 Complete Guide](../docs/EIP_7702.md)
 - [EIP-7702 Specification](https://eips.ethereum.org/EIPS/eip-7702)
 - [Integration Examples](../examples/eip7702-authorization.ts)
-
----
-
-### `signMessageWithPasskey(message: string): Promise<PasskeySignatureResult>`
-
-Sign a message directly with WebAuthn P-256 passkey for PRIMARY mode (EIP-7951 compatible).
-
-Unlike `signMessage()` which uses secp256k1 ECDSA, this method uses the P-256 curve directly from WebAuthn. This is designed for account abstraction wallets that verify WebAuthn signatures on-chain.
-
-**Parameters:**
-- `message: string` - Message to sign
-
-**Returns:** `PasskeySignatureResult`
-
-```typescript
-interface PasskeySignatureResult {
-  signature: {
-    r: string;      // Signature r component (hex)
-    s: string;      // Signature s component (hex, low-s normalized)
-  };
-  messageHash: string;  // Original message hash (SHA-256)
-  signedHash: string;   // WebAuthn signed hash (authenticatorData + clientDataHash)
-  address: string;      // PRIMARY mode address (derived from P-256 public key)
-  publicKey: {
-    qx: string;     // Public key x-coordinate (hex)
-    qy: string;     // Public key y-coordinate (hex)
-  };
-}
-```
-
-**What happens:**
-1. Hashes the message with SHA-256
-2. Requests WebAuthn signature using the passkey
-3. WebAuthn signs: `SHA-256(authenticatorData || SHA-256(clientDataJSON))`
-4. Extracts r and s from DER-encoded signature
-5. Applies low-s normalization for Ethereum compatibility
-6. Derives P-256 address using keccak256 (EIP-7951)
-7. Returns signature components and public key coordinates
-
-**Example:**
-
-```typescript
-// Sign message with passkey
-const result = await w3pk.signMessageWithPasskey("Hello World")
-
-console.log('Signature r:', result.signature.r)
-console.log('Signature s:', result.signature.s)
-console.log('Message hash:', result.messageHash)
-console.log('Signed hash:', result.signedHash)
-console.log('Address:', result.address)
-console.log('Public key qx:', result.publicKey.qx)
-console.log('Public key qy:', result.publicKey.qy)
-
-// Use with account abstraction contract
-await accountAbstractionContract.verifyWebAuthnSignature({
-  message: "Hello World",
-  r: result.signature.r,
-  s: result.signature.s,
-  qx: result.publicKey.qx,
-  qy: result.publicKey.qy
-})
-```
-
-**Key Differences from signMessage():**
-
-| Feature | `signMessage()` | `signMessageWithPasskey()` |
-|---------|----------------|---------------------------|
-| Curve | secp256k1 | P-256 (WebAuthn native) |
-| Private Key | Uses BIP39 mnemonic | Uses WebAuthn credential directly |
-| Compatibility | Standard Ethereum wallets | Account abstraction (EIP-7951) |
-| Signature Format | 65-byte compact (r,s,v) | DER-encoded, extracted r,s |
-| Address Derivation | keccak256(secp256k1 pubkey) | keccak256(P-256 pubkey) |
-| Low-s Normalization | Standard | P-256 curve order |
-
-**Security:**
-- Requires active user authentication (biometric/PIN)
-- No private key exposure (uses WebAuthn credential directly)
-- Signature is bound to the origin (RP ID hash verification)
-- Counter validation prevents credential cloning
-
-**Use Cases:**
-- EIP-7951 account abstraction wallets
-- WebAuthn-native smart contract wallets
-- Hardware-backed signatures without seed phrases
-- Passkey-first authentication flows
-
-**Related Documentation:**
-- [EIP-7951 Implementation Guide](../docs/EIP-7951.md)
-- [EIP-7951 Specification](https://eips.ethereum.org/EIPS/eip-7951)
 
 ---
 
@@ -1414,7 +1356,7 @@ const priorityTx = await w3pk.sendTransaction({
 | PRIMARY mode (any) | `WalletError: Failed to send transaction: PRIMARY mode sendTransaction is not yet supported.` |
 | Node rejection | `WalletError: Failed to send transaction: <reason>` (original error in `originalError`) |
 
-**Note on PRIMARY mode:** The P-256 WebAuthn key cannot produce a standard secp256k1 signature accepted by EVM nodes. Full PRIMARY support (via EIP-7702 delegation + bundler) is planned for a future release. Use `signMessageWithPasskey()` to obtain a P-256 signature and submit it via a bundler manually in the meantime.
+**Note on PRIMARY mode:** The P-256 WebAuthn key cannot produce a standard secp256k1 signature accepted by EVM nodes. Full PRIMARY support (via EIP-7702 delegation + bundler) is planned for a future release. Message signing works in PRIMARY mode: see `signMessage()`.
 
 ---
 
@@ -3299,7 +3241,7 @@ If s > n/2, then s = n - s
 This ensures compatibility with Ethereum's signature malleability protection.
 
 **Related:**
-- Used internally by `signMessageWithPasskey()`
+- Used internally by PRIMARY `signMessage()`
 - See [EIP-7951 Implementation Guide](../docs/EIP-7951.md)
 
 ---

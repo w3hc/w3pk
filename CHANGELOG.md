@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `W3pkAccountFactory` deploys each account as an ERC-1167 clone and initializes it in the same call, at a CREATE2 address salted with `keccak256(abi.encode(x, y, keccak256(bytes(tag))))`
   - The factory, implementation and accounts have the same addresses on every chain; the first deployment is on Ethereum Sepolia
   - CI runs `forge fmt --check`, `forge test` with fuzzing and a gas report, and Slither
+- **EIP-1271 message signing in `PRIMARY` mode** ([#298](https://github.com/w3hc/w3pk/issues/298))
+  - `signMessage()` in `PRIMARY` mode signs EIP-191, SIWE and EIP-712 messages with the passkey as the P-256 smart account, as ERC-7739 `PersonalSign` and `TypedDataSign` signatures that verify through the account's `isValidSignature`
+  - A signature is bound to the account and the chain: `options.chainId` (required for EIP-191), the SIWE message's `Chain ID`, or `eip712Domain.chainId`
+  - Unless `eth_getCode` on `options.rpcUrl` or `rpcUrls[chainId][0]` shows the account deployed, the signature is wrapped as ERC-6492; viem's `verifyMessage` and `verifyTypedData` verify both
+  - Each `PRIMARY` signature asks for a fresh user-verified assertion, also with `userVerification: 'preferred'`
+  - `rawHash` throws in `PRIMARY` mode: through EIP-1271 it would skip ERC-7739's replay protection
+  - Forge tests verify SDK-made signatures against `W3pkAccount`, from fixtures written by `scripts/gen-erc1271-fixtures.ts`
 
 ### Changed
 
@@ -29,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Paying a stealth recipient uses the exported `generateStealthAddress(metaAddress)`, and `getKeys()` returns the viewing key
   - `getCurrentBuildHash()` hashes the build published on unpkg, and `getPackageVersion()` gives the installed version
   - The documentation list links `ARCHITECTURE.md` and `EIP_7702.md`
+
+### Removed
+
+- **`signMessageWithPasskey()`** ([#298](https://github.com/w3hc/w3pk/issues/298)). **Breaking**: its signatures came from no account, so nothing could verify them onchain; use `signMessage(message, { mode: 'PRIMARY' })`
 
 ### Fixed
 
