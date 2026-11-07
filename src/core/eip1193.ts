@@ -82,8 +82,14 @@ export function createEIP1193Provider(
   }
 ): EIP1193ProviderInterface {
   let activeChainId = options?.chainId ?? 1;
+  const initialChainId = activeChainId;
   const isPrimary = options?.mode === 'PRIMARY';
-  const primarySigning = () => (isPrimary ? { chainId: activeChainId, rpcUrl: options?.rpcUrl } : {});
+  // In PRIMARY mode, a chain the endpoints don't serve falls back to the config's
+  const endpoints = () =>
+    isPrimary && activeChainId !== initialChainId
+      ? {}
+      : { rpcUrl: options?.rpcUrl, bundlerUrl: options?.bundlerUrl };
+  const primarySigning = () => (isPrimary ? { chainId: activeChainId, rpcUrl: endpoints().rpcUrl } : {});
 
   // Minimal EventEmitter (subset needed by EIP-1193)
   const listeners: Partial<Record<EIP1193Event, Listener[]>> = {};
@@ -141,15 +147,14 @@ export function createEIP1193Provider(
               maxPriorityFeePerGas: txParam.maxPriorityFeePerGas !== undefined
                 ? BigInt(txParam.maxPriorityFeePerGas)
                 : undefined,
-              nonce: txParam.nonce !== undefined && !isPrimary
+              nonce: txParam.nonce !== undefined
                 ? parseInt(txParam.nonce, 16)
                 : undefined,
             },
             {
               mode: options?.mode,
               tag: options?.tag,
-              rpcUrl: options?.rpcUrl,
-              ...(isPrimary && { bundlerUrl: options?.bundlerUrl }),
+              ...endpoints(),
             }
           );
           return result.hash;
