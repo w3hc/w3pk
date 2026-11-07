@@ -73,6 +73,23 @@ export interface Web3PasskeyConfig {
   rpcUrls?: Record<number, string[]>;
 
   /**
+   * ERC-4337 bundler endpoint per chain ID, for `sendTransaction()` in
+   * `PRIMARY` mode (a per-call `bundlerUrl` takes precedence). The bundler
+   * must support EntryPoint v0.9.
+   *
+   * @example
+   * bundlerUrls: { 10: 'https://bundler.example/optimism' }
+   */
+  bundlerUrls?: Record<number, string>;
+
+  /**
+   * ERC-7677 paymaster service that sponsors `PRIMARY` mode transactions (a
+   * per-call `paymasterUrl` takes precedence). Without one, the smart account
+   * pays its own gas.
+   */
+  paymasterUrl?: string;
+
+  /**
    * `PRIMARY` mode smart account factory (default: `W3PK_ACCOUNT_FACTORY`)
    * and clone init code hash (default: `W3PK_ACCOUNT_INIT_CODE_HASH`), for a
    * factory deployed elsewhere
@@ -87,6 +104,7 @@ export const DEFAULT_CONFIG: Partial<InternalConfig> = {
   sessionDuration: 1,
   userVerification: 'required',
   rpcUrls: {},
+  bundlerUrls: {},
   smartAccount: {},
   persistentSession: {
     enabled: false,
