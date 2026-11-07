@@ -5,6 +5,9 @@
  * It verifies each UserOperation as the EntryPoint v0.9 would before
  * including it: the userOpHash, the WebAuthn signature against the passkey of
  * test/fixtures/passkey-signer.ts, the nonce, and the factory on first use.
+ * A UserOperation waits in the mempool, one per sender as ERC-7562 allows an
+ * unstaked sender, and is included when its receipt is polled: only then do
+ * the sender's EntryPoint nonce and code change.
  */
 
 import { createServer, type Server } from "node:http";
@@ -125,8 +128,21 @@ export async function startMockBundler(options: MockBundlerOptions = {}): Promis
     nonces: new Map<string, bigint>(),
     transactions: new Map<string, { userOpHash: string; success: boolean }>(),
     raw: new Map<string, string>(),
-    receipts: new Map<string, { txHash: string; polls: number; success: boolean }>(),
+    receipts: new Map<string, { txHash: string; success: boolean }>(),
+    mempool: new Map<string, { sender: string; rpcOp: Record<string, string>; nonce: bigint; polls: number }>(),
   };
+
+  function include(hash: string) {
+    const { sender, rpcOp, nonce } = state.mempool.get(hash)!;
+    state.mempool.delete(hash);
+    if (rpcOp.factory) state.deployed.add(sender);
+    state.nonces.set(sender, nonce + 1n);
+    state.included.push(rpcOp);
+    const txHash = keccak256(hash);
+    const success = options.revert === undefined;
+    state.transactions.set(txHash, { userOpHash: hash, success });
+    state.receipts.set(hash, { txHash, success });
+  }
 
   const block = () => ({
     hash: "0x" + "11".repeat(32),
@@ -266,20 +282,18 @@ export async function startMockBundler(options: MockBundlerOptions = {}): Promis
         if (op.verificationGasLimit < gasEstimate.verificationGasLimit) {
           throw new RpcError(-32602, "verificationGasLimit below the estimate");
         }
-        if (options.neverInclude) return hash;
-        if (op.factory) state.deployed.add(sender);
-        state.nonces.set(sender, op.nonce + 1n);
-        state.included.push(rpcOp);
-        const txHash = keccak256(hash);
-        const success = options.revert === undefined;
-        state.transactions.set(txHash, { userOpHash: hash, success });
-        state.receipts.set(hash, { txHash, polls: 0, success });
+        if ([...state.mempool.values()].some((pending) => pending.sender === sender)) {
+          throw new RpcError(-32602, "sender already has a UserOperation in the mempool");
+        }
+        state.mempool.set(hash, { sender, rpcOp, nonce: op.nonce, polls: 0 });
         return hash;
       }
       case "eth_getUserOperationReceipt": {
         if (failedPolls++ < (options.failingPolls ?? 0)) throw new RpcError(-32603, "rate limited");
+        const pending = state.mempool.get(params[0]);
+        if (pending && !options.neverInclude && pending.polls++ >= (options.pendingPolls ?? 1)) include(params[0]);
         const entry = state.receipts.get(params[0]);
-        if (!entry || entry.polls++ < (options.pendingPolls ?? 1)) return null;
+        if (!entry) return null;
         return {
           userOpHash: params[0],
           entryPoint: ENTRY_POINT_V09,
