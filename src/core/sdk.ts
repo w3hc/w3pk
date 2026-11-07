@@ -1263,6 +1263,26 @@ export class Web3Passkey {
     }
   }
 
+  private primarySends = new Map<string, Promise<void>>();
+
+  /**
+   * Runs PRIMARY sends of one account and chain one after another: the
+   * EntryPoint nonce only advances on inclusion, and ERC-4337 lets a bundler
+   * refuse a second UserOperation from an unstaked sender
+   */
+  private queuePrimarySend<T>(key: string, send: () => Promise<T>): Promise<T> {
+    const result = (this.primarySends.get(key) ?? Promise.resolve()).then(send);
+    const settled = result.then(
+      () => {},
+      () => {}
+    );
+    this.primarySends.set(key, settled);
+    settled.then(() => {
+      if (this.primarySends.get(key) === settled) this.primarySends.delete(key);
+    });
+    return result;
+  }
+
   private p256Precompile = new Map<number, Promise<boolean>>();
 
   /** Whether the chain has the EIP-7951 precompile, checked once per chain */
@@ -1320,102 +1340,105 @@ export class Web3Passkey {
     const paymasterUrl = options?.paymasterUrl ?? this.config.paymasterUrl;
     const paymasterContext = options?.paymasterContext ?? {};
 
-    const storage = new CredentialStorage();
-    const credential = await storage.getCredentialById(this.currentUser!.credentialId);
-    if (!credential || !credential.publicKey) {
-      throw new WalletError("No WebAuthn credential found for PRIMARY mode");
-    }
-    const sender = await getSmartAccountAddress(credential.publicKey, tag, this.config.smartAccount);
-
-    const { JsonRpcProvider } = await import("ethers");
-    const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
-    let op: UserOperation;
-    try {
-      const [code, nonce, feeData, precompile] = await Promise.all([
-        provider.getCode(sender),
-        getEntryPointNonce(provider, sender),
-        txs[0].maxFeePerGas !== undefined && txs[0].maxPriorityFeePerGas !== undefined
-          ? null
-          : provider.getFeeData(),
-        this.hasP256Precompile(chainId, provider),
-      ]);
-      const maxFeePerGas = txs[0].maxFeePerGas ?? feeData?.maxFeePerGas;
-      let maxPriorityFeePerGas = txs[0].maxPriorityFeePerGas ?? feeData?.maxPriorityFeePerGas;
-      if (maxFeePerGas == null || maxPriorityFeePerGas == null) {
-        throw new WalletError(`Chain ${chainId} reports no EIP-1559 fees`);
+    const credentialId = this.currentUser!.credentialId;
+    return this.queuePrimarySend(`${credentialId}:${tag}:${chainId}`, async () => {
+      const storage = new CredentialStorage();
+      const credential = await storage.getCredentialById(credentialId);
+      if (!credential || !credential.publicKey) {
+        throw new WalletError("No WebAuthn credential found for PRIMARY mode");
       }
-      if (maxPriorityFeePerGas > maxFeePerGas) {
-        if (txs[0].maxPriorityFeePerGas !== undefined) {
-          throw new WalletError("maxPriorityFeePerGas is above maxFeePerGas");
+      const sender = await getSmartAccountAddress(credential.publicKey, tag, this.config.smartAccount);
+
+      const { JsonRpcProvider } = await import("ethers");
+      const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
+      let op: UserOperation;
+      try {
+        const [code, nonce, feeData, precompile] = await Promise.all([
+          provider.getCode(sender),
+          getEntryPointNonce(provider, sender),
+          txs[0].maxFeePerGas !== undefined && txs[0].maxPriorityFeePerGas !== undefined
+            ? null
+            : provider.getFeeData(),
+          this.hasP256Precompile(chainId, provider),
+        ]);
+        const maxFeePerGas = txs[0].maxFeePerGas ?? feeData?.maxFeePerGas;
+        let maxPriorityFeePerGas = txs[0].maxPriorityFeePerGas ?? feeData?.maxPriorityFeePerGas;
+        if (maxFeePerGas == null || maxPriorityFeePerGas == null) {
+          throw new WalletError(`Chain ${chainId} reports no EIP-1559 fees`);
         }
-        maxPriorityFeePerGas = maxFeePerGas;
+        if (maxPriorityFeePerGas > maxFeePerGas) {
+          if (txs[0].maxPriorityFeePerGas !== undefined) {
+            throw new WalletError("maxPriorityFeePerGas is above maxFeePerGas");
+          }
+          maxPriorityFeePerGas = maxFeePerGas;
+        }
+
+        op = {
+          sender,
+          nonce,
+          callData: encodeExecute(txs),
+          callGasLimit: 0n,
+          verificationGasLimit: 0n,
+          preVerificationGas: 0n,
+          maxFeePerGas,
+          maxPriorityFeePerGas,
+          signature: stubWebAuthnSignature(window.location.origin),
+        };
+        if (code === "0x") {
+          op.factory = this.config.smartAccount?.factoryAddress ?? W3PK_ACCOUNT_FACTORY;
+          op.factoryData = await getCreateAccountCalldata(credential.publicKey, tag);
+        }
+
+        let isFinal = false;
+        if (paymasterUrl) {
+          const stub = await getPaymasterStubData(paymasterUrl, op, chainId, paymasterContext);
+          Object.assign(op, {
+            paymaster: stub.paymaster,
+            paymasterData: stub.paymasterData ?? "0x",
+            paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit ?? 0n,
+            paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit ?? 0n,
+          });
+          if (!stub.paymaster) {
+            throw new WalletError("The paymaster service returned no paymaster");
+          }
+          isFinal = stub.isFinal === true;
+        }
+
+        const gas = await estimateUserOperationGas(bundlerUrl, op);
+        op.preVerificationGas = gas.preVerificationGas;
+        const gasLimit = txs.reduce((sum, t) => sum + (t.gasLimit ?? 0n), 0n);
+        op.callGasLimit = gas.callGasLimit > gasLimit ? gas.callGasLimit : gasLimit;
+        // The stub signature fails the challenge check before the P-256 verification runs
+        op.verificationGasLimit =
+          gas.verificationGasLimit + (precompile ? P256_PRECOMPILE_GAS : P256_SOLIDITY_GAS);
+        if (op.paymaster) {
+          op.paymasterVerificationGasLimit ||= gas.paymasterVerificationGasLimit ?? 0n;
+          op.paymasterPostOpGasLimit ||= gas.paymasterPostOpGasLimit ?? 0n;
+        }
+
+        if (paymasterUrl && !isFinal) {
+          const data = await getPaymasterData(paymasterUrl, op, chainId, paymasterContext);
+          op.paymaster = data.paymaster ?? op.paymaster;
+          op.paymasterData = data.paymasterData ?? "0x";
+        }
+      } finally {
+        provider.destroy();
       }
 
-      op = {
-        sender,
-        nonce,
-        callData: encodeExecute(txs),
-        callGasLimit: 0n,
-        verificationGasLimit: 0n,
-        preVerificationGas: 0n,
-        maxFeePerGas,
-        maxPriorityFeePerGas,
-        signature: stubWebAuthnSignature(window.location.origin),
+      op.signature = await signWithPasskey(getUserOperationHash(op, chainId), credential.id);
+      const userOpHash = await sendUserOperation(bundlerUrl, op);
+      const receipt = await waitForUserOperationReceipt(bundlerUrl, userOpHash, { timeout: options?.timeout });
+
+      return {
+        hash: receipt.receipt.transactionHash,
+        userOpHash,
+        from: sender,
+        chainId,
+        mode: 'PRIMARY',
+        tag,
+        origin,
       };
-      if (code === "0x") {
-        op.factory = this.config.smartAccount?.factoryAddress ?? W3PK_ACCOUNT_FACTORY;
-        op.factoryData = await getCreateAccountCalldata(credential.publicKey, tag);
-      }
-
-      let isFinal = false;
-      if (paymasterUrl) {
-        const stub = await getPaymasterStubData(paymasterUrl, op, chainId, paymasterContext);
-        Object.assign(op, {
-          paymaster: stub.paymaster,
-          paymasterData: stub.paymasterData ?? "0x",
-          paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit ?? 0n,
-          paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit ?? 0n,
-        });
-        if (!stub.paymaster) {
-          throw new WalletError("The paymaster service returned no paymaster");
-        }
-        isFinal = stub.isFinal === true;
-      }
-
-      const gas = await estimateUserOperationGas(bundlerUrl, op);
-      op.preVerificationGas = gas.preVerificationGas;
-      const gasLimit = txs.reduce((sum, t) => sum + (t.gasLimit ?? 0n), 0n);
-      op.callGasLimit = gas.callGasLimit > gasLimit ? gas.callGasLimit : gasLimit;
-      // The stub signature fails the challenge check before the P-256 verification runs
-      op.verificationGasLimit =
-        gas.verificationGasLimit + (precompile ? P256_PRECOMPILE_GAS : P256_SOLIDITY_GAS);
-      if (op.paymaster) {
-        op.paymasterVerificationGasLimit ||= gas.paymasterVerificationGasLimit ?? 0n;
-        op.paymasterPostOpGasLimit ||= gas.paymasterPostOpGasLimit ?? 0n;
-      }
-
-      if (paymasterUrl && !isFinal) {
-        const data = await getPaymasterData(paymasterUrl, op, chainId, paymasterContext);
-        op.paymaster = data.paymaster ?? op.paymaster;
-        op.paymasterData = data.paymasterData ?? "0x";
-      }
-    } finally {
-      provider.destroy();
-    }
-
-    op.signature = await signWithPasskey(getUserOperationHash(op, chainId), credential.id);
-    const userOpHash = await sendUserOperation(bundlerUrl, op);
-    const receipt = await waitForUserOperationReceipt(bundlerUrl, userOpHash, { timeout: options?.timeout });
-
-    return {
-      hash: receipt.receipt.transactionHash,
-      userOpHash,
-      from: sender,
-      chainId,
-      mode: 'PRIMARY',
-      tag,
-      origin,
-    };
+    });
   }
 
   /**
