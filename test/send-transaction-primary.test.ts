@@ -218,7 +218,7 @@ async function runTests() {
       ],
       { mode: "PRIMARY", tag: "GAMING", bundlerUrl: bundler.url }
     );
-    assert.strictEqual(BigInt(bundler.included[1].callGasLimit), 110_000n, "gasLimits above the estimate are summed");
+    assert.strictEqual(BigInt(bundler.included.at(-1)!.callGasLimit), 110_000n, "gasLimits above the estimate are summed");
     console.log("✅ Per-call bundler, fee and gas overrides");
   });
 

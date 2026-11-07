@@ -27,6 +27,7 @@ import { WalletError } from "../src/core/errors";
 import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify, hashMessage, dataSlice, JsonRpcProvider } from "ethers";
 import { GAMING_ACCOUNT, MAIN_ACCOUNT, installPasskey, passkeyCalls, primarySdk } from "./fixtures/passkey-signer";
 import { GAS_ESTIMATE, startMockBundler } from "./fixtures/mock-bundler";
+import { createSiweMessage } from "../src/siwe";
 import { ERC6492_MAGIC, personalSignHash, typedDataSignPayload } from "../src/wallet/erc7739";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -649,7 +650,7 @@ Issued At: 2021-09-30T16:25:24Z`)
     assertEqual(
       JSON.stringify(sendOptions[0]),
       JSON.stringify({ rpcUrl: "https://rpc.example" }),
-      "no bundlerUrl outside PRIMARY"
+      "options as in v0.11.2"
     );
 
     await provider.request({ method: "personal_sign", params: ["hi", to] });
@@ -732,6 +733,48 @@ Issued At: 2021-09-30T16:25:24Z`)
       assertEqual(bundler.included.length, sent + 1, "sent through options.bundlerUrl");
       assertEqual(bundler.included.at(-1)!.sender, GAMING_ACCOUNT, "from the tag's account");
       passTest("Per-provider bundler endpoint");
+    });
+
+    await runTest("PRIMARY: after a chain switch, the config's endpoints serve the new chain", async () => {
+      const sdk = await primarySdk({
+        rpcUrls: { 1: [bundler.url] },
+        bundlerUrls: { 1: bundler.url },
+      });
+      const provider = sdk.getEIP1193Provider({
+        mode: "PRIMARY",
+        chainId: 10,
+        rpcUrl: "http://127.0.0.1:1",
+        bundlerUrl: "http://127.0.0.1:1",
+      });
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+      const sent = bundler.included.length;
+      await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+      assertEqual(bundler.included.length, sent + 1, "sent through bundlerUrls[1]");
+      passTest("Chain 10 endpoints aren't used on chain 1");
+    });
+
+    await runTest("PRIMARY: personal_sign refuses a SIWE message for another chain", async () => {
+      const sdk = await primarySdk();
+      const provider = sdk.getEIP1193Provider({ mode: "PRIMARY", chainId: 1 });
+      const siwe = (chainId: number) => createSiweMessage({
+        domain: "localhost",
+        address: MAIN_ACCOUNT,
+        uri: "http://localhost",
+        version: "1",
+        chainId,
+        nonce: "abcdefgh1234",
+        issuedAt: new Date().toISOString(),
+      });
+      passkeyCalls.length = 0;
+      const error = await provider
+        .request({ method: "personal_sign", params: [siwe(8453), MAIN_ACCOUNT] })
+        .catch((e) => e);
+      const cause = error?.originalError?.message ?? error?.message ?? "";
+      assert(cause.includes("does not match"), `got "${cause}"`);
+      assertEqual(passkeyCalls.length, 0, "no passkey prompt");
+      await provider.request({ method: "personal_sign", params: [siwe(1), MAIN_ACCOUNT] });
+      assertEqual(passkeyCalls.length, 1, "same chain is signed");
+      passTest("SIWE Chain ID must be the active chain");
     });
 
     await runTest("PRIMARY: personal_sign and eth_signTypedData_v4 sign for the active chain", async () => {
