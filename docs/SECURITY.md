@@ -105,9 +105,9 @@ The `passkey` and `hybrid` types were removed in 0.11.0: their key came from `cr
 
 ## Enhanced Security Model (v0.8.0+)
 
-### Three Security Modes
+### Security Modes
 
-w3pk now uses **origin-centric security modes** for wallet derivation:
+w3pk now uses **origin-centric security modes** for wallet derivation. `STANDARD`, `STRICT` and `YOLO` derive secp256k1 keys from the mnemonic; `PRIMARY` is the passkey's [P-256 smart account](#primary-mode-the-p-256-smart-account):
 
 **STANDARD mode (default):**
 - ✅ Address only (no private key)
@@ -124,6 +124,11 @@ w3pk now uses **origin-centric security modes** for wallet derivation:
 - ✅ Full access (address + private key)
 - ✅ Persistent sessions allowed
 - ⚠️ Use only when private key access is required
+
+**PRIMARY mode:**
+- ✅ Address only: the passkey's P-256 smart account, no private key anywhere
+- ✅ Every signature asks for a fresh user-verified passkey assertion
+- ❌ No stealth addresses, ML-KEM, Semaphore/ZK or EIP-7702 authorizations
 
 ### Application Security Guarantees
 
@@ -233,6 +238,16 @@ if (count > 0) {
 ```
 
 See [Integration Guidelines](./INTEGRATION_GUIDELINES.md#check-for-existing-wallet-first) for complete implementation patterns.
+
+## PRIMARY Mode: the P-256 Smart Account
+
+In `PRIMARY` mode the passkey owns `W3pkAccount`, an ERC-4337 account (EntryPoint v0.9) on OpenZeppelin 5.7.0 that verifies WebAuthn assertions onchain. `W3pkAccountFactory` deploys each account as an ERC-1167 clone of one implementation, salted with the passkey's public key and the tag. Factory and implementation are deployed through the deterministic deployment proxy at the same addresses on Ethereum, OP Mainnet, Base, Arbitrum One and their Sepolia testnets, verified on Etherscan and Sourcify; `pnpm check:deployments` checks them against `W3PK_ACCOUNT_FACTORY` and `W3PK_ACCOUNT_INIT_CODE_HASH`. Addresses and links are in [EIP-7951.md](./EIP-7951.md#primary-smart-account).
+
+**Not upgradeable.** The account has no proxy, no upgrade function and no admin. Nobody, w3hc included, can change the code that holds a `PRIMARY` account's funds: an upgrade key would be one key over every account, and an address would no longer tell what code runs behind it. A bug can't be patched in place: a fixed version is a new factory at new addresses, and users move their funds. ERC-7579 modules add behavior without new account code; only the account can install one, through a UserOperation the passkey signs, and an installed validator or executor can act for the account.
+
+**Two trust models.** In `STRICT`, `STANDARD` and `YOLO`, whoever holds the mnemonic spends: the SDK decrypts it in the page, a session caches it (except in `STRICT`), backups carry it, and `YOLO` exports keys. The account is an EOA, so no contract is trusted. In `PRIMARY`, whoever gets a user-verified assertion from the passkey spends: the key never leaves the authenticator or the passkey provider, and nothing in the page can sign without a prompt. In exchange, funds depend on `W3pkAccount`, OpenZeppelin's code, the EntryPoint and the P-256 verifier, a bundler can delay or drop a UserOperation (not alter it), and recovery is the passkey provider's sync: a lost, unsynced passkey loses the account unless a recovery module is installed. A synced passkey is as safe as the provider account it syncs through.
+
+**STANDARD-only features.** Stealth addresses (ERC-5564), ML-KEM encryption and Semaphore/ZK proofs compute with a secret in the page's memory: stealth and ML-KEM keys come from the mnemonic, Semaphore and ZK secrets from the passkey's PRF output. An authenticator only signs WebAuthn challenges with its P-256 key, so it can't do secp256k1 stealth arithmetic, decapsulate ML-KEM or feed a Groth16 witness, and running them as `PRIMARY` would bring back a secret outside the authenticator. They stay on the `STANDARD` side; `rawHash` signing and EIP-7702 authorizations are refused in `PRIMARY` too. The full table is in [EIP-7951.md](./EIP-7951.md#standard-and-primary-features).
 
 ## Message Signing with Mode Selection
 

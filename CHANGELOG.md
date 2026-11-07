@@ -12,8 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **P-256 smart account contracts for `PRIMARY` mode** ([#295](https://github.com/w3hc/w3pk/issues/295))
   - `contracts/` is a Foundry project with `W3pkAccount`, an ERC-4337 account (EntryPoint v0.9) owned by the passkey, on OpenZeppelin 5.7.0 `Account`, `AccountERC7579Hooked`, `SignerWebAuthn` and `ERC7739`, not upgradeable
   - `W3pkAccountFactory` deploys each account as an ERC-1167 clone and initializes it in the same call, at a CREATE2 address salted with `keccak256(abi.encode(x, y, keccak256(bytes(tag))))`
-  - The factory, implementation and accounts have the same addresses on every chain; the first deployment is on Ethereum Sepolia
+  - The factory, implementation and accounts have the same addresses on every chain
   - CI runs `forge fmt --check`, `forge test` with fuzzing and a gas report, and Slither
+- **P-256 account contracts deployed** ([#302](https://github.com/w3hc/w3pk/issues/302))
+  - `W3pkAccountFactory` and the `W3pkAccount` implementation are deployed through the deterministic deployment proxy at `W3PK_ACCOUNT_FACTORY` on Ethereum, OP Mainnet, Base, Arbitrum One and their Sepolia testnets, verified on Etherscan and Sourcify
+  - `pnpm check:deployments` checks over public RPCs that on each chain the factory has code, `implementation()` is the expected address and its clone init code hash is `W3PK_ACCOUNT_INIT_CODE_HASH`
+  - `contracts/foundry.toml` has RPC and Etherscan V2 entries for every chain
+  - `docs/SECURITY.md` and `docs/EIP-7951.md` describe the account, why it isn't upgradeable, the `PRIMARY` and `STRICT`/`STANDARD`/`YOLO` trust models, and which features stay off `PRIMARY` (stealth addresses, ML-KEM, Semaphore/ZK) and why
 - **EIP-1271 message signing in `PRIMARY` mode** ([#298](https://github.com/w3hc/w3pk/issues/298))
   - `signMessage()` in `PRIMARY` mode signs EIP-191, SIWE and EIP-712 messages with the passkey as the P-256 smart account, as ERC-7739 `PersonalSign` and `TypedDataSign` signatures that verify through the account's `isValidSignature`
   - A signature is bound to the account and the chain: `options.chainId` (required for EIP-191), the SIWE message's `Chain ID`, or `eip712Domain.chainId`
