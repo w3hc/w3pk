@@ -63,6 +63,7 @@ import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
+import { getSmartAccountAddress } from "../wallet/smart-account";
 import { SIWE_HEADER, assertSiweDomain } from "../siwe";
 import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
@@ -653,6 +654,7 @@ export class Web3Passkey {
    * - STANDARD (default): Address only (no private key), persistent sessions allowed
    * - STRICT: Address only (no private key), no persistent sessions (requires auth each time)
    * - YOLO: Full access (address + private key), persistent sessions allowed
+   * - PRIMARY: Address of the passkey's P-256 smart account for the tag, deployed or not (no private key)
    *
    * @param mode - Security mode for derivation (default: "STANDARD")
    * @param tag - Tag for derivation (default: "MAIN")
@@ -682,11 +684,8 @@ export class Web3Passkey {
       const effectiveTag = tag || DEFAULT_TAG;
       const origin = getCurrentOrigin();
 
-      // PRIMARY mode: Use WebAuthn P-256 public key directly (EIP-7951)
+      // PRIMARY mode: the passkey's P-256 smart account
       if (effectiveMode === 'PRIMARY') {
-        const { CredentialStorage } = await import("../auth/storage");
-        const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
-
         const storage = new CredentialStorage();
         const credential = await storage.getCredentialById(this.currentUser.credentialId);
 
@@ -694,7 +693,11 @@ export class Web3Passkey {
           throw new WalletError("No WebAuthn credential found for PRIMARY mode");
         }
 
-        const address = await deriveAddressFromP256PublicKey(credential.publicKey);
+        const address = await getSmartAccountAddress(
+          credential.publicKey,
+          effectiveTag,
+          this.config.smartAccount
+        );
 
         return {
           address,
@@ -739,7 +742,7 @@ export class Web3Passkey {
    * @returns The Ethereum address for this mode/tag combination
    *
    * @example
-   * // Get PRIMARY address (P-256 from passkey)
+   * // Get PRIMARY address (the passkey's P-256 smart account, one per tag)
    * const primaryAddr = await w3pk.getAddress("PRIMARY")
    *
    * // Get default STANDARD + MAIN address
@@ -764,10 +767,8 @@ export class Web3Passkey {
       const effectiveTag = tag || DEFAULT_TAG;
       const origin = getCurrentOrigin();
 
-      // PRIMARY mode: Use WebAuthn P-256 public key directly (EIP-7951)
+      // PRIMARY mode: the passkey's P-256 smart account
       if (effectiveMode === 'PRIMARY') {
-        const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
-
         const storage = new CredentialStorage();
         const credential = await storage.getCredentialById(this.currentUser.credentialId);
 
@@ -775,7 +776,11 @@ export class Web3Passkey {
           throw new WalletError("No WebAuthn credential found for PRIMARY mode");
         }
 
-        return await deriveAddressFromP256PublicKey(credential.publicKey);
+        return await getSmartAccountAddress(
+          credential.publicKey,
+          effectiveTag,
+          this.config.smartAccount
+        );
       }
 
       // For other modes, derive from mnemonic

@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `getCurrentBuildHash()` hashes the build published on unpkg, and `getPackageVersion()` gives the installed version
   - The documentation list links `ARCHITECTURE.md` and `EIP_7702.md`
 
+### Fixed
+
+- **`PRIMARY` mode returns the P-256 smart account address** ([#296](https://github.com/w3hc/w3pk/issues/296)). **Breaking**: a stored `PRIMARY` address changes, but the old `keccak256(x ‖ y)` address had no key and could never move funds
+  - `getAddress('PRIMARY', tag)` and `deriveWallet('PRIMARY', tag)` return the counterfactual address of the passkey's `W3pkAccount` for the tag, computed offchain with no RPC call; each tag has its own account, linkable onchain to the others through the shared owner
+  - `getSmartAccountAddress()`, `getSmartAccountSalt()`, `getP256Coordinates()`, `W3PK_ACCOUNT_FACTORY` and `W3PK_ACCOUNT_INIT_CODE_HASH` are exported, and the `smartAccount` config overrides the factory address and init code hash
+  - `register()`, the stored `ethereumAddress` and the `STRICT`, `STANDARD` and `YOLO` addresses are unchanged
+
 ## [0.11.2] - 2026-11-04
 
 ### Security

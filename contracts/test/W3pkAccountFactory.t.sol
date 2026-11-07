@@ -109,4 +109,24 @@ contract W3pkAccountFactoryTest is Test {
         bytes32 salt = factory.salt(qx, qy, "MAIN");
         assertEq(factory.createAccount(qx, qy, "MAIN"), vm.computeCreate2Address(salt, initCodeHash, address(factory)));
     }
+
+    /// @dev Pins the vectors `test/smart-account-address.test.ts` checks the SDK against.
+    function test_sdkVectors() public {
+        (bool ok,) = CREATE2_DEPLOYER.call(abi.encodePacked(bytes32(uint256(1)), type(W3pkAccountFactory).creationCode));
+        require(ok);
+        W3pkAccountFactory deployed = W3pkAccountFactory(0xe341d909A1D7dEeec787796b8d305c064aEB5181);
+        assertEq(address(deployed.implementation()), 0x289b99F5EfFE4b5aF6DBc3f3501881C98aF2740C);
+        assertEq(
+            keccak256(
+                abi.encodePacked(
+                    hex"3d602d80600a3d3981f3363d3d373d3d3d363d73",
+                    address(deployed.implementation()),
+                    hex"5af43d82803e903d91602b57fd5bf3"
+                )
+            ),
+            0x25e8fe200bdf4198a104e71276a83130d745fc9bf71ce23b1e3690729bc6d0c6
+        );
+        assertEq(deployed.getAddress(qx, qy, "MAIN"), 0xC92aa436a4B825382f79c4d7a972b76409A45fC2);
+        assertEq(deployed.getAddress(qx, qy, "GAMING"), 0x9bd3912f41dbA1b66425bD5B6046A31685b17143);
+    }
 }

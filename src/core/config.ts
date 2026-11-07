@@ -2,6 +2,7 @@ import type { UserInfo } from "../types";
 import type { Web3PasskeyError } from "./errors";
 import type { PersistentSessionConfig } from "./persistent-session";
 import type { ZKProofConfig } from "../zk/types";
+import type { SmartAccountConfig } from "../wallet/smart-account";
 
 export interface StealthAddressConfig {}
 
@@ -70,6 +71,13 @@ export interface Web3PasskeyConfig {
    * rpcUrls: { 1: ['https://eth.example.com'], 10: ['https://op.example.com'] }
    */
   rpcUrls?: Record<number, string[]>;
+
+  /**
+   * `PRIMARY` mode smart account factory (default: `W3PK_ACCOUNT_FACTORY`)
+   * and clone init code hash (default: `W3PK_ACCOUNT_INIT_CODE_HASH`), for a
+   * factory deployed elsewhere
+   */
+  smartAccount?: SmartAccountConfig;
 }
 
 export interface InternalConfig extends Required<Web3PasskeyConfig> {}
@@ -79,6 +87,7 @@ export const DEFAULT_CONFIG: Partial<InternalConfig> = {
   sessionDuration: 1,
   userVerification: 'required',
   rpcUrls: {},
+  smartAccount: {},
   persistentSession: {
     enabled: false,
     duration: 168, // 7 days in hours
