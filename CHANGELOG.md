@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Each `PRIMARY` signature asks for a fresh user-verified assertion, also with `userVerification: 'preferred'`
   - `rawHash` throws in `PRIMARY` mode: through EIP-1271 it would skip ERC-7739's replay protection
   - Forge tests verify SDK-made signatures against `W3pkAccount`, from fixtures written by `scripts/gen-erc1271-fixtures.ts`
+- **`sendTransaction()` in `PRIMARY` mode** ([#297](https://github.com/w3hc/w3pk/issues/297))
+  - The passkey's P-256 smart account sends the transaction as an ERC-4337 UserOperation (EntryPoint v0.9), signed with one passkey assertion, through the bundler set in the new `bundlerUrls` config or `options.bundlerUrl`
+  - Returns the hash of the transaction that included the UserOperation, so `waitForTransactionReceipt` works, and its `userOpHash`; waits for inclusion up to `options.timeout` (60 s by default) and throws with the revert reason if it reverted
+  - The account's first transaction on a chain deploys it through `W3pkAccountFactory`
+  - An array of transactions runs as one ERC-7579 batch, all or nothing; STANDARD, STRICT and YOLO still take one transaction and send it as in v0.11.2
+  - The new `paymasterUrl` config, or `options.paymasterUrl` with `options.paymasterContext`, lets an ERC-7677 paymaster service sponsor the gas; without one, the account pays
+  - `gasLimit` and `nonce` are ignored in `PRIMARY` mode; `verificationGasLimit` covers the P-256 verification the stub signature skips during estimation
+  - `ENTRY_POINT_V09`, `getUserOperationHash()`, `encodeExecute()` and the `TransactionRequest`, `SendTransactionOptions` and `SendTransactionResult` types are exported
+  - Forge tests run SDK-made UserOperations through the EntryPoint v0.9 runtime code, from fixtures written by `scripts/gen-userop-fixtures.ts`
 
 ### Changed
 

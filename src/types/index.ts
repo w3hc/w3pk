@@ -116,3 +116,53 @@ export interface DerivedWallet {
   tag?: string;
   publicKey?: string;
 }
+
+/**
+ * A transaction for sendTransaction()
+ */
+export interface TransactionRequest {
+  to: string;
+  value?: bigint;
+  data?: string;
+  chainId: number;
+  /** Ignored in PRIMARY mode: the bundler estimates the UserOperation's gas */
+  gasLimit?: bigint;
+  maxFeePerGas?: bigint;
+  maxPriorityFeePerGas?: bigint;
+  /** Ignored in PRIMARY mode: the EntryPoint sets the UserOperation's nonce */
+  nonce?: number;
+}
+
+/**
+ * Options for sendTransaction()
+ */
+export interface SendTransactionOptions {
+  mode?: SecurityMode;
+  tag?: string;
+  requireAuth?: boolean;
+  /** Chain RPC endpoint (default: rpcUrls[chainId][0]) */
+  rpcUrl?: string;
+  /** PRIMARY mode: ERC-4337 bundler endpoint (default: bundlerUrls[chainId]) */
+  bundlerUrl?: string;
+  /** PRIMARY mode: ERC-7677 paymaster service (default: paymasterUrl from the config) */
+  paymasterUrl?: string;
+  /** PRIMARY mode: ERC-7677 `context` sent to the paymaster service (default: {}) */
+  paymasterContext?: Record<string, unknown>;
+  /** PRIMARY mode: how long to wait for the UserOperation's inclusion, in ms (default: 60000) */
+  timeout?: number;
+}
+
+/**
+ * Result of sendTransaction()
+ */
+export interface SendTransactionResult {
+  /** Hash of the transaction, in PRIMARY mode of the bundle transaction that included the UserOperation */
+  hash: string;
+  from: string;
+  chainId: number;
+  mode: SecurityMode;
+  tag: string;
+  origin: string;
+  /** PRIMARY mode: hash of the UserOperation */
+  userOpHash?: string;
+}

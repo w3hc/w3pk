@@ -74,9 +74,37 @@ import {
   typedDataSignPayload,
   wrapErc6492Signature,
 } from "../wallet/erc7739";
-import { signWithPasskey } from "../wallet/webauthn-signature";
+import type { Provider } from "ethers";
+import { signWithPasskey, stubWebAuthnSignature } from "../wallet/webauthn-signature";
+import {
+  type UserOperation,
+  encodeExecute,
+  getEntryPointNonce,
+  getUserOperationHash,
+  hasP256Precompile,
+  P256_PRECOMPILE_GAS,
+  P256_SOLIDITY_GAS,
+} from "../wallet/user-operation";
+import {
+  estimateUserOperationGas,
+  getPaymasterData,
+  getPaymasterStubData,
+  sendUserOperation,
+  waitForUserOperationReceipt,
+} from "../wallet/bundler";
 import { SIWE_HEADER, assertSiweDomain, parseSiweMessage } from "../siwe";
-import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
+import type {
+  UserInfo,
+  GeneratedWallet,
+  DerivedWallet,
+  RegisterResult,
+  SecurityMode,
+  SigningMethod,
+  SignMessageOptions,
+  TransactionRequest,
+  SendTransactionOptions,
+  SendTransactionResult,
+} from "../types";
 import {
   AuthenticationError,
   CryptoError,
@@ -1126,52 +1154,42 @@ export class Web3Passkey {
   /**
    * Send a transaction using the derived wallet for the current security mode
    *
-   * @param tx - Transaction parameters
+   * In PRIMARY mode the passkey's P-256 smart account sends it as an ERC-4337
+   * UserOperation (EntryPoint v0.9) through a bundler, deploying the account
+   * with its first transaction on the chain. An array of transactions is
+   * executed atomically, in one UserOperation. The account pays its own gas,
+   * unless an ERC-7677 paymaster service is set.
+   *
+   * @param tx - Transaction, or in PRIMARY mode an array of transactions on the same chain
    * @param tx.to - Recipient address
    * @param tx.value - Value in wei (optional)
    * @param tx.data - Hex calldata (optional, default "0x")
    * @param tx.chainId - Chain ID (required)
-   * @param tx.gasLimit - Gas limit override (optional)
+   * @param tx.gasLimit - Gas limit override (optional, ignored in PRIMARY mode: the bundler estimates gas)
    * @param tx.maxFeePerGas - EIP-1559 max fee per gas (optional)
    * @param tx.maxPriorityFeePerGas - EIP-1559 max priority fee per gas (optional)
-   * @param tx.nonce - Nonce override (optional)
+   * @param tx.nonce - Nonce override (optional, ignored in PRIMARY mode: the EntryPoint sets it)
    * @param options.mode - Security mode (default: STANDARD)
    * @param options.tag - Wallet tag (optional)
    * @param options.requireAuth - Force fresh authentication (optional)
-   * @param options.rpcUrl - RPC endpoint override (optional, required for PRIMARY mode);
-   *   without it, the first `rpcUrls` endpoint set for the chain is used. Throws
-   *   if neither is set: chainid.network endpoints are never used to send
-   * @returns Transaction hash and metadata
+   * @param options.rpcUrl - RPC endpoint override (optional); without it, the first
+   *   `rpcUrls` endpoint set for the chain is used. Throws if neither is set:
+   *   chainid.network endpoints are never used to send
+   * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
+   * @param options.paymasterUrl - PRIMARY mode: ERC-7677 paymaster service (default: `paymasterUrl`)
+   * @param options.paymasterContext - PRIMARY mode: ERC-7677 context (default: {})
+   * @param options.timeout - PRIMARY mode: inclusion timeout in ms (default: 60000)
+   * @returns Transaction hash and metadata; in PRIMARY mode, the hash of the
+   *   transaction that included the UserOperation, and its `userOpHash`
    *
    * @example
    * const result = await w3pk.sendTransaction({ to: "0x...", value: 1000000000000000000n, chainId: 1 })
    * console.log(result.hash)
    */
   async sendTransaction(
-    tx: {
-      to: string;
-      value?: bigint;
-      data?: string;
-      chainId: number;
-      gasLimit?: bigint;
-      maxFeePerGas?: bigint;
-      maxPriorityFeePerGas?: bigint;
-      nonce?: number;
-    },
-    options?: {
-      mode?: SecurityMode;
-      tag?: string;
-      requireAuth?: boolean;
-      rpcUrl?: string;
-    }
-  ): Promise<{
-    hash: string;
-    from: string;
-    chainId: number;
-    mode: SecurityMode;
-    tag: string;
-    origin: string;
-  }> {
+    tx: TransactionRequest | TransactionRequest[],
+    options?: SendTransactionOptions
+  ): Promise<SendTransactionResult> {
     try {
       if (!this.currentUser) {
         throw new WalletError("Must be authenticated to send transaction");
@@ -1181,26 +1199,14 @@ export class Web3Passkey {
       const effectiveTag = options?.tag || DEFAULT_TAG;
       const origin = getCurrentOrigin();
 
-      // PRIMARY mode requires a bundler/relayer rpcUrl
       if (effectiveMode === 'PRIMARY') {
-        if (!options?.rpcUrl) {
-          throw new WalletError(
-            "PRIMARY mode requires options.rpcUrl pointing to a bundler or sponsoring relayer. " +
-            "The P-256 address cannot pay gas directly without a deployed P-256-verifier contract via EIP-7702."
-          );
-        }
-        throw new WalletError(
-          "PRIMARY mode sendTransaction is not yet supported."
-        );
+        return await this.sendWithSmartAccount(Array.isArray(tx) ? tx : [tx], effectiveTag, origin, options);
+      }
+      if (Array.isArray(tx)) {
+        throw new WalletError("Only PRIMARY mode sends an array of transactions");
       }
 
-      const rpcUrl = options?.rpcUrl ?? this.config.rpcUrls?.[tx.chainId]?.[0];
-      if (!rpcUrl) {
-        throw new WalletError(
-          `No RPC endpoint set for chainId ${tx.chainId}. Set rpcUrls in the config ` +
-          `(rpcUrls: { ${tx.chainId}: ['https://...'] }) or pass options.rpcUrl.`
-        );
-      }
+      const rpcUrl = this.getRpcUrl(tx.chainId, options?.rpcUrl);
 
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
@@ -1250,6 +1256,160 @@ export class Web3Passkey {
       const reason = (error as any)?.shortMessage ?? (error instanceof Error ? error.message : String(error));
       throw new WalletError(`Failed to send transaction: ${reason}`, error);
     }
+  }
+
+  private p256Precompile = new Map<number, Promise<boolean>>();
+
+  /** Whether the chain has the EIP-7951 precompile, checked once per chain */
+  private hasP256Precompile(chainId: number, provider: Pick<Provider, "call">): Promise<boolean> {
+    let result = this.p256Precompile.get(chainId);
+    if (!result) {
+      result = hasP256Precompile(provider);
+      this.p256Precompile.set(chainId, result);
+    }
+    return result;
+  }
+
+  private getRpcUrl(chainId: number, rpcUrl?: string): string {
+    const url = rpcUrl ?? this.config.rpcUrls?.[chainId]?.[0];
+    if (!url) {
+      throw new WalletError(
+        `No RPC endpoint set for chainId ${chainId}. Set rpcUrls in the config ` +
+        `(rpcUrls: { ${chainId}: ['https://...'] }) or pass options.rpcUrl.`
+      );
+    }
+    return url;
+  }
+
+  /**
+   * Sends calls from the passkey's P-256 smart account as one EntryPoint v0.9
+   * UserOperation, and waits for its inclusion
+   */
+  private async sendWithSmartAccount(
+    txs: TransactionRequest[],
+    tag: string,
+    origin: string,
+    options?: SendTransactionOptions
+  ): Promise<SendTransactionResult> {
+    if (txs.length === 0) {
+      throw new WalletError("No transaction to send");
+    }
+    const chainId = txs[0].chainId;
+    if (txs.some((t) => t.chainId !== chainId)) {
+      throw new WalletError("All batched transactions must be on the same chain");
+    }
+    for (const key of ['maxFeePerGas', 'maxPriorityFeePerGas'] as const) {
+      if (new Set(txs.map((t) => t[key])).size > 1) {
+        throw new WalletError(`All batched transactions must have the same ${key}`);
+      }
+    }
+
+    const bundlerUrl = options?.bundlerUrl ?? this.config.bundlerUrls?.[chainId];
+    if (!bundlerUrl) {
+      throw new WalletError(
+        `No bundler set for chainId ${chainId}. Set bundlerUrls in the config ` +
+        `(bundlerUrls: { ${chainId}: 'https://...' }) or pass options.bundlerUrl.`
+      );
+    }
+    const rpcUrl = this.getRpcUrl(chainId, options?.rpcUrl);
+    const paymasterUrl = options?.paymasterUrl ?? this.config.paymasterUrl;
+    const paymasterContext = options?.paymasterContext ?? {};
+
+    const storage = new CredentialStorage();
+    const credential = await storage.getCredentialById(this.currentUser!.credentialId);
+    if (!credential || !credential.publicKey) {
+      throw new WalletError("No WebAuthn credential found for PRIMARY mode");
+    }
+    const sender = await getSmartAccountAddress(credential.publicKey, tag, this.config.smartAccount);
+
+    const { JsonRpcProvider } = await import("ethers");
+    const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
+    let op: UserOperation;
+    try {
+      const [code, nonce, feeData, precompile] = await Promise.all([
+        provider.getCode(sender),
+        getEntryPointNonce(provider, sender),
+        txs[0].maxFeePerGas !== undefined && txs[0].maxPriorityFeePerGas !== undefined
+          ? null
+          : provider.getFeeData(),
+        this.hasP256Precompile(chainId, provider),
+      ]);
+      const maxFeePerGas = txs[0].maxFeePerGas ?? feeData?.maxFeePerGas;
+      let maxPriorityFeePerGas = txs[0].maxPriorityFeePerGas ?? feeData?.maxPriorityFeePerGas;
+      if (maxFeePerGas == null || maxPriorityFeePerGas == null) {
+        throw new WalletError(`Chain ${chainId} reports no EIP-1559 fees`);
+      }
+      if (maxPriorityFeePerGas > maxFeePerGas) {
+        if (txs[0].maxPriorityFeePerGas !== undefined) {
+          throw new WalletError("maxPriorityFeePerGas is above maxFeePerGas");
+        }
+        maxPriorityFeePerGas = maxFeePerGas;
+      }
+
+      op = {
+        sender,
+        nonce,
+        callData: encodeExecute(txs),
+        callGasLimit: 0n,
+        verificationGasLimit: 0n,
+        preVerificationGas: 0n,
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+        signature: stubWebAuthnSignature(window.location.origin),
+      };
+      if (code === "0x") {
+        op.factory = this.config.smartAccount?.factoryAddress ?? W3PK_ACCOUNT_FACTORY;
+        op.factoryData = await getCreateAccountCalldata(credential.publicKey, tag);
+      }
+
+      let isFinal = false;
+      if (paymasterUrl) {
+        const stub = await getPaymasterStubData(paymasterUrl, op, chainId, paymasterContext);
+        Object.assign(op, {
+          paymaster: stub.paymaster,
+          paymasterData: stub.paymasterData ?? "0x",
+          paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit ?? 0n,
+          paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit ?? 0n,
+        });
+        if (!stub.paymaster) {
+          throw new WalletError("The paymaster service returned no paymaster");
+        }
+        isFinal = stub.isFinal === true;
+      }
+
+      const gas = await estimateUserOperationGas(bundlerUrl, op);
+      op.preVerificationGas = gas.preVerificationGas;
+      op.callGasLimit = gas.callGasLimit;
+      // The stub signature fails the challenge check before the P-256 verification runs
+      op.verificationGasLimit =
+        gas.verificationGasLimit + (precompile ? P256_PRECOMPILE_GAS : P256_SOLIDITY_GAS);
+      if (op.paymaster) {
+        op.paymasterVerificationGasLimit ||= gas.paymasterVerificationGasLimit ?? 0n;
+        op.paymasterPostOpGasLimit ||= gas.paymasterPostOpGasLimit ?? 0n;
+      }
+
+      if (paymasterUrl && !isFinal) {
+        const data = await getPaymasterData(paymasterUrl, op, chainId, paymasterContext);
+        op.paymaster = data.paymaster ?? op.paymaster;
+        op.paymasterData = data.paymasterData ?? "0x";
+      }
+    } finally {
+      provider.destroy();
+    }
+
+    op.signature = await signWithPasskey(getUserOperationHash(op, chainId), credential.id);
+    const userOpHash = await sendUserOperation(bundlerUrl, op);
+    const receipt = await waitForUserOperationReceipt(bundlerUrl, userOpHash, { timeout: options?.timeout });
+
+    return {
+      hash: receipt.receipt.transactionHash,
+      userOpHash,
+      from: sender,
+      chainId,
+      mode: 'PRIMARY',
+      tag,
+      origin,
+    };
   }
 
   /**

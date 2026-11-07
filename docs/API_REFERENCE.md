@@ -8,7 +8,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
 - [Core Authentication](#core-authentication)
 - [Wallet Management](#wallet-management)
   - [Origin-Specific Address Derivation](#origin-specific-address-derivation)
-  - [`sendTransaction()`](#sendtransactiontx-options-promisetransactionresult)
+  - [`sendTransaction()`](#sendtransactiontx-options-promisesendtransactionresult)
   - [`getEIP1193Provider()`](#geteip1193provideroptions-eip1193providerinterface)
   - [`derivePrfSecret()`](#deriveprfsecrettag-string-promiseprfsecret)
   - [`getSemaphoreIdentity()`](#getsemaphoreidentitytag-string-promisesemaphoreidentity)
@@ -52,6 +52,8 @@ interface Web3PasskeyConfig {
   userVerification?: 'required' | 'preferred';  // WebAuthn user verification (default: 'required')
   rpcUrls?: Record<number, string[]>;  // RPC endpoints per chain ID; sendTransaction() requires one for the chain
   smartAccount?: { factoryAddress?: string; initCodeHash?: string };  // PRIMARY smart account factory (default: W3PK_ACCOUNT_FACTORY, W3PK_ACCOUNT_INIT_CODE_HASH)
+  bundlerUrls?: Record<number, string>;  // ERC-4337 bundler (EntryPoint v0.9) per chain ID, for PRIMARY sendTransaction()
+  paymasterUrl?: string;              // ERC-7677 paymaster service sponsoring PRIMARY sendTransaction() (default: none, the account pays)
 }
 
 interface PersistentSessionConfig {
@@ -1212,39 +1214,48 @@ const { proof, publicSignals } = await w3pk.zkProve(
 
 ---
 
-### `sendTransaction(tx, options?): Promise<TransactionResult>`
+### `sendTransaction(tx, options?): Promise<SendTransactionResult>`
 
-Send an on-chain transaction using the wallet derived for the active security mode.
+Send an on-chain transaction using the wallet derived for the active security mode. In `PRIMARY` mode, the passkey's P-256 smart account sends it as an ERC-4337 UserOperation: see [PRIMARY mode](#primary-mode-sendtransaction).
 
 Follows the exact same authentication and derivation flow as `signMessage()`: session management, mode/tag/origin resolution, and STRICT-mode re-authentication.
 
 **Parameters:**
 
 ```typescript
-tx: {
+tx: TransactionRequest | TransactionRequest[]  // an array only in PRIMARY mode
+
+interface TransactionRequest {
   to: string;                    // Recipient address
   value?: bigint;                // Value in wei (default: 0)
   data?: string;                 // Hex calldata (default: "0x")
   chainId: number;               // Required — no implicit default
-  gasLimit?: bigint;             // Override gas limit (ethers auto-estimates if omitted)
+  gasLimit?: bigint;             // Override gas limit (ethers auto-estimates if omitted; ignored in PRIMARY mode)
   maxFeePerGas?: bigint;         // EIP-1559 max fee per gas
   maxPriorityFeePerGas?: bigint; // EIP-1559 max priority fee per gas
-  nonce?: number;                // Override nonce (provider auto-fetches if omitted)
+  nonce?: number;                // Override nonce (provider auto-fetches if omitted; ignored in PRIMARY mode)
 }
 
-options?: {
-  mode?: SecurityMode;    // 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
+options?: SendTransactionOptions
+
+interface SendTransactionOptions {
+  mode?: SecurityMode;    // 'PRIMARY' | 'STANDARD' | 'STRICT' | 'YOLO' (default: 'STANDARD')
   tag?: string;           // Wallet tag (default: 'MAIN')
   requireAuth?: boolean;  // Force fresh authentication (default: false)
-  rpcUrl?: string;        // Override RPC endpoint (required for PRIMARY mode)
+  rpcUrl?: string;        // Override RPC endpoint (default: rpcUrls[chainId][0])
+  bundlerUrl?: string;    // PRIMARY: bundler endpoint (default: bundlerUrls[chainId])
+  paymasterUrl?: string;  // PRIMARY: ERC-7677 paymaster service (default: paymasterUrl config)
+  paymasterContext?: Record<string, unknown>;  // PRIMARY: ERC-7677 context, e.g. a policy ID (default: {})
+  timeout?: number;       // PRIMARY: inclusion timeout in ms (default: 60000)
 }
 ```
 
-**Returns:** `TransactionResult`
+**Returns:** `SendTransactionResult`
 
 ```typescript
-interface TransactionResult {
-  hash: string;           // Transaction hash
+interface SendTransactionResult {
+  hash: string;           // Transaction hash (PRIMARY: of the bundle transaction that included the UserOperation)
+  userOpHash?: string;    // PRIMARY: hash of the UserOperation
   from: string;           // Sender address (derived wallet)
   chainId: number;        // Chain ID used
   mode: SecurityMode;     // Security mode used
@@ -1299,7 +1310,7 @@ console.log('will send from:', from)
 | STANDARD | Session (auto) | No | Sender address |
 | STRICT | Always (biometric) | No | Sender address |
 | YOLO | Session (auto) | Yes (internally) | Sender address |
-| PRIMARY | — | Never | Not supported (throws) |
+| PRIMARY | Passkey prompt per call | No key exists | Smart account, or the paymaster |
 
 **Example:**
 
@@ -1352,11 +1363,43 @@ const priorityTx = await w3pk.sendTransaction({
 |-----------|-------|
 | Not authenticated | `WalletError: Failed to send transaction: Must be authenticated to send transaction` |
 | No `rpcUrls` or `rpcUrl` for chainId | `WalletError: Failed to send transaction: No RPC endpoint set for chainId <N>. Set rpcUrls in the config (rpcUrls: { <N>: ['https://...'] }) or pass options.rpcUrl.` |
-| PRIMARY mode without rpcUrl | `WalletError: Failed to send transaction: PRIMARY mode requires options.rpcUrl pointing to a bundler...` |
-| PRIMARY mode (any) | `WalletError: Failed to send transaction: PRIMARY mode sendTransaction is not yet supported.` |
 | Node rejection | `WalletError: Failed to send transaction: <reason>` (original error in `originalError`) |
+| PRIMARY: no `bundlerUrls` or `bundlerUrl` for chainId | `WalletError: Failed to send transaction: No bundler set for chainId <N>. Set bundlerUrls in the config ...` |
+| PRIMARY: bundler or paymaster rejects the UserOperation | `WalletError: Failed to send transaction: eth_sendUserOperation failed: <message> (code <code>)` |
+| PRIMARY: the UserOperation reverts | `WalletError: Failed to send transaction: UserOperation <userOpHash> reverted in transaction <hash>: <reason>` |
+| PRIMARY: not included in time | `WalletError: Failed to send transaction: UserOperation <userOpHash> not included after <timeout> ms` |
+| Array outside PRIMARY mode | `WalletError: Failed to send transaction: Only PRIMARY mode sends an array of transactions` |
 
-**Note on PRIMARY mode:** The P-256 WebAuthn key cannot produce a standard secp256k1 signature accepted by EVM nodes. Full PRIMARY support (via EIP-7702 delegation + bundler) is planned for a future release. Message signing works in PRIMARY mode: see `signMessage()`.
+#### PRIMARY mode sendTransaction
+
+The passkey's `W3pkAccount` (the `getAddress('PRIMARY', tag)` address) sends the transaction as one [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) UserOperation through a bundler for [EntryPoint v0.9](https://github.com/eth-infinitism/account-abstraction/releases/tag/v0.9.0) (`ENTRY_POINT_V09`, `0x433709009B8330FDa32311DF1C2AFA402eD8D009`):
+
+1. Reads the account's code, its EntryPoint nonce (key 0) and the fees from the chain RPC (`rpcUrl`, else `rpcUrls[chainId][0]`); `maxFeePerGas` and `maxPriorityFeePerGas` override the fees
+2. Encodes the call as ERC-7579 `execute(mode, executionCalldata)`: single mode for one transaction, batch mode for an array, which executes all or nothing
+3. On the account's first transaction on the chain, sets `factory` and `factoryData` (`W3pkAccountFactory.createAccount(qx, qy, tag)`), so the UserOperation deploys it
+4. With a paymaster service, asks it for stub data (`pm_getPaymasterStubData`), then for the final data (`pm_getPaymasterData`) after gas estimation, unless the stub is final ([ERC-7677](https://eips.ethereum.org/EIPS/eip-7677))
+5. Estimates gas with `eth_estimateUserOperationGas` and a stub signature, and adds the P-256 verification the stub skips (15,000 gas with the EIP-7951 precompile, 300,000 without)
+6. Prompts the passkey once to sign the userOpHash, sends the UserOperation with `eth_sendUserOperation`, and polls `eth_getUserOperationReceipt` every second until it is included
+7. Returns the hash of the transaction that included it, so `provider.waitForTransaction(hash)` and viem's `waitForTransactionReceipt` work, along with `userOpHash`
+
+Without a paymaster, the account pays its own gas: fund the `PRIMARY` address before its first transaction. `gasLimit` and `nonce` are ignored. In an array, every transaction must have the same `chainId` and fee overrides.
+
+```typescript
+const w3pk = createWeb3Passkey({
+  rpcUrls: { 8453: ['https://base.example.com'] },
+  bundlerUrls: { 8453: 'https://bundler.example.com/base' },
+  paymasterUrl: 'https://paymaster.example.com',  // optional
+})
+
+// Approve and swap in one atomic UserOperation
+const { hash, userOpHash, from } = await w3pk.sendTransaction(
+  [
+    { to: token, data: approveCalldata, chainId: 8453 },
+    { to: router, data: swapCalldata, chainId: 8453 },
+  ],
+  { mode: 'PRIMARY', paymasterContext: { policyId: 'my-policy' } }
+)
+```
 
 ---
 

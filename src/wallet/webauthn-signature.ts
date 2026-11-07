@@ -69,3 +69,18 @@ export async function getWebAuthnAssertion(
 export async function signWithPasskey(challenge: string, credentialId: string): Promise<string> {
   return encodeWebAuthnSignature(await getWebAuthnAssertion(challenge, credentialId));
 }
+
+/**
+ * A `W3pkAccount` signature at least as long as a real one for `origin`, for
+ * gas estimation: it fails validation without reverting. Its clientDataJSON
+ * has the extra field Chrome sometimes adds, so `preVerificationGas` isn't
+ * underestimated.
+ */
+export function stubWebAuthnSignature(origin: string): string {
+  const stub = "0x" + "7f".repeat(32);
+  const clientDataJSON = `{"type":"webauthn.get","challenge":"${"A".repeat(43)}","origin":"${origin}","crossOrigin":false,"other_keys_can_be_added_here":"do not compare clientDataJSON against a template. See https://goo.gl/yabPex"}`;
+  return AbiCoder.defaultAbiCoder().encode(
+    ["bytes32", "bytes32", "uint256", "uint256", "bytes", "string"],
+    [stub, stub, clientDataJSON.indexOf('"challenge":"'), 1, "0x" + "7f".repeat(32) + "05" + "00000000", clientDataJSON]
+  );
+}
