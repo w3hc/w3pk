@@ -47,6 +47,16 @@ export interface EIP1193ProviderInterface {
   removeListener(event: 'message', handler: (message: ProviderMessage) => void): void;
 }
 
+/** EIP-1193 error 4200: the provider does not support the method */
+class UnsupportedMethodError extends Error implements ProviderRpcError {
+  code = 4200;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedMethodError";
+  }
+}
+
 /** Returns true if a string is 0x-prefixed hex encoding whole bytes */
 function isHex(value: string): boolean {
   return typeof value === 'string' && /^0x(?:[0-9a-fA-F]{2})*$/.test(value);
@@ -68,9 +78,18 @@ export function createEIP1193Provider(
     tag?: string;
     chainId?: number;
     rpcUrl?: string;
+    bundlerUrl?: string;
   }
 ): EIP1193ProviderInterface {
   let activeChainId = options?.chainId ?? 1;
+  const initialChainId = activeChainId;
+  const isPrimary = options?.mode === 'PRIMARY';
+  // In PRIMARY mode, a chain the endpoints don't serve falls back to the config's
+  const endpoints = () =>
+    isPrimary && activeChainId !== initialChainId
+      ? {}
+      : { rpcUrl: options?.rpcUrl, bundlerUrl: options?.bundlerUrl };
+  const primarySigning = () => (isPrimary ? { chainId: activeChainId, rpcUrl: endpoints().rpcUrl } : {});
 
   // Minimal EventEmitter (subset needed by EIP-1193)
   const listeners: Partial<Record<EIP1193Event, Listener[]>> = {};
@@ -135,7 +154,7 @@ export function createEIP1193Provider(
             {
               mode: options?.mode,
               tag: options?.tag,
-              rpcUrl: options?.rpcUrl,
+              ...endpoints(),
             }
           );
           return result.hash;
@@ -152,12 +171,19 @@ export function createEIP1193Provider(
             mode: options?.mode,
             tag: options?.tag,
             signingMethod: 'EIP191',
+            ...primarySigning(),
           });
           return result.signature;
         }
 
         // eth_sign(address, data) — legacy, same signing as personal_sign
         case 'eth_sign': {
+          // Through EIP-1271, a bare hash would skip ERC-7739's replay protection
+          if (isPrimary) {
+            throw new UnsupportedMethodError(
+              'w3pk EIP-1193: eth_sign is not supported in PRIMARY mode. Use personal_sign or eth_signTypedData_v4.'
+            );
+          }
           const [, data] = params ?? [];
           const message = isHex(data)
             ? getBytes(data)
@@ -198,6 +224,7 @@ export function createEIP1193Provider(
               eip712Domain: domain,
               eip712Types: filteredTypes,
               eip712PrimaryType: primaryType,
+              ...primarySigning(),
             }
           );
           return result.signature;

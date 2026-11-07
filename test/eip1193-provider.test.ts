@@ -13,6 +13,10 @@
  * - Multiple independent provider instances are isolated
  * - on / removeListener event wiring
  * - Typed event handlers compile (type-level, via the TypeScript compiler)
+ * - Without mode, the options passed to the SDK are those of v0.11.2
+ * - PRIMARY mode against the mock bundler of test/fixtures/mock-bundler.ts:
+ *   accounts, eth_sendTransaction, signing bound to the active chain,
+ *   eth_sign refused with 4200, bundlerUrl option
  */
 
 import { mockLocalStorage } from "./setup";
@@ -20,7 +24,11 @@ import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { createEIP1193Provider } from "../src/core/eip1193";
 import { WalletError } from "../src/core/errors";
-import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify } from "ethers";
+import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify, hashMessage, dataSlice, JsonRpcProvider } from "ethers";
+import { GAMING_ACCOUNT, MAIN_ACCOUNT, installPasskey, passkeyCalls, primarySdk } from "./fixtures/passkey-signer";
+import { GAS_ESTIMATE, startMockBundler } from "./fixtures/mock-bundler";
+import { createSiweMessage } from "../src/siwe";
+import { ERC6492_MAGIC, personalSignHash, typedDataSignPayload } from "../src/wallet/erc7739";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import {
@@ -614,6 +622,215 @@ Issued At: 2021-09-30T16:25:24Z`)
     assert(same.includes("Must be authenticated"), `same domain: got "${same}"`);
     passTest("Hex SIWE messages for another domain are refused, for this one they pass");
   });
+
+  // ------------------------------------------------------------------
+  // 23. Without mode, the SDK gets the options of v0.11.2
+  // ------------------------------------------------------------------
+  await runTest("Without mode, requests reach the SDK as in v0.11.2", async () => {
+    const { sdk, calls, txs } = stubSdk();
+    const sendOptions: any[] = [];
+    sdk.sendTransaction = async (tx: any, options: any) => {
+      txs.push(tx);
+      sendOptions.push(options);
+      return { hash: "0xhash" };
+    };
+    const provider = createEIP1193Provider(sdk, { chainId: 10, rpcUrl: "https://rpc.example" });
+    const to = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
+
+    const hash = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ to, value: "0x5", gas: "0x5208", maxFeePerGas: "0x7", maxPriorityFeePerGas: "0x3", nonce: "0x9" }],
+    });
+    assertEqual(hash, "0xhash", "returns the transaction hash");
+    assertEqual(
+      JSON.stringify(txs[0], (_, v) => (typeof v === "bigint" ? v.toString() : v)),
+      JSON.stringify({ to, value: "5", data: "0x", chainId: 10, gasLimit: "21000", maxFeePerGas: "7", maxPriorityFeePerGas: "3", nonce: 9 }),
+      "transaction keeps gas and nonce"
+    );
+    assertEqual(
+      JSON.stringify(sendOptions[0]),
+      JSON.stringify({ rpcUrl: "https://rpc.example" }),
+      "options as in v0.11.2"
+    );
+
+    await provider.request({ method: "personal_sign", params: ["hi", to] });
+    await provider.request({ method: "eth_sign", params: [to, "hi"] });
+    assertEqual(calls.length, 2, "eth_sign still signs");
+    for (const call of calls) {
+      assertEqual(JSON.stringify(call.options), JSON.stringify({ signingMethod: "EIP191" }), "no chainId outside PRIMARY");
+    }
+    await assertThrows(
+      () => provider.request({ method: "eth_signTransaction", params: [{ to }] }),
+      "eth_signTransaction stays unsupported"
+    );
+    passTest("No-mode provider passes the same transaction and options as v0.11.2");
+  });
+
+  // ------------------------------------------------------------------
+  // 24. PRIMARY mode, against the mock bundler
+  // ------------------------------------------------------------------
+  installPasskey();
+  const bundler = await startMockBundler({ pendingPolls: 0 });
+  const to = "0x" + "ab".repeat(20);
+  try {
+    await runTest("PRIMARY: eth_accounts and eth_requestAccounts serve the smart account", async () => {
+      const sdk = await primarySdk();
+      for (const method of ["eth_accounts", "eth_requestAccounts"]) {
+        const main = await sdk.getEIP1193Provider({ mode: "PRIMARY" }).request({ method });
+        assertEqual(JSON.stringify(main), JSON.stringify([MAIN_ACCOUNT]), `${method}, MAIN`);
+        const gaming = await sdk.getEIP1193Provider({ mode: "PRIMARY", tag: "GAMING" }).request({ method });
+        assertEqual(JSON.stringify(gaming), JSON.stringify([GAMING_ACCOUNT]), `${method}, GAMING`);
+      }
+      passTest("Accounts are the tag's P-256 smart account");
+    });
+
+    await runTest("PRIMARY: eth_sendTransaction sends a UserOperation whose transaction is findable", async () => {
+      const sdk = await primarySdk({
+        rpcUrls: { 1: [bundler.url] },
+        bundlerUrls: { 1: bundler.url },
+      });
+      const provider = sdk.getEIP1193Provider({ mode: "PRIMARY" });
+      const hash = (await provider.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from: MAIN_ACCOUNT,
+          to,
+          value: "0x5",
+          data: "0xdead",
+          gas: "0x30d40",
+          maxFeePerGas: "0x7",
+          maxPriorityFeePerGas: "0x3",
+          nonce: "0x9",
+        }],
+      })) as string;
+
+      const rpc = new JsonRpcProvider(bundler.url, 1, { staticNetwork: true });
+      const receipt = await rpc.getTransactionReceipt(hash);
+      rpc.destroy();
+      assertEqual(receipt?.hash, hash, "eth_getTransactionReceipt finds the transaction");
+
+      const op = bundler.included.at(-1)!;
+      assertEqual(op.sender, MAIN_ACCOUNT, "sent by the smart account");
+      assertEqual(op.nonce, "0x0", "EntryPoint nonce, not the EOA nonce");
+      assertEqual(op.maxFeePerGas, "0x7", "maxFeePerGas");
+      assertEqual(op.maxPriorityFeePerGas, "0x3", "maxPriorityFeePerGas");
+      assertEqual(BigInt(op.callGasLimit), 200_000n, "gas above the estimate raises callGasLimit");
+
+      await provider.request({ method: "eth_sendTransaction", params: [{ to, gas: "0x1" }] });
+      assertEqual(BigInt(bundler.included.at(-1)!.callGasLimit), GAS_ESTIMATE.callGasLimit, "gas below the estimate keeps it");
+      passTest(`UserOperation included in ${hash.slice(0, 10)}…`);
+    });
+
+    await runTest("PRIMARY: options.bundlerUrl overrides bundlerUrls", async () => {
+      const sdk = await primarySdk({
+        rpcUrls: { 1: [bundler.url] },
+        bundlerUrls: { 1: "http://127.0.0.1:1" },
+      });
+      const sent = bundler.included.length;
+      await sdk
+        .getEIP1193Provider({ mode: "PRIMARY", tag: "GAMING", bundlerUrl: bundler.url })
+        .request({ method: "eth_sendTransaction", params: [{ to }] });
+      assertEqual(bundler.included.length, sent + 1, "sent through options.bundlerUrl");
+      assertEqual(bundler.included.at(-1)!.sender, GAMING_ACCOUNT, "from the tag's account");
+      passTest("Per-provider bundler endpoint");
+    });
+
+    await runTest("PRIMARY: after a chain switch, the config's endpoints serve the new chain", async () => {
+      const sdk = await primarySdk({
+        rpcUrls: { 1: [bundler.url] },
+        bundlerUrls: { 1: bundler.url },
+      });
+      const provider = sdk.getEIP1193Provider({
+        mode: "PRIMARY",
+        chainId: 10,
+        rpcUrl: "http://127.0.0.1:1",
+        bundlerUrl: "http://127.0.0.1:1",
+      });
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+      const sent = bundler.included.length;
+      await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+      assertEqual(bundler.included.length, sent + 1, "sent through bundlerUrls[1]");
+      passTest("Chain 10 endpoints aren't used on chain 1");
+    });
+
+    await runTest("PRIMARY: personal_sign refuses a SIWE message for another chain", async () => {
+      const sdk = await primarySdk();
+      const provider = sdk.getEIP1193Provider({ mode: "PRIMARY", chainId: 1 });
+      const siwe = (chainId: number) => createSiweMessage({
+        domain: "localhost",
+        address: MAIN_ACCOUNT,
+        uri: "http://localhost",
+        version: "1",
+        chainId,
+        nonce: "abcdefgh1234",
+        issuedAt: new Date().toISOString(),
+      });
+      passkeyCalls.length = 0;
+      const error = await provider
+        .request({ method: "personal_sign", params: [siwe(8453), MAIN_ACCOUNT] })
+        .catch((e) => e);
+      const cause = error?.originalError?.message ?? error?.message ?? "";
+      assert(cause.includes("does not match"), `got "${cause}"`);
+      assertEqual(passkeyCalls.length, 0, "no passkey prompt");
+      await provider.request({ method: "personal_sign", params: [siwe(1), MAIN_ACCOUNT] });
+      assertEqual(passkeyCalls.length, 1, "same chain is signed");
+      passTest("SIWE Chain ID must be the active chain");
+    });
+
+    await runTest("PRIMARY: personal_sign and eth_signTypedData_v4 sign for the active chain", async () => {
+      const sdk = await primarySdk();
+      const provider = sdk.getEIP1193Provider({ mode: "PRIMARY", chainId: 10 });
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+      const account = { address: MAIN_ACCOUNT, chainId: 1 };
+
+      passkeyCalls.length = 0;
+      const signature = (await provider.request({ method: "personal_sign", params: ["0x6869", MAIN_ACCOUNT] })) as string;
+      assertEqual(dataSlice(signature, -32), ERC6492_MAGIC, "ERC-6492-wrapped while undeployed");
+      assertEqual(
+        hexlify(passkeyCalls[0].challenge as Uint8Array),
+        personalSignHash(hashMessage(new Uint8Array([0x68, 0x69])), account),
+        "ERC-7739 PersonalSign of the bytes, on the active chain"
+      );
+
+      const domain = { name: "Mail", version: "1", chainId: 1, verifyingContract: "0x" + "cc".repeat(20) };
+      const types = { Mail: [{ name: "contents", type: "string" }] };
+      const message = { contents: "hi" };
+      await provider.request({
+        method: "eth_signTypedData_v4",
+        params: [MAIN_ACCOUNT, JSON.stringify({
+          domain,
+          types: { EIP712Domain: [{ name: "name", type: "string" }], ...types },
+          primaryType: "Mail",
+          message,
+        })],
+      });
+      assertEqual(
+        hexlify(passkeyCalls[1].challenge as Uint8Array),
+        typedDataSignPayload(domain, types, "Mail", message, account).challenge,
+        "ERC-7739 TypedDataSign on the active chain"
+      );
+      passTest("Signatures are ERC-7739, bound to the active chain");
+    });
+
+    await runTest("PRIMARY: eth_sign rejects with 4200 before any passkey prompt", async () => {
+      const sdk = await primarySdk();
+      const provider = sdk.getEIP1193Provider({ mode: "PRIMARY" });
+      passkeyCalls.length = 0;
+      const error = await provider
+        .request({ method: "eth_sign", params: [MAIN_ACCOUNT, "0x" + "11".repeat(32)] })
+        .catch((e) => e);
+      assert(error instanceof Error, "eth_sign should reject");
+      assertEqual(error.code, 4200, "EIP-1193 Unsupported Method");
+      assertEqual(passkeyCalls.length, 0, "no passkey prompt");
+      await assertThrows(
+        () => provider.request({ method: "eth_signTransaction", params: [{ to }] }),
+        "eth_signTransaction stays unsupported"
+      );
+      passTest("eth_sign is refused in PRIMARY mode");
+    });
+  } finally {
+    await bundler.close();
+  }
 
   endTestSuite();
 }

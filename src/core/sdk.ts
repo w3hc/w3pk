@@ -1089,9 +1089,13 @@ export class Web3Passkey {
     }
 
     const domainChainId = options?.eip712Domain?.chainId;
+    const siweChainId = siweText !== undefined ? parseSiweMessage(siweText).chainId : undefined;
+    if (siweChainId !== undefined && options?.chainId !== undefined && siweChainId !== options.chainId) {
+      throw new WalletError(`SIWE Chain ID ${siweChainId} does not match chainId ${options.chainId}`);
+    }
     const chainId =
       options?.chainId ??
-      (siweText !== undefined ? parseSiweMessage(siweText).chainId : undefined) ??
+      siweChainId ??
       (signingMethod === 'EIP712' && domainChainId != null ? Number(domainChainId) : undefined);
     if (chainId === undefined) {
       throw new WalletError("PRIMARY mode signing requires options.chainId");
@@ -1165,7 +1169,8 @@ export class Web3Passkey {
    * @param tx.value - Value in wei (optional)
    * @param tx.data - Hex calldata (optional, default "0x")
    * @param tx.chainId - Chain ID (required)
-   * @param tx.gasLimit - Gas limit override (optional, ignored in PRIMARY mode: the bundler estimates gas)
+   * @param tx.gasLimit - Gas limit override (optional); in PRIMARY mode the UserOperation's
+   *   callGasLimit is the larger of the bundler's estimate and the sum of the gasLimits
    * @param tx.maxFeePerGas - EIP-1559 max fee per gas (optional)
    * @param tx.maxPriorityFeePerGas - EIP-1559 max priority fee per gas (optional)
    * @param tx.nonce - Nonce override (optional, ignored in PRIMARY mode: the EntryPoint sets it)
@@ -1379,7 +1384,8 @@ export class Web3Passkey {
 
       const gas = await estimateUserOperationGas(bundlerUrl, op);
       op.preVerificationGas = gas.preVerificationGas;
-      op.callGasLimit = gas.callGasLimit;
+      const gasLimit = txs.reduce((sum, t) => sum + (t.gasLimit ?? 0n), 0n);
+      op.callGasLimit = gas.callGasLimit > gasLimit ? gas.callGasLimit : gasLimit;
       // The stub signature fails the challenge check before the P-256 verification runs
       op.verificationGasLimit =
         gas.verificationGasLimit + (precompile ? P256_PRECOMPILE_GAS : P256_SOLIDITY_GAS);
@@ -1551,17 +1557,27 @@ export class Web3Passkey {
    * any other EIP-1193 consumer.
    *
    * Supported JSON-RPC methods:
-   * - eth_accounts / eth_requestAccounts  → derived STANDARD+MAIN address
+   * - eth_accounts / eth_requestAccounts  → getAddress() for the mode and tag
    * - eth_chainId                          → from options.chainId (default: 1)
    * - eth_sendTransaction                  → delegates to sendTransaction()
    * - personal_sign / eth_sign            → delegates to signMessage() EIP-191
    * - eth_signTypedData_v4                → delegates to signMessage() EIP-712
    * - wallet_switchEthereumChain          → updates the active chainId
    *
-   * @param options.mode     - Security mode for signing/sending (default: 'STANDARD')
-   * @param options.tag      - Wallet tag (default: 'MAIN')
-   * @param options.chainId  - Initial chainId reported to consumers (default: 1)
-   * @param options.rpcUrl   - RPC endpoint override passed to sendTransaction()
+   * In PRIMARY mode the passkey's P-256 smart account sends ERC-4337
+   * UserOperations and signs ERC-7739 signatures bound to the active chain;
+   * the EOA `nonce` is ignored, `gas` raises the UserOperation's
+   * callGasLimit, and eth_sign rejects with error 4200: through EIP-1271, a
+   * bare hash would skip ERC-7739's replay protection.
+   *
+   * @param options.mode       - Security mode for signing/sending (default: 'STANDARD')
+   * @param options.tag        - Wallet tag (default: 'MAIN')
+   * @param options.chainId    - Initial chainId reported to consumers (default: 1)
+   * @param options.rpcUrl     - RPC endpoint override passed to sendTransaction() and, in PRIMARY mode, signMessage()
+   * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
+   *
+   * In PRIMARY mode, rpcUrl and bundlerUrl serve options.chainId only: after
+   * wallet_switchEthereumChain, the config's rpcUrls and bundlerUrls for the new chain are used.
    *
    * @example
    * // ethers v6
@@ -1578,6 +1594,7 @@ export class Web3Passkey {
     tag?: string;
     chainId?: number;
     rpcUrl?: string;
+    bundlerUrl?: string;
   }): EIP1193ProviderInterface {
     return createEIP1193Provider(this, options);
   }

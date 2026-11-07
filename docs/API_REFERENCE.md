@@ -702,7 +702,7 @@ You can specify a different mode, tag, and signing method to customize the signa
 - `options.tag?: string` - Tag for derivation (default: 'MAIN')
 - `options.requireAuth?: boolean` - Force fresh authentication (default: false)
 - `options.signingMethod?: SigningMethod` - Signing method: 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash' (default: 'EIP191'; rawHash throws in PRIMARY mode)
-- `options.chainId?: number` - PRIMARY mode: chain the signature is bound to. Required for EIP191; SIWE reads the message's `Chain ID` and EIP712 `eip712Domain.chainId` when it's not set
+- `options.chainId?: number` - PRIMARY mode: chain the signature is bound to. Required for EIP191; SIWE reads the message's `Chain ID` and EIP712 `eip712Domain.chainId` when it's not set; a SIWE `Chain ID` other than `options.chainId` throws
 - `options.rpcUrl?: string` - PRIMARY mode: RPC endpoint used to check whether the account is deployed (default: the first `rpcUrls` endpoint for the chain)
 - `options.eip712Domain?: TypedDataDomain` - EIP-712 domain separator (ethers' [`TypedDataDomain`](https://docs.ethers.org/v6/api/hashing/#TypedDataDomain)) (required for EIP712 method)
 - `options.eip712Types?: object` - EIP-712 type definitions (required for EIP712 method)
@@ -1230,7 +1230,7 @@ interface TransactionRequest {
   value?: bigint;                // Value in wei (default: 0)
   data?: string;                 // Hex calldata (default: "0x")
   chainId: number;               // Required — no implicit default
-  gasLimit?: bigint;             // Override gas limit (ethers auto-estimates if omitted; ignored in PRIMARY mode)
+  gasLimit?: bigint;             // Override gas limit (ethers auto-estimates if omitted; PRIMARY: raises callGasLimit above the bundler's estimate)
   maxFeePerGas?: bigint;         // EIP-1559 max fee per gas
   maxPriorityFeePerGas?: bigint; // EIP-1559 max priority fee per gas
   nonce?: number;                // Override nonce (provider auto-fetches if omitted; ignored in PRIMARY mode)
@@ -1382,7 +1382,7 @@ The passkey's `W3pkAccount` (the `getAddress('PRIMARY', tag)` address) sends the
 6. Prompts the passkey once to sign the userOpHash, sends the UserOperation with `eth_sendUserOperation`, and polls `eth_getUserOperationReceipt` every second until it is included
 7. Returns the hash of the transaction that included it, so `provider.waitForTransaction(hash)` and viem's `waitForTransactionReceipt` work, along with `userOpHash`
 
-Without a paymaster, the account pays its own gas: fund the `PRIMARY` address before its first transaction. `gasLimit` and `nonce` are ignored. In an array, every transaction must have the same `chainId` and fee overrides.
+Without a paymaster, the account pays its own gas: fund the `PRIMARY` address before its first transaction. `nonce` is ignored; the UserOperation's `callGasLimit` is the larger of the bundler's estimate and the sum of the `gasLimit`s. In an array, every transaction must have the same `chainId` and fee overrides.
 
 ```typescript
 const w3pk = createWeb3Passkey({
@@ -1417,8 +1417,11 @@ options?: {
   tag?: string;         // Wallet tag (default: 'MAIN')
   chainId?: number;     // Initial chainId reported by eth_chainId (default: 1)
   rpcUrl?: string;      // RPC override passed to eth_sendTransaction (else rpcUrls for the active chain, required)
+  bundlerUrl?: string;  // PRIMARY: bundler endpoint (else bundlerUrls for the active chain)
 }
 ```
+
+In `PRIMARY` mode, `rpcUrl` and `bundlerUrl` serve the initial `chainId` only: after `wallet_switchEthereumChain`, the config's `rpcUrls` and `bundlerUrls` for the new chain are used.
 
 **Returns:** An object with:
 
@@ -1446,7 +1449,7 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 
 | Method | Returns | Notes |
 |--------|---------|-------|
-| `eth_accounts` | `string[]` | Derived address for the configured mode + tag |
+| `eth_accounts` | `string[]` | Address for the configured mode + tag |
 | `eth_requestAccounts` | `string[]` | Same as `eth_accounts` |
 | `eth_chainId` | `string` (hex) | Active chainId; updated by `wallet_switchEthereumChain` |
 | `eth_sendTransaction` | `string` (tx hash) | Delegates to `sendTransaction()`; hex params auto-converted; refused if `chainId` isn't the active chain |
@@ -1455,13 +1458,27 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 | `eth_signTypedData_v4` | `string` (sig) | EIP-712; `EIP712Domain` stripped automatically; refused if the domain `chainId` isn't the active chain |
 | `wallet_switchEthereumChain` | `null` | Updates active chainId and emits `chainChanged` |
 
+**Methods by mode:**
+
+| Method | STANDARD, STRICT, YOLO | PRIMARY |
+|--------|------------------------|---------|
+| `eth_accounts`, `eth_requestAccounts` | Derived EOA address | P-256 smart account address for the tag |
+| `eth_chainId`, `wallet_switchEthereumChain` | ✅ | ✅ |
+| `eth_sendTransaction` | EOA transaction | ERC-4337 UserOperation through the bundler; returns the hash of the transaction that included it. `nonce` is ignored (the EntryPoint sets it), `maxFeePerGas` and `maxPriorityFeePerGas` set the UserOperation's fees, and `gas` raises its `callGasLimit` above the bundler's estimate |
+| `personal_sign` | EIP-191 signature | ERC-7739 `PersonalSign`, bound to the active chain; a SIWE message for another chain is refused |
+| `eth_signTypedData_v4` | EIP-712 signature | ERC-7739 `TypedDataSign`, bound to the active chain |
+| `eth_sign` | EIP-191 signature | ❌ Rejects with code `4200`: through EIP-1271, a bare hash would skip ERC-7739's replay protection |
+| `eth_signTransaction` | ❌ | ❌ A contract account has no raw transaction to sign |
+
+`PRIMARY` signatures verify through the account's EIP-1271 `isValidSignature`, ERC-6492-wrapped while it isn't deployed on the active chain.
+
 **Events:**
 
 | Event | Payload | Trigger |
 |-------|---------|---------|
 | `chainChanged` | `string` (hex chainId) | `wallet_switchEthereumChain` |
 
-Unsupported methods throw `WalletError: w3pk EIP-1193: unsupported method "<method>"`.
+Unsupported methods throw `WalletError: w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with an error whose `code` is `4200` (Unsupported Method).
 
 **Example — ethers v6:**
 

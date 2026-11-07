@@ -503,7 +503,7 @@ await w3pk.sendTransaction(
 
 - `hash` is the transaction that included the UserOperation, so `waitForTransactionReceipt({ hash })` works; `userOpHash` identifies the UserOperation at the bundler
 - `sendTransaction()` waits for inclusion, up to `options.timeout` (60 s by default), and throws with the revert reason if the UserOperation reverted
-- `options.bundlerUrl` and `options.paymasterUrl` override the config per call; `gasLimit` and `nonce` are ignored, since the bundler estimates gas and the EntryPoint sets the nonce
+- `options.bundlerUrl` and `options.paymasterUrl` override the config per call; `nonce` is ignored, since the EntryPoint sets it, and `gasLimit` only raises the bundler's `callGasLimit` estimate
 - Only PRIMARY mode takes an array: STANDARD, STRICT and YOLO send one EOA transaction
 
 ### EIP-1559 Fee Control
@@ -635,6 +635,29 @@ await provider.request({
   params: [{ chainId: '0xa' }]
 })
 ```
+
+### PRIMARY mode
+
+`getEIP1193Provider({ mode: 'PRIMARY' })` serves the passkey's P-256 smart account: transactions go through the bundler as ERC-4337 UserOperations, and signatures verify through EIP-1271.
+
+```typescript
+const w3pk = createWeb3Passkey({
+  rpcUrls: { 8453: ['https://base.example.com'] },
+  bundlerUrls: { 8453: 'https://bundler.example.com/base' },
+})
+const provider = w3pk.getEIP1193Provider({ mode: 'PRIMARY', chainId: 8453 })
+// or per provider: getEIP1193Provider({ mode: 'PRIMARY', chainId: 8453, bundlerUrl: '...' })
+```
+
+| Method | STANDARD, STRICT, YOLO | PRIMARY |
+|--------|------------------------|---------|
+| `eth_accounts`, `eth_requestAccounts` | EOA address | Smart account address |
+| `eth_sendTransaction` | EOA transaction | UserOperation; `nonce` ignored, `gas` raises `callGasLimit` |
+| `personal_sign`, `eth_signTypedData_v4` | ECDSA signature | ERC-7739 signature for the active chain |
+| `eth_sign` | ECDSA signature | Rejects with code `4200` |
+| `eth_signTransaction` | Unsupported | Unsupported |
+
+Verify `PRIMARY` signatures with viem's `verifyMessage` or `verifyTypedData` on a public client, which handle EIP-1271 and ERC-6492. Read receipts through a public client too: the provider only answers the methods above.
 
 ### Patterns to avoid
 
