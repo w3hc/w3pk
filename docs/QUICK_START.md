@@ -51,14 +51,14 @@ Here's the security layer: the mnemonic gets encrypted using AES-GCM-256 with th
 
 ```typescript
 const message = 'Hello world!'
-const signature = await w3pk.signMessage(message)
+const { signature } = await w3pk.signMessage(message)
 
 console.log('Signature:', signature)
 ```
 
 When you sign a message, w3pk first checks if you have an active session. If your session is still valid (within the 1-hour window), it uses the cached mnemonic from memory, making the process seamless and instant. If your session has expired, you'll see the biometric prompt again to decrypt your wallet.
 
-Once the mnemonic is accessible, the SDK derives the private key from it and signs your message using ECDSA (Elliptic Curve Digital Signature Algorithm), following the EIP-191 standard for Ethereum message signatures. The result is a hex signature string that proves you control the wallet without exposing your private key.
+Once the mnemonic is accessible, the SDK derives the private key from it and signs your message using ECDSA (Elliptic Curve Digital Signature Algorithm), following the EIP-191 standard for Ethereum message signatures. The result's `signature` is a hex string that proves you control the wallet without exposing your private key.
 
 ### 5. Logout
 
@@ -99,7 +99,7 @@ async function main() {
   console.log('Registered:', username, 'with address:', address)
 
   // 4. Sign a message
-  const signature = await w3pk.signMessage('Hello World')
+  const { signature } = await w3pk.signMessage('Hello World')
   console.log('Signature:', signature)
 
   // 5. Logout

@@ -485,10 +485,9 @@ const signedTx = await wallet.signTransaction(tx);
 | **Chosen By** | NSA (2000) | Satoshi Nakamoto (2009) |
 | **Hardware Support** | ✅ Excellent | ❌ Limited |
 | **WebAuthn** | ✅ Required | ❌ Not supported |
-| **Ethereum** | ❌ Not supported | ✅ Required |
-| **Compatibility** | **Incompatible** | **Incompatible** |
+| **Ethereum** | Smart accounts only (EIP-1271, ERC-4337), verified by the EIP-7951 precompile or in Solidity | ✅ EOAs |
 
-**Critical**: You **cannot** use a P-256 key to sign Ethereum transactions, and you **cannot** use a secp256k1 key for WebAuthn authentication. They are mathematically incompatible.
+**Critical**: A P-256 key can't sign an Ethereum transaction as an EOA, and a secp256k1 key can't authenticate with WebAuthn. `STANDARD`, `STRICT` and `YOLO` bridge the two through the PRF-encrypted mnemonic. `PRIMARY` doesn't: the passkey owns a [P-256 smart account](./EIP-7951.md#primary-smart-account) that checks its WebAuthn signatures onchain.
 
 ### Encryption Key Derivation (PRF + HKDF)
 
@@ -825,4 +824,4 @@ encryptionKey = HKDF-SHA256(prfOutput, salt = 0^32, info = "w3pk-prf-wallet-key-
 
 ## Summary
 
-**w3pk combines WebAuthn (P-256 authentication) and Crypto Wallets (secp256k1 transactions) through an encryption bridge keyed by the passkey's PRF output. They are completely separate cryptographic systems that work together to provide biometric-protected Web3 access with multiple recovery options.**
+**In `STANDARD`, `STRICT` and `YOLO`, w3pk combines WebAuthn (P-256 authentication) and crypto wallets (secp256k1 transactions) through an encryption bridge keyed by the passkey's PRF output: two separate cryptographic systems that together give biometric-protected Web3 access with several recovery options. In `PRIMARY`, the passkey signs for its [P-256 smart account](./EIP-7951.md#primary-smart-account) directly, with no mnemonic.**

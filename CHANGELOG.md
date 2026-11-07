@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CI runs `forge fmt --check`, `forge test` with fuzzing and a gas report, and Slither
 - **P-256 account contracts on Sepolia** ([#302](https://github.com/w3hc/w3pk/issues/302))
   - `W3pkAccountFactory` and the `W3pkAccount` implementation are deployed through the deterministic deployment proxy at `W3PK_ACCOUNT_FACTORY` on Ethereum Sepolia only, verified on Etherscan and Sourcify; Ethereum, OP Mainnet, Base, Arbitrum One and their Sepolia testnets will follow at the same addresses
-  - `contracts/README.md` says how to deploy them on another network, add the chain and check the result
+  - `docs/DEPLOYMENT.md` says how to deploy them on another network, add the chain and check the result
   - `contracts/script/Deploy.s.sol` calls the deterministic deployment proxy directly: forge 1.9 deployed `new W3pkAccountFactory{salt: SALT}()` from the EOA on OP chains, at the wrong address
   - `pnpm check:deployments` checks over public RPCs that on each deployed chain the factory has code, `implementation()` is the expected address and its clone init code hash is `W3PK_ACCOUNT_INIT_CODE_HASH`
   - `contracts/foundry.toml` has RPC and Etherscan V2 entries for every target chain
@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The docs match v0.12.0** ([#319](https://github.com/w3hc/w3pk/issues/319))
+  - The README has a trust model section: `PRIMARY` doesn't need to trust the host app, what a malicious host app can still attempt (blind signing, prompt fatigue, misleading display, censorship, linking accounts), and what `STRICT`, `STANDARD` and `YOLO` trust it with
+  - The deployment guide moved from `contracts/README.md` to `docs/DEPLOYMENT.md`, linked from the README
+  - The ethers examples sign only: the EIP-1193 provider doesn't forward read methods, so an ethers `BrowserProvider` signer's `sendTransaction()` fails; they send with `w3pk.sendTransaction()`, and viem's wallet client works as shown
+  - `ARCHITECTURE.md` and `EIP-7951.md` describe the P-256 smart account instead of saying a passkey can't be used on Ethereum; a stray code fence in `EIP-7951.md` is gone
+  - `QUICK_START.md` and the README destructure `{ signature }` from `signMessage()`, and example versions are `0.12.0`
 - **The README matches the code** ([#311](https://github.com/w3hc/w3pk/issues/311))
   - The viem install lists `ethers`, a required peer dependency
   - `signMessage()` examples destructure `{ signature }`; `createSiweMessage` and `parseEther` are imported; `rawHash` takes a 32-byte hex hash

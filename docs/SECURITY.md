@@ -241,7 +241,7 @@ See [Integration Guidelines](./INTEGRATION_GUIDELINES.md#check-for-existing-wall
 
 ## PRIMARY Mode: the P-256 Smart Account
 
-In `PRIMARY` mode the passkey owns `W3pkAccount`, an ERC-4337 account (EntryPoint v0.9) on OpenZeppelin 5.7.0 that verifies WebAuthn assertions onchain. `W3pkAccountFactory` deploys each account as an ERC-1167 clone of one implementation, salted with the passkey's public key and the tag. Factory and implementation are deployed through the deterministic deployment proxy, for now only on Ethereum Sepolia, verified on Etherscan and Sourcify; Ethereum, OP Mainnet, Base, Arbitrum One and their Sepolia testnets will follow at the same addresses ([how to deploy](../contracts/README.md#deploying-to-a-network)). `pnpm check:deployments` checks the deployments against `W3PK_ACCOUNT_FACTORY` and `W3PK_ACCOUNT_INIT_CODE_HASH`. Addresses and links are in [EIP-7951.md](./EIP-7951.md#primary-smart-account).
+In `PRIMARY` mode the passkey owns `W3pkAccount`, an ERC-4337 account (EntryPoint v0.9) on OpenZeppelin 5.7.0 that verifies WebAuthn assertions onchain. `W3pkAccountFactory` deploys each account as an ERC-1167 clone of one implementation, salted with the passkey's public key and the tag. Factory and implementation are deployed through the deterministic deployment proxy, for now only on Ethereum Sepolia, verified on Etherscan and Sourcify; Ethereum, OP Mainnet, Base, Arbitrum One and their Sepolia testnets will follow at the same addresses ([how to deploy](./DEPLOYMENT.md)). `pnpm check:deployments` checks the deployments against `W3PK_ACCOUNT_FACTORY` and `W3PK_ACCOUNT_INIT_CODE_HASH`. Addresses and links are in [EIP-7951.md](./EIP-7951.md#primary-smart-account).
 
 **Not upgradeable.** The account has no proxy, no upgrade function and no admin. Nobody, w3hc included, can change the code that holds a `PRIMARY` account's funds: an upgrade key would be one key over every account, and an address would no longer tell what code runs behind it. A bug can't be patched in place: a fixed version is a new factory at new addresses, and users move their funds. ERC-7579 modules add behavior without new account code; only the account can install one, through a UserOperation the passkey signs, and an installed validator or executor can act for the account.
 
@@ -1882,7 +1882,7 @@ await verifyW3pkIntegrity()
 - **Contract:** [`0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a`](https://optimistic.etherscan.io/address/0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a)
 - **Network:** OP Mainnet (Chain ID: 10)
 - **Governance:** DAO-controlled via contract ownership
-- **Version Format:** Use `v` prefix (e.g., `v0.9.0`, `v0.9.1`)
+- **Version Format:** Use `v` prefix (e.g., `v0.12.0`, `v0.12.1`)
 
 See [Build Verification Guide](./BUILD_VERIFICATION.md) for detailed documentation.
 

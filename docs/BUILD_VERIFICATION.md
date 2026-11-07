@@ -41,14 +41,14 @@ function getVersionByCid(string cid) view returns (string version)
 Query the registry for the specific version installed in your `package.json`. This ensures you're verifying the exact version your app depends on.
 
 ```typescript
-// Get version from package.json (e.g., "^0.9.0" or "~0.9.0")
-const installedVersion = packageJson.dependencies['w3pk'].replace(/^[~^]/, ''); // "0.9.0"
+// Get version from package.json (e.g., "^0.12.0" or "~0.12.0")
+const installedVersion = packageJson.dependencies['w3pk'].replace(/^[~^]/, ''); // "0.12.0"
 
 // Query registry (note: version must include "v" prefix)
-const onchainCid = await registry.getCidByVersion(`v${installedVersion}`); // "v0.9.0"
+const onchainCid = await registry.getCidByVersion(`v${installedVersion}`); // "v0.12.0"
 ```
 
-**Note:** The registry expects version strings with a `v` prefix (e.g., `v0.9.0`, `v0.9.1`).
+**Note:** The registry expects version strings with a `v` prefix (e.g., `v0.12.0`, `v0.12.1`).
 
 **Option 2: Check Against Latest**
 
@@ -90,10 +90,10 @@ Computes the IPFS hash for w3pk build files from a specific URL.
 import { getW3pkBuildHash } from 'w3pk';
 
 // From unpkg CDN
-const hash = await getW3pkBuildHash('https://unpkg.com/w3pk@0.7.6/dist');
+const hash = await getW3pkBuildHash('https://unpkg.com/w3pk@0.12.0/dist');
 
 // From your own CDN or server
-const hash = await getW3pkBuildHash('https://cdn.example.com/w3pk/0.7.6/dist');
+const hash = await getW3pkBuildHash('https://cdn.example.com/w3pk/0.12.0/dist');
 
 // From local development server
 const hash = await getW3pkBuildHash('http://localhost:3000/dist');
@@ -130,7 +130,7 @@ Gets the current package version.
 import { getPackageVersion } from 'w3pk';
 
 const version = getPackageVersion();
-console.log('Version:', version); // => 0.7.6
+console.log('Version:', version); // => 0.12.0
 ```
 
 ## CLI Script

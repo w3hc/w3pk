@@ -31,7 +31,7 @@ const { address, username } = await w3pk.register({ username: 'alice' })
 await w3pk.login()
 
 // Sign messages (EIP-191, SIWE, EIP-712, rawHash)
-const { signature, address } = await w3pk.signMessage('Hello World')
+const { signature } = await w3pk.signMessage('Hello World')
 
 // Send transactions on-chain
 const tx = await w3pk.sendTransaction({ to: '0x...', value: 1n * 10n**18n, chainId: 1 })
@@ -58,9 +58,34 @@ const endpoints = await w3pk.getEndpoints(1)
 - Hybrid post-quantum encryption (HPKE over ML-KEM-1024 + X25519)
 - Chainlist support (every network on chainid.network, fetched live)
 - EIP-7702 network detection (329 known networks, RPC probing for the others)
-- EIP-7951 PRIMARY mode (P-256 passkey signing)
+- EIP-7951 PRIMARY mode: a P-256 passkey smart account (ERC-4337, EIP-1271) that signs and sends without trusting the host app ([trust model](#trust-model))
 - Build verification (IPFS CID hashing + DAO-maintained onchain registry)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
+
+## Trust model
+
+w3pk runs inside the host app's page, as code the host serves. What the host can do depends on the mode.
+
+**`PRIMARY`: the user doesn't need to trust the host app.**
+- The passkey's P-256 key never leaves the authenticator (or the passkey provider that syncs it). The account is a [`W3pkAccount`](./docs/EIP-7951.md#primary-smart-account) smart account that verifies the passkey's WebAuthn assertions onchain.
+- Nothing in the page can sign without a user-verified prompt: no mnemonic, no session key, no exportable private key. A host that ships a modified SDK still can't extract the key, or sign once the user has left.
+- The passkey is bound to the host's domain (its RP ID), so another site can't ask for it.
+
+A malicious host app can still attempt the following in `PRIMARY` mode:
+- **Blind signing.** The passkey prompt shows the site and the account, never what is being signed. The host can show "Sign in" and get a UserOperation or a message signed instead. That includes a transfer, a token approval, an EIP-712 permit or Permit2 signature, or an ERC-7579 `installModule` that gives it a lasting validator, executor or hook on the account.
+- **Prompt fatigue.** It can ask for prompt after prompt until the user approves one without thinking.
+- **Misleading display.** It controls the UI and chooses the RPC, so it can show false balances, prices, recipients or transaction results.
+- **Censorship.** It chooses the bundler and paymaster. It can delay, drop or refuse to send a UserOperation, but can't change one after it is signed.
+- **Privacy.** It learns the account's address. Every tag's account shares the same owner key, so they're linkable onchain.
+
+So in `PRIMARY` the user's protection is the prompt: approve it only for an action you started. Spending limits and allowlists can be enforced onchain by an ERC-7579 hook, which sees every execution.
+
+**`STRICT`, `STANDARD` and `YOLO`: the user trusts the host app.**
+- The SDK decrypts the PRF-encrypted mnemonic in the page to derive secp256k1 keys. Code running on the host's origin can therefore reach those keys: the host itself, a malicious dependency, a compromised CDN or an XSS.
+- In `STANDARD` and `YOLO`, that code can sign silently while a session is live. In `YOLO`, the app gets the private key itself. `STRICT` keeps no session and asks for the passkey on every call, but the key still sits in the page's memory while it signs.
+- These modes are for apps the user already trusts. [Build verification](./docs/BUILD_VERIFICATION.md) lets an honest host prove which w3pk build it serves, but it doesn't protect anyone from a dishonest host.
+
+See [SECURITY.md](./docs/SECURITY.md#primary-mode-the-p-256-smart-account) for the full model.
 
 ## API
 
@@ -187,7 +212,7 @@ const yoloTx = await w3pk.sendTransaction(
 | YOLO | Session (auto) | Sender address |
 | PRIMARY | Passkey prompt per call | Smart account, or an ERC-7677 paymaster |
 
-In PRIMARY mode the passkey's smart account sends an ERC-4337 UserOperation through the bundler set in `bundlerUrls`, deploys itself on its first transaction on a chain, and executes an array of transactions atomically. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](./contracts/README.md#deploying-to-a-network)). The returned `hash` is the including transaction's:
+In PRIMARY mode the passkey's smart account sends an ERC-4337 UserOperation through the bundler set in `bundlerUrls`, deploys itself on its first transaction on a chain, and executes an array of transactions atomically. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](./docs/DEPLOYMENT.md)). The returned `hash` is the including transaction's:
 
 ```typescript
 const w3pk = createWeb3Passkey({
@@ -204,18 +229,17 @@ const { hash } = await w3pk.sendTransaction(
 
 ### EIP-1193 Provider
 
-Use w3pk with any EIP-1193 consumer — ethers, viem, wagmi, RainbowKit — without exposing private keys.
+Use w3pk with EIP-1193 consumers — viem, wagmi, RainbowKit, an ethers signer — without exposing private keys. The provider serves accounts, signing and sending only; read the chain through your own RPC.
 
 ```typescript
 const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
 ```
 
-**ethers v6**
+**ethers v6** (signing only: `signer.sendTransaction()` reads the chain through the provider, which doesn't forward reads)
 ```typescript
-import { BrowserProvider, parseEther } from 'ethers'
-const provider = new BrowserProvider(eip1193)
-const signer = await provider.getSigner()
-const tx = await signer.sendTransaction({ to: '0x...', value: parseEther('1') })
+import { BrowserProvider } from 'ethers'
+const signer = await new BrowserProvider(eip1193).getSigner()
+const sig = await signer.signMessage('Hello World')
 ```
 
 **viem**
@@ -234,7 +258,7 @@ const hash = await client.sendTransaction({ to: '0x...', value: parseEther('1') 
 | `eth_accounts` / `eth_requestAccounts` | Returns the address for the provider's `mode` and `tag` options (STANDARD and MAIN by default) |
 | `eth_chainId` | Returns the active chain as hex (the `chainId` option, 1 by default) |
 | `eth_sendTransaction` | Delegates to `sendTransaction()` |
-| `personal_sign` / `eth_sign` | EIP-191 message signing |
+| `personal_sign` / `eth_sign` | EIP-191 message signing (`eth_sign` rejects with code `4200` in `PRIMARY`) |
 | `eth_signTypedData_v4` | EIP-712 typed data signing, bound to the active chain |
 | `wallet_switchEthereumChain` | Updates active chainId, emits `chainChanged` |
 
@@ -480,6 +504,7 @@ Host applications should verify their installed W3PK build against this registry
 - [Build Verification](./docs/BUILD_VERIFICATION.md)
 - [EIP-7702](./docs/EIP_7702.md)
 - [EIP-7951](./docs/EIP-7951.md)
+- [Deploying the contracts](./docs/DEPLOYMENT.md) - `PRIMARY` account contracts on a new network
 - [Security Architecture](./docs/SECURITY.md)
 - [Post-Quantum Cryptography](./docs/POST_QUANTUM.md) - Quantum-safe migration roadmap
 - [Recovery & Backup System](./docs/RECOVERY.md)

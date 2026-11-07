@@ -1382,7 +1382,7 @@ The passkey's `W3pkAccount` (the `getAddress('PRIMARY', tag)` address) sends the
 6. Prompts the passkey once to sign the userOpHash, sends the UserOperation with `eth_sendUserOperation`, and polls `eth_getUserOperationReceipt` every second until it is included
 7. Returns the hash of the transaction that included it, so `provider.waitForTransaction(hash)` and viem's `waitForTransactionReceipt` work, along with `userOpHash`
 
-Without a paymaster, the account pays its own gas: fund the `PRIMARY` address before its first transaction. `nonce` is ignored; the UserOperation's `callGasLimit` is the larger of the bundler's estimate and the sum of the `gasLimit`s. In an array, every transaction must have the same `chainId` and fee overrides. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](../contracts/README.md#deploying-to-a-network)).
+Without a paymaster, the account pays its own gas: fund the `PRIMARY` address before its first transaction. `nonce` is ignored; the UserOperation's `callGasLimit` is the larger of the bundler's estimate and the sum of the `gasLimit`s. In an array, every transaction must have the same `chainId` and fee overrides. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](./DEPLOYMENT.md)).
 
 ```typescript
 const w3pk = createWeb3Passkey({
@@ -1407,7 +1407,7 @@ const { hash, userOpHash, from } = await w3pk.sendTransaction(
 
 Return an [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) compatible provider backed by this SDK instance.
 
-The returned object implements the standard `request({ method, params })` interface, making w3pk compatible with **ethers `BrowserProvider`**, **viem `custom` transport**, **wagmi connectors**, **RainbowKit**, and any other EIP-1193 consumer — without exposing private keys.
+The returned object implements the standard `request({ method, params })` interface, so viem's `custom` transport, wagmi connectors, RainbowKit and other EIP-1193 consumers can use w3pk without exposing private keys. It serves accounts, signing and sending only: the provider doesn't forward read methods (`eth_blockNumber`, `eth_estimateGas`, `eth_call`, `eth_getTransactionReceipt`, …): they throw as unsupported. viem's wallet client sends straight through `eth_sendTransaction` and works. An ethers `BrowserProvider` signer can sign, but its `sendTransaction` first calls `eth_blockNumber` and fails: send with viem or `w3pk.sendTransaction()`, and read the chain through your own RPC provider.
 
 **Parameters:**
 
@@ -1480,24 +1480,20 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 
 Unsupported methods throw `WalletError: w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with an error whose `code` is `4200` (Unsupported Method).
 
-**Example — ethers v6:**
+**Example — ethers v6 (signing only):**
 
 ```typescript
-import { BrowserProvider, parseEther } from 'ethers'
+import { BrowserProvider, JsonRpcProvider } from 'ethers'
 
 await w3pk.login()
-const provider = new BrowserProvider(w3pk.getEIP1193Provider({ chainId: 1 }))
-const signer = await provider.getSigner()
+const signer = await new BrowserProvider(w3pk.getEIP1193Provider({ chainId: 1 })).getSigner()
 
-// Send 1 ETH
-const tx = await signer.sendTransaction({
-  to: '0xRecipient...',
-  value: parseEther('1')
-})
-console.log('hash:', tx.hash)
-
-// Sign a message
 const sig = await signer.signMessage('Hello World')
+const permit = await signer.signTypedData(domain, types, value)
+
+// signer.sendTransaction() fails: it reads the chain through the provider. Send with w3pk, wait with your own RPC
+const { hash } = await w3pk.sendTransaction({ to: '0xRecipient...', value: 10n ** 18n, chainId: 1 })
+await new JsonRpcProvider('https://eth.example.com').waitForTransaction(hash)
 ```
 
 **Example — viem:**
@@ -3124,7 +3120,7 @@ Compute IPFS hash for w3pk build from any URL.
 
 ```typescript
 // From unpkg
-const hash = await getW3pkBuildHash('https://unpkg.com/w3pk@0.7.6/dist')
+const hash = await getW3pkBuildHash('https://unpkg.com/w3pk@0.12.0/dist')
 
 // From your CDN
 const hash = await getW3pkBuildHash('https://cdn.example.com/w3pk/dist')
@@ -3158,7 +3154,7 @@ Get the current w3pk package version.
 
 ```typescript
 const version = getPackageVersion()
-console.log('Version:', version) // => 0.7.6
+console.log('Version:', version) // => 0.12.0
 ```
 
 See [Build Verification Guide](./BUILD_VERIFICATION.md) for detailed documentation and integration examples.
