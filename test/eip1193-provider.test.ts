@@ -9,7 +9,7 @@
  * - eth_sendTransaction param mapping (hex → bigint)
  * - personal_sign / eth_sign (plain text, and hex signed as bytes)
  * - eth_signTypedData_v4 (EIP-712 typed data, bound to the active chain)
- * - Unsupported method throws
+ * - Unsupported method rejects with 4200 in every mode
  * - Multiple independent provider instances are isolated
  * - on / removeListener event wiring
  * - Typed event handlers compile (type-level, via the TypeScript compiler)
@@ -183,17 +183,18 @@ async function runTests() {
   });
 
   // ------------------------------------------------------------------
-  // 8. Unsupported method throws
+  // 8. Unsupported method rejects with 4200
   // ------------------------------------------------------------------
-  await runTest("Unsupported method throws WalletError", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
-    const provider = sdk.getEIP1193Provider();
-
-    await assertThrows(
-      () => provider.request({ method: "eth_getBalance", params: ["0x123", "latest"] }),
-      "Unsupported method should throw"
-    );
-    passTest("Unsupported method correctly throws");
+  await runTest("Unsupported method rejects with 4200 in every mode", async () => {
+    const { sdk } = stubSdk();
+    for (const mode of ["STRICT", "STANDARD", "YOLO", "PRIMARY"] as const) {
+      const error = await createEIP1193Provider(sdk, { mode })
+        .request({ method: "eth_getBalance", params: ["0x123", "latest"] })
+        .catch((e) => e);
+      assert(error instanceof Error, `${mode}: unsupported method should reject`);
+      assertEqual(error.code, 4200, `${mode}: EIP-1193 Unsupported Method`);
+    }
+    passTest("Unsupported method rejects with code 4200");
   });
 
   // ------------------------------------------------------------------
