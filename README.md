@@ -229,16 +229,18 @@ const { hash } = await w3pk.sendTransaction(
 
 ### EIP-1193 Provider
 
-Use w3pk with EIP-1193 consumers — viem, wagmi, RainbowKit, an ethers signer — without exposing private keys. The provider serves accounts, signing and sending only; read the chain through your own RPC.
+Use w3pk with EIP-1193 consumers — viem, wagmi, RainbowKit, an ethers signer — without exposing private keys. The provider serves accounts, signing and sending, and forwards read methods to the active chain's RPC endpoint: the provider's `rpcUrl` option on the initial chain, otherwise `rpcUrls[chainId][0]` from the config.
 
 ```typescript
 const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
 ```
 
-**ethers v6** (signing only: `signer.sendTransaction()` reads the chain through the provider, which doesn't forward reads)
+**ethers v6**
 ```typescript
-import { BrowserProvider } from 'ethers'
+import { BrowserProvider, parseEther } from 'ethers'
 const signer = await new BrowserProvider(eip1193).getSigner()
+const tx = await signer.sendTransaction({ to: '0x...', value: parseEther('1') })
+await tx.wait()
 const sig = await signer.signMessage('Hello World')
 ```
 
@@ -261,6 +263,9 @@ const hash = await client.sendTransaction({ to: '0x...', value: parseEther('1') 
 | `personal_sign` / `eth_sign` | EIP-191 message signing (`eth_sign` rejects with code `4200` in `PRIMARY`) |
 | `eth_signTypedData_v4` | EIP-712 typed data signing, bound to the active chain |
 | `wallet_switchEthereumChain` | Updates active chainId, emits `chainChanged` |
+| `eth_blockNumber`, `eth_call`, `eth_estimateGas`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_getLogs`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `net_version` | Forwarded to the active chain's RPC endpoint; JSON-RPC errors pass through with `code` and `data` |
+
+Any other method rejects with code `4200` (Unsupported Method). Without an endpoint for the active chain, read methods throw before any request.
 
 ### Session Management
 

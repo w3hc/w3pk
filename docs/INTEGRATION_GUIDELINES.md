@@ -538,22 +538,23 @@ const result = await w3pk.sendTransaction({ to: '0x...', chainId: 1 })
 
 ## EIP-1193 Provider
 
-`getEIP1193Provider()` returns a standard [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) provider that wraps the SDK. Plug it into viem, wagmi or RainbowKit, or use it as an ethers signer for signing. The provider doesn't forward read methods (`eth_blockNumber`, `eth_estimateGas`, `eth_call`, `eth_getTransactionReceipt`, …): they reject with code `4200` (Unsupported Method). viem's wallet client sends straight through `eth_sendTransaction` and works. An ethers `BrowserProvider` signer can sign, but its `sendTransaction` first calls `eth_blockNumber` and fails: send with viem or `w3pk.sendTransaction()`, and read the chain through your own RPC provider.
+`getEIP1193Provider()` returns a standard [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) provider that wraps the SDK. Plug it into viem, wagmi or RainbowKit, or use it as an ethers signer. It forwards these read methods to the active chain's RPC endpoint: `eth_blockNumber`, `eth_call`, `eth_estimateGas`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_getLogs`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `net_version`. They go to the provider's `rpcUrl` option on the initial chain, otherwise to `rpcUrls[chainId][0]` from the config for the active chain, and follow `wallet_switchEthereumChain`; without an endpoint for the chain they throw before any request. JSON-RPC errors pass through with their `code` and `data`, so ethers decodes reverts. Any other method rejects with code `4200` (Unsupported Method).
 
 ```typescript
 const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
 ```
 
-### ethers v6 (signing only)
+### ethers v6
 
 ```typescript
-import { BrowserProvider, JsonRpcProvider } from 'ethers'
+import { BrowserProvider, parseEther } from 'ethers'
 
+// Reads go to rpcUrls[1][0] from the config, or to the rpcUrl option
 const signer = await new BrowserProvider(w3pk.getEIP1193Provider({ chainId: 1 })).getSigner()
 
-// signer.sendTransaction() fails: send with w3pk, wait with your own RPC
-const { hash } = await w3pk.sendTransaction({ to: '0xRecipient...', value: 10n ** 18n, chainId: 1 })
-await new JsonRpcProvider('https://eth.example.com').waitForTransaction(hash)
+// Send ETH and wait for the receipt
+const tx = await signer.sendTransaction({ to: '0xRecipient...', value: parseEther('1') })
+const receipt = await tx.wait()
 
 // Sign (EIP-191)
 const sig = await signer.signMessage('Hello World')
