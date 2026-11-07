@@ -5,18 +5,22 @@ import { ENTRY_POINT_V09, type UserOperation, toRpcUserOperation } from "./user-
 let requestId = 0;
 
 /** Sends one JSON-RPC request; throws a WalletError carrying the error message and code */
-export async function jsonRpc<T>(url: string, method: string, params: unknown[]): Promise<T> {
+export async function jsonRpc<T>(url: string, method: string, params: unknown[], timeout = 30_000): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params }),
+    signal: AbortSignal.timeout(timeout),
   });
-  if (!response.ok) {
-    throw new WalletError(`${method} failed: HTTP ${response.status}`);
-  }
-  const body = (await response.json()) as { result?: T; error?: { code: number; message: string } };
+  const body = (await response.json().catch(() => ({}))) as {
+    result?: T;
+    error?: { code: number; message: string };
+  };
   if (body.error) {
     throw new WalletError(`${method} failed: ${body.error.message} (code ${body.error.code})`, body.error);
+  }
+  if (!response.ok) {
+    throw new WalletError(`${method} failed: HTTP ${response.status}`);
   }
   return body.result as T;
 }
@@ -28,6 +32,7 @@ export interface GasEstimate {
   verificationGasLimit: bigint;
   callGasLimit: bigint;
   paymasterVerificationGasLimit?: bigint;
+  paymasterPostOpGasLimit?: bigint;
 }
 
 const optionalBigInt = (value: string | undefined) => (value == null ? undefined : BigInt(value));
@@ -46,6 +51,7 @@ export async function estimateUserOperationGas(
     verificationGasLimit: BigInt(result.verificationGasLimit),
     callGasLimit: BigInt(result.callGasLimit),
     paymasterVerificationGasLimit: optionalBigInt(result.paymasterVerificationGasLimit),
+    paymasterPostOpGasLimit: optionalBigInt(result.paymasterPostOpGasLimit),
   };
 }
 
@@ -85,7 +91,8 @@ function revertReason(reason: string | undefined): string {
 }
 
 /**
- * Polls `eth_getUserOperationReceipt` until the UserOperation is included
+ * Polls `eth_getUserOperationReceipt` until the UserOperation is included,
+ * retrying failed polls until the timeout
  *
  * @throws WalletError on timeout, or if the UserOperation reverted (with its revert reason)
  */
@@ -95,10 +102,20 @@ export async function waitForUserOperationReceipt(
   { timeout = 60_000, interval = 1_000 }: { timeout?: number; interval?: number } = {}
 ): Promise<UserOperationReceipt> {
   const deadline = Date.now() + timeout;
+  let lastError: unknown;
   for (;;) {
-    const receipt = await jsonRpc<UserOperationReceipt | null>(bundlerUrl, "eth_getUserOperationReceipt", [
-      userOpHash,
-    ]);
+    let receipt: UserOperationReceipt | null = null;
+    try {
+      receipt = await jsonRpc<UserOperationReceipt | null>(
+        bundlerUrl,
+        "eth_getUserOperationReceipt",
+        [userOpHash],
+        Math.max(deadline - Date.now(), 1)
+      );
+      lastError = undefined;
+    } catch (error) {
+      lastError = error;
+    }
     if (receipt) {
       if (!receipt.success) {
         throw new WalletError(
@@ -108,7 +125,8 @@ export async function waitForUserOperationReceipt(
       return receipt;
     }
     if (Date.now() + interval > deadline) {
-      throw new WalletError(`UserOperation ${userOpHash} not included after ${timeout} ms`);
+      const cause = lastError instanceof Error ? ` (last poll: ${lastError.message})` : "";
+      throw new WalletError(`UserOperation ${userOpHash} not included after ${timeout} ms${cause}`, lastError);
     }
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
