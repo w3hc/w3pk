@@ -4,8 +4,8 @@
  * Tests for the sendTransaction() SDK method covering:
  * - Method existence and shape
  * - Authentication guard
- * - PRIMARY mode error (not supported)
- * - PRIMARY mode without rpcUrl (specific error)
+ * - STRICT / STANDARD / YOLO broadcast an EOA transaction (PRIMARY mode is in
+ *   send-transaction-primary.test.ts)
  * - Return type structure
  * - Mode / tag / origin isolation (wallet derivation correctness)
  * - RPC resolution: explicit rpcUrl, then app rpcUrls, never chainlist
@@ -18,6 +18,7 @@
 
 import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
+import { startMockBundler } from "./fixtures/mock-bundler";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { deriveWalletFromPath } from "../src/wallet/generate";
 import {
@@ -142,62 +143,47 @@ async function runTests() {
   });
 
   // ------------------------------------------------------------------
-  // 3. PRIMARY mode without rpcUrl throws a clear error
+  // 3. STRICT / STANDARD / YOLO send a signed EOA transaction, as in v0.11.2
   // ------------------------------------------------------------------
-  await runTest("PRIMARY mode without rpcUrl throws descriptive error", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
-
-    // Mock a logged-in state so the PRIMARY guard is reached
-    // (the currentUser guard fires first; we test the guard message here)
+  await runTest("STRICT / STANDARD / YOLO broadcast an EOA transaction signed by the mode's wallet", async () => {
+    const { Transaction, keccak256 } = await import("ethers");
+    const chain = await startMockBundler();
     try {
-      await sdk.sendTransaction(
-        { to: TEST_CONTRACT, chainId: 1 },
-        { mode: "PRIMARY" }
-      );
-      throw new Error("Should have thrown");
-    } catch (error) {
-      const msg = (error as Error).message;
-      const cause = (error as any).cause?.message ?? "";
-      const full = msg + " " + cause;
-      // Either the auth guard or the PRIMARY guard fires — both are correct
-      assert(
-        full.includes("authenticated") ||
-          full.includes("PRIMARY") ||
-          full.includes("bundler") ||
-          msg.includes("Failed to send transaction"),
-        `Expected PRIMARY or auth error, got: ${msg}`
-      );
-      passTest("PRIMARY mode raises an appropriate error when no rpcUrl");
-      logDetail(`Error: ${msg}`);
+      for (const mode of ["STRICT", "STANDARD", "YOLO"] as const) {
+        const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [chain.url] } });
+        (sdk as any).currentUser = { username: "eoa", ethereumAddress: TEST_CONTRACT, credentialId: "eoa" };
+        let requireAuth: boolean | undefined;
+        (sdk as any).getMnemonicFromSession = async (fresh: boolean) => {
+          requireAuth = fresh;
+          return TEST_MNEMONIC;
+        };
+        chain.calls.length = 0;
+        const result = await sdk.sendTransaction(
+          { to: TEST_CONTRACT, value: 3n, data: "0xbeef", chainId: 1 },
+          { mode }
+        );
+        const raw = chain.calls.find((c) => c.method === "eth_sendRawTransaction")!.params[0];
+        const sent = Transaction.from(raw);
+        const from = await expectedFrom(mode, "MAIN", window.location.origin);
+        assertEqual(sent.from, from, `${mode}: signed by the mode's wallet`);
+        assertEqual(result.from, from, `${mode}: from`);
+        assertEqual(result.hash, keccak256(raw), `${mode}: hash of the raw transaction`);
+        assertEqual(sent.to, TEST_CONTRACT, `${mode}: to`);
+        assertEqual(sent.value, 3n, `${mode}: value`);
+        assertEqual(sent.data, "0xbeef", `${mode}: data`);
+        assertEqual(sent.chainId, 1n, `${mode}: chainId`);
+        assertEqual(result.mode, mode, `${mode}: mode`);
+        assertEqual((result as any).userOpHash, undefined, `${mode}: no userOpHash`);
+        assertEqual(requireAuth, mode === "STRICT", `${mode}: fresh authentication only in STRICT`);
+        assert(
+          !chain.calls.some((c) => c.method.includes("UserOperation")),
+          `${mode}: no bundler call`
+        );
+      }
+    } finally {
+      await chain.close();
     }
-  });
-
-  // ------------------------------------------------------------------
-  // 4. PRIMARY mode with rpcUrl still throws (not yet supported)
-  // ------------------------------------------------------------------
-  await runTest("PRIMARY mode with rpcUrl throws 'not yet supported'", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
-
-    try {
-      await sdk.sendTransaction(
-        { to: TEST_CONTRACT, chainId: 1 },
-        { mode: "PRIMARY", rpcUrl: "https://example-bundler.io" }
-      );
-      throw new Error("Should have thrown");
-    } catch (error) {
-      const msg = (error as Error).message;
-      const cause = (error as any).cause?.message ?? "";
-      const full = msg + " " + cause;
-      assert(
-        full.includes("authenticated") ||
-          full.includes("not yet supported") ||
-          full.includes("PRIMARY") ||
-          msg.includes("Failed to send transaction"),
-        `Expected 'not yet supported' or auth error, got: ${msg}`
-      );
-      passTest("PRIMARY mode with rpcUrl correctly throws not-yet-supported");
-      logDetail(`Error: ${msg}`);
-    }
+    passTest("STRICT / STANDARD / YOLO send as in v0.11.2");
   });
 
   // ------------------------------------------------------------------
@@ -501,8 +487,7 @@ async function runTests() {
   // ------------------------------------------------------------------
   // Informational note
   // ------------------------------------------------------------------
-  logInfo("Full end-to-end sendTransaction tests (actual broadcast) require");
-  logInfo("a browser WebAuthn environment and a live/forked node RPC.");
+  logInfo("Transactions are broadcast to an in-process mock RPC, not a live node.");
 
   endTestSuite();
 }
