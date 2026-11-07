@@ -185,7 +185,22 @@ const yoloTx = await w3pk.sendTransaction(
 | STANDARD | Session (auto) | Sender address |
 | STRICT | Always (biometric) | Sender address |
 | YOLO | Session (auto) | Sender address |
-| PRIMARY | — (not supported, throws) | Requires bundler |
+| PRIMARY | Passkey prompt per call | Smart account, or an ERC-7677 paymaster |
+
+In PRIMARY mode the passkey's smart account sends an ERC-4337 UserOperation through the bundler set in `bundlerUrls`, deploys itself on its first transaction on a chain, and executes an array of transactions atomically. The returned `hash` is the including transaction's:
+
+```typescript
+const w3pk = createWeb3Passkey({
+  rpcUrls: { 8453: ['https://base.example.com'] },
+  bundlerUrls: { 8453: 'https://bundler.example.com/base' },  // EntryPoint v0.9
+  paymasterUrl: 'https://paymaster.example.com',              // optional: sponsors the gas
+})
+
+const { hash } = await w3pk.sendTransaction(
+  [{ to: token, data: approveCalldata, chainId: 8453 }, { to: router, data: swapCalldata, chainId: 8453 }],
+  { mode: 'PRIMARY' }
+)
+```
 
 ### EIP-1193 Provider
 
@@ -308,7 +323,7 @@ const { signature } = await w3pk.signMessage("Hello World", { mode: 'PRIMARY', c
 
 The PRIMARY address is the counterfactual address of the passkey's [P-256 smart account](./docs/EIP-7951.md#primary-smart-account), computed offchain with no RPC call. Each tag has its own account; accounts of the same passkey are linkable onchain through their shared owner.
 
-`signMessage()` in PRIMARY mode signs EIP-191, SIWE and EIP-712 messages with the passkey as [ERC-7739](https://eips.ethereum.org/EIPS/eip-7739) signatures, bound to the account and the chain. They verify through the account's `isValidSignature` ([EIP-1271](https://eips.ethereum.org/EIPS/eip-1271)), or, while it isn't deployed, as [ERC-6492](https://eips.ethereum.org/EIPS/eip-6492) signatures: viem's `verifyMessage` and `verifyTypedData` handle both. `rawHash` and `sendTransaction()` throw in PRIMARY mode.
+`signMessage()` in PRIMARY mode signs EIP-191, SIWE and EIP-712 messages with the passkey as [ERC-7739](https://eips.ethereum.org/EIPS/eip-7739) signatures, bound to the account and the chain. They verify through the account's `isValidSignature` ([EIP-1271](https://eips.ethereum.org/EIPS/eip-1271)), or, while it isn't deployed, as [ERC-6492](https://eips.ethereum.org/EIPS/eip-6492) signatures: viem's `verifyMessage` and `verifyTypedData` handle both. `rawHash` throws in PRIMARY mode. `sendTransaction()` sends as the account through an ERC-4337 bundler: see [Sending Transactions](#sending-transactions).
 
 ### ERC-5564 Stealth Addresses
 
