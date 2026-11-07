@@ -9,7 +9,7 @@
 
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { AbiCoder, Interface, getBytes, keccak256, toBeHex, zeroPadValue } from "ethers";
+import { AbiCoder, Interface, Transaction, getBytes, keccak256, toBeHex, zeroPadValue } from "ethers";
 import { p256 } from "@noble/curves/nist.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { QX, QY } from "./passkey-signer";
@@ -32,6 +32,10 @@ export const GAS_ESTIMATE = {
   paymasterVerificationGasLimit: 40_000n,
 };
 export const PAYMASTER = "0x" + "9a".repeat(20);
+/** eth_call and eth_estimateGas to it revert with REVERT_DATA, Error("nope") */
+export const REVERTER = "0x" + "de".repeat(20);
+export const REVERT_DATA = new Interface(["function Error(string)"]).encodeFunctionData("Error", ["nope"]);
+export const BALANCE = 10n ** 18n;
 
 export interface MockBundlerOptions {
   chainId?: number;
@@ -66,7 +70,7 @@ export interface MockBundler {
 }
 
 class RpcError extends Error {
-  constructor(public code: number, message: string) {
+  constructor(public code: number, message: string, public data?: string) {
     super(message);
   }
 }
@@ -120,6 +124,7 @@ export async function startMockBundler(options: MockBundlerOptions = {}): Promis
     deployed: new Set<string>(),
     nonces: new Map<string, bigint>(),
     transactions: new Map<string, { userOpHash: string; success: boolean }>(),
+    raw: new Map<string, string>(),
     receipts: new Map<string, { txHash: string; polls: number; success: boolean }>(),
   };
 
@@ -153,6 +158,7 @@ export async function startMockBundler(options: MockBundlerOptions = {}): Promis
         return state.deployed.has(params[0].toLowerCase()) ? "0x6080" : "0x";
       case "eth_call": {
         const { to, data } = params[0];
+        if (to?.toLowerCase() === REVERTER) throw new RpcError(3, "execution reverted: nope", REVERT_DATA);
         if (to.toLowerCase() === P256_PRECOMPILE) {
           return options.precompile === false ? "0x" : zeroPadValue("0x01", 32);
         }
@@ -165,13 +171,43 @@ export async function startMockBundler(options: MockBundlerOptions = {}): Promis
       case "eth_getTransactionCount":
         return "0x0";
       case "eth_estimateGas":
+        if (params[0].to?.toLowerCase() === REVERTER) throw new RpcError(3, "execution reverted: nope", REVERT_DATA);
         return "0x5208";
+      case "eth_getBalance":
+        return toBeHex(BALANCE);
       case "eth_blockNumber":
         return "0x10";
       case "eth_sendRawTransaction": {
         const txHash = keccak256(params[0]);
         state.transactions.set(txHash, { userOpHash: "", success: true });
+        state.raw.set(txHash, params[0]);
         return txHash;
+      }
+      case "eth_getTransactionByHash": {
+        if (!state.transactions.has(params[0])) return null;
+        const raw = state.raw.get(params[0]);
+        const tx = raw ? Transaction.from(raw) : undefined;
+        return {
+          hash: params[0],
+          blockHash: "0x" + "22".repeat(32),
+          blockNumber: "0x11",
+          transactionIndex: "0x0",
+          type: "0x2",
+          chainId: toBeHex(chainId),
+          from: tx?.from ?? "0x" + "be".repeat(20),
+          to: tx?.to ?? ENTRY_POINT_V09,
+          nonce: toBeHex(tx?.nonce ?? 0),
+          gas: toBeHex(tx?.gasLimit ?? 300_000n),
+          maxFeePerGas: toBeHex(tx?.maxFeePerGas ?? BASE_FEE + PRIORITY_FEE),
+          maxPriorityFeePerGas: toBeHex(tx?.maxPriorityFeePerGas ?? PRIORITY_FEE),
+          value: toBeHex(tx?.value ?? 0n),
+          input: tx?.data ?? "0x",
+          accessList: [],
+          r: tx?.signature?.r ?? "0x" + "11".repeat(32),
+          s: tx?.signature?.s ?? "0x" + "22".repeat(32),
+          yParity: toBeHex(tx?.signature?.yParity ?? 0),
+          v: toBeHex(tx?.signature?.yParity ?? 0),
+        };
       }
       case "eth_getBlockByNumber":
         return block();
@@ -280,7 +316,8 @@ export async function startMockBundler(options: MockBundlerOptions = {}): Promis
       return { jsonrpc: "2.0", id: request.id, result: handle(request.method, request.params ?? []) };
     } catch (error) {
       const code = error instanceof RpcError ? error.code : -32603;
-      return { jsonrpc: "2.0", id: request.id, error: { code, message: (error as Error).message } };
+      const data = error instanceof RpcError ? error.data : undefined;
+      return { jsonrpc: "2.0", id: request.id, error: { code, message: (error as Error).message, data } };
     }
   };
 
