@@ -1,0 +1,76 @@
+/**
+ * Checks on every chain it's deployed on, over public RPCs, that `W3pkAccountFactory` is
+ * deployed at `W3PK_ACCOUNT_FACTORY`, that its `implementation()` is the
+ * expected address, with code, and that this address's ERC-1167 clone init
+ * code hash is `W3PK_ACCOUNT_INIT_CODE_HASH`
+ *
+ *   pnpm check:deployments
+ *
+ * Run by hand after a deployment, not in CI. Exits with 1 if a chain fails.
+ */
+
+import { Contract, JsonRpcProvider, concat, getCreateAddress, keccak256 } from "ethers";
+import { W3PK_ACCOUNT_FACTORY, W3PK_ACCOUNT_INIT_CODE_HASH } from "../src/wallet/smart-account";
+
+/** Set `deployed` once the factory is deployed on a chain, so the check covers it */
+const ALL_CHAINS: { name: string; chainId: number; rpcUrl: string; deployed: boolean }[] = [
+  { name: "Ethereum", chainId: 1, rpcUrl: "https://ethereum-rpc.publicnode.com", deployed: false },
+  { name: "OP Mainnet", chainId: 10, rpcUrl: "https://mainnet.optimism.io", deployed: false },
+  { name: "Base", chainId: 8453, rpcUrl: "https://mainnet.base.org", deployed: false },
+  { name: "Arbitrum One", chainId: 42161, rpcUrl: "https://arb1.arbitrum.io/rpc", deployed: false },
+  { name: "Sepolia", chainId: 11155111, rpcUrl: "https://ethereum-sepolia-rpc.publicnode.com", deployed: true },
+  { name: "OP Sepolia", chainId: 11155420, rpcUrl: "https://sepolia.optimism.io", deployed: false },
+  { name: "Base Sepolia", chainId: 84532, rpcUrl: "https://sepolia.base.org", deployed: false },
+  { name: "Arbitrum Sepolia", chainId: 421614, rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc", deployed: false },
+];
+
+const CHAINS = ALL_CHAINS.filter((chain) => chain.deployed);
+
+/** The factory creates the implementation in its constructor, at `CREATE` nonce 1 */
+const EXPECTED_IMPLEMENTATION = getCreateAddress({ from: W3PK_ACCOUNT_FACTORY, nonce: 1 });
+
+function cloneInitCodeHash(implementation: string): string {
+  return keccak256(
+    concat(["0x3d602d80600a3d3981f3363d3d373d3d3d363d73", implementation, "0x5af43d82803e903d91602b57fd5bf3"])
+  );
+}
+
+async function check({ chainId, rpcUrl }: (typeof CHAINS)[number]): Promise<string[]> {
+  const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
+  const actualChainId = Number(await provider.send("eth_chainId", []));
+  if (actualChainId !== chainId) return [`RPC is on chain ${actualChainId}`];
+  if ((await provider.getCode(W3PK_ACCOUNT_FACTORY)) === "0x") return ["factory not deployed"];
+  const factory = new Contract(W3PK_ACCOUNT_FACTORY, ["function implementation() view returns (address)"], provider);
+  let implementation: string;
+  try {
+    implementation = await factory.implementation();
+  } catch {
+    return ["implementation() call failed: the factory isn't W3pkAccountFactory"];
+  }
+  if (implementation !== EXPECTED_IMPLEMENTATION) return [`implementation() is ${implementation}`];
+  if ((await provider.getCode(implementation)) === "0x") return ["implementation not deployed"];
+  return [];
+}
+
+async function main(): Promise<void> {
+  console.log(`factory              ${W3PK_ACCOUNT_FACTORY}`);
+  console.log(`implementation       ${EXPECTED_IMPLEMENTATION}`);
+  console.log(`clone init code hash ${W3PK_ACCOUNT_INIT_CODE_HASH}\n`);
+  const hash = cloneInitCodeHash(EXPECTED_IMPLEMENTATION);
+  if (hash !== W3PK_ACCOUNT_INIT_CODE_HASH) {
+    console.log(`FAIL the implementation's clone init code hash is ${hash}`);
+    process.exit(1);
+  }
+
+  const results = await Promise.all(
+    CHAINS.map((chain) => check(chain).catch((error: Error) => [`RPC error: ${error.message}`]))
+  );
+  CHAINS.forEach(({ name, chainId }, i) => {
+    const errors = results[i];
+    const label = `${name} (${chainId})`.padEnd(28);
+    console.log(`${errors.length ? "FAIL" : "ok  "} ${label}${errors.join("; ")}`);
+  });
+  if (results.some((errors) => errors.length)) process.exit(1);
+}
+
+main();

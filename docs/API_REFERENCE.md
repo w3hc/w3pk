@@ -771,7 +771,7 @@ The passkey signs as its [P-256 smart account](./EIP-7951.md#primary-smart-accou
 - `rawHash` throws: a bare hash through EIP-1271 would skip ERC-7739's replay protection.
 
 ```typescript
-const { signature, address } = await w3pk.signMessage('Hello World', { mode: 'PRIMARY', chainId: 1 })
+const { signature, address } = await w3pk.signMessage('Hello World', { mode: 'PRIMARY', chainId: 11155111 })
 
 const siwe = await w3pk.signMessage(siweMessage, { mode: 'PRIMARY', signingMethod: 'SIWE' })
 ```
@@ -780,9 +780,9 @@ const siwe = await w3pk.signMessage(siweMessage, { mode: 'PRIMARY', signingMetho
 
 ```typescript
 import { createPublicClient, http } from 'viem'
-import { mainnet } from 'viem/chains'
+import { sepolia } from 'viem/chains'
 
-const client = createPublicClient({ chain: mainnet, transport: http() })
+const client = createPublicClient({ chain: sepolia, transport: http() })
 
 const valid = await client.verifyMessage({ address, message, signature })
 const validTyped = await client.verifyTypedData({ address, domain, types, primaryType, message, signature })
@@ -1382,20 +1382,20 @@ The passkey's `W3pkAccount` (the `getAddress('PRIMARY', tag)` address) sends the
 6. Prompts the passkey once to sign the userOpHash, sends the UserOperation with `eth_sendUserOperation`, and polls `eth_getUserOperationReceipt` every second until it is included
 7. Returns the hash of the transaction that included it, so `provider.waitForTransaction(hash)` and viem's `waitForTransactionReceipt` work, along with `userOpHash`
 
-Without a paymaster, the account pays its own gas: fund the `PRIMARY` address before its first transaction. `nonce` is ignored; the UserOperation's `callGasLimit` is the larger of the bundler's estimate and the sum of the `gasLimit`s. In an array, every transaction must have the same `chainId` and fee overrides.
+Without a paymaster, the account pays its own gas: fund the `PRIMARY` address before its first transaction. `nonce` is ignored; the UserOperation's `callGasLimit` is the larger of the bundler's estimate and the sum of the `gasLimit`s. In an array, every transaction must have the same `chainId` and fee overrides. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](../contracts/README.md#deploying-to-a-network)).
 
 ```typescript
 const w3pk = createWeb3Passkey({
-  rpcUrls: { 8453: ['https://base.example.com'] },
-  bundlerUrls: { 8453: 'https://bundler.example.com/base' },
+  rpcUrls: { 11155111: ['https://sepolia.example.com'] },
+  bundlerUrls: { 11155111: 'https://bundler.example.com/sepolia' },
   paymasterUrl: 'https://paymaster.example.com',  // optional
 })
 
 // Approve and swap in one atomic UserOperation
 const { hash, userOpHash, from } = await w3pk.sendTransaction(
   [
-    { to: token, data: approveCalldata, chainId: 8453 },
-    { to: router, data: swapCalldata, chainId: 8453 },
+    { to: token, data: approveCalldata, chainId: 11155111 },
+    { to: router, data: swapCalldata, chainId: 11155111 },
   ],
   { mode: 'PRIMARY', paymasterContext: { policyId: 'my-policy' } }
 )

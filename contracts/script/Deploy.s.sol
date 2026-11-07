@@ -28,7 +28,8 @@ contract Deploy is Script {
         );
         if (address(factory).code.length == 0) {
             vm.broadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
-            new W3pkAccountFactory{salt: SALT}();
+            (bool success,) = CREATE2_DEPLOYER.call(abi.encodePacked(SALT, type(W3pkAccountFactory).creationCode));
+            require(success && address(factory).code.length != 0, "factory not deployed");
         }
         address implementation = address(factory.implementation());
         console.log("chain id      ", block.chainid);
