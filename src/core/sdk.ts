@@ -74,6 +74,7 @@ import {
   typedDataSignPayload,
   wrapErc6492Signature,
 } from "../wallet/erc7739";
+import type { Provider } from "ethers";
 import { signWithPasskey, stubWebAuthnSignature } from "../wallet/webauthn-signature";
 import {
   type UserOperation,
@@ -1257,6 +1258,18 @@ export class Web3Passkey {
     }
   }
 
+  private p256Precompile = new Map<number, Promise<boolean>>();
+
+  /** Whether the chain has the EIP-7951 precompile, checked once per chain */
+  private hasP256Precompile(chainId: number, provider: Pick<Provider, "call">): Promise<boolean> {
+    let result = this.p256Precompile.get(chainId);
+    if (!result) {
+      result = hasP256Precompile(provider);
+      this.p256Precompile.set(chainId, result);
+    }
+    return result;
+  }
+
   private getRpcUrl(chainId: number, rpcUrl?: string): string {
     const url = rpcUrl ?? this.config.rpcUrls?.[chainId]?.[0];
     if (!url) {
@@ -1319,12 +1332,18 @@ export class Web3Passkey {
         txs[0].maxFeePerGas !== undefined && txs[0].maxPriorityFeePerGas !== undefined
           ? null
           : provider.getFeeData(),
-        hasP256Precompile(provider),
+        this.hasP256Precompile(chainId, provider),
       ]);
       const maxFeePerGas = txs[0].maxFeePerGas ?? feeData?.maxFeePerGas;
-      const maxPriorityFeePerGas = txs[0].maxPriorityFeePerGas ?? feeData?.maxPriorityFeePerGas;
+      let maxPriorityFeePerGas = txs[0].maxPriorityFeePerGas ?? feeData?.maxPriorityFeePerGas;
       if (maxFeePerGas == null || maxPriorityFeePerGas == null) {
         throw new WalletError(`Chain ${chainId} reports no EIP-1559 fees`);
+      }
+      if (maxPriorityFeePerGas > maxFeePerGas) {
+        if (txs[0].maxPriorityFeePerGas !== undefined) {
+          throw new WalletError("maxPriorityFeePerGas is above maxFeePerGas");
+        }
+        maxPriorityFeePerGas = maxFeePerGas;
       }
 
       op = {
@@ -1364,8 +1383,9 @@ export class Web3Passkey {
       // The stub signature fails the challenge check before the P-256 verification runs
       op.verificationGasLimit =
         gas.verificationGasLimit + (precompile ? P256_PRECOMPILE_GAS : P256_SOLIDITY_GAS);
-      if (op.paymaster && gas.paymasterVerificationGasLimit !== undefined && !op.paymasterVerificationGasLimit) {
-        op.paymasterVerificationGasLimit = gas.paymasterVerificationGasLimit;
+      if (op.paymaster) {
+        op.paymasterVerificationGasLimit ||= gas.paymasterVerificationGasLimit ?? 0n;
+        op.paymasterPostOpGasLimit ||= gas.paymasterPostOpGasLimit ?? 0n;
       }
 
       if (paymasterUrl && !isFinal) {
