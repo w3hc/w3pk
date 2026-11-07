@@ -1267,8 +1267,8 @@ export class Web3Passkey {
 
   /**
    * Runs PRIMARY sends of one account and chain one after another: the
-   * EntryPoint nonce only advances on inclusion, and an unstaked sender may
-   * have one UserOperation in the mempool (ERC-7562)
+   * EntryPoint nonce only advances on inclusion, and ERC-4337 lets a bundler
+   * refuse a second UserOperation from an unstaked sender
    */
   private queuePrimarySend<T>(key: string, send: () => Promise<T>): Promise<T> {
     const result = (this.primarySends.get(key) ?? Promise.resolve()).then(send);

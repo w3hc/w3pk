@@ -5,9 +5,9 @@
  * It verifies each UserOperation as the EntryPoint v0.9 would before
  * including it: the userOpHash, the WebAuthn signature against the passkey of
  * test/fixtures/passkey-signer.ts, the nonce, and the factory on first use.
- * A UserOperation waits in the mempool, one per sender as ERC-7562 allows an
- * unstaked sender, and is included when its receipt is polled: only then do
- * the sender's EntryPoint nonce and code change.
+ * A UserOperation waits in the mempool, one per sender as ERC-4337 lets a
+ * bundler require of an unstaked sender, and is included when its receipt is
+ * polled: only then do the sender's EntryPoint nonce and code change.
  */
 
 import { createServer, type Server } from "node:http";
