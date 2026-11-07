@@ -10,6 +10,11 @@
  * - personal_sign / eth_sign (plain text, and hex signed as bytes)
  * - eth_signTypedData_v4 (EIP-712 typed data, bound to the active chain)
  * - Unsupported method rejects with 4200 in every mode
+ * - Read methods forwarded to the active chain's endpoint, JSON-RPC errors
+ *   passed through, no request without an endpoint
+ * - options.rpcUrl serves the initial chain only, in every mode
+ * - ethers BrowserProvider signer.sendTransaction() and tx.wait() in
+ *   STANDARD and PRIMARY
  * - Multiple independent provider instances are isolated
  * - on / removeListener event wiring
  * - Typed event handlers compile (type-level, via the TypeScript compiler)
@@ -24,9 +29,9 @@ import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { createEIP1193Provider } from "../src/core/eip1193";
 import { WalletError } from "../src/core/errors";
-import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify, hashMessage, dataSlice, JsonRpcProvider } from "ethers";
+import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify, hashMessage, dataSlice, isError, BrowserProvider, JsonRpcProvider, Transaction } from "ethers";
 import { GAMING_ACCOUNT, MAIN_ACCOUNT, installPasskey, passkeyCalls, primarySdk } from "./fixtures/passkey-signer";
-import { GAS_ESTIMATE, startMockBundler } from "./fixtures/mock-bundler";
+import { BALANCE, GAS_ESTIMATE, REVERTER, REVERT_DATA, startMockBundler } from "./fixtures/mock-bundler";
 import { createSiweMessage } from "../src/siwe";
 import { ERC6492_MAGIC, personalSignHash, typedDataSignPayload } from "../src/wallet/erc7739";
 import { fileURLToPath } from "node:url";
@@ -189,7 +194,7 @@ async function runTests() {
     const { sdk } = stubSdk();
     for (const mode of ["STRICT", "STANDARD", "YOLO", "PRIMARY"] as const) {
       const error = await createEIP1193Provider(sdk, { mode })
-        .request({ method: "eth_getBalance", params: ["0x123", "latest"] })
+        .request({ method: "eth_newFilter", params: [{}] })
         .catch((e) => e);
       assert(error instanceof Error, `${mode}: unsupported method should reject`);
       assertEqual(error.code, 4200, `${mode}: EIP-1193 Unsupported Method`);
@@ -668,6 +673,61 @@ Issued At: 2021-09-30T16:25:24Z`)
   });
 
   // ------------------------------------------------------------------
+  // 23b. options.rpcUrl serves the initial chain only, in every mode
+  // ------------------------------------------------------------------
+  await runTest("After a chain switch, options.rpcUrl isn't passed to sendTransaction", async () => {
+    for (const mode of [undefined, "STRICT", "STANDARD", "YOLO"] as const) {
+      const { sdk } = stubSdk();
+      const sendOptions: any[] = [];
+      sdk.sendTransaction = async (_tx: any, options: any) => {
+        sendOptions.push(options);
+        return { hash: "0xhash" };
+      };
+      const provider = createEIP1193Provider(sdk, { mode, chainId: 10, rpcUrl: "https://rpc.example" });
+      const to = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
+      await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+      await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xa" }] });
+      await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+      assertEqual(sendOptions[0].rpcUrl, "https://rpc.example", `${mode}: initial chain`);
+      assertEqual(sendOptions[1].rpcUrl, undefined, `${mode}: after the switch`);
+      assertEqual(sendOptions[2].rpcUrl, "https://rpc.example", `${mode}: back on the initial chain`);
+    }
+    passTest("options.rpcUrl serves options.chainId only");
+  });
+
+  // ------------------------------------------------------------------
+  // 23c. Read methods without an endpoint throw before any request
+  // ------------------------------------------------------------------
+  await runTest("Without an endpoint for the chain, read methods throw before any request", async () => {
+    const realFetch = globalThis.fetch;
+    let fetches = 0;
+    globalThis.fetch = (async () => {
+      fetches++;
+      throw new Error("no request expected");
+    }) as typeof fetch;
+    try {
+      const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: ["https://one.example"] } });
+      const provider = sdk.getEIP1193Provider({ chainId: 10 });
+      const error = await provider.request({ method: "eth_blockNumber" }).catch((e) => e);
+      assert(error instanceof WalletError, "throws a WalletError");
+      assert(error.message.includes("rpcUrls: { 10:"), `names rpcUrls: ${error.message}`);
+      assert(error.message.includes("options.rpcUrl"), "on the initial chain, names options.rpcUrl");
+
+      const withRpcUrl = sdk.getEIP1193Provider({ chainId: 10, rpcUrl: "https://ten.example" });
+      await withRpcUrl.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
+      const switched = await withRpcUrl.request({ method: "eth_getBalance", params: [MAIN_ACCOUNT, "latest"] }).catch((e) => e);
+      assert(switched.message.includes("rpcUrls: { 8453:"), `names rpcUrls: ${switched.message}`);
+      assert(!switched.message.includes("options.rpcUrl"), "after a switch, options.rpcUrl doesn't apply");
+      assertEqual(fetches, 0, "no request");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    passTest("No endpoint, no request");
+  });
+
+  // ------------------------------------------------------------------
   // 24. PRIMARY mode, against the mock bundler
   // ------------------------------------------------------------------
   installPasskey();
@@ -829,6 +889,120 @@ Issued At: 2021-09-30T16:25:24Z`)
       );
       passTest("eth_sign is refused in PRIMARY mode");
     });
+
+    await runTest("Read methods go to the active chain's endpoint, also after a chain switch", async () => {
+      const optimism = await startMockBundler({ chainId: 10 });
+      const override = await startMockBundler({ chainId: 10 });
+      try {
+        const sdk = createWeb3Passkey({
+          storage: mockLocalStorage,
+          debug: false,
+          rpcUrls: { 1: [bundler.url], 10: [optimism.url, "http://127.0.0.1:1"] },
+        });
+        const balance = (provider: ReturnType<typeof sdk.getEIP1193Provider>) =>
+          provider.request({ method: "eth_getBalance", params: [MAIN_ACCOUNT, "latest"] });
+        const reads = (chain: typeof bundler) => chain.calls.filter((c) => c.method === "eth_getBalance").length;
+
+        const provider = sdk.getEIP1193Provider({ chainId: 1 });
+        assertEqual(BigInt((await balance(provider)) as string), BALANCE, "result passes through");
+        assertEqual(reads(bundler), 1, "rpcUrls[1][0]");
+        await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xa" }] });
+        await balance(provider);
+        assertEqual(reads(optimism), 1, "rpcUrls[10][0] after the switch");
+        assertEqual(reads(bundler), 1, "chain 1 isn't asked after the switch");
+
+        const overridden = sdk.getEIP1193Provider({ chainId: 10, rpcUrl: override.url });
+        await balance(overridden);
+        assertEqual(reads(override), 1, "options.rpcUrl on the initial chain");
+        await overridden.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+        await balance(overridden);
+        assertEqual(reads(bundler), 2, "rpcUrls[1][0] after switching away");
+        await overridden.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xa" }] });
+        await balance(overridden);
+        assertEqual(reads(override), 2, "options.rpcUrl again on the initial chain");
+        assertEqual(reads(optimism), 1, "rpcUrls[10] unused while options.rpcUrl serves chain 10");
+
+        const methods = [
+          ["eth_blockNumber", []],
+          ["eth_getCode", [MAIN_ACCOUNT, "latest"]],
+          ["eth_getTransactionCount", [MAIN_ACCOUNT, "latest"]],
+          ["eth_getBlockByNumber", ["latest", false]],
+          ["eth_gasPrice", []],
+          ["eth_maxPriorityFeePerGas", []],
+        ] as const;
+        for (const [method, params] of methods) {
+          const calls = bundler.calls.length;
+          await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+          await provider.request({ method, params: [...params] });
+          assertEqual(bundler.calls.at(-1)?.method, method, `${method} forwarded`);
+          assertEqual(bundler.calls.length, calls + 1, `${method}: one request`);
+        }
+      } finally {
+        await optimism.close();
+        await override.close();
+      }
+      passTest("Reads follow wallet_switchEthereumChain");
+    });
+
+    await runTest("JSON-RPC errors pass through with their code and data", async () => {
+      const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [bundler.url] } });
+      const provider = sdk.getEIP1193Provider();
+      for (const method of ["eth_call", "eth_estimateGas"]) {
+        const error = await provider
+          .request({ method, params: [{ to: REVERTER, data: "0x" }, "latest"] })
+          .catch((e) => e);
+        assertEqual(error.code, 3, `${method}: code`);
+        assertEqual(error.data, REVERT_DATA, `${method}: data`);
+        assertEqual(error.message, "execution reverted: nope", `${method}: message`);
+      }
+      const missing = await provider
+        .request({ method: "eth_getStorageAt", params: [MAIN_ACCOUNT, "0x0", "latest"] })
+        .catch((e) => e);
+      assertEqual(missing.code, -32601, "endpoint's own error code");
+
+      const browser = new BrowserProvider(provider);
+      for (const call of [() => browser.call({ to: REVERTER }), () => browser.estimateGas({ to: REVERTER })]) {
+        const error = await call().catch((e) => e);
+        assert(isError(error, "CALL_EXCEPTION"), `ethers CALL_EXCEPTION, got ${error?.code}`);
+        assertEqual(error.data, REVERT_DATA, "ethers revert data");
+        assertEqual(error.reason, "nope", "ethers revert reason");
+      }
+      browser.destroy();
+      passTest("Revert data reaches ethers");
+    });
+
+    for (const mode of ["STANDARD", "PRIMARY"] as const) {
+      await runTest(`${mode}: ethers BrowserProvider signer.sendTransaction() and tx.wait()`, async () => {
+        const sdk = await primarySdk({
+          rpcUrls: { 1: [bundler.url] },
+          bundlerUrls: { 1: bundler.url },
+        });
+        const browser = new BrowserProvider(sdk.getEIP1193Provider({ mode }));
+        try {
+          const signer = await browser.getSigner();
+          const sent = bundler.included.length;
+          const tx = await signer.sendTransaction({ to, value: 5n });
+          const receipt = await tx.wait();
+          assertEqual(receipt?.hash, tx.hash, "tx.wait() returns the receipt");
+          assertEqual(receipt?.status, 1, "status");
+          if (mode === "PRIMARY") {
+            assertEqual(signer.address, MAIN_ACCOUNT, "signer is the smart account");
+            assertEqual(bundler.included.length, sent + 1, "sent as a UserOperation");
+            assertEqual(bundler.included.at(-1)!.sender, MAIN_ACCOUNT, "UserOperation sender");
+          } else {
+            const raw = bundler.calls.filter((c) => c.method === "eth_sendRawTransaction").at(-1)!.params[0];
+            const signed = Transaction.from(raw);
+            assertEqual(signed.hash, tx.hash, "hash of the raw transaction");
+            assertEqual(signed.from, signer.address, "signed by the signer's address");
+            assertEqual(signed.value, 5n, "value");
+            assertEqual(signed.gasLimit, 21_000n, "eth_estimateGas through the provider");
+          }
+        } finally {
+          browser.destroy();
+        }
+        passTest(`${mode}: ethers signer sends and waits`);
+      });
+    }
   } finally {
     await bundler.close();
   }
