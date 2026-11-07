@@ -31,7 +31,7 @@ const { address, username } = await w3pk.register({ username: 'alice' })
 await w3pk.login()
 
 // Sign messages (EIP-191, SIWE, EIP-712, rawHash)
-const { signature, address } = await w3pk.signMessage('Hello World')
+const { signature } = await w3pk.signMessage('Hello World')
 
 // Send transactions on-chain
 const tx = await w3pk.sendTransaction({ to: '0x...', value: 1n * 10n**18n, chainId: 1 })
@@ -229,18 +229,17 @@ const { hash } = await w3pk.sendTransaction(
 
 ### EIP-1193 Provider
 
-Use w3pk with any EIP-1193 consumer — ethers, viem, wagmi, RainbowKit — without exposing private keys.
+Use w3pk with EIP-1193 consumers — viem, wagmi, RainbowKit, an ethers signer — without exposing private keys. The provider serves accounts, signing and sending only; read the chain through your own RPC.
 
 ```typescript
 const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
 ```
 
-**ethers v6**
+**ethers v6** (signing only: `signer.sendTransaction()` reads the chain through the provider, which doesn't forward reads)
 ```typescript
-import { BrowserProvider, parseEther } from 'ethers'
-const provider = new BrowserProvider(eip1193)
-const signer = await provider.getSigner()
-const tx = await signer.sendTransaction({ to: '0x...', value: parseEther('1') })
+import { BrowserProvider } from 'ethers'
+const signer = await new BrowserProvider(eip1193).getSigner()
+const sig = await signer.signMessage('Hello World')
 ```
 
 **viem**
@@ -259,7 +258,7 @@ const hash = await client.sendTransaction({ to: '0x...', value: parseEther('1') 
 | `eth_accounts` / `eth_requestAccounts` | Returns the address for the provider's `mode` and `tag` options (STANDARD and MAIN by default) |
 | `eth_chainId` | Returns the active chain as hex (the `chainId` option, 1 by default) |
 | `eth_sendTransaction` | Delegates to `sendTransaction()` |
-| `personal_sign` / `eth_sign` | EIP-191 message signing |
+| `personal_sign` / `eth_sign` | EIP-191 message signing (`eth_sign` rejects with code `4200` in `PRIMARY`) |
 | `eth_signTypedData_v4` | EIP-712 typed data signing, bound to the active chain |
 | `wallet_switchEthereumChain` | Updates active chainId, emits `chainChanged` |
 

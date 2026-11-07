@@ -1882,7 +1882,7 @@ await verifyW3pkIntegrity()
 - **Contract:** [`0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a`](https://optimistic.etherscan.io/address/0xAF48C2DB335eD5da14A2C36a59Bc34407C63e01a)
 - **Network:** OP Mainnet (Chain ID: 10)
 - **Governance:** DAO-controlled via contract ownership
-- **Version Format:** Use `v` prefix (e.g., `v0.9.0`, `v0.9.1`)
+- **Version Format:** Use `v` prefix (e.g., `v0.12.0`, `v0.12.1`)
 
 See [Build Verification Guide](./BUILD_VERIFICATION.md) for detailed documentation.
 
