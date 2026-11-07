@@ -1407,7 +1407,7 @@ const { hash, userOpHash, from } = await w3pk.sendTransaction(
 
 Return an [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) compatible provider backed by this SDK instance.
 
-The returned object implements the standard `request({ method, params })` interface, so viem's `custom` transport, wagmi connectors, RainbowKit and other EIP-1193 consumers can use w3pk without exposing private keys. It serves accounts, signing and sending only: the provider doesn't forward read methods (`eth_blockNumber`, `eth_estimateGas`, `eth_call`, `eth_getTransactionReceipt`, …): they throw as unsupported. viem's wallet client sends straight through `eth_sendTransaction` and works. An ethers `BrowserProvider` signer can sign, but its `sendTransaction` first calls `eth_blockNumber` and fails: send with viem or `w3pk.sendTransaction()`, and read the chain through your own RPC provider.
+The returned object implements the standard `request({ method, params })` interface, so viem's `custom` transport, wagmi connectors, RainbowKit and other EIP-1193 consumers can use w3pk without exposing private keys. It serves accounts, signing and sending only: the provider doesn't forward read methods (`eth_blockNumber`, `eth_estimateGas`, `eth_call`, `eth_getTransactionReceipt`, …): they reject with code `4200` (Unsupported Method). viem's wallet client sends straight through `eth_sendTransaction` and works. An ethers `BrowserProvider` signer can sign, but its `sendTransaction` first calls `eth_blockNumber` and fails: send with viem or `w3pk.sendTransaction()`, and read the chain through your own RPC provider.
 
 **Parameters:**
 
@@ -1478,7 +1478,7 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 |-------|---------|---------|
 | `chainChanged` | `string` (hex chainId) | `wallet_switchEthereumChain` |
 
-Unsupported methods throw `WalletError: w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with an error whose `code` is `4200` (Unsupported Method).
+Unsupported methods reject, in every mode, with an error whose `code` is `4200` (Unsupported Method) and whose message is `w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with code `4200` too.
 
 **Example — ethers v6 (signing only):**
 

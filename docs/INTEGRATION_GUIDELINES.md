@@ -538,7 +538,7 @@ const result = await w3pk.sendTransaction({ to: '0x...', chainId: 1 })
 
 ## EIP-1193 Provider
 
-`getEIP1193Provider()` returns a standard [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) provider that wraps the SDK. Plug it into viem, wagmi or RainbowKit, or use it as an ethers signer for signing. The provider doesn't forward read methods (`eth_blockNumber`, `eth_estimateGas`, `eth_call`, `eth_getTransactionReceipt`, …): they throw as unsupported. viem's wallet client sends straight through `eth_sendTransaction` and works. An ethers `BrowserProvider` signer can sign, but its `sendTransaction` first calls `eth_blockNumber` and fails: send with viem or `w3pk.sendTransaction()`, and read the chain through your own RPC provider.
+`getEIP1193Provider()` returns a standard [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) provider that wraps the SDK. Plug it into viem, wagmi or RainbowKit, or use it as an ethers signer for signing. The provider doesn't forward read methods (`eth_blockNumber`, `eth_estimateGas`, `eth_call`, `eth_getTransactionReceipt`, …): they reject with code `4200` (Unsupported Method). viem's wallet client sends straight through `eth_sendTransaction` and works. An ethers `BrowserProvider` signer can sign, but its `sendTransaction` first calls `eth_blockNumber` and fails: send with viem or `w3pk.sendTransaction()`, and read the chain through your own RPC provider.
 
 ```typescript
 const eip1193 = w3pk.getEIP1193Provider({ chainId: 1 })
