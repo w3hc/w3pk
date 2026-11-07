@@ -125,7 +125,7 @@ export interface TransactionRequest {
   value?: bigint;
   data?: string;
   chainId: number;
-  /** Ignored in PRIMARY mode: the bundler estimates the UserOperation's gas */
+  /** PRIMARY mode: the UserOperation's callGasLimit is the larger of the bundler's estimate and the sum of the gasLimits */
   gasLimit?: bigint;
   maxFeePerGas?: bigint;
   maxPriorityFeePerGas?: bigint;

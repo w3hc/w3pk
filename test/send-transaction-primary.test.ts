@@ -206,9 +206,20 @@ async function runTests() {
     assert.strictEqual(op.maxFeePerGas, "0x7");
     assert.strictEqual(op.maxPriorityFeePerGas, "0x3");
     assert.strictEqual(op.nonce, "0x0", "nonce from the EntryPoint");
+    assert.strictEqual(BigInt(op.callGasLimit), GAS_ESTIMATE.callGasLimit, "a gasLimit below the estimate is raised to it");
     assert(!bundler.calls.some((c) => c.method === "eth_getBlockByNumber"), "no fee lookup with both fees set");
     assert.deepStrictEqual([...factory.decodeFunctionData("createAccount", op.factoryData)], [QX, QY, "GAMING"]);
-    console.log("✅ Per-call bundler and fee overrides");
+
+    await sdk.sendTransaction(
+      [
+        { to: RECIPIENT, chainId: 1, gasLimit: 60_000n },
+        { to: TOKEN, chainId: 1, gasLimit: 50_000n },
+        { to: TOKEN, chainId: 1 },
+      ],
+      { mode: "PRIMARY", tag: "GAMING", bundlerUrl: bundler.url }
+    );
+    assert.strictEqual(BigInt(bundler.included[1].callGasLimit), 110_000n, "gasLimits above the estimate are summed");
+    console.log("✅ Per-call bundler, fee and gas overrides");
   });
 
   console.log("\nTest 8: missing endpoints and invalid input fail before the passkey prompt");

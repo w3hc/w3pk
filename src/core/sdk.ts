@@ -1165,7 +1165,8 @@ export class Web3Passkey {
    * @param tx.value - Value in wei (optional)
    * @param tx.data - Hex calldata (optional, default "0x")
    * @param tx.chainId - Chain ID (required)
-   * @param tx.gasLimit - Gas limit override (optional, ignored in PRIMARY mode: the bundler estimates gas)
+   * @param tx.gasLimit - Gas limit override (optional); in PRIMARY mode the UserOperation's
+   *   callGasLimit is the larger of the bundler's estimate and the sum of the gasLimits
    * @param tx.maxFeePerGas - EIP-1559 max fee per gas (optional)
    * @param tx.maxPriorityFeePerGas - EIP-1559 max priority fee per gas (optional)
    * @param tx.nonce - Nonce override (optional, ignored in PRIMARY mode: the EntryPoint sets it)
@@ -1379,7 +1380,8 @@ export class Web3Passkey {
 
       const gas = await estimateUserOperationGas(bundlerUrl, op);
       op.preVerificationGas = gas.preVerificationGas;
-      op.callGasLimit = gas.callGasLimit;
+      const gasLimit = txs.reduce((sum, t) => sum + (t.gasLimit ?? 0n), 0n);
+      op.callGasLimit = gas.callGasLimit > gasLimit ? gas.callGasLimit : gasLimit;
       // The stub signature fails the challenge check before the P-256 verification runs
       op.verificationGasLimit =
         gas.verificationGasLimit + (precompile ? P256_PRECOMPILE_GAS : P256_SOLIDITY_GAS);
