@@ -15,6 +15,7 @@ import {
   GAS_ESTIMATE,
   PAYMASTER,
   PRIORITY_FEE,
+  REVERT_DATA,
   type MockBundler,
   startMockBundler,
 } from "./fixtures/mock-bundler";
@@ -319,6 +320,76 @@ async function runTests() {
     assert.notStrictEqual(getUserOperationHash(op, 1), getUserOperationHash(op, 10), "bound to the chain");
     console.log("✅ v0.9 paymaster signature hashing");
   }
+
+  console.log("\nTest 13: concurrent sends from one account land one after another, with nonces 0 and 1");
+  await withBundler({ pendingPolls: 2 }, async (bundler) => {
+    const sdk = await primarySdk(config(bundler));
+    const [a, b] = await Promise.all([
+      sdk.sendTransaction({ to: RECIPIENT, value: 1n, chainId: 1 }, { mode: "PRIMARY" }),
+      sdk.sendTransaction({ to: RECIPIENT, value: 2n, chainId: 1 }, { mode: "PRIMARY" }),
+    ]);
+    assert.deepStrictEqual(bundler.included.map((op) => op.nonce), ["0x0", "0x1"]);
+    assert.strictEqual(bundler.included[0].factory, W3PK_ACCOUNT_FACTORY, "the first send deploys the account");
+    assert.strictEqual(bundler.included[1].factory, undefined, "the second doesn't");
+    assert.notStrictEqual(a.hash, b.hash);
+    const methods = bundler.calls.map((c) => c.method);
+    const sends = methods.flatMap((m, i) => (m === "eth_sendUserOperation" ? [i] : []));
+    const lastPoll = methods.lastIndexOf("eth_getUserOperationReceipt", sends[1]);
+    assert(lastPoll > sends[0], "the second is sent after the first is included");
+    assert.strictEqual((sdk as any).primarySends.size, 0, "the queue is cleaned up");
+    console.log("✅ Concurrent sends serialized");
+  });
+
+  console.log("\nTest 14: a failed send doesn't block the next");
+  await withBundler({}, async (bundler) => {
+    const sdk = await primarySdk(config(bundler, { paymasterUrl: bundler.url }));
+    const [denied, sent] = await Promise.allSettled([
+      sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY", paymasterContext: { policy: "deny" } }),
+      sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" }),
+    ]);
+    assert.strictEqual(denied.status, "rejected");
+    assert.strictEqual(sent.status, "fulfilled");
+    assert.deepStrictEqual(bundler.included.map((op) => op.nonce), ["0x0"]);
+  });
+  await withBundler({ revert: REVERT_DATA }, async (bundler) => {
+    const sdk = await primarySdk(config(bundler));
+    const results = await Promise.allSettled([
+      sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" }),
+      sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" }),
+    ]);
+    assert.deepStrictEqual(results.map((r) => r.status), ["rejected", "rejected"], "both revert");
+    assert.deepStrictEqual(bundler.included.map((op) => op.nonce), ["0x0", "0x1"], "both are included");
+    console.log("✅ Failed sends don't block the queue");
+  });
+
+  console.log("\nTest 15: other tags and chains aren't queued behind a pending send");
+  await withBundler({ neverInclude: true }, async (stuck) => {
+    await withBundler({ chainId: 10 }, async (other) => {
+      const sdk = await primarySdk({
+        rpcUrls: { 1: [stuck.url], 10: [other.url] },
+        bundlerUrls: { 1: stuck.url, 10: other.url },
+      });
+      const userOpsSent = () => stuck.calls.filter((c) => c.method === "eth_sendUserOperation").length;
+      let mainPending = true;
+      let sentBeforeTimeout = 0;
+      const main = rejection(
+        sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY", timeout: 1500 }).finally(() => {
+          mainPending = false;
+          sentBeforeTimeout = userOpsSent();
+        })
+      );
+      const gaming = rejection(
+        sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY", tag: "GAMING", timeout: 1500 })
+      );
+      const result = await sdk.sendTransaction({ to: RECIPIENT, chainId: 10 }, { mode: "PRIMARY" });
+      assert(mainPending, "chain 10 lands while chain 1 is pending");
+      assert.strictEqual(result.from, MAIN_ACCOUNT);
+      assert((await main).includes("not included"));
+      assert((await gaming).includes("not included"));
+      assert.strictEqual(sentBeforeTimeout, 2, "GAMING was sent while MAIN was pending");
+      console.log("✅ Queues are per tag and chain");
+    });
+  });
 
   console.log("\n🎉 All PRIMARY mode sendTransaction tests passed!\n");
 }
