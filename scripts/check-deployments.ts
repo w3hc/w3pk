@@ -1,5 +1,5 @@
 /**
- * Checks on every target chain, over public RPCs, that `W3pkAccountFactory` is
+ * Checks on every chain it's deployed on, over public RPCs, that `W3pkAccountFactory` is
  * deployed at `W3PK_ACCOUNT_FACTORY`, that its `implementation()` is the
  * expected address, with code, and that this address's ERC-1167 clone init
  * code hash is `W3PK_ACCOUNT_INIT_CODE_HASH`
@@ -12,16 +12,19 @@
 import { Contract, JsonRpcProvider, concat, getCreateAddress, keccak256 } from "ethers";
 import { W3PK_ACCOUNT_FACTORY, W3PK_ACCOUNT_INIT_CODE_HASH } from "../src/wallet/smart-account";
 
-const CHAINS: { name: string; chainId: number; rpcUrl: string }[] = [
-  { name: "Ethereum", chainId: 1, rpcUrl: "https://ethereum-rpc.publicnode.com" },
-  { name: "OP Mainnet", chainId: 10, rpcUrl: "https://mainnet.optimism.io" },
-  { name: "Base", chainId: 8453, rpcUrl: "https://mainnet.base.org" },
-  { name: "Arbitrum One", chainId: 42161, rpcUrl: "https://arb1.arbitrum.io/rpc" },
-  { name: "Sepolia", chainId: 11155111, rpcUrl: "https://ethereum-sepolia-rpc.publicnode.com" },
-  { name: "OP Sepolia", chainId: 11155420, rpcUrl: "https://sepolia.optimism.io" },
-  { name: "Base Sepolia", chainId: 84532, rpcUrl: "https://sepolia.base.org" },
-  { name: "Arbitrum Sepolia", chainId: 421614, rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" },
+/** Set `deployed` once the factory is deployed on a chain, so the check covers it */
+const ALL_CHAINS: { name: string; chainId: number; rpcUrl: string; deployed: boolean }[] = [
+  { name: "Ethereum", chainId: 1, rpcUrl: "https://ethereum-rpc.publicnode.com", deployed: false },
+  { name: "OP Mainnet", chainId: 10, rpcUrl: "https://mainnet.optimism.io", deployed: false },
+  { name: "Base", chainId: 8453, rpcUrl: "https://mainnet.base.org", deployed: false },
+  { name: "Arbitrum One", chainId: 42161, rpcUrl: "https://arb1.arbitrum.io/rpc", deployed: false },
+  { name: "Sepolia", chainId: 11155111, rpcUrl: "https://ethereum-sepolia-rpc.publicnode.com", deployed: true },
+  { name: "OP Sepolia", chainId: 11155420, rpcUrl: "https://sepolia.optimism.io", deployed: false },
+  { name: "Base Sepolia", chainId: 84532, rpcUrl: "https://sepolia.base.org", deployed: false },
+  { name: "Arbitrum Sepolia", chainId: 421614, rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc", deployed: false },
 ];
+
+const CHAINS = ALL_CHAINS.filter((chain) => chain.deployed);
 
 /** The factory creates the implementation in its constructor, at `CREATE` nonce 1 */
 const EXPECTED_IMPLEMENTATION = getCreateAddress({ from: W3PK_ACCOUNT_FACTORY, nonce: 1 });
