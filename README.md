@@ -58,9 +58,34 @@ const endpoints = await w3pk.getEndpoints(1)
 - Hybrid post-quantum encryption (HPKE over ML-KEM-1024 + X25519)
 - Chainlist support (every network on chainid.network, fetched live)
 - EIP-7702 network detection (329 known networks, RPC probing for the others)
-- EIP-7951 PRIMARY mode (P-256 passkey signing)
+- EIP-7951 PRIMARY mode: a P-256 passkey smart account (ERC-4337, EIP-1271) that signs and sends without trusting the host app ([trust model](#trust-model))
 - Build verification (IPFS CID hashing + DAO-maintained onchain registry)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
+
+## Trust model
+
+w3pk runs inside the host app's page, as code the host serves. What the host can do depends on the mode.
+
+**`PRIMARY`: the user doesn't need to trust the host app.**
+- The passkey's P-256 key never leaves the authenticator (or the passkey provider that syncs it). The account is a [`W3pkAccount`](./docs/EIP-7951.md#primary-smart-account) smart account that verifies the passkey's WebAuthn assertions onchain.
+- Nothing in the page can sign without a user-verified prompt: no mnemonic, no session key, no exportable private key. A host that ships a modified SDK still can't extract the key, or sign once the user has left.
+- The passkey is bound to the host's domain (its RP ID), so another site can't ask for it.
+
+A malicious host app can still attempt the following in `PRIMARY` mode:
+- **Blind signing.** The passkey prompt shows the site and the account, never what is being signed. The host can show "Sign in" and get a UserOperation or a message signed instead. That includes a transfer, a token approval, an EIP-712 permit or Permit2 signature, or an ERC-7579 `installModule` that gives it a lasting validator, executor or hook on the account.
+- **Prompt fatigue.** It can ask for prompt after prompt until the user approves one without thinking.
+- **Misleading display.** It controls the UI and chooses the RPC, so it can show false balances, prices, recipients or transaction results.
+- **Censorship.** It chooses the bundler and paymaster. It can delay, drop or refuse to send a UserOperation, but can't change one after it is signed.
+- **Privacy.** It learns the account's address. Every tag's account shares the same owner key, so they're linkable onchain.
+
+So in `PRIMARY` the user's protection is the prompt: approve it only for an action you started. Spending limits and allowlists can be enforced onchain by an ERC-7579 hook, which sees every execution.
+
+**`STRICT`, `STANDARD` and `YOLO`: the user trusts the host app.**
+- The SDK decrypts the PRF-encrypted mnemonic in the page to derive secp256k1 keys. Code running on the host's origin can therefore reach those keys: the host itself, a malicious dependency, a compromised CDN or an XSS.
+- In `STANDARD` and `YOLO`, that code can sign silently while a session is live. In `YOLO`, the app gets the private key itself. `STRICT` keeps no session and asks for the passkey on every call, but the key still sits in the page's memory while it signs.
+- These modes are for apps the user already trusts. [Build verification](./docs/BUILD_VERIFICATION.md) lets an honest host prove which w3pk build it serves, but it doesn't protect anyone from a dishonest host.
+
+See [SECURITY.md](./docs/SECURITY.md#primary-mode-the-p-256-smart-account) for the full model.
 
 ## API
 
@@ -480,6 +505,7 @@ Host applications should verify their installed W3PK build against this registry
 - [Build Verification](./docs/BUILD_VERIFICATION.md)
 - [EIP-7702](./docs/EIP_7702.md)
 - [EIP-7951](./docs/EIP-7951.md)
+- [Deploying the contracts](./docs/DEPLOYMENT.md) - `PRIMARY` account contracts on a new network
 - [Security Architecture](./docs/SECURITY.md)
 - [Post-Quantum Cryptography](./docs/POST_QUANTUM.md) - Quantum-safe migration roadmap
 - [Recovery & Backup System](./docs/RECOVERY.md)
