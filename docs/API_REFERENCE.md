@@ -1407,7 +1407,7 @@ const { hash, userOpHash, from } = await w3pk.sendTransaction(
 
 Return an [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) compatible provider backed by this SDK instance.
 
-The returned object implements the standard `request({ method, params })` interface, so viem's `custom` transport, wagmi connectors, RainbowKit and other EIP-1193 consumers can use w3pk without exposing private keys. It serves accounts, signing and sending only: the provider doesn't forward read methods (`eth_blockNumber`, `eth_estimateGas`, `eth_call`, `eth_getTransactionReceipt`, …): they reject with code `4200` (Unsupported Method). viem's wallet client sends straight through `eth_sendTransaction` and works. An ethers `BrowserProvider` signer can sign, but its `sendTransaction` first calls `eth_blockNumber` and fails: send with viem or `w3pk.sendTransaction()`, and read the chain through your own RPC provider.
+The returned object implements the standard `request({ method, params })` interface, so viem's `custom` transport, wagmi connectors, RainbowKit and other EIP-1193 consumers can use w3pk without exposing private keys. It serves accounts, signing and sending, and forwards read methods to the active chain's RPC endpoint, so an ethers `BrowserProvider` signer can send and wait for transactions.
 
 **Parameters:**
 
@@ -1416,12 +1416,12 @@ options?: {
   mode?: SecurityMode;  // Security mode used for all operations (default: 'STANDARD')
   tag?: string;         // Wallet tag (default: 'MAIN')
   chainId?: number;     // Initial chainId reported by eth_chainId (default: 1)
-  rpcUrl?: string;      // RPC override passed to eth_sendTransaction (else rpcUrls for the active chain, required)
+  rpcUrl?: string;      // RPC endpoint of the initial chain, for read methods and eth_sendTransaction (else rpcUrls for the active chain, required)
   bundlerUrl?: string;  // PRIMARY: bundler endpoint (else bundlerUrls for the active chain)
 }
 ```
 
-In `PRIMARY` mode, `rpcUrl` and `bundlerUrl` serve the initial `chainId` only: after `wallet_switchEthereumChain`, the config's `rpcUrls` and `bundlerUrls` for the new chain are used.
+In every mode, `rpcUrl` and `bundlerUrl` serve the initial `chainId` only: after `wallet_switchEthereumChain`, the config's `rpcUrls` and `bundlerUrls` for the new chain are used.
 
 **Returns:** An object with:
 
@@ -1457,6 +1457,9 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 | `eth_sign` | `string` (sig) | Legacy; same behaviour as `personal_sign` |
 | `eth_signTypedData_v4` | `string` (sig) | EIP-712; `EIP712Domain` stripped automatically; refused if the domain `chainId` isn't the active chain |
 | `wallet_switchEthereumChain` | `null` | Updates active chainId and emits `chainChanged` |
+| `eth_blockNumber`, `eth_call`, `eth_estimateGas`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_getLogs`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `net_version` | The endpoint's result | Forwarded as raw JSON-RPC to the active chain's endpoint |
+
+**Read methods:** They go to the provider's `rpcUrl` option on the initial chain, otherwise to `rpcUrls[chainId][0]` from the config for the active chain, and follow `wallet_switchEthereumChain`; without an endpoint for the chain they throw before any request. JSON-RPC errors pass through with their `code` and `data`, so ethers decodes reverts.
 
 **Methods by mode:**
 
@@ -1469,6 +1472,7 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 | `eth_signTypedData_v4` | EIP-712 signature | ERC-7739 `TypedDataSign`, bound to the active chain |
 | `eth_sign` | EIP-191 signature | ❌ Rejects with code `4200`: through EIP-1271, a bare hash would skip ERC-7739's replay protection |
 | `eth_signTransaction` | ❌ | ❌ A contract account has no raw transaction to sign |
+| Read methods (`eth_call`, `eth_getTransactionReceipt`, …) | Forwarded to the active chain's endpoint | Forwarded to the active chain's endpoint |
 
 `PRIMARY` signatures verify through the account's EIP-1271 `isValidSignature`, ERC-6492-wrapped while it isn't deployed on the active chain.
 
@@ -1478,12 +1482,12 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 |-------|---------|---------|
 | `chainChanged` | `string` (hex chainId) | `wallet_switchEthereumChain` |
 
-Unsupported methods reject, in every mode, with an error whose `code` is `4200` (Unsupported Method) and whose message is `w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with code `4200` too.
+Any other method rejects, in every mode, with an error whose `code` is `4200` (Unsupported Method) and whose message is `w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with code `4200` too.
 
-**Example — ethers v6 (signing only):**
+**Example — ethers v6:**
 
 ```typescript
-import { BrowserProvider, JsonRpcProvider } from 'ethers'
+import { BrowserProvider, parseEther } from 'ethers'
 
 await w3pk.login()
 const signer = await new BrowserProvider(w3pk.getEIP1193Provider({ chainId: 1 })).getSigner()
@@ -1491,9 +1495,8 @@ const signer = await new BrowserProvider(w3pk.getEIP1193Provider({ chainId: 1 })
 const sig = await signer.signMessage('Hello World')
 const permit = await signer.signTypedData(domain, types, value)
 
-// signer.sendTransaction() fails: it reads the chain through the provider. Send with w3pk, wait with your own RPC
-const { hash } = await w3pk.sendTransaction({ to: '0xRecipient...', value: 10n ** 18n, chainId: 1 })
-await new JsonRpcProvider('https://eth.example.com').waitForTransaction(hash)
+const tx = await signer.sendTransaction({ to: '0xRecipient...', value: parseEther('1') })
+const receipt = await tx.wait()
 ```
 
 **Example — viem:**

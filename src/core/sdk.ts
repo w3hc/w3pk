@@ -1563,6 +1563,16 @@ export class Web3Passkey {
    * - personal_sign / eth_sign            → delegates to signMessage() EIP-191
    * - eth_signTypedData_v4                → delegates to signMessage() EIP-712
    * - wallet_switchEthereumChain          → updates the active chainId
+   * - eth_blockNumber, eth_call, eth_estimateGas, eth_getBalance, eth_getCode,
+   *   eth_getStorageAt, eth_getTransactionCount, eth_getTransactionByHash,
+   *   eth_getTransactionReceipt, eth_getBlockByNumber, eth_getBlockByHash,
+   *   eth_getLogs, eth_gasPrice, eth_maxPriorityFeePerGas, eth_feeHistory,
+   *   net_version                         → forwarded to the active chain's RPC endpoint
+   *
+   * Read methods go to options.rpcUrl on the initial chain, otherwise to
+   * `rpcUrls[chainId][0]` from the config, and throw before any request if
+   * neither is set. JSON-RPC errors pass through with their code and data.
+   * Any other method rejects with error 4200.
    *
    * In PRIMARY mode the passkey's P-256 smart account sends ERC-4337
    * UserOperations and signs ERC-7739 signatures bound to the active chain;
@@ -1573,10 +1583,10 @@ export class Web3Passkey {
    * @param options.mode       - Security mode for signing/sending (default: 'STANDARD')
    * @param options.tag        - Wallet tag (default: 'MAIN')
    * @param options.chainId    - Initial chainId reported to consumers (default: 1)
-   * @param options.rpcUrl     - RPC endpoint override passed to sendTransaction() and, in PRIMARY mode, signMessage()
+   * @param options.rpcUrl     - RPC endpoint for read methods, sendTransaction() and, in PRIMARY mode, signMessage() (default: `rpcUrls[chainId][0]`)
    * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
    *
-   * In PRIMARY mode, rpcUrl and bundlerUrl serve options.chainId only: after
+   * rpcUrl and bundlerUrl serve options.chainId only: after
    * wallet_switchEthereumChain, the config's rpcUrls and bundlerUrls for the new chain are used.
    *
    * @example
@@ -1596,7 +1606,7 @@ export class Web3Passkey {
     rpcUrl?: string;
     bundlerUrl?: string;
   }): EIP1193ProviderInterface {
-    return createEIP1193Provider(this, options);
+    return createEIP1193Provider(this, options, (chainId) => this.config.rpcUrls?.[chainId]?.[0]);
   }
 
   /**

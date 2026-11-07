@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Read methods in the EIP-1193 provider** ([#321](https://github.com/w3hc/w3pk/issues/321))
+  - `eth_blockNumber`, `eth_call`, `eth_estimateGas`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_getLogs`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory` and `net_version` are forwarded as raw JSON-RPC to the active chain's endpoint: the provider's `rpcUrl` option on the initial chain, otherwise `rpcUrls[chainId][0]`; they follow `wallet_switchEthereumChain`
+  - JSON-RPC errors pass through with their `code` and `data`, so ethers decodes reverts from `eth_call` and `eth_estimateGas`
+  - Without an endpoint for the active chain, read methods throw before any request; any other method still rejects with code `4200`
+  - An ethers `BrowserProvider` signer's `sendTransaction()` and `tx.wait()` work again, in every mode
+
 ### Fixed
 
+- **EIP-1193 sends after a chain switch use the new chain's endpoint** ([#321](https://github.com/w3hc/w3pk/issues/321))
+  - The provider's `rpcUrl` and `bundlerUrl` options serve the initial chain only, in every mode: after `wallet_switchEthereumChain`, `eth_sendTransaction` in `STRICT`, `STANDARD` and `YOLO` uses `rpcUrls` for the new chain instead of the initial chain's `rpcUrl`, as `PRIMARY` already did
 - **Unsupported EIP-1193 methods reject with code `4200`** ([#323](https://github.com/w3hc/w3pk/issues/323))
   - In every mode, a method the provider doesn't serve rejects with an error whose `code` is `4200` (Unsupported Method) instead of a `WalletError` without a code
 

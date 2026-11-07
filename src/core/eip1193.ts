@@ -57,6 +57,53 @@ class UnsupportedMethodError extends Error implements ProviderRpcError {
   }
 }
 
+/** A JSON-RPC error from the chain's endpoint, with its code and data unchanged */
+class JsonRpcError extends Error implements ProviderRpcError {
+  constructor(public code: number, message: string, public data?: unknown) {
+    super(message);
+    this.name = "JsonRpcError";
+  }
+}
+
+/** Read-only methods forwarded to the active chain's RPC endpoint */
+const READ_METHODS = new Set([
+  'eth_blockNumber',
+  'eth_call',
+  'eth_estimateGas',
+  'eth_getBalance',
+  'eth_getCode',
+  'eth_getStorageAt',
+  'eth_getTransactionCount',
+  'eth_getTransactionByHash',
+  'eth_getTransactionReceipt',
+  'eth_getBlockByNumber',
+  'eth_getBlockByHash',
+  'eth_getLogs',
+  'eth_gasPrice',
+  'eth_maxPriorityFeePerGas',
+  'eth_feeHistory',
+  'net_version',
+]);
+
+let requestId = 0;
+
+async function forward(url: string, method: string, params: unknown[] | undefined): Promise<unknown> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: ++requestId, method, params: params ?? [] }),
+  });
+  const body = await response.json().catch(() => undefined);
+  if (body?.error) {
+    const { code, message, data } = body.error;
+    throw new JsonRpcError(code, message, data);
+  }
+  if (!response.ok || !body || !('result' in body)) {
+    throw new WalletError(`w3pk EIP-1193: ${method} failed: HTTP ${response.status} from ${url}`);
+  }
+  return body.result;
+}
+
 /** Returns true if a string is 0x-prefixed hex encoding whole bytes */
 function isHex(value: string): boolean {
   return typeof value === 'string' && /^0x(?:[0-9a-fA-F]{2})*$/.test(value);
@@ -79,16 +126,28 @@ export function createEIP1193Provider(
     chainId?: number;
     rpcUrl?: string;
     bundlerUrl?: string;
-  }
+  },
+  rpcUrlFor?: (chainId: number) => string | undefined
 ): EIP1193ProviderInterface {
   let activeChainId = options?.chainId ?? 1;
   const initialChainId = activeChainId;
   const isPrimary = options?.mode === 'PRIMARY';
-  // In PRIMARY mode, a chain the endpoints don't serve falls back to the config's
+  // options.rpcUrl and bundlerUrl serve the initial chain only; other chains use the config's
   const endpoints = () =>
-    isPrimary && activeChainId !== initialChainId
+    activeChainId !== initialChainId
       ? {}
       : { rpcUrl: options?.rpcUrl, bundlerUrl: options?.bundlerUrl };
+  const rpcUrl = () => {
+    const url = endpoints().rpcUrl ?? rpcUrlFor?.(activeChainId);
+    if (!url) {
+      throw new WalletError(
+        `No RPC endpoint set for chainId ${activeChainId}. Set rpcUrls in the config ` +
+        `(rpcUrls: { ${activeChainId}: ['https://...'] })` +
+        (activeChainId === initialChainId ? ' or pass options.rpcUrl.' : '.')
+      );
+    }
+    return url;
+  };
   const primarySigning = () => (isPrimary ? { chainId: activeChainId, rpcUrl: endpoints().rpcUrl } : {});
 
   // Minimal EventEmitter (subset needed by EIP-1193)
@@ -239,6 +298,9 @@ export function createEIP1193Provider(
         }
 
         default:
+          if (READ_METHODS.has(method)) {
+            return forward(rpcUrl(), method, params);
+          }
           throw new UnsupportedMethodError(
             `w3pk EIP-1193: unsupported method "${method}"`
           );
