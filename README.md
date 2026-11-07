@@ -302,12 +302,13 @@ const authorization = await w3pk.signAuthorization({
 // Get PRIMARY address (the passkey's P-256 smart account, one per tag)
 const primaryAddr = await w3pk.getAddress('PRIMARY')
 
-// Sign with P-256 passkey directly (no private key)
-const result = await w3pk.signMessageWithPasskey("Hello World")
-// Returns: { signature: { r, s }, messageHash, signedHash, address, publicKey: { qx, qy } }
+// Sign with the passkey, as the smart account (EIP-1271)
+const { signature } = await w3pk.signMessage("Hello World", { mode: 'PRIMARY', chainId: 1 })
 ```
 
-The PRIMARY address is the counterfactual address of the passkey's [P-256 smart account](./docs/EIP-7951.md#primary-smart-account), computed offchain with no RPC call. Each tag has its own account; accounts of the same passkey are linkable onchain through their shared owner. `signMessageWithPasskey()` still returns the old `keccak256(x ‖ y)` address, which no key controls. `sendTransaction()` and SIWE signing throw in PRIMARY mode.
+The PRIMARY address is the counterfactual address of the passkey's [P-256 smart account](./docs/EIP-7951.md#primary-smart-account), computed offchain with no RPC call. Each tag has its own account; accounts of the same passkey are linkable onchain through their shared owner.
+
+`signMessage()` in PRIMARY mode signs EIP-191, SIWE and EIP-712 messages with the passkey as [ERC-7739](https://eips.ethereum.org/EIPS/eip-7739) signatures, bound to the account and the chain. They verify through the account's `isValidSignature` ([EIP-1271](https://eips.ethereum.org/EIPS/eip-1271)), or, while it isn't deployed, as [ERC-6492](https://eips.ethereum.org/EIPS/eip-6492) signatures: viem's `verifyMessage` and `verifyTypedData` handle both. `rawHash` and `sendTransaction()` throw in PRIMARY mode.
 
 ### ERC-5564 Stealth Addresses
 
