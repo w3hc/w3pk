@@ -476,26 +476,26 @@ const gamingTx = await w3pk.sendTransaction(
 
 ### PRIMARY Mode: Passkey Smart Account
 
-In PRIMARY mode no secp256k1 key exists: the passkey's `W3pkAccount` sends an [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) UserOperation through a bundler that supports EntryPoint v0.9. Set a bundler per chain, and optionally an [ERC-7677](https://eips.ethereum.org/EIPS/eip-7677) paymaster service; without one, the account pays its own gas, so fund `await w3pk.getAddress('PRIMARY')` first.
+In PRIMARY mode no secp256k1 key exists: the passkey's `W3pkAccount` sends an [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) UserOperation through a bundler that supports EntryPoint v0.9. Set a bundler per chain, and optionally an [ERC-7677](https://eips.ethereum.org/EIPS/eip-7677) paymaster service; without one, the account pays its own gas, so fund `await w3pk.getAddress('PRIMARY')` first. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](../contracts/README.md#deploying-to-a-network)).
 
 ```typescript
 const w3pk = createWeb3Passkey({
-  rpcUrls: { 8453: ['https://base.example.com'] },              // nonce, code and fees
-  bundlerUrls: { 8453: 'https://bundler.example.com/base' },    // eth_sendUserOperation
+  rpcUrls: { 11155111: ['https://sepolia.example.com'] },              // nonce, code and fees
+  bundlerUrls: { 11155111: 'https://bundler.example.com/sepolia' },    // eth_sendUserOperation
   paymasterUrl: 'https://paymaster.example.com',                // optional
 })
 
 // One passkey prompt; the account deploys itself with its first transaction on the chain
 const { hash, userOpHash } = await w3pk.sendTransaction(
-  { to: '0xRecipient...', value: parseEther('0.01'), chainId: 8453 },
+  { to: '0xRecipient...', value: parseEther('0.01'), chainId: 11155111 },
   { mode: 'PRIMARY' }
 )
 
 // An array runs as one ERC-7579 batch: every call succeeds or none does
 await w3pk.sendTransaction(
   [
-    { to: token, data: approveCalldata, chainId: 8453 },
-    { to: router, data: swapCalldata, chainId: 8453 },
+    { to: token, data: approveCalldata, chainId: 11155111 },
+    { to: router, data: swapCalldata, chainId: 11155111 },
   ],
   { mode: 'PRIMARY', paymasterContext: { policyId: 'my-policy' } }
 )
@@ -642,11 +642,11 @@ await provider.request({
 
 ```typescript
 const w3pk = createWeb3Passkey({
-  rpcUrls: { 8453: ['https://base.example.com'] },
-  bundlerUrls: { 8453: 'https://bundler.example.com/base' },
+  rpcUrls: { 11155111: ['https://sepolia.example.com'] },
+  bundlerUrls: { 11155111: 'https://bundler.example.com/sepolia' },
 })
-const provider = w3pk.getEIP1193Provider({ mode: 'PRIMARY', chainId: 8453 })
-// or per provider: getEIP1193Provider({ mode: 'PRIMARY', chainId: 8453, bundlerUrl: '...' })
+const provider = w3pk.getEIP1193Provider({ mode: 'PRIMARY', chainId: 11155111 })
+// or per provider: getEIP1193Provider({ mode: 'PRIMARY', chainId: 11155111, bundlerUrl: '...' })
 ```
 
 | Method | STANDARD, STRICT, YOLO | PRIMARY |

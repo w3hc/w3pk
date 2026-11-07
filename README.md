@@ -187,17 +187,17 @@ const yoloTx = await w3pk.sendTransaction(
 | YOLO | Session (auto) | Sender address |
 | PRIMARY | Passkey prompt per call | Smart account, or an ERC-7677 paymaster |
 
-In PRIMARY mode the passkey's smart account sends an ERC-4337 UserOperation through the bundler set in `bundlerUrls`, deploys itself on its first transaction on a chain, and executes an array of transactions atomically. The returned `hash` is the including transaction's:
+In PRIMARY mode the passkey's smart account sends an ERC-4337 UserOperation through the bundler set in `bundlerUrls`, deploys itself on its first transaction on a chain, and executes an array of transactions atomically. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](./contracts/README.md#deploying-to-a-network)). The returned `hash` is the including transaction's:
 
 ```typescript
 const w3pk = createWeb3Passkey({
-  rpcUrls: { 8453: ['https://base.example.com'] },
-  bundlerUrls: { 8453: 'https://bundler.example.com/base' },  // EntryPoint v0.9
+  rpcUrls: { 11155111: ['https://sepolia.example.com'] },
+  bundlerUrls: { 11155111: 'https://bundler.example.com/sepolia' },  // EntryPoint v0.9
   paymasterUrl: 'https://paymaster.example.com',              // optional: sponsors the gas
 })
 
 const { hash } = await w3pk.sendTransaction(
-  [{ to: token, data: approveCalldata, chainId: 8453 }, { to: router, data: swapCalldata, chainId: 8453 }],
+  [{ to: token, data: approveCalldata, chainId: 11155111 }, { to: router, data: swapCalldata, chainId: 11155111 }],
   { mode: 'PRIMARY' }
 )
 ```
@@ -318,7 +318,7 @@ const authorization = await w3pk.signAuthorization({
 const primaryAddr = await w3pk.getAddress('PRIMARY')
 
 // Sign with the passkey, as the smart account (EIP-1271)
-const { signature } = await w3pk.signMessage("Hello World", { mode: 'PRIMARY', chainId: 1 })
+const { signature } = await w3pk.signMessage("Hello World", { mode: 'PRIMARY', chainId: 11155111 })
 ```
 
 The PRIMARY address is the counterfactual address of the passkey's [P-256 smart account](./docs/EIP-7951.md#primary-smart-account), computed offchain with no RPC call. Each tag has its own account; accounts of the same passkey are linkable onchain through their shared owner.
