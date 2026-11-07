@@ -1596,7 +1596,7 @@ export class Web3Passkey {
     rpcUrl?: string;
     bundlerUrl?: string;
   }): EIP1193ProviderInterface {
-    return createEIP1193Provider(this, options);
+    return createEIP1193Provider(this, options, (chainId) => this.config.rpcUrls?.[chainId]?.[0]);
   }
 
   /**
