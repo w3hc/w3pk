@@ -187,7 +187,7 @@ const yoloTx = await w3pk.sendTransaction(
 | YOLO | Session (auto) | Sender address |
 | PRIMARY | Passkey prompt per call | Smart account, or an ERC-7677 paymaster |
 
-In PRIMARY mode the passkey's smart account sends an ERC-4337 UserOperation through the bundler set in `bundlerUrls`, deploys itself on its first transaction on a chain, and executes an array of transactions atomically. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](./contracts/README.md#deploying-to-a-network)). The returned `hash` is the including transaction's:
+In PRIMARY mode the passkey's smart account sends an ERC-4337 UserOperation through the bundler set in `bundlerUrls`, deploys itself on its first transaction on a chain, and executes an array of transactions atomically. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](./docs/DEPLOYMENT.md)). The returned `hash` is the including transaction's:
 
 ```typescript
 const w3pk = createWeb3Passkey({
