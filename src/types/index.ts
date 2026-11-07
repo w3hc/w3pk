@@ -72,6 +72,10 @@ export interface SignMessageOptions {
   eip712Domain?: TypedDataDomain;
   eip712Types?: Record<string, Array<{ name: string; type: string }>>;
   eip712PrimaryType?: string;
+  /** PRIMARY mode: chain the signature is bound to; required for EIP191, read from the message for SIWE and from eip712Domain for EIP712 */
+  chainId?: number;
+  /** PRIMARY mode: RPC endpoint used to check whether the account is deployed (default: rpcUrls[chainId][0]) */
+  rpcUrl?: string;
 }
 
 /**

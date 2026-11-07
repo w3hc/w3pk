@@ -63,8 +63,19 @@ import type { Web3PasskeyConfig, InternalConfig } from "./config";
 import type { BackupStatus } from "../backup/types";
 import { detectEvictionRisk } from "../utils/eviction";
 import { DEFAULT_CONFIG } from "./config";
-import { getSmartAccountAddress } from "../wallet/smart-account";
-import { SIWE_HEADER, assertSiweDomain } from "../siwe";
+import {
+  W3PK_ACCOUNT_FACTORY,
+  getCreateAccountCalldata,
+  getSmartAccountAddress,
+} from "../wallet/smart-account";
+import {
+  encodeTypedDataSignature,
+  personalSignHash,
+  typedDataSignPayload,
+  wrapErc6492Signature,
+} from "../wallet/erc7739";
+import { signWithPasskey } from "../wallet/webauthn-signature";
+import { SIWE_HEADER, assertSiweDomain, parseSiweMessage } from "../siwe";
 import type { UserInfo, GeneratedWallet, DerivedWallet, RegisterResult, SecurityMode, SigningMethod, SignMessageOptions } from "../types";
 import {
   AuthenticationError,
@@ -856,7 +867,13 @@ export class Web3Passkey {
    * @param options.tag - Tag for derivation (default: "MAIN")
    * @param options.requireAuth - Force fresh authentication
    * @param options.signingMethod - EIP191 (default), SIWE, EIP712 or rawHash;
-   *   rawHash always requires a fresh user-verified passkey assertion
+   *   rawHash always requires a fresh user-verified passkey assertion, and is refused in PRIMARY mode
+   * @param options.chainId - PRIMARY mode: chain the signature is bound to, required for EIP191
+   * @param options.rpcUrl - PRIMARY mode: RPC endpoint used to check whether the account is deployed
+   *
+   * In PRIMARY mode the passkey signs an ERC-7739 signature for its P-256 smart account, which
+   * verifies through EIP-1271 `isValidSignature`, or through ERC-6492 while the account isn't
+   * deployed. Each signature asks for a fresh passkey assertion.
    * @returns Signature result with address, mode, and tag information
    *
    * @example
@@ -897,11 +914,10 @@ export class Web3Passkey {
         throw new WalletError(`${signingMethod} signing requires a string message`);
       }
 
-      // PRIMARY addresses come from the passkey's P-256 key, which cannot produce
-      // an EIP-191 signature that recovers to them
-      if (effectiveMode === 'PRIMARY' && signingMethod === 'SIWE') {
+      // Through EIP-1271, a bare hash would skip ERC-7739's replay protection
+      if (effectiveMode === 'PRIMARY' && signingMethod === 'rawHash') {
         throw new WalletError(
-          "SIWE signing is not supported in PRIMARY mode. Use STANDARD, STRICT or YOLO mode."
+          "rawHash signing is not supported in PRIMARY mode. Use EIP191, SIWE or EIP712."
         );
       }
 
@@ -926,6 +942,13 @@ export class Web3Passkey {
       }
 
       const effectiveTag = options?.tag || DEFAULT_TAG;
+
+      if (effectiveMode === 'PRIMARY') {
+        return {
+          ...(await this.signWithSmartAccount(message, signingMethod, effectiveTag, text, options)),
+          origin,
+        };
+      }
 
       // STRICT mode: always require authentication (no persistent sessions)
       // rawHash: a bare hash may be an EIP-7702 authorization digest, which
@@ -1021,144 +1044,82 @@ export class Web3Passkey {
   }
 
   /**
-   * Sign a message using WebAuthn (P-256) for PRIMARY mode
-   * This method uses the passkey directly for signing instead of a private key
-   *
-   * @param message - The message to sign
-   * @returns Signature details including r, s components and the hash that was signed
-   *
-   * @example
-   * const result = await w3pk.signMessageWithPasskey("Hello World")
-   * console.log(result.signature) // { r: "0x...", s: "0x..." }
-   * console.log(result.messageHash) // Original message hash
-   * console.log(result.signedHash) // WebAuthn signed hash
-   * console.log(result.address) // PRIMARY mode address
+   * ERC-7739 signature of a message by the passkey's P-256 smart account, ERC-6492-wrapped
+   * unless the account is known to be deployed
    */
-  async signMessageWithPasskey(message: string): Promise<{
-    signature: { r: string; s: string };
-    messageHash: string;
-    signedHash: string;
-    address: string;
-    publicKey: { qx: string; qy: string };
-  }> {
+  private async signWithSmartAccount(
+    message: string | Uint8Array,
+    signingMethod: SigningMethod,
+    tag: string,
+    siweText: string | undefined,
+    options?: SignMessageOptions
+  ): Promise<{ signature: string; address: string; mode: SecurityMode; tag: string }> {
+    const storage = new CredentialStorage();
+    const credential = await storage.getCredentialById(this.currentUser!.credentialId);
+    if (!credential || !credential.publicKey) {
+      throw new WalletError("No WebAuthn credential found for PRIMARY mode");
+    }
+
+    const domainChainId = options?.eip712Domain?.chainId;
+    const chainId =
+      options?.chainId ??
+      (siweText !== undefined ? parseSiweMessage(siweText).chainId : undefined) ??
+      (signingMethod === 'EIP712' && domainChainId != null ? Number(domainChainId) : undefined);
+    if (chainId === undefined) {
+      throw new WalletError("PRIMARY mode signing requires options.chainId");
+    }
+
+    const address = await getSmartAccountAddress(credential.publicKey, tag, this.config.smartAccount);
+    const account = { address, chainId };
+    const { hashMessage } = await import("ethers");
+
+    let signature: string;
+    if (signingMethod === 'EIP712') {
+      if (!options?.eip712Domain || !options?.eip712Types || !options?.eip712PrimaryType) {
+        throw new WalletError("EIP712 signing requires eip712Domain, eip712Types, and eip712PrimaryType in options");
+      }
+      let typedDataMessage: Record<string, any>;
+      try {
+        typedDataMessage = JSON.parse(message as string);
+      } catch {
+        throw new WalletError("EIP712 message must be valid JSON or an object");
+      }
+      const payload = typedDataSignPayload(
+        options.eip712Domain,
+        options.eip712Types,
+        options.eip712PrimaryType,
+        typedDataMessage,
+        account
+      );
+      signature = encodeTypedDataSignature(
+        await signWithPasskey(payload.challenge, credential.id),
+        payload
+      );
+    } else {
+      signature = await signWithPasskey(personalSignHash(hashMessage(message), account), credential.id);
+    }
+
+    if (!(await this.isDeployed(address, chainId, options?.rpcUrl))) {
+      signature = wrapErc6492Signature(
+        this.config.smartAccount?.factoryAddress ?? W3PK_ACCOUNT_FACTORY,
+        await getCreateAccountCalldata(credential.publicKey, tag),
+        signature
+      );
+    }
+
+    return { signature, address, mode: 'PRIMARY', tag };
+  }
+
+  /** Whether `address` has code; false when no RPC endpoint is set for the chain */
+  private async isDeployed(address: string, chainId: number, rpcUrl?: string): Promise<boolean> {
+    const url = rpcUrl ?? this.config.rpcUrls?.[chainId]?.[0];
+    if (!url) return false;
+    const { JsonRpcProvider } = await import("ethers");
+    const provider = new JsonRpcProvider(url, chainId, { staticNetwork: true });
     try {
-      if (!this.currentUser) {
-        throw new WalletError("Must be authenticated to sign message");
-      }
-
-      const { extractRS } = await import("../utils/crypto");
-      const { base64UrlDecode } = await import("../utils/base64");
-      const { bytesToHex } = await import("@noble/hashes/utils.js");
-
-      // Hash the message
-      const messageHash = await crypto.subtle.digest(
-        'SHA-256',
-        new TextEncoder().encode(message)
-      );
-      const h = '0x' + bytesToHex(new Uint8Array(messageHash));
-
-      // Generate challenge from message hash
-      const challengeBytes = new Uint8Array(messageHash);
-
-      // Get credential ID from current user
-      const credentialId = this.currentUser.credentialId;
-      if (!credentialId) {
-        throw new WalletError('Credential ID not found in user object');
-      }
-
-      // Request WebAuthn signature
-      const assertionOptions: PublicKeyCredentialRequestOptions = {
-        challenge: challengeBytes,
-        rpId: window.location.hostname,
-        allowCredentials: [
-          {
-            id: base64UrlDecode(credentialId),
-            type: 'public-key',
-            transports: ['internal', 'hybrid', 'usb', 'nfc', 'ble'],
-          },
-        ],
-        userVerification: this.config.userVerification,
-        timeout: 60000,
-      };
-
-      const assertion = (await navigator.credentials.get({
-        publicKey: assertionOptions,
-      })) as PublicKeyCredential | null;
-
-      if (!assertion || !assertion.response) {
-        throw new WalletError('WebAuthn signature failed');
-      }
-
-      const response = assertion.response as AuthenticatorAssertionResponse;
-
-      // WebAuthn signs: SHA-256(authenticatorData || SHA-256(clientDataJSON))
-      const authenticatorData = new Uint8Array(response.authenticatorData);
-      const clientDataJSON = new Uint8Array(response.clientDataJSON);
-      const clientDataHash = await crypto.subtle.digest('SHA-256', clientDataJSON);
-
-      // Concatenate authenticatorData + clientDataHash
-      const signedData = new Uint8Array(authenticatorData.length + clientDataHash.byteLength);
-      signedData.set(authenticatorData, 0);
-      signedData.set(new Uint8Array(clientDataHash), authenticatorData.length);
-
-      // Hash the concatenation to get what was actually signed
-      const actualMessageHash = await crypto.subtle.digest('SHA-256', signedData.buffer);
-      const actualH = '0x' + bytesToHex(new Uint8Array(actualMessageHash));
-
-      // Extract r and s from the DER-encoded signature
-      const signature = new Uint8Array(response.signature);
-      const { r, s } = extractRS(signature);
-
-      // Get public key coordinates
-      const { CredentialStorage } = await import("../auth/storage");
-      const storage = new CredentialStorage();
-      const credential = await storage.getCredentialById(credentialId);
-
-      if (!credential || !credential.publicKey) {
-        throw new WalletError('No WebAuthn credential found for PRIMARY mode');
-      }
-
-      // Decode the public key to get x and y coordinates
-      const { base64UrlToArrayBuffer } = await import("../utils/base64");
-      const publicKeyBuffer = base64UrlToArrayBuffer(credential.publicKey);
-
-      // Import the public key
-      const publicKey = await crypto.subtle.importKey(
-        'spki',
-        publicKeyBuffer,
-        {
-          name: 'ECDSA',
-          namedCurve: 'P-256',
-        },
-        true,
-        ['verify']
-      );
-
-      // Export as JWK to get x and y coordinates
-      const jwk = await crypto.subtle.exportKey('jwk', publicKey);
-
-      if (!jwk.x || !jwk.y) {
-        throw new WalletError('Invalid P-256 public key: missing x or y coordinates');
-      }
-
-      // Convert base64url x and y to hex (each is 32 bytes for P-256)
-      const qx = '0x' + bytesToHex(new Uint8Array(base64UrlToArrayBuffer(jwk.x)));
-      const qy = '0x' + bytesToHex(new Uint8Array(base64UrlToArrayBuffer(jwk.y)));
-
-      // Derive address from public key
-      const { deriveAddressFromP256PublicKey } = await import("../wallet/origin-derivation");
-      const address = await deriveAddressFromP256PublicKey(credential.publicKey);
-
-      return {
-        signature: { r, s },
-        messageHash: h,
-        signedHash: actualH,
-        address,
-        publicKey: { qx, qy },
-      };
-    } catch (error) {
-      this.config.onError?.(error as any);
-      throw new WalletError("Failed to sign message with passkey", error);
+      return (await provider.getCode(address)) !== "0x";
+    } finally {
+      provider.destroy();
     }
   }
 
@@ -1229,8 +1190,7 @@ export class Web3Passkey {
           );
         }
         throw new WalletError(
-          "PRIMARY mode sendTransaction is not yet supported. " +
-          "Use signMessageWithPasskey() to obtain a P-256 signature and submit via a bundler manually."
+          "PRIMARY mode sendTransaction is not yet supported."
         );
       }
 
