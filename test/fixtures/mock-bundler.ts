@@ -39,6 +39,8 @@ export interface MockBundlerOptions {
   precompile?: boolean;
   /** Polls answered with null before the receipt (default: 1) */
   pendingPolls?: number;
+  /** Receipt polls answered with an error before any answer (default: 0) */
+  failingPolls?: number;
   /** Revert data of the execution, which then fails (default: none) */
   revert?: string;
   /** Never include UserOperations */
@@ -111,6 +113,7 @@ export function verifiesWebAuthn(signature: string, hash: string): boolean {
 export async function startMockBundler(options: MockBundlerOptions = {}): Promise<MockBundler> {
   const chainId = options.chainId ?? 1;
   const gasEstimate = options.gasEstimate ?? GAS_ESTIMATE;
+  let failedPolls = 0;
   const state = {
     calls: [] as { method: string; params: any[] }[],
     included: [] as Record<string, string>[],
@@ -238,6 +241,7 @@ export async function startMockBundler(options: MockBundlerOptions = {}): Promis
         return hash;
       }
       case "eth_getUserOperationReceipt": {
+        if (failedPolls++ < (options.failingPolls ?? 0)) throw new RpcError(-32603, "rate limited");
         const entry = state.receipts.get(params[0]);
         if (!entry || entry.polls++ < (options.pendingPolls ?? 1)) return null;
         return {

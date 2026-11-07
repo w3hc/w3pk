@@ -261,7 +261,21 @@ async function runTests() {
     console.log("✅ Timeout");
   });
 
-  console.log("\nTest 11: the userOpHash leaves out a paymaster signature, keeping the magic");
+  console.log("\nTest 11: failed receipt polls are retried, and a lone maxFeePerGas caps the priority fee");
+  await withBundler({ failingPolls: 2 }, async (bundler) => {
+    const sdk = await primarySdk(config(bundler));
+    const result = await sdk.sendTransaction({ to: RECIPIENT, chainId: 1, maxFeePerGas: 1n }, { mode: "PRIMARY" });
+    assert.strictEqual(bundler.transactions.has(result.hash), true);
+    assert.strictEqual(bundler.included[0].maxFeePerGas, "0x1");
+    assert.strictEqual(bundler.included[0].maxPriorityFeePerGas, "0x1");
+    const above = await rejection(
+      sdk.sendTransaction({ to: RECIPIENT, chainId: 1, maxFeePerGas: 1n, maxPriorityFeePerGas: 2n }, { mode: "PRIMARY" })
+    );
+    assert(above.includes("above maxFeePerGas"), above);
+    console.log("✅ Retried polls, capped priority fee");
+  });
+
+  console.log("\nTest 12: the userOpHash leaves out a paymaster signature, keeping the magic");
   {
     const op: UserOperation = {
       sender: MAIN_ACCOUNT,
