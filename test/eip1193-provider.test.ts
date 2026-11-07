@@ -659,10 +659,12 @@ Issued At: 2021-09-30T16:25:24Z`)
     for (const call of calls) {
       assertEqual(JSON.stringify(call.options), JSON.stringify({ signingMethod: "EIP191" }), "no chainId outside PRIMARY");
     }
-    await assertThrows(
-      () => provider.request({ method: "eth_signTransaction", params: [{ to }] }),
-      "eth_signTransaction stays unsupported"
-    );
+    const unsupported = await provider.request({
+      method: "eth_signTransaction",
+      params: [{ to }],
+    }).catch((e) => e);
+    assert(unsupported instanceof Error, "eth_signTransaction should reject");
+    assertEqual((unsupported as any).code, 4200, "EIP-1193 Unsupported Method");
     passTest("No-mode provider passes the same transaction and options as v0.11.2");
   });
 
@@ -822,10 +824,11 @@ Issued At: 2021-09-30T16:25:24Z`)
       assert(error instanceof Error, "eth_sign should reject");
       assertEqual(error.code, 4200, "EIP-1193 Unsupported Method");
       assertEqual(passkeyCalls.length, 0, "no passkey prompt");
-      await assertThrows(
-        () => provider.request({ method: "eth_signTransaction", params: [{ to }] }),
-        "eth_signTransaction stays unsupported"
-      );
+      const unsupported = await provider.request({
+        method: "eth_signTransaction",
+        params: [{ to }],
+      }).catch((e) => e);
+      assertEqual((unsupported as any).code, 4200, "eth_signTransaction rejects with 4200");
       passTest("eth_sign is refused in PRIMARY mode");
     });
   } finally {

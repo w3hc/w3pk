@@ -239,7 +239,7 @@ export function createEIP1193Provider(
         }
 
         default:
-          throw new WalletError(
+          throw new UnsupportedMethodError(
             `w3pk EIP-1193: unsupported method "${method}"`
           );
       }

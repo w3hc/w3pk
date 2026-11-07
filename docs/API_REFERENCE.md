@@ -1478,7 +1478,7 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 |-------|---------|---------|
 | `chainChanged` | `string` (hex chainId) | `wallet_switchEthereumChain` |
 
-Unsupported methods throw `WalletError: w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with an error whose `code` is `4200` (Unsupported Method).
+Unsupported methods reject with a `ProviderRpcError` whose `code` is `4200` (Unsupported Method), rather than a generic `WalletError`. In `PRIMARY` mode, `eth_sign` also rejects this way with error `4200`.
 
 **Example — ethers v6 (signing only):**
 
