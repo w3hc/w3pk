@@ -1089,9 +1089,13 @@ export class Web3Passkey {
     }
 
     const domainChainId = options?.eip712Domain?.chainId;
+    const siweChainId = siweText !== undefined ? parseSiweMessage(siweText).chainId : undefined;
+    if (siweChainId !== undefined && options?.chainId !== undefined && siweChainId !== options.chainId) {
+      throw new WalletError(`SIWE Chain ID ${siweChainId} does not match chainId ${options.chainId}`);
+    }
     const chainId =
       options?.chainId ??
-      (siweText !== undefined ? parseSiweMessage(siweText).chainId : undefined) ??
+      siweChainId ??
       (signingMethod === 'EIP712' && domainChainId != null ? Number(domainChainId) : undefined);
     if (chainId === undefined) {
       throw new WalletError("PRIMARY mode signing requires options.chainId");
@@ -1571,6 +1575,9 @@ export class Web3Passkey {
    * @param options.chainId    - Initial chainId reported to consumers (default: 1)
    * @param options.rpcUrl     - RPC endpoint override passed to sendTransaction() and, in PRIMARY mode, signMessage()
    * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
+   *
+   * In PRIMARY mode, rpcUrl and bundlerUrl serve options.chainId only: after
+   * wallet_switchEthereumChain, the config's rpcUrls and bundlerUrls for the new chain are used.
    *
    * @example
    * // ethers v6
