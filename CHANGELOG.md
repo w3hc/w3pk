@@ -5,6 +5,13 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Unsupported EIP-1193 methods reject with code `4200`** ([#323](https://github.com/w3hc/w3pk/issues/323))
+  - In every mode, a method the provider doesn't serve rejects with an error whose `code` is `4200` (Unsupported Method) instead of a `WalletError` without a code
+
 ## [0.12.0] - 2026-11-07
 
 ### Added
