@@ -25,6 +25,9 @@ export type {
   SecurityMode,
   SigningMethod,
   SignMessageOptions,
+  TransactionRequest,
+  SendTransactionOptions,
+  SendTransactionResult,
 } from "./types";
 export type { PersistentSessionConfig } from "./core/persistent-session";
 export type {
@@ -106,6 +109,14 @@ export {
   getSmartAccountAddress,
   type SmartAccountConfig,
 } from "./wallet/smart-account";
+
+export {
+  ENTRY_POINT_V09,
+  encodeExecute,
+  getUserOperationHash,
+  type Call,
+  type UserOperation,
+} from "./wallet/user-operation";
 
 export {
   RecoverySimulator,
