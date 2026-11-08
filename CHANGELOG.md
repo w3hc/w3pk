@@ -5,6 +5,15 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-11-08
+
+### Changed
+
+- **Post-quantum docs match the passkey ecosystem** ([#331](https://github.com/w3hc/w3pk/issues/331))
+  - `docs/POST_QUANTUM.md` describes backup key derivation as Argon2id instead of PBKDF2
+  - The WebAuthn risk is split: the P-256 credential key is quantum-vulnerable (`PRIMARY` on-chain signing, local assertion check), while the PRF wallet key used by `STRICT`, `STANDARD` and `YOLO` is symmetric
+  - New sections on the ML-DSA passkey ecosystem (RFC 9964, 1Password, Yubico, SimpleWebAuthn, webauthn4j, Keycloak) and on what recorded data a quantum computer reveals later: stealth addresses, ElGamal, Groth16 and Semaphore
+
 ## [0.12.1] - 2026-11-07
 
 ### Added

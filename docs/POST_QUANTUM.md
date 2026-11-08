@@ -32,13 +32,14 @@ Until the first trigger fires, w3pk deliberately does **not** deploy interim sma
 **Low/moderate risk (already mitigated):**
 - ✅ Encrypted backups, session storage (AES-256-GCM) — 128-bit quantum security, negligible harvest-now-decrypt-later (HNDL) exposure
 - ✅ Data encrypted with `mlkemEncrypt`/`mlkemDecrypt` — post-quantum secure today, and still safe if ML-KEM alone falls to classical cryptanalysis
-- ✅ PBKDF2 key derivation — Grover's algorithm halves effective security; current iteration counts (310k/100k) leave ample margin for the 2030s
+- ✅ Backup password key derivation (Argon2id, 64 MiB, 3 passes, 4 lanes) — Grover's algorithm only gives a square-root speedup on password guessing, which the memory-hard cost still dominates; the password's own strength is the limit, quantum or not
 - ✅ Wallet key from the passkey's PRF output (HKDF-SHA256, 256-bit) — 128-bit quantum security
 
 **High risk (tracks Ethereum's own timeline, not w3pk's):**
 - ⚠️ Transaction signatures (secp256k1 ECDSA) — broken by Shor's algorithm on a CRQC; fix depends on Ethereum shipping EIP-8141 + a PQ verification path
-- ⚠️ WebAuthn passkeys (P-256 ECDSA) — same underlying vulnerability; FIDO Alliance PQ support is not expected before 2027-2028
-- ⚠️ Stealth addresses (ERC-5564 ECDH) — key agreement step is quantum-vulnerable; no standardized PQ replacement exists yet
+- ⚠️ WebAuthn passkey signatures (P-256 ECDSA) — same underlying vulnerability, which matters where the signature is the security boundary: `PRIMARY` mode's smart account checks it on-chain ([EIP-7951](./EIP-7951.md)), so a CRQC that recovers the private key from the account's published public key can sign for it. The SDK's local assertion check is classical too. See [WebAuthn and passkeys](#webauthn-and-passkeys) for why the other modes' wallet keys don't depend on it
+- ⚠️ Stealth addresses (ERC-5564 ECDH) — key agreement step is quantum-vulnerable: a CRQC recovers the viewing key from the public meta-address and links every recorded announcement to its recipient; no standardized PQ replacement exists yet
+- ⚠️ ElGamal over Baby Jubjub — ciphertexts published today become readable; see [Harvest now, decrypt later](#harvest-now-decrypt-later)
 
 ---
 
@@ -95,9 +96,11 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 | Component | Algorithm | Use case | Quantum threat |
 | --- | --- | --- | --- |
 | Ethereum signing | secp256k1 ECDSA | Transaction/message signatures | High — Shor's algorithm |
-| WebAuthn passkeys | P-256 (ES256) | Authentication signatures | High — Shor's algorithm |
+| WebAuthn passkeys | P-256 (ES256) | Authentication signatures, `PRIMARY` on-chain signing | High — Shor's algorithm (not the PRF wallet key, see below) |
 | Stealth addresses | secp256k1 ECDH | Privacy-preserving key exchange | High — Shor's algorithm |
 | HD derivation | BIP32/BIP44 | Hierarchical key generation | High — inherits ECDSA's exposure |
+| ZK encryption | ElGamal over Baby Jubjub | Homomorphic tallies, encrypted values in circuits | High — Shor's algorithm, recorded ciphertexts |
+| ZK proofs | Groth16 over BN254 | `zkProve`, Semaphore | Soundness only — proofs stay zero-knowledge |
 
 ### Post-quantum cryptography (shipped)
 
@@ -116,7 +119,7 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 | Component | Algorithm | Parameters | Quantum resistance |
 | --- | --- | --- | --- |
 | Wallet encryption | HKDF-SHA256 of the WebAuthn PRF output | 256-bit key material | Strong — 128-bit quantum security |
-| Backup encryption | PBKDF2-SHA256 | 310,000 iterations | Moderate |
+| Backup encryption | Argon2id | 64 MiB, 3 passes, 4 lanes (RFC 9106's second recommendation) | Bounded by password strength, not by the algorithm |
 
 ### Hash functions
 
@@ -125,6 +128,60 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 | General hashing | SHA-256 | Checksums, derivation | 128-bit collision (sufficient) |
 | Hybrid KEM combiner | SHA3-256 | `mlkemEncrypt` shared secret | 128-bit collision (sufficient) |
 | Ethereum hashing | Keccak-256 | ERC-5564, addresses | 128-bit collision (sufficient) |
+
+---
+
+## WebAuthn and passkeys
+
+A passkey holds two independent secrets, and only one of them is quantum-vulnerable:
+
+| Secret | What it does in w3pk | Algorithm | Recoverable from public data by a CRQC? |
+| --- | --- | --- | --- |
+| Credential private key | Signs assertions; in `PRIMARY` mode, signs UserOperations checked on-chain | P-256 ECDSA (COSE `-7`, the only algorithm `register()` requests) | Yes — the public key is stored by the SDK, and published on-chain in `PRIMARY` mode |
+| PRF secret (CTAP2 `hmac-secret`) | Its output, through HKDF-SHA256, is the key that encrypts the mnemonic in `STRICT`, `STANDARD` and `YOLO` modes, and the seed of the ZK and Semaphore secrets | HMAC-SHA256 over a per-credential random key | No — it is symmetric, never leaves the authenticator, and nothing public is derived from it |
+
+So in `STRICT`, `STANDARD` and `YOLO` modes, a quantum adversary who can forge assertions still can't decrypt the stored wallet: that needs the PRF output, which only the authenticator can compute, after user verification. Forged assertions would only defeat the SDK's local assertion check, which runs in the same page as the attacker anyway.
+
+`PRIMARY` mode is the exception: the passkey's P-256 signature *is* the account's authorization on-chain, so it inherits the full Shor exposure, like secp256k1 EOAs.
+
+One caveat on the PRF path: between the browser and a roaming authenticator (USB, NFC, or a phone over the hybrid transport), CTAP encrypts the PRF salts and outputs under a P-256 ECDH shared secret. Decrypting a recorded exchange later needs local capture of USB or NFC traffic, or, for the hybrid transport, the QR code secret that is mixed into the tunnel's keys, so this is a much narrower exposure than a published public key.
+
+### ML-DSA passkeys: ecosystem status (November 2026)
+
+WebAuthn selects the signature algorithm by COSE identifier, so post-quantum passkeys need no protocol change: [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964) registers ML-DSA-44, ML-DSA-65 and ML-DSA-87 (FIPS 204) as COSE `-48`, `-49` and `-50`, with the new `AKP` key type. What is missing is deployment:
+
+| Project | Role | Status | Policy |
+| --- | --- | --- | --- |
+| [1Password](https://1password.com/blog/post-quantum-passkeys) | Authenticator | Shipped 2026-10-20 (8.12.44); creation not yet on iOS or the native macOS autofill extension | Creates an ML-DSA passkey only when the site asks for it; existing passkeys stay classical, an in-place upgrade is being worked on with W3C and FIDO |
+| [Yubico](https://www.darkreading.com/identity-access-management-security/beyond-phishing-resistant-yubico-identity-verification-gap) | Hardware authenticator | Public beta; beta keys can't be updated in the field. Shipping firmware 5.8 has no PQ keys | Beta only |
+| Apple, Google | Platform passkeys | No ML-DSA passkeys announced; Apple's CryptoKit has ML-DSA-65/87, including in the Secure Enclave | — |
+| [SimpleWebAuthn](https://simplewebauthn.dev/docs/14.0.x/advanced/server/pqc-ml-dsa-support) | TypeScript server library | v14: ML-DSA-44/65/87 on Node ≥ 24.7 | ML-DSA-44 is first in the default list when the runtime supports it |
+| [webauthn4j](https://github.com/webauthn4j/webauthn4j/pull/1337) | Java server library | 0.32.0 (2026-11-02), JDK 17/21 backports | Library support |
+| [Keycloak](https://github.com/keycloak/keycloak/issues/50084) | Identity server | Planned for 27.0 | Opt-in only: classical stays the default, nothing deprecated, migration out of scope; waits on FIDO conformance test vectors and a production authenticator |
+| Passkey smart wallets (Coinbase Smart Wallet, Safe, ZeroDev) | On-chain P-256 accounts | No public PQ statement found | — |
+
+The pattern is the same everywhere: opt-in, classical by default, no forced migration. No on-chain wallet has moved, since nothing on Ethereum can verify ML-DSA yet ([EIP-8051](https://eips.ethereum.org/EIPS/eip-8051) is a draft).
+
+ML-DSA public keys are large (about 1.3 KB for ML-DSA-44, 2.6 KB for ML-DSA-87, against 64 bytes for ES256), which matters for credential storage and backup files. Whether ML-DSA passkeys also support the PRF extension, which w3pk can't work without, has not been checked.
+
+---
+
+## Harvest now, decrypt later
+
+Signatures can't be forged retroactively: a CRQC lets an attacker sign *from then on*, not rewrite what was already accepted. Confidentiality and privacy are different: anything recorded today, on-chain or in transit, can be read or linked once a CRQC exists. This is what a recording adversary learns later from each w3pk feature:
+
+| Feature | What is recorded | What a CRQC reveals later | Status |
+| --- | --- | --- | --- |
+| `mlkemEncrypt` payloads | Ciphertexts, recipients' public keys | Nothing, unless ML-KEM-1024 is also broken | ✅ Post-quantum |
+| Encrypted wallet, sessions, backup files | AES-256-GCM ciphertexts | Nothing: the keys come from the PRF output or the backup password, not from a public key | ✅ Symmetric |
+| Stealth addresses (ERC-5564) | The public stealth meta-address, and each announcement's ephemeral public key and view tag | The viewing private key, from the meta-address: every past and future stealth payment to that recipient becomes linkable to them | ⚠️ Retroactive deanonymization, no standardized PQ scheme |
+| ElGamal over Baby Jubjub (`elgamalEncrypt`) | Ciphertexts, often published on-chain (ballots, tallies) | The private key from the public key, or `m` directly from each ciphertext: every published value becomes readable | ⚠️ Classical, no PQ replacement keeps the additive homomorphism in-circuit |
+| Groth16 proofs (`zkProve`, Semaphore) | Proofs, public signals, nullifiers | Nothing about the witness: Groth16's zero-knowledge holds against any adversary. What breaks is **soundness**: a CRQC can recover the BN254 setup trapdoor and forge proofs | ✅ Privacy holds, ⚠️ forgeable later |
+| Semaphore identity | The commitment `Poseidon(publicKey)` in a group | Nothing while the Baby Jubjub public key stays unpublished: the commitment is a hash. If an app publishes the public key, a CRQC recovers the private key and can link every nullifier the identity produced | ✅ As long as the public key stays private |
+| Sender signatures inside payloads (`signMessage`) | secp256k1 signatures inside decrypted content | Nothing new about the content, but an archived signature stops proving who wrote it, since anyone could have produced it after a CRQC exists | ⚠️ Authenticity of archives, not confidentiality |
+| P-256 credential public keys | Public keys stored by the SDK and, in `PRIMARY` mode, on-chain | The credential private key: forged assertions, and `PRIMARY` UserOperations | ⚠️ See [WebAuthn and passkeys](#webauthn-and-passkeys) |
+
+Apps should keep data that must stay confidential for years out of ElGamal ciphertexts and stealth announcements, and seal it with `mlkemEncrypt` instead.
 
 ---
 
@@ -297,7 +354,7 @@ Decrypts a v3 payload. The recipient entry is found by the public key derived fr
 
 - **No interim on-chain PQ signature verifiers.** Pre-EIP-8141 architectures (bundler-based smart-contract accounts with a bolted-on PQ verifier) are not part of Ethereum's actual roadmap and would need to be replaced once EIP-8141 ships. Building on them now means migrating twice for no lasting benefit.
 - **No PQ signing scheme committed in code.** Which exact algorithm to use (ML-DSA via EIP-8051/8355, Falcon via EIP-7619, or a hash-based Winternitz scheme) is still an open execution-layer question upstream. Committing to one now risks shipping the wrong thing.
-- **No changes to WebAuthn/passkey authentication.** FIDO Alliance's own PQ specification work isn't expected to produce browser support before 2027-2028; P-256 stays as-is until that lands.
+- **No changes to WebAuthn/passkey authentication yet.** ML-DSA passkeys exist (see [ML-DSA passkeys: ecosystem status](#ml-dsa-passkeys-ecosystem-status-november-2026)), but outside `PRIMARY` mode they wouldn't protect the wallet key, which already comes from the quantum-resistant PRF output. In `PRIMARY` mode, an ML-DSA credential would have no account at all, since nothing on-chain verifies ML-DSA. P-256 stays the only requested algorithm until an on-chain verifier ships, or until opt-in ML-DSA credentials for the other modes are shown to support PRF.
 
 ---
 
@@ -309,7 +366,8 @@ The trigger table above tracks Ethereum's protocol schedule, which covers *when 
 
 - [ ] Re-verify the `mlkem` npm package (currently `mlkem@2.7.0`, [dajiaji/crystals-kyber-js](https://github.com/dajiaji/crystals-kyber-js)) is still maintained, still passes the NIST ML-KEM KAT vectors and the pq-crystals/kyber reference tests, and has no open security advisories.
 - [ ] Re-check whether an audited JavaScript FrodoKEM implementation exists, and whether an HPKE KEM id is registered for ML-KEM-1024 + X25519.
-- [ ] Re-check the FIDO Alliance's WebAuthn PQ status — no PQ COSE algorithm identifier is registered as of this writing, so P-256 passkeys stay as-is; flag the moment one lands.
+- [ ] Re-check the ML-DSA passkey ecosystem (COSE `-48`/`-49`/`-50`, [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964)): which authenticators create ML-DSA passkeys, whether any of them supports PRF, whether Apple's or Google's platform passkeys do, and whether FIDO has published PQ conformance test vectors.
+- [ ] Re-check whether a post-quantum stealth address scheme has been registered for ERC-5564.
 - [ ] Re-check whether `ethers` (currently `^6.0.0`, used for transaction construction and secp256k1 signing) has announced any PQ or hybrid-signing support, since a signing-path change there would predate w3pk's own EIP-8141 integration.
 - [ ] Re-confirm EIP-8141 and the Hegotá fork's status directly against [pq.ethereum.org](https://pq.ethereum.org/) and [strawmap.org](https://strawmap.org/) — don't rely on this document staying current between reviews.
 
@@ -346,7 +404,8 @@ This is a placeholder for design intent, not a commitment to this exact shape �
 | `mlkem` (`^2.7.0`) | ML-KEM-1024 encryption | Post-quantum today | Maintenance activity, KAT test results, disclosed vulnerabilities |
 | `@noble/curves` (`^2.4.0`), `@noble/hashes` | X25519, HKDF, SHA3-256 for the hybrid KEM and HPKE | Classical (X25519), hedged by ML-KEM | Audits, disclosed vulnerabilities |
 | `ethers` (`^6.0.0`) | Transaction construction, secp256k1 signing | Classical only | Any announced hybrid/PQ signing support |
-| WebAuthn / FIDO2 | Passkey authentication (P-256) | Classical only | FIDO Alliance PQ working-group output; no registered PQ COSE algorithm yet |
+| WebAuthn / FIDO2 | Passkey authentication (P-256), PRF wallet key (HMAC-SHA256) | Signatures classical, PRF symmetric; ML-DSA COSE IDs registered, first authenticators shipping | PRF support on ML-DSA passkeys, platform passkeys, FIDO conformance test vectors |
+| `snarkjs` (`^0.7.6`) | Groth16 proofs over BN254 | Zero-knowledge holds, soundness classical | Any PQ proof system usable from circom circuits |
 | Ethereum L1 (via EIP-8141) | Transaction validation | Classical only, PQ path specified but not shipped | Hegotá fork outcome, EIP-8141 mainnet status |
 
 ---
@@ -391,6 +450,7 @@ Dormant-funds exposure — the governance question nobody has answered — is mu
 - [draft-irtf-cfrg-hybrid-kems](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/) and [X-Wing](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/) — hybrid KEM combiners
 - [NIST FIPS 204: ML-DSA](https://csrc.nist.gov/pubs/fips/204/final) — signatures, candidate for Ethereum's execution layer
 - [NIST FIPS 205: SLH-DSA](https://csrc.nist.gov/pubs/fips/205/final) — hash-based signatures
+- [RFC 9964: ML-DSA for JOSE and COSE](https://www.rfc-editor.org/rfc/rfc9964) — the COSE identifiers ML-DSA passkeys use
 - [EIP-8141: Frame transactions](https://eips.ethereum.org/EIPS/eip-8141) — the trigger this document tracks
 - [EIP-8051](https://eips.ethereum.org/EIPS/eip-8051), [EIP-8355](https://eips.ethereum.org/EIPS/eip-8355) — `VERIFY_MLDSA` precompile drafts
 - [EIP-7619: Falcon](https://eips.ethereum.org/EIPS/eip-7619)
@@ -412,12 +472,13 @@ Dormant-funds exposure — the governance question nobody has answered — is mu
 
 ## Document Maintenance
 
-**Version:** 2.3
-**Last Updated:** 2026-11-04
+**Version:** 2.4
+**Last Updated:** 2026-11-08
 **Next Review:** 2027-03-13 (6 months, or sooner if the Hegotá fork's EIP-8141 status changes)
 **Maintained By:** Julien Béranger ([@julienbrg](https://github.com/julienbrg))
 
 **Changelog:**
+- 2026-11-08: Backup key derivation described as Argon2id; WebAuthn risk split between the P-256 credential key and the PRF wallet key; added the ML-DSA passkey ecosystem status and a "harvest now, decrypt later" inventory (stealth addresses, ElGamal, Groth16, Semaphore); updated the checkpoints and the dependency table ([#331](https://github.com/w3hc/w3pk/issues/331))
 - 2026-11-04: KEM keys derive from the BIP-39 seed, origin, mode, tag and context instead of the origin's secp256k1 signing key (salt `w3pk-kem-keypair-v4`, [#263](https://github.com/w3hc/w3pk/issues/263)); every ML-KEM key changes
 - 2026-11-01: Encrypted payloads move to v3, HPKE over a hybrid ML-KEM-1024 + X25519 KEM ([#137](https://github.com/w3hc/w3pk/issues/137)); documented the combiner, the FrodoKEM decision and what a leaked key exposes; v1 and v2 are no longer readable
 - 2026-09-13: Added "Roadmap maturity: closing the gaps" — internally-owned review checkpoints, a labeled not-yet-implemented crypto-agility target design, a draft operational runbook (testnet dry run, ML-KEM context rotation, fail-closed hybrid verification, no global cutover), and a dependency PQ-posture table (`mlkem`, `ethers`, WebAuthn/FIDO2), per NIST SP 1800-38 and CISA quantum-readiness guidance
