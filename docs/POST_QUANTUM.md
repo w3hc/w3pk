@@ -38,7 +38,8 @@ Until the first trigger fires, w3pk deliberately does **not** deploy interim sma
 **High risk (tracks Ethereum's own timeline, not w3pk's):**
 - ⚠️ Transaction signatures (secp256k1 ECDSA) — broken by Shor's algorithm on a CRQC; fix depends on Ethereum shipping EIP-8141 + a PQ verification path
 - ⚠️ WebAuthn passkey signatures (P-256 ECDSA) — same underlying vulnerability, which matters where the signature is the security boundary: `PRIMARY` mode's smart account checks it on-chain ([EIP-7951](./EIP-7951.md)), so a CRQC that recovers the private key from the account's published public key can sign for it. The SDK's local assertion check is classical too. See [WebAuthn and passkeys](#webauthn-and-passkeys) for why the other modes' wallet keys don't depend on it
-- ⚠️ Stealth addresses (ERC-5564 ECDH) — key agreement step is quantum-vulnerable; no standardized PQ replacement exists yet
+- ⚠️ Stealth addresses (ERC-5564 ECDH) — key agreement step is quantum-vulnerable: a CRQC recovers the viewing key from the public meta-address and links every recorded announcement to its recipient; no standardized PQ replacement exists yet
+- ⚠️ ElGamal over Baby Jubjub — ciphertexts published today become readable; see [Harvest now, decrypt later](#harvest-now-decrypt-later)
 
 ---
 
@@ -98,6 +99,8 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 | WebAuthn passkeys | P-256 (ES256) | Authentication signatures, `PRIMARY` on-chain signing | High — Shor's algorithm (not the PRF wallet key, see below) |
 | Stealth addresses | secp256k1 ECDH | Privacy-preserving key exchange | High — Shor's algorithm |
 | HD derivation | BIP32/BIP44 | Hierarchical key generation | High — inherits ECDSA's exposure |
+| ZK encryption | ElGamal over Baby Jubjub | Homomorphic tallies, encrypted values in circuits | High — Shor's algorithm, recorded ciphertexts |
+| ZK proofs | Groth16 over BN254 | `zkProve`, Semaphore | Soundness only — proofs stay zero-knowledge |
 
 ### Post-quantum cryptography (shipped)
 
@@ -160,6 +163,25 @@ WebAuthn selects the signature algorithm by COSE identifier, so post-quantum pas
 The pattern is the same everywhere: opt-in, classical by default, no forced migration. No on-chain wallet has moved, since nothing on Ethereum can verify ML-DSA yet ([EIP-8051](https://eips.ethereum.org/EIPS/eip-8051) is a draft).
 
 ML-DSA public keys are large (about 1.3 KB for ML-DSA-44, 2.6 KB for ML-DSA-87, against 64 bytes for ES256), which matters for credential storage and backup files. Whether ML-DSA passkeys also support the PRF extension, which w3pk can't work without, has not been checked.
+
+---
+
+## Harvest now, decrypt later
+
+Signatures can't be forged retroactively: a CRQC lets an attacker sign *from then on*, not rewrite what was already accepted. Confidentiality and privacy are different: anything recorded today, on-chain or in transit, can be read or linked once a CRQC exists. This is what a recording adversary learns later from each w3pk feature:
+
+| Feature | What is recorded | What a CRQC reveals later | Status |
+| --- | --- | --- | --- |
+| `mlkemEncrypt` payloads | Ciphertexts, recipients' public keys | Nothing, unless ML-KEM-1024 is also broken | ✅ Post-quantum |
+| Encrypted wallet, sessions, backup files | AES-256-GCM ciphertexts | Nothing: the keys come from the PRF output or the backup password, not from a public key | ✅ Symmetric |
+| Stealth addresses (ERC-5564) | The public stealth meta-address, and each announcement's ephemeral public key and view tag | The viewing private key, from the meta-address: every past and future stealth payment to that recipient becomes linkable to them | ⚠️ Retroactive deanonymization, no standardized PQ scheme |
+| ElGamal over Baby Jubjub (`elgamalEncrypt`) | Ciphertexts, often published on-chain (ballots, tallies) | The private key from the public key, or `m` directly from each ciphertext: every published value becomes readable | ⚠️ Classical, no PQ replacement keeps the additive homomorphism in-circuit |
+| Groth16 proofs (`zkProve`, Semaphore) | Proofs, public signals, nullifiers | Nothing about the witness: Groth16's zero-knowledge holds against any adversary. What breaks is **soundness**: a CRQC can recover the BN254 setup trapdoor and forge proofs | ✅ Privacy holds, ⚠️ forgeable later |
+| Semaphore identity | The commitment `Poseidon(publicKey)` in a group | Nothing while the Baby Jubjub public key stays unpublished: the commitment is a hash. If an app publishes the public key, a CRQC recovers the private key and can link every nullifier the identity produced | ✅ As long as the public key stays private |
+| Sender signatures inside payloads (`signMessage`) | secp256k1 signatures inside decrypted content | Nothing new about the content, but an archived signature stops proving who wrote it, since anyone could have produced it after a CRQC exists | ⚠️ Authenticity of archives, not confidentiality |
+| P-256 credential public keys | Public keys stored by the SDK and, in `PRIMARY` mode, on-chain | The credential private key: forged assertions, and `PRIMARY` UserOperations | ⚠️ See [WebAuthn and passkeys](#webauthn-and-passkeys) |
+
+Apps should keep data that must stay confidential for years out of ElGamal ciphertexts and stealth announcements, and seal it with `mlkemEncrypt` instead.
 
 ---
 
