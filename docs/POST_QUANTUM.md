@@ -37,7 +37,7 @@ Until the first trigger fires, w3pk deliberately does **not** deploy interim sma
 
 **High risk (tracks Ethereum's own timeline, not w3pk's):**
 - ⚠️ Transaction signatures (secp256k1 ECDSA) — broken by Shor's algorithm on a CRQC; fix depends on Ethereum shipping EIP-8141 + a PQ verification path
-- ⚠️ WebAuthn passkeys (P-256 ECDSA) — same underlying vulnerability; FIDO Alliance PQ support is not expected before 2027-2028
+- ⚠️ WebAuthn passkey signatures (P-256 ECDSA) — same underlying vulnerability, which matters where the signature is the security boundary: `PRIMARY` mode's smart account checks it on-chain ([EIP-7951](./EIP-7951.md)), so a CRQC that recovers the private key from the account's published public key can sign for it. The SDK's local assertion check is classical too. See [WebAuthn and passkeys](#webauthn-and-passkeys) for why the other modes' wallet keys don't depend on it
 - ⚠️ Stealth addresses (ERC-5564 ECDH) — key agreement step is quantum-vulnerable; no standardized PQ replacement exists yet
 
 ---
@@ -95,7 +95,7 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 | Component | Algorithm | Use case | Quantum threat |
 | --- | --- | --- | --- |
 | Ethereum signing | secp256k1 ECDSA | Transaction/message signatures | High — Shor's algorithm |
-| WebAuthn passkeys | P-256 (ES256) | Authentication signatures | High — Shor's algorithm |
+| WebAuthn passkeys | P-256 (ES256) | Authentication signatures, `PRIMARY` on-chain signing | High — Shor's algorithm (not the PRF wallet key, see below) |
 | Stealth addresses | secp256k1 ECDH | Privacy-preserving key exchange | High — Shor's algorithm |
 | HD derivation | BIP32/BIP44 | Hierarchical key generation | High — inherits ECDSA's exposure |
 
@@ -125,6 +125,23 @@ On timing: the EF is more conservative than headline quantum-computing news. Mos
 | General hashing | SHA-256 | Checksums, derivation | 128-bit collision (sufficient) |
 | Hybrid KEM combiner | SHA3-256 | `mlkemEncrypt` shared secret | 128-bit collision (sufficient) |
 | Ethereum hashing | Keccak-256 | ERC-5564, addresses | 128-bit collision (sufficient) |
+
+---
+
+## WebAuthn and passkeys
+
+A passkey holds two independent secrets, and only one of them is quantum-vulnerable:
+
+| Secret | What it does in w3pk | Algorithm | Recoverable from public data by a CRQC? |
+| --- | --- | --- | --- |
+| Credential private key | Signs assertions; in `PRIMARY` mode, signs UserOperations checked on-chain | P-256 ECDSA (COSE `-7`, the only algorithm `register()` requests) | Yes — the public key is stored by the SDK, and published on-chain in `PRIMARY` mode |
+| PRF secret (CTAP2 `hmac-secret`) | Its output, through HKDF-SHA256, is the key that encrypts the mnemonic in `STRICT`, `STANDARD` and `YOLO` modes, and the seed of the ZK and Semaphore secrets | HMAC-SHA256 over a per-credential random key | No — it is symmetric, never leaves the authenticator, and nothing public is derived from it |
+
+So in `STRICT`, `STANDARD` and `YOLO` modes, a quantum adversary who can forge assertions still can't decrypt the stored wallet: that needs the PRF output, which only the authenticator can compute, after user verification. Forged assertions would only defeat the SDK's local assertion check, which runs in the same page as the attacker anyway.
+
+`PRIMARY` mode is the exception: the passkey's P-256 signature *is* the account's authorization on-chain, so it inherits the full Shor exposure, like secp256k1 EOAs.
+
+One caveat on the PRF path: between the browser and a roaming authenticator (USB, NFC, or a phone over the hybrid transport), CTAP encrypts the PRF salts and outputs under a P-256 ECDH shared secret. Decrypting a recorded exchange later needs local capture of USB or NFC traffic, or, for the hybrid transport, the QR code secret that is mixed into the tunnel's keys, so this is a much narrower exposure than a published public key.
 
 ---
 
