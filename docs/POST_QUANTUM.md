@@ -143,6 +143,24 @@ So in `STRICT`, `STANDARD` and `YOLO` modes, a quantum adversary who can forge a
 
 One caveat on the PRF path: between the browser and a roaming authenticator (USB, NFC, or a phone over the hybrid transport), CTAP encrypts the PRF salts and outputs under a P-256 ECDH shared secret. Decrypting a recorded exchange later needs local capture of USB or NFC traffic, or, for the hybrid transport, the QR code secret that is mixed into the tunnel's keys, so this is a much narrower exposure than a published public key.
 
+### ML-DSA passkeys: ecosystem status (November 2026)
+
+WebAuthn selects the signature algorithm by COSE identifier, so post-quantum passkeys need no protocol change: [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964) registers ML-DSA-44, ML-DSA-65 and ML-DSA-87 (FIPS 204) as COSE `-48`, `-49` and `-50`, with the new `AKP` key type. What is missing is deployment:
+
+| Project | Role | Status | Policy |
+| --- | --- | --- | --- |
+| [1Password](https://1password.com/blog/post-quantum-passkeys) | Authenticator | Shipped 2026-10-20 (8.12.44); creation not yet on iOS or the native macOS autofill extension | Creates an ML-DSA passkey only when the site asks for it; existing passkeys stay classical, an in-place upgrade is being worked on with W3C and FIDO |
+| [Yubico](https://www.darkreading.com/identity-access-management-security/beyond-phishing-resistant-yubico-identity-verification-gap) | Hardware authenticator | Public beta; beta keys can't be updated in the field. Shipping firmware 5.8 has no PQ keys | Beta only |
+| Apple, Google | Platform passkeys | No ML-DSA passkeys announced; Apple's CryptoKit has ML-DSA-65/87, including in the Secure Enclave | — |
+| [SimpleWebAuthn](https://simplewebauthn.dev/docs/14.0.x/advanced/server/pqc-ml-dsa-support) | TypeScript server library | v14: ML-DSA-44/65/87 on Node ≥ 24.7 | ML-DSA-44 is first in the default list when the runtime supports it |
+| [webauthn4j](https://github.com/webauthn4j/webauthn4j/pull/1337) | Java server library | 0.32.0 (2026-11-02), JDK 17/21 backports | Library support |
+| [Keycloak](https://github.com/keycloak/keycloak/issues/50084) | Identity server | Planned for 27.0 | Opt-in only: classical stays the default, nothing deprecated, migration out of scope; waits on FIDO conformance test vectors and a production authenticator |
+| Passkey smart wallets (Coinbase Smart Wallet, Safe, ZeroDev) | On-chain P-256 accounts | No public PQ statement found | — |
+
+The pattern is the same everywhere: opt-in, classical by default, no forced migration. No on-chain wallet has moved, since nothing on Ethereum can verify ML-DSA yet ([EIP-8051](https://eips.ethereum.org/EIPS/eip-8051) is a draft).
+
+ML-DSA public keys are large (about 1.3 KB for ML-DSA-44, 2.6 KB for ML-DSA-87, against 64 bytes for ES256), which matters for credential storage and backup files. Whether ML-DSA passkeys also support the PRF extension, which w3pk can't work without, has not been checked.
+
 ---
 
 ## ML-KEM Encryption
