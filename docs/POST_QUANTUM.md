@@ -354,7 +354,7 @@ Decrypts a v3 payload. The recipient entry is found by the public key derived fr
 
 - **No interim on-chain PQ signature verifiers.** Pre-EIP-8141 architectures (bundler-based smart-contract accounts with a bolted-on PQ verifier) are not part of Ethereum's actual roadmap and would need to be replaced once EIP-8141 ships. Building on them now means migrating twice for no lasting benefit.
 - **No PQ signing scheme committed in code.** Which exact algorithm to use (ML-DSA via EIP-8051/8355, Falcon via EIP-7619, or a hash-based Winternitz scheme) is still an open execution-layer question upstream. Committing to one now risks shipping the wrong thing.
-- **No changes to WebAuthn/passkey authentication.** FIDO Alliance's own PQ specification work isn't expected to produce browser support before 2027-2028; P-256 stays as-is until that lands.
+- **No changes to WebAuthn/passkey authentication yet.** ML-DSA passkeys exist (see [ML-DSA passkeys: ecosystem status](#ml-dsa-passkeys-ecosystem-status-november-2026)), but outside `PRIMARY` mode they wouldn't protect the wallet key, which already comes from the quantum-resistant PRF output. In `PRIMARY` mode, an ML-DSA credential would have no account at all, since nothing on-chain verifies ML-DSA. P-256 stays the only requested algorithm until an on-chain verifier ships, or until opt-in ML-DSA credentials for the other modes are shown to support PRF.
 
 ---
 
@@ -366,7 +366,8 @@ The trigger table above tracks Ethereum's protocol schedule, which covers *when 
 
 - [ ] Re-verify the `mlkem` npm package (currently `mlkem@2.7.0`, [dajiaji/crystals-kyber-js](https://github.com/dajiaji/crystals-kyber-js)) is still maintained, still passes the NIST ML-KEM KAT vectors and the pq-crystals/kyber reference tests, and has no open security advisories.
 - [ ] Re-check whether an audited JavaScript FrodoKEM implementation exists, and whether an HPKE KEM id is registered for ML-KEM-1024 + X25519.
-- [ ] Re-check the FIDO Alliance's WebAuthn PQ status — no PQ COSE algorithm identifier is registered as of this writing, so P-256 passkeys stay as-is; flag the moment one lands.
+- [ ] Re-check the ML-DSA passkey ecosystem (COSE `-48`/`-49`/`-50`, [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964)): which authenticators create ML-DSA passkeys, whether any of them supports PRF, whether Apple's or Google's platform passkeys do, and whether FIDO has published PQ conformance test vectors.
+- [ ] Re-check whether a post-quantum stealth address scheme has been registered for ERC-5564.
 - [ ] Re-check whether `ethers` (currently `^6.0.0`, used for transaction construction and secp256k1 signing) has announced any PQ or hybrid-signing support, since a signing-path change there would predate w3pk's own EIP-8141 integration.
 - [ ] Re-confirm EIP-8141 and the Hegotá fork's status directly against [pq.ethereum.org](https://pq.ethereum.org/) and [strawmap.org](https://strawmap.org/) — don't rely on this document staying current between reviews.
 
@@ -403,7 +404,8 @@ This is a placeholder for design intent, not a commitment to this exact shape �
 | `mlkem` (`^2.7.0`) | ML-KEM-1024 encryption | Post-quantum today | Maintenance activity, KAT test results, disclosed vulnerabilities |
 | `@noble/curves` (`^2.4.0`), `@noble/hashes` | X25519, HKDF, SHA3-256 for the hybrid KEM and HPKE | Classical (X25519), hedged by ML-KEM | Audits, disclosed vulnerabilities |
 | `ethers` (`^6.0.0`) | Transaction construction, secp256k1 signing | Classical only | Any announced hybrid/PQ signing support |
-| WebAuthn / FIDO2 | Passkey authentication (P-256) | Classical only | FIDO Alliance PQ working-group output; no registered PQ COSE algorithm yet |
+| WebAuthn / FIDO2 | Passkey authentication (P-256), PRF wallet key (HMAC-SHA256) | Signatures classical, PRF symmetric; ML-DSA COSE IDs registered, first authenticators shipping | PRF support on ML-DSA passkeys, platform passkeys, FIDO conformance test vectors |
+| `snarkjs` (`^0.7.6`) | Groth16 proofs over BN254 | Zero-knowledge holds, soundness classical | Any PQ proof system usable from circom circuits |
 | Ethereum L1 (via EIP-8141) | Transaction validation | Classical only, PQ path specified but not shipped | Hegotá fork outcome, EIP-8141 mainnet status |
 
 ---
@@ -448,6 +450,7 @@ Dormant-funds exposure — the governance question nobody has answered — is mu
 - [draft-irtf-cfrg-hybrid-kems](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/) and [X-Wing](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/) — hybrid KEM combiners
 - [NIST FIPS 204: ML-DSA](https://csrc.nist.gov/pubs/fips/204/final) — signatures, candidate for Ethereum's execution layer
 - [NIST FIPS 205: SLH-DSA](https://csrc.nist.gov/pubs/fips/205/final) — hash-based signatures
+- [RFC 9964: ML-DSA for JOSE and COSE](https://www.rfc-editor.org/rfc/rfc9964) — the COSE identifiers ML-DSA passkeys use
 - [EIP-8141: Frame transactions](https://eips.ethereum.org/EIPS/eip-8141) — the trigger this document tracks
 - [EIP-8051](https://eips.ethereum.org/EIPS/eip-8051), [EIP-8355](https://eips.ethereum.org/EIPS/eip-8355) — `VERIFY_MLDSA` precompile drafts
 - [EIP-7619: Falcon](https://eips.ethereum.org/EIPS/eip-7619)
@@ -469,12 +472,13 @@ Dormant-funds exposure — the governance question nobody has answered — is mu
 
 ## Document Maintenance
 
-**Version:** 2.3
-**Last Updated:** 2026-11-04
+**Version:** 2.4
+**Last Updated:** 2026-11-08
 **Next Review:** 2027-03-13 (6 months, or sooner if the Hegotá fork's EIP-8141 status changes)
 **Maintained By:** Julien Béranger ([@julienbrg](https://github.com/julienbrg))
 
 **Changelog:**
+- 2026-11-08: Backup key derivation described as Argon2id; WebAuthn risk split between the P-256 credential key and the PRF wallet key; added the ML-DSA passkey ecosystem status and a "harvest now, decrypt later" inventory (stealth addresses, ElGamal, Groth16, Semaphore); updated the checkpoints and the dependency table ([#331](https://github.com/w3hc/w3pk/issues/331))
 - 2026-11-04: KEM keys derive from the BIP-39 seed, origin, mode, tag and context instead of the origin's secp256k1 signing key (salt `w3pk-kem-keypair-v4`, [#263](https://github.com/w3hc/w3pk/issues/263)); every ML-KEM key changes
 - 2026-11-01: Encrypted payloads move to v3, HPKE over a hybrid ML-KEM-1024 + X25519 KEM ([#137](https://github.com/w3hc/w3pk/issues/137)); documented the combiner, the FrodoKEM decision and what a leaked key exposes; v1 and v2 are no longer readable
 - 2026-09-13: Added "Roadmap maturity: closing the gaps" — internally-owned review checkpoints, a labeled not-yet-implemented crypto-agility target design, a draft operational runbook (testnet dry run, ML-KEM context rotation, fail-closed hybrid verification, no global cutover), and a dependency PQ-posture table (`mlkem`, `ethers`, WebAuthn/FIDO2), per NIST SP 1800-38 and CISA quantum-readiness guidance
