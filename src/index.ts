@@ -111,6 +111,17 @@ export {
 } from "./wallet/smart-account";
 
 export {
+  getSigningDigests,
+  type SigningRequest,
+  type SigningTransaction,
+  type SigningTypedData,
+  type SigningDigests,
+  type TransactionDigests,
+  type TypedDataDigests,
+  type MessageDigests,
+} from "./core/signing-digests";
+
+export {
   ENTRY_POINT_V09,
   encodeExecute,
   getUserOperationHash,
