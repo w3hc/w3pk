@@ -111,7 +111,8 @@ async function runTests() {
       getSigningDigests({ method: "eth_sendTransaction", params: [{ data: TRANSFER_CALLDATA }] }).to,
       null
     );
-    console.log("✅ Missing or 0x data hashes 32 zero bytes, missing to is null");
+    assert.throws(() => getSigningDigests({ method: "eth_sendTransaction", params: [{ to: "" }] }));
+    console.log("✅ Missing or 0x data hashes 32 zero bytes, missing to is null, empty to throws");
   }
 
   console.log("\nTest 6: eth_signTypedData_v4 returns the EIP-712 Digest, Domain Hash and Message Hash");
@@ -148,7 +149,25 @@ async function runTests() {
     console.log("✅ Unused types are ignored, an unknown primaryType throws");
   }
 
-  console.log("\nTest 8: unsupported methods throw");
+  console.log("\nTest 8: eth_signTypedData_v4 rejects a domain that types.EIP712Domain does not declare");
+  {
+    const undeclaredVersion = {
+      ...MAIL,
+      types: { ...MAIL.types, EIP712Domain: MAIL.types.EIP712Domain.filter((f) => f.name !== "version") },
+    };
+    assert.throws(
+      () => getSigningDigests({ method: "eth_signTypedData_v4", params: [ADDRESS, undeclaredVersion] }),
+      /domain does not match types.EIP712Domain/
+    );
+    const { EIP712Domain: _, ...undeclaredDomain } = MAIL.types;
+    assert.deepStrictEqual(
+      getSigningDigests({ method: "eth_signTypedData_v4", params: [ADDRESS, { ...MAIL, types: undeclaredDomain }] }),
+      MAIL_DIGESTS
+    );
+    console.log("✅ Mismatched EIP712Domain throws, a missing one is derived from the domain");
+  }
+
+  console.log("\nTest 9: unsupported methods throw");
   {
     assert.throws(
       () => getSigningDigests({ method: "eth_signTypedData", params: [] } as never),
