@@ -77,7 +77,7 @@ function calldataDigests(tx: SigningTransaction): TransactionDigests {
   const data = getBytes(tx.data ?? "0x");
   return {
     calldataDigest: keccak256(concat([toBeHex(data.length, 32), data])),
-    to: tx.to ? getAddress(tx.to) : null,
+    to: tx.to == null ? null : getAddress(tx.to),
     value: getBigInt(tx.value ?? 0),
   };
 }
@@ -106,6 +106,12 @@ function typedDataDigests(typedData: string | SigningTypedData): TypedDataDigest
   const { domain, types, primaryType, message } =
     typeof typedData === "string" ? (JSON.parse(typedData) as SigningTypedData) : typedData;
   const domainHash = TypedDataEncoder.hashDomain(domain);
+  if (
+    types.EIP712Domain &&
+    TypedDataEncoder.hashStruct("EIP712Domain", { EIP712Domain: types.EIP712Domain }, domain) !== domainHash
+  ) {
+    throw new WalletError("getSigningDigests: domain does not match types.EIP712Domain");
+  }
   const messageHash = new TypedDataEncoder(typesOf(types, primaryType)).hashStruct(primaryType, message);
   return {
     eip712Digest: keccak256(concat(["0x1901", domainHash, messageHash])),
@@ -122,9 +128,9 @@ function typedDataDigests(typedData: string | SigningTypedData): TypedDataDigest
  * - `personal_sign`, `eth_sign`: ERC-191 Digest; `0x` hex is decoded to bytes, any other string is UTF-8
  *
  * Empty or missing calldata still has a Calldata Digest (`keccak256` of 32 zero bytes). The digests
- * are those of the request itself in every mode: in `PRIMARY`, the original EIP-712 or ERC-191
- * digest, not the ERC-7739 hash the passkey signs, and the request's `data`, not the ERC-4337
- * `execute()` callData.
+ * depend on the request only, never on the security mode: in `PRIMARY`, they are the original
+ * EIP-712 or ERC-191 digest, not the ERC-7739 hash the passkey signs, and the request's `data`,
+ * not the ERC-4337 `execute()` callData.
  */
 export function getSigningDigests<R extends SigningRequest>(request: R): SigningDigests<R>;
 export function getSigningDigests(request: SigningRequest): SigningDigests {
