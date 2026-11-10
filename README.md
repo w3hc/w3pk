@@ -58,7 +58,7 @@ const endpoints = await w3pk.getEndpoints(1)
 - Hybrid post-quantum encryption (HPKE over ML-KEM-1024 + X25519)
 - Chainlist support (every network on chainid.network, fetched live)
 - EIP-7702 network detection (329 known networks, RPC probing for the others)
-- EIP-7951 PRIMARY mode: a P-256 passkey smart account (ERC-4337, EIP-1271) that signs and sends without trusting the host app ([trust model](#trust-model))
+- EIP-7951 PRIMARY mode: a P-256 passkey smart account (ERC-4337, EIP-1271) whose key the host app can never reach ([trust model](#trust-model))
 - Build verification (IPFS CID hashing + DAO-maintained onchain registry)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
 
@@ -66,7 +66,7 @@ const endpoints = await w3pk.getEndpoints(1)
 
 w3pk runs inside the host app's page, as code the host serves. What the host can do depends on the mode.
 
-**`PRIMARY`: the user doesn't need to trust the host app.**
+**`PRIMARY`: the host can't take the key or sign in your absence — but every signature is blind.**
 - The passkey's P-256 key never leaves the authenticator (or the passkey provider that syncs it). The account is a [`W3pkAccount`](./docs/EIP-7951.md#primary-smart-account) smart account that verifies the passkey's WebAuthn assertions onchain.
 - Nothing in the page can sign without a user-verified prompt: no mnemonic, no session key, no exportable private key. A host that ships a modified SDK still can't extract the key, or sign once the user has left.
 - The passkey is bound to the host's domain (its RP ID), so another site can't ask for it.
@@ -78,7 +78,7 @@ A malicious host app can still attempt the following in `PRIMARY` mode:
 - **Censorship.** It chooses the bundler and paymaster. It can delay, drop or refuse to send a UserOperation, but can't change one after it is signed.
 - **Privacy.** It learns the account's address. Every tag's account shares the same owner key, so they're linkable onchain.
 
-So in `PRIMARY` the user's protection is the prompt: approve it only for an action you started. Spending limits and allowlists can be enforced onchain by an ERC-7579 hook, which sees every execution.
+So in `PRIMARY` the user's protection is the prompt: approve it only for an action you started. The host is still trusted with everything in this wallet, by construction — keep session funds in it, not savings ([threat model](./docs/SECURITY.md#the-host-app-is-trusted-by-construction)). Spending limits and allowlists can be enforced onchain by an ERC-7579 hook, which sees every execution.
 
 **`STRICT`, `STANDARD` and `YOLO`: the user trusts the host app.**
 - The SDK decrypts the PRF-encrypted mnemonic in the page to derive secp256k1 keys. Code running on the host's origin can therefore reach those keys: the host itself, a malicious dependency, a compromised CDN or an XSS.
