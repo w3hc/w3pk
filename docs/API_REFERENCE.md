@@ -1419,10 +1419,39 @@ options?: {
   chainId?: number;     // Initial chainId reported by eth_chainId (default: 1)
   rpcUrl?: string;      // RPC endpoint of the initial chain, for read methods and eth_sendTransaction (else rpcUrls for the active chain, required)
   bundlerUrl?: string;  // PRIMARY: bundler endpoint (else bundlerUrls for the active chain)
+  onBeforeSign?: (digests: BeforeSignDigests) => boolean | void | Promise<boolean | void>;  // Awaited before each passkey prompt; throw, reject or return false to cancel
 }
+
+// import type { BeforeSignDigests, EIP1193ProviderOptions } from 'w3pk'
+type BeforeSignDigests =
+  | { method: 'eth_sendTransaction' } & TransactionDigests
+  | { method: 'eth_signTypedData_v4' } & TypedDataDigests
+  | { method: 'personal_sign' | 'eth_sign' } & MessageDigests
 ```
 
 In every mode, `rpcUrl` and `bundlerUrl` serve the initial `chainId` only: after `wallet_switchEthereumChain`, the config's `rpcUrls` and `bundlerUrls` for the new chain are used.
+
+**`onBeforeSign`:** on `eth_sendTransaction`, `eth_signTypedData_v4`, `personal_sign` and `eth_sign`, the provider validates the request (the active chain, and `eth_sign` in `PRIMARY`, which rejects with `4200` before the hook), computes its [`getSigningDigests()`](#getsigningdigestsrequest-signingrequest-signingdigests) result and awaits `onBeforeSign` with it and the request's `method`, before the passkey prompt. The request stays bound to the chain it was validated on, even if `wallet_switchEthereumChain` runs while the hook waits.
+
+- If the hook throws, rejects or returns `false`, the request rejects with `code` `4001` (User Rejected Request), the hook's error as `cause`, and nothing is signed; ethers reports `ACTION_REJECTED`
+- If the digests can't be computed, for example a `to` that isn't an address, the request rejects with that error, before the hook
+- Unset, no digests are computed and requests are handled as before
+- The Calldata Digest covers neither `to` nor `value`, which the hook also receives: show them next to it
+- A hostile host app controls both the request and the hook's display, so the digests are only worth checking on a second, independent tool; see [the host-trust caveat](./SECURITY.md#the-host-app-is-trusted-by-construction)
+
+```typescript
+const provider = w3pk.getEIP1193Provider({
+  onBeforeSign: async (digests) => {
+    if (digests.method === 'eth_sendTransaction') {
+      return confirm(`Calldata Digest ${digests.calldataDigest}\nTo ${digests.to}\nValue ${digests.value} wei`)
+    }
+    if (digests.method === 'eth_signTypedData_v4') {
+      return confirm(`EIP-712 Digest ${digests.eip712Digest}\nDomain Hash ${digests.domainHash}\nMessage Hash ${digests.messageHash}`)
+    }
+    return confirm(`ERC-191 Digest ${digests.erc191Digest}`)
+  },
+})
+```
 
 **Returns:** An object with:
 
@@ -1483,7 +1512,7 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 |-------|---------|---------|
 | `chainChanged` | `string` (hex chainId) | `wallet_switchEthereumChain` |
 
-Any other method rejects, in every mode, with an error whose `code` is `4200` (Unsupported Method) and whose message is `w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with code `4200` too.
+Any other method rejects, in every mode, with an error whose `code` is `4200` (Unsupported Method) and whose message is `w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with code `4200` too. A request cancelled by `onBeforeSign` rejects with code `4001` (User Rejected Request).
 
 **Example — ethers v6:**
 

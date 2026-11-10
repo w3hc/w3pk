@@ -267,6 +267,32 @@ const hash = await client.sendTransaction({ to: '0x...', value: parseEther('1') 
 
 Any other method rejects with code `4200` (Unsupported Method). Without an endpoint for the active chain, read methods throw before any request.
 
+**Show the digests before signing (`onBeforeSign`)**
+
+`onBeforeSign` is awaited with the request's [ERC-8213](https://erc8213.eth.limo/) digests (see [Signing Digests](#signing-digests-erc-8213)) and its `method`, before the passkey prompt, on `eth_sendTransaction`, `eth_signTypedData_v4`, `personal_sign` and `eth_sign`. If it throws, rejects or returns `false`, the request rejects with code `4001` (User Rejected Request) and nothing is signed. Unset, no digests are computed.
+
+```typescript
+const eip1193 = w3pk.getEIP1193Provider({
+  chainId: 1,
+  onBeforeSign: async (digests) => {
+    const rows =
+      digests.method === 'eth_sendTransaction'
+        ? { 'Calldata Digest': digests.calldataDigest, To: digests.to ?? 'contract creation', Value: `${digests.value} wei` }
+        : digests.method === 'eth_signTypedData_v4'
+          ? { 'EIP-712 Digest': digests.eip712Digest, 'Domain Hash': digests.domainHash, 'Message Hash': digests.messageHash }
+          : { 'ERC-191 Digest': digests.erc191Digest }
+
+    // Optional: a QR code of the first digest, for a phone to scan (qrcode is an optional dependency)
+    const QRCode = await import('qrcode')
+    const qr = await QRCode.toDataURL(Object.values(rows)[0])
+
+    return confirmDigests(rows, qr) // your UI; false cancels
+  },
+})
+```
+
+The Calldata Digest covers neither `to` nor `value`: show both, as above. A hostile host app controls both the request and this display, so the digests are only worth checking on a second, independent tool (see the [host-trust caveat](docs/SECURITY.md#the-host-app-is-trusted-by-construction)).
+
 ### Signing Digests (ERC-8213)
 
 `getSigningDigests()` returns the [ERC-8213](https://erc8213.eth.limo/) digests of a signing request, so the user can check them on a second tool before signing. It takes the request as its EIP-1193 arguments; it's pure, with no network call.
