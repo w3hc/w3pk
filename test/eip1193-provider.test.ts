@@ -841,6 +841,15 @@ Issued At: 2021-09-30T16:25:24Z`)
     }
 
     const log: string[] = [];
+    const declined = createEIP1193Provider(hookedSdk(log), { onBeforeSign: async () => false });
+    for (const request of signingRequests) {
+      const error = await declined
+        .request({ method: request.method, params: [...request.params] })
+        .catch((e) => e);
+      assertEqual(error.code, 4001, `${request.method}: false cancels`);
+    }
+    assertEqual(log.length, 0, "SDK never called after false");
+
     const browser = new BrowserProvider(
       createEIP1193Provider(hookedSdk(log), { onBeforeSign: () => Promise.reject(cancel) })
     );
@@ -852,6 +861,48 @@ Issued At: 2021-09-30T16:25:24Z`)
     }
     assertEqual(log.length, 0, "SDK never called through ethers");
     passTest("Cancelled before the passkey prompt");
+  });
+
+  await runTest("A chain switch while onBeforeSign waits doesn't move the request", async () => {
+    for (const mode of [undefined, "PRIMARY"] as const) {
+      const { sdk, calls, txs } = stubSdk();
+      const sendOptions: any[] = [];
+      sdk.sendTransaction = async (tx: any, options: any) => {
+        txs.push(tx);
+        sendOptions.push(options);
+        return { hash: "0xhash" };
+      };
+      let entered!: () => void;
+      let release!: () => void;
+      const provider = createEIP1193Provider(sdk, {
+        mode,
+        chainId: 10,
+        rpcUrl: "https://rpc.example",
+        onBeforeSign: () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+            entered();
+          }),
+      });
+      for (const request of [
+        { method: "eth_sendTransaction", params: [{ to: signer }] },
+        { method: "personal_sign", params: ["hi", signer] },
+      ]) {
+        const hooked = new Promise<void>((resolve) => (entered = resolve));
+        const pending = provider.request(request);
+        await hooked;
+        await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+        release();
+        await pending;
+        await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xa" }] });
+      }
+      assertEqual(txs[0].chainId, 10, `${mode}: transaction chainId`);
+      assertEqual(sendOptions[0].rpcUrl, "https://rpc.example", `${mode}: initial chain's rpcUrl`);
+      if (mode === "PRIMARY") {
+        assertEqual(calls[0].options.chainId, 10, "PRIMARY: signs for the chain it was asked on");
+      }
+    }
+    passTest("Request bound to the chain it was validated on");
   });
 
   await runTest("An async onBeforeSign is awaited", async () => {
