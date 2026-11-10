@@ -12,7 +12,9 @@ export type {
 } from "./core/config";
 export type { ZKMethods } from "./core/sdk";
 export type {
+  BeforeSignDigests,
   EIP1193ProviderInterface,
+  EIP1193ProviderOptions,
   ProviderConnectInfo,
   ProviderMessage,
   ProviderRpcError,

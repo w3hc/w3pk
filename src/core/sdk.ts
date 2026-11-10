@@ -118,7 +118,11 @@ import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
 import { supportsEIP7702 } from "../eip7702";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
-import { createEIP1193Provider, type EIP1193ProviderInterface } from "./eip1193";
+import {
+  createEIP1193Provider,
+  type EIP1193ProviderInterface,
+  type EIP1193ProviderOptions,
+} from "./eip1193";
 import type { SdkContext } from "./context";
 import { deriveMLKemPublicKey, mlkemDecrypt, mlkemEncrypt } from "./mlkem";
 import {
@@ -1181,6 +1185,7 @@ export class Web3Passkey {
    *   `rpcUrls` endpoint set for the chain is used. Throws if neither is set:
    *   chainid.network endpoints are never used to send
    * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
+   * @param options.onBeforeSign - Awaited with the request's ERC-8213 digests (getSigningDigests()) and its `method`, after the request is validated and before the passkey prompt; throw, reject or return `false` to cancel with error 4001
    * @param options.paymasterUrl - PRIMARY mode: ERC-7677 paymaster service (default: `paymasterUrl`)
    * @param options.paymasterContext - PRIMARY mode: ERC-7677 context (default: {})
    * @param options.timeout - PRIMARY mode: inclusion timeout in ms (default: 60000)
@@ -1603,11 +1608,19 @@ export class Web3Passkey {
    * callGasLimit, and eth_sign rejects with error 4200: through EIP-1271, a
    * bare hash would skip ERC-7739's replay protection.
    *
+   * With options.onBeforeSign, eth_sendTransaction, eth_signTypedData_v4,
+   * personal_sign and eth_sign compute their ERC-8213 digests and await the
+   * hook before the passkey prompt. If it throws, rejects or returns false,
+   * the request rejects with error 4001 (User Rejected Request), the hook's
+   * error as `cause`, and nothing is signed. The host app controls both the request and the
+   * hook, so the digests are only worth checking on a second, independent tool.
+   *
    * @param options.mode       - Security mode for signing/sending (default: 'STANDARD')
    * @param options.tag        - Wallet tag (default: 'MAIN')
    * @param options.chainId    - Initial chainId reported to consumers (default: 1)
    * @param options.rpcUrl     - RPC endpoint for read methods, sendTransaction() and, in PRIMARY mode, signMessage() (default: `rpcUrls[chainId][0]`)
    * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
+   * @param options.onBeforeSign - Awaited with the request's ERC-8213 digests (getSigningDigests()) and its `method`, after the request is validated and before the passkey prompt; throw, reject or return `false` to cancel with error 4001
    *
    * rpcUrl and bundlerUrl serve options.chainId only: after
    * wallet_switchEthereumChain, the config's rpcUrls and bundlerUrls for the new chain are used.
@@ -1619,16 +1632,15 @@ export class Web3Passkey {
    * // viem
    * const client = createWalletClient({ transport: custom(w3pk.getEIP1193Provider()) })
    *
+   * // show the digests before the passkey prompt
+   * const provider = w3pk.getEIP1193Provider({
+   *   onBeforeSign: (digests) => confirmDigests(digests), // false cancels
+   * })
+   *
    * // wagmi (custom connector)
    * const connector = injected({ target: () => ({ id: 'w3pk', provider: w3pk.getEIP1193Provider() }) })
    */
-  getEIP1193Provider(options?: {
-    mode?: SecurityMode;
-    tag?: string;
-    chainId?: number;
-    rpcUrl?: string;
-    bundlerUrl?: string;
-  }): EIP1193ProviderInterface {
+  getEIP1193Provider(options?: EIP1193ProviderOptions): EIP1193ProviderInterface {
     return createEIP1193Provider(this, options, (chainId) => this.config.rpcUrls?.[chainId]?.[0]);
   }
 

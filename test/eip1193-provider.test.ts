@@ -19,6 +19,8 @@
  * - on / removeListener event wiring
  * - Typed event handlers compile (type-level, via the TypeScript compiler)
  * - Without mode, the options passed to the SDK are those of v0.11.2
+ * - onBeforeSign: awaited with each signing method's digests before the SDK
+ *   call, skipped when unset, a throwing hook rejects with 4001
  * - PRIMARY mode against the mock bundler of test/fixtures/mock-bundler.ts:
  *   accounts, eth_sendTransaction, signing bound to the active chain,
  *   eth_sign refused with 4200, bundlerUrl option
@@ -27,7 +29,8 @@
 import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
-import { createEIP1193Provider } from "../src/core/eip1193";
+import { createEIP1193Provider, type BeforeSignDigests } from "../src/core/eip1193";
+import { getSigningDigests, type SigningRequest } from "../src/core/signing-digests";
 import { WalletError } from "../src/core/errors";
 import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify, hashMessage, dataSlice, isError, BrowserProvider, JsonRpcProvider, Transaction } from "ethers";
 import { GAMING_ACCOUNT, MAIN_ACCOUNT, installPasskey, passkeyCalls, primarySdk } from "./fixtures/passkey-signer";
@@ -725,6 +728,217 @@ Issued At: 2021-09-30T16:25:24Z`)
       globalThis.fetch = realFetch;
     }
     passTest("No endpoint, no request");
+  });
+
+  // ------------------------------------------------------------------
+  // 23d. onBeforeSign
+  // ------------------------------------------------------------------
+  const signer = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
+  const signingRequests: SigningRequest[] = [
+    {
+      method: "eth_sendTransaction",
+      params: [{ to: signer.toLowerCase(), value: "0x5", data: "0xa9059cbb" }],
+    },
+    {
+      method: "eth_signTypedData_v4",
+      params: [
+        signer,
+        JSON.stringify({
+          domain: { name: "Mail", version: "1", chainId: 1 },
+          types: {
+            EIP712Domain: [
+              { name: "name", type: "string" },
+              { name: "version", type: "string" },
+              { name: "chainId", type: "uint256" },
+            ],
+            Mail: [{ name: "contents", type: "string" }],
+          },
+          primaryType: "Mail",
+          message: { contents: "hi" },
+        }),
+      ],
+    },
+    { method: "personal_sign", params: ["0x68656c6c6f", signer] },
+    { method: "eth_sign", params: [signer, "hello"] },
+  ];
+  const json = (value: unknown) =>
+    JSON.stringify(value, (_, v) => (typeof v === "bigint" ? v.toString() : v));
+  const hookedSdk = (log: string[]) => {
+    const { sdk } = stubSdk();
+    sdk.sendTransaction = async () => {
+      log.push("sdk");
+      return { hash: "0xhash" };
+    };
+    sdk.signMessage = async () => {
+      log.push("sdk");
+      return { signature: "0xsig" };
+    };
+    return sdk;
+  };
+
+  await runTest("onBeforeSign gets each method's digests before the SDK call", async () => {
+    const log: string[] = [];
+    const seen: BeforeSignDigests[] = [];
+    const provider = createEIP1193Provider(hookedSdk(log), {
+      onBeforeSign: (digests) => {
+        log.push("hook");
+        seen.push(digests);
+      },
+    });
+    for (const request of signingRequests) {
+      await provider.request({ method: request.method, params: [...request.params] });
+    }
+    assertEqual(log.join(), "hook,sdk,hook,sdk,hook,sdk,hook,sdk", "hook before each SDK call");
+    signingRequests.forEach((request, i) => {
+      assertEqual(
+        json(seen[i]),
+        json({ method: request.method, ...getSigningDigests(request) }),
+        `${request.method} digests`
+      );
+    });
+    const [tx] = seen;
+    assert(tx.method === "eth_sendTransaction", "narrows on method");
+    assertEqual(tx.to, signer, "checksummed to");
+    assertEqual(tx.value, 5n, "value");
+    passTest("Digests reach the hook before the passkey prompt");
+  });
+
+  await runTest("Without onBeforeSign, no digests are computed", async () => {
+    const log: string[] = [];
+    const provider = createEIP1193Provider(hookedSdk(log), {});
+    const bad = { method: "eth_sendTransaction", params: [{ to: "not an address" }] };
+    assertEqual(await provider.request(bad), "0xhash", "the SDK gets the request as before");
+    assertEqual(log.join(), "sdk", "SDK called");
+
+    let calls = 0;
+    const hooked = createEIP1193Provider(hookedSdk(log), { onBeforeSign: () => void calls++ });
+    const error = await hooked.request(bad).catch((e) => e);
+    assert(error instanceof Error && (error as any).code !== 4001, "an invalid request isn't a user rejection");
+    assertEqual(calls, 0, "hook not called on an invalid request");
+    passTest("Unset hook, unchanged behavior");
+  });
+
+  await runTest("A throwing or rejecting onBeforeSign rejects with 4001 and nothing is signed", async () => {
+    const cancel = new Error("digests don't match");
+    for (const hook of [
+      () => {
+        throw cancel;
+      },
+      async () => {
+        throw cancel;
+      },
+    ]) {
+      const log: string[] = [];
+      const provider = createEIP1193Provider(hookedSdk(log), { onBeforeSign: hook });
+      for (const request of signingRequests) {
+        const error = await provider
+          .request({ method: request.method, params: [...request.params] })
+          .catch((e) => e);
+        assertEqual(error.code, 4001, `${request.method}: EIP-1193 User Rejected Request`);
+        assertEqual(error.cause, cancel, `${request.method}: hook's error as cause`);
+      }
+      assertEqual(log.length, 0, "SDK never called");
+    }
+
+    const log: string[] = [];
+    const declined = createEIP1193Provider(hookedSdk(log), { onBeforeSign: async () => false });
+    for (const request of signingRequests) {
+      const error = await declined
+        .request({ method: request.method, params: [...request.params] })
+        .catch((e) => e);
+      assertEqual(error.code, 4001, `${request.method}: false cancels`);
+    }
+    assertEqual(log.length, 0, "SDK never called after false");
+
+    const browser = new BrowserProvider(
+      createEIP1193Provider(hookedSdk(log), { onBeforeSign: () => Promise.reject(cancel) })
+    );
+    try {
+      const error = await (await browser.getSigner()).signMessage("hi").catch((e) => e);
+      assert(isError(error, "ACTION_REJECTED"), `ethers ACTION_REJECTED, got ${error?.code}`);
+    } finally {
+      browser.destroy();
+    }
+    assertEqual(log.length, 0, "SDK never called through ethers");
+    passTest("Cancelled before the passkey prompt");
+  });
+
+  await runTest("A chain switch while onBeforeSign waits doesn't move the request", async () => {
+    for (const mode of [undefined, "PRIMARY"] as const) {
+      const { sdk, calls, txs } = stubSdk();
+      const sendOptions: any[] = [];
+      sdk.sendTransaction = async (tx: any, options: any) => {
+        txs.push(tx);
+        sendOptions.push(options);
+        return { hash: "0xhash" };
+      };
+      let entered!: () => void;
+      let release!: () => void;
+      const provider = createEIP1193Provider(sdk, {
+        mode,
+        chainId: 10,
+        rpcUrl: "https://rpc.example",
+        onBeforeSign: () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+            entered();
+          }),
+      });
+      for (const request of [
+        { method: "eth_sendTransaction", params: [{ to: signer }] },
+        { method: "personal_sign", params: ["hi", signer] },
+      ]) {
+        const hooked = new Promise<void>((resolve) => (entered = resolve));
+        const pending = provider.request(request);
+        await hooked;
+        await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+        release();
+        await pending;
+        await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xa" }] });
+      }
+      assertEqual(txs[0].chainId, 10, `${mode}: transaction chainId`);
+      assertEqual(sendOptions[0].rpcUrl, "https://rpc.example", `${mode}: initial chain's rpcUrl`);
+      if (mode === "PRIMARY") {
+        assertEqual(calls[0].options.chainId, 10, "PRIMARY: signs for the chain it was asked on");
+      }
+    }
+    passTest("Request bound to the chain it was validated on");
+  });
+
+  await runTest("An async onBeforeSign is awaited", async () => {
+    const log: string[] = [];
+    const provider = createEIP1193Provider(hookedSdk(log), {
+      onBeforeSign: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        log.push("hook done");
+      },
+    });
+    await provider.request({ method: "personal_sign", params: ["hi", signer] });
+    assertEqual(log.join(), "hook done,sdk", "SDK called once the hook resolves");
+    passTest("Async hook awaited");
+  });
+
+  await runTest("Requests are validated before onBeforeSign", async () => {
+    let calls = 0;
+    const onBeforeSign = () => void calls++;
+    const { sdk } = stubSdk();
+    const primary = createEIP1193Provider(sdk, { mode: "PRIMARY", onBeforeSign });
+    const error = await primary.request({ method: "eth_sign", params: [signer, "hello"] }).catch((e) => e);
+    assertEqual(error.code, 4200, "PRIMARY: eth_sign is an EIP-1193 Unsupported Method");
+
+    const provider = createEIP1193Provider(sdk, { chainId: 1, onBeforeSign });
+    await assertThrows(
+      () => provider.request({ method: "eth_sendTransaction", params: [{ to: signer, chainId: "0x2" }] }),
+      "transaction for another chain"
+    );
+    const typedData = JSON.parse(signingRequests[1].params[1] as string);
+    typedData.domain.chainId = 2;
+    await assertThrows(
+      () => provider.request({ method: "eth_signTypedData_v4", params: [signer, typedData] }),
+      "typed data for another chain"
+    );
+    assertEqual(calls, 0, "hook not called");
+    passTest("Rejected requests never reach the hook");
   });
 
   // ------------------------------------------------------------------
