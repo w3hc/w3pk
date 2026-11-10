@@ -1,7 +1,12 @@
 import { getBytes } from "ethers";
 import type { SecurityMode } from "../types";
 import { WalletError } from "./errors";
-import { isHex } from "./signing-digests";
+import {
+  getSigningDigests,
+  isHex,
+  type SigningDigests,
+  type SigningRequest,
+} from "./signing-digests";
 import type { Web3Passkey } from "./sdk";
 
 /** Payload of the EIP-1193 `connect` event */
@@ -46,6 +51,34 @@ export interface EIP1193ProviderInterface {
   removeListener(event: 'connect', handler: (info: ProviderConnectInfo) => void): void;
   removeListener(event: 'disconnect', handler: (error: ProviderRpcError) => void): void;
   removeListener(event: 'message', handler: (message: ProviderMessage) => void): void;
+}
+
+type SigningMethod = SigningRequest["method"];
+
+/** ERC-8213 digests of a signing request, with its method: narrow on `method` */
+export type BeforeSignDigests = {
+  [M in SigningMethod]: { method: M } & SigningDigests<Extract<SigningRequest, { method: M }>>;
+}[SigningMethod];
+
+/** Options of `Web3Passkey.getEIP1193Provider()` */
+export interface EIP1193ProviderOptions {
+  mode?: SecurityMode;
+  tag?: string;
+  chainId?: number;
+  rpcUrl?: string;
+  bundlerUrl?: string;
+  /** Awaited before each signing request's passkey prompt; throw or reject to cancel it with error 4001 */
+  onBeforeSign?: (digests: BeforeSignDigests) => void | Promise<void>;
+}
+
+/** EIP-1193 error 4001: the user rejected the request */
+class UserRejectedRequestError extends Error implements ProviderRpcError {
+  code = 4001;
+
+  constructor(public cause: unknown) {
+    super("w3pk EIP-1193: onBeforeSign rejected the request");
+    this.name = "UserRejectedRequestError";
+  }
 }
 
 /** EIP-1193 error 4200: the provider does not support the method */
@@ -116,13 +149,7 @@ function parseChainId(value: unknown): bigint {
 /** Build the EIP-1193 provider returned by `Web3Passkey.getEIP1193Provider()` */
 export function createEIP1193Provider(
   sdk: Pick<Web3Passkey, 'getAddress' | 'sendTransaction' | 'signMessage'>,
-  options?: {
-    mode?: SecurityMode;
-    tag?: string;
-    chainId?: number;
-    rpcUrl?: string;
-    bundlerUrl?: string;
-  },
+  options?: EIP1193ProviderOptions,
   rpcUrlFor?: (chainId: number) => string | undefined
 ): EIP1193ProviderInterface {
   let activeChainId = options?.chainId ?? 1;
@@ -145,6 +172,15 @@ export function createEIP1193Provider(
     return url;
   };
   const primarySigning = () => (isPrimary ? { chainId: activeChainId, rpcUrl: endpoints().rpcUrl } : {});
+  const beforeSign = async (request: SigningRequest) => {
+    if (!options?.onBeforeSign) return;
+    const digests = { method: request.method, ...getSigningDigests(request) } as BeforeSignDigests;
+    try {
+      await options.onBeforeSign(digests);
+    } catch (error) {
+      throw new UserRejectedRequestError(error);
+    }
+  };
 
   // Minimal EventEmitter (subset needed by EIP-1193)
   const listeners: Partial<Record<EIP1193Event, Listener[]>> = {};
@@ -184,6 +220,7 @@ export function createEIP1193Provider(
             );
           }
           const chainId = activeChainId;
+          await beforeSign({ method: 'eth_sendTransaction', params: [txParam] });
 
           const result = await sdk.sendTransaction(
             {
@@ -219,6 +256,7 @@ export function createEIP1193Provider(
         // personal_sign(data, address) — params are reversed vs eth_sign
         case 'personal_sign': {
           const [data] = params ?? [];
+          await beforeSign({ method: 'personal_sign', params: [data] });
           const message = isHex(data)
             ? getBytes(data)
             : data;
@@ -239,7 +277,8 @@ export function createEIP1193Provider(
               'w3pk EIP-1193: eth_sign is not supported in PRIMARY mode. Use personal_sign or eth_signTypedData_v4.'
             );
           }
-          const [, data] = params ?? [];
+          const [address, data] = params ?? [];
+          await beforeSign({ method: 'eth_sign', params: [address, data] });
           const message = isHex(data)
             ? getBytes(data)
             : data;
@@ -253,7 +292,7 @@ export function createEIP1193Provider(
 
         // EIP-712 typed data signing
         case 'eth_signTypedData_v4': {
-          const [, typedDataJson] = params ?? [];
+          const [address, typedDataJson] = params ?? [];
           const typedData = typeof typedDataJson === 'string'
             ? JSON.parse(typedDataJson)
             : typedDataJson;
@@ -265,6 +304,8 @@ export function createEIP1193Provider(
               `eth_signTypedData_v4: domain chainId ${domain.chainId} does not match the active chain ${activeChainId}`
             );
           }
+
+          await beforeSign({ method: 'eth_signTypedData_v4', params: [address, typedData] });
 
           // Remove EIP-712 meta-type if present (ethers doesn't want it)
           const filteredTypes = { ...types };
