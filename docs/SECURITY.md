@@ -438,7 +438,22 @@ console.assert(
 
 ## Threat Model
 
-Understanding w3pk's security boundaries is critical for proper deployment. The security model relies on **multiple layers of protection**, not just encryption.
+Understanding w3pk's security boundaries is critical for proper deployment. The security model relies on **multiple layers of protection**, not just encryption. The first boundary to understand is the one that doesn't exist:
+
+### The Host App Is Trusted, by Construction
+
+w3pk runs inside the host app's page, as code the host serves, in the host's origin. The host's JavaScript picks every challenge the passkey signs. The WebAuthn prompt shows "use your passkey for example.com" and the account — never what is being signed. **The user approves a prompt, not a transaction.** A rogue host can put "send everything to me" behind a prompt the user thinks is for something else.
+
+This holds for **every signing path** — `signMessage()`, `sendTransaction()`, `signAuthorization()`, stealth signing, and `PRIMARY` UserOperations alike. WebAuthn attests *which origin asked*, never *what is being signed*, and any "review your transaction" UI drawn inside the host's page is drawn by the host. It cannot be fixed while the signing code runs in the host's origin. [Build verification](./BUILD_VERIFICATION.md) lets an honest host prove which w3pk build it serves; it doesn't protect anyone from a dishonest host.
+
+Two things bound the damage:
+
+- **The wallet is per-app.** The passkey is bound to the host's RP ID and every key is derived per origin, so a rogue host can only steal from the wallet that exists because of that host — closer to "the app custodies its own wallet" than "the app can rob your wallet".
+- **In `PRIMARY`, theft needs the user present.** The host can't extract a key or sign once the user has left: it has to put the malicious operation behind a live prompt, per user, and the result is visible onchain and attributable to the app. That is strictly better than a custodial operator, who can take everything at once, silently.
+
+**What this trust model is for.** w3pk competes with custodial and embedded wallets, not with hardware wallets. It fits where the host is the counterparty anyway, or where little is at stake: authentication (SIWE), Semaphore/ZK identities, encryption keys, attestations, assets the app itself issues, closed-loop payments, session funds for games, mints and micro-payments, and receiving (a stealth meta-address can receive at any size; only the spend path is exposed). It is an onboarding ramp, not a vault: once a balance matters, move it to a wallet the host doesn't control (see [PORTABILITY.md](./PORTABILITY.md)).
+
+**What it is not for:** anything the user would not hand to the app itself — DeFi positions, savings, a treasury. **Fund it like a transit card, not a savings account**, and say so in your app wherever it suggests funding the wallet.
 
 ### Security Layers (Strongest to Weakest)
 
@@ -589,6 +604,7 @@ await w3pk.deriveWallet('YOLO', 'MAIN', { requireAuth: false })
 - ✅ Better than password-based wallets for online threats
 
 **What w3pk IS NOT:**
+- ❌ Protection against a malicious host app — the host is trusted by construction, in every mode, `PRIMARY` included (see [The Host App Is Trusted, by Construction](#the-host-app-is-trusted-by-construction))
 - ❌ Protection against storage theft with a silent "Remember Me" session (its key is stored)
 - ❌ Protection against code injection with active session (XSS during session)
 - ❌ Protection against physical device compromise (need device encryption + strong password)
