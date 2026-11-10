@@ -5,6 +5,15 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] - 2026-11-10
+
+### Changed
+
+- **The security docs state the host-trust assumption plainly** ([#333](https://github.com/w3hc/w3pk/issues/333))
+  - `docs/SECURITY.md`'s threat model opens with the construction-level fact: w3pk runs in the host's origin, so the host is trusted with everything in this wallet, in every mode, `PRIMARY` included
+  - The "user approves a prompt, not the transaction" warning is generalized from the stealth paragraph to all signing paths
+  - Every place the docs suggest funding the wallet now says session funds, not savings
+
 ## [0.12.2] - 2026-11-08
 
 ### Changed
