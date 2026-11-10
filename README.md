@@ -267,6 +267,29 @@ const hash = await client.sendTransaction({ to: '0x...', value: parseEther('1') 
 
 Any other method rejects with code `4200` (Unsupported Method). Without an endpoint for the active chain, read methods throw before any request.
 
+### Signing Digests (ERC-8213)
+
+`getSigningDigests()` returns the [ERC-8213](https://erc8213.eth.limo/) digests of a signing request, so the user can check them on a second tool before signing. It takes the request as its EIP-1193 arguments; it's pure, with no network call.
+
+```typescript
+import { getSigningDigests } from 'w3pk'
+
+getSigningDigests({ method: 'eth_sendTransaction', params: [{ to, value, data }] })
+// { calldataDigest, to, value }
+getSigningDigests({ method: 'eth_signTypedData_v4', params: [address, typedData] })
+// { eip712Digest, domainHash, messageHash }
+getSigningDigests({ method: 'personal_sign', params: [message, address] })
+// { erc191Digest }
+```
+
+| Request | ERC-8213 label | Field |
+|---------|----------------|-------|
+| `eth_sendTransaction` | Calldata Digest | `calldataDigest` |
+| `eth_signTypedData_v4` | EIP-712 Digest, Domain Hash, Message Hash | `eip712Digest`, `domainHash`, `messageHash` |
+| `personal_sign` / `eth_sign` | ERC-191 Digest | `erc191Digest` |
+
+The Calldata Digest covers neither the recipient nor the amount: show `to` and `value` next to it. In `PRIMARY`, the digests are the original request's, not the ERC-7739 hash or the ERC-4337 `execute()` callData the passkey signs.
+
 ### Session Management
 
 ```typescript
