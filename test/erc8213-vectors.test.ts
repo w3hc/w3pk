@@ -55,6 +55,8 @@ function check(vector: Vector) {
         vector.expected
       );
       return;
+    default:
+      assert.fail(`unknown kind ${(vector as { kind: string }).kind}`);
   }
 }
 
@@ -66,7 +68,9 @@ async function runTests() {
     for (const [id, { commit, urls }] of Object.entries(fixture.sources)) {
       assert.match(commit, /^[0-9a-f]{40}$/, `${id}: commit is not a full SHA`);
       assert.ok(urls.length > 0, `${id}: no URL`);
-      for (const url of urls) assert.ok(url.includes(`/blob/${commit}/`), `${id}: ${url} is not pinned to ${commit}`);
+      for (const url of urls) {
+        assert.match(url, new RegExp(`^https://github\\.com/[^/]+/[^/]+/blob/${commit}/`), `${id}: ${url} is not pinned`);
+      }
     }
     const cited = new Set(fixture.vectors.flatMap((v) => v.sources));
     assert.deepStrictEqual([...cited].sort(), Object.keys(fixture.sources).sort());
