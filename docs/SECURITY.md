@@ -625,7 +625,7 @@ await w3pk.deriveWallet('YOLO', 'MAIN', { requireAuth: false })
 - Scenarios where remote attacks are the primary threat
 - Use cases with short sessions or disabled sessions for sensitive operations
 - Combined with device encryption and strong device passwords
-- Not as a replacement for hardware wallets for high-value holdings (>$10k)
+- Session funds only, never savings: the host is trusted with everything in this wallet (see [The Host App Is Trusted, by Construction](#the-host-app-is-trusted-by-construction))
 
 ---
 
