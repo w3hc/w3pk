@@ -1,0 +1,148 @@
+{
+  "sources": {
+    "erc-8213": {
+      "commit": "40b13cb779e069ba17632040a89b431fdd540299",
+      "urls": [
+        "https://github.com/ethereum/ERCs/blob/40b13cb779e069ba17632040a89b431fdd540299/ERCS/erc-8213.md#test-cases"
+      ]
+    },
+    "ethereum-app": {
+      "commit": "34512d4dd2c06514d6c8204203c0b4c935e58455",
+      "urls": [
+        "https://github.com/ethereum/ethereum-app/blob/34512d4dd2c06514d6c8204203c0b4c935e58455/common-eth-signer/crates/core/tests/digests.rs"
+      ]
+    },
+    "erc8213-app": {
+      "commit": "897514f74969094afe449f2bc064f44d9fb272cf",
+      "urls": [
+        "https://github.com/PatrickAlphaC/erc8213/blob/897514f74969094afe449f2bc064f44d9fb272cf/app/lib/digests.test.ts",
+        "https://github.com/PatrickAlphaC/erc8213/blob/897514f74969094afe449f2bc064f44d9fb272cf/app/lib/example.ts"
+      ]
+    }
+  },
+  "vectors": [
+    {
+      "name": "ERC-191 hello",
+      "sources": ["erc-8213"],
+      "kind": "erc191",
+      "input": { "message": "hello" },
+      "expected": {
+        "erc191Digest": "0x50b2c43fd39106bafbba0da34fc430e1f91e3c96ea2acee2bc34119f92b37750"
+      }
+    },
+    {
+      "name": "ERC-191 héllo (6 UTF-8 bytes)",
+      "sources": ["erc-8213"],
+      "kind": "erc191",
+      "input": { "message": "héllo" },
+      "expected": {
+        "erc191Digest": "0x42fd95dd8ed22d7d934d6ffff71ed0b730835b0de4bb3532a271568c8760c8d2"
+      }
+    },
+    {
+      "name": "ERC-20 transfer calldata",
+      "sources": ["erc-8213", "ethereum-app", "erc8213-app"],
+      "kind": "calldata",
+      "input": {
+        "data": "0xa9059cbb0000000000000000000000004675c7e5baafbffbca748158becba61ef3b0a2630000000000000000000000000000000000000000000000000de0b6b3a7640000"
+      },
+      "expected": {
+        "calldataDigest": "0x812cee5d9cc7461c04bbcd7b70af9c28b243ac5d74d3453b008b93b7dac69985"
+      }
+    },
+    {
+      "name": "empty calldata",
+      "sources": ["ethereum-app", "erc8213-app"],
+      "kind": "calldata",
+      "input": { "data": "0x" },
+      "expected": {
+        "calldataDigest": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563"
+      }
+    },
+    {
+      "name": "EIP-712 Mail",
+      "sources": ["ethereum-app", "erc8213-app"],
+      "kind": "eip712",
+      "input": {
+        "types": {
+          "EIP712Domain": [
+            { "name": "name", "type": "string" },
+            { "name": "version", "type": "string" },
+            { "name": "chainId", "type": "uint256" },
+            { "name": "verifyingContract", "type": "address" }
+          ],
+          "Person": [
+            { "name": "name", "type": "string" },
+            { "name": "wallet", "type": "address" }
+          ],
+          "Mail": [
+            { "name": "from", "type": "Person" },
+            { "name": "to", "type": "Person" },
+            { "name": "contents", "type": "string" }
+          ]
+        },
+        "primaryType": "Mail",
+        "domain": {
+          "name": "Ether Mail",
+          "version": "1",
+          "chainId": 1,
+          "verifyingContract": "0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC"
+        },
+        "message": {
+          "from": { "name": "Cow", "wallet": "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826" },
+          "to": { "name": "Bob", "wallet": "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB" },
+          "contents": "Hello, Bob!"
+        }
+      },
+      "expected": {
+        "eip712Digest": "0xbe609aee343fb3c4b28e1df9e632fca64fcfaede20f02e86244efddf30957bd2",
+        "domainHash": "0xf2cee375fa42b42143804025fc449deafd50cc031ca257e0b194a650a912090f",
+        "messageHash": "0xc52c0ee5d84264471806290a3f2c4cecfc5490626bf912d01f240d7a274b371e"
+      }
+    },
+    {
+      "name": "EIP-712 Permit2 PermitTransferFrom",
+      "sources": ["erc8213-app"],
+      "kind": "eip712",
+      "input": {
+        "domain": {
+          "name": "Permit2",
+          "chainId": 1,
+          "verifyingContract": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+        },
+        "types": {
+          "EIP712Domain": [
+            { "name": "name", "type": "string" },
+            { "name": "chainId", "type": "uint256" },
+            { "name": "verifyingContract", "type": "address" }
+          ],
+          "PermitTransferFrom": [
+            { "name": "permitted", "type": "TokenPermissions" },
+            { "name": "spender", "type": "address" },
+            { "name": "nonce", "type": "uint256" },
+            { "name": "deadline", "type": "uint256" }
+          ],
+          "TokenPermissions": [
+            { "name": "token", "type": "address" },
+            { "name": "amount", "type": "uint256" }
+          ]
+        },
+        "primaryType": "PermitTransferFrom",
+        "message": {
+          "permitted": {
+            "token": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+            "amount": "1000000000"
+          },
+          "spender": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+          "nonce": "0",
+          "deadline": "1893456000"
+        }
+      },
+      "expected": {
+        "eip712Digest": "0x01e5a64a608f03873d795fe77fe6bcd1a15692ee25bc02dd638b8fbc3753625c",
+        "domainHash": "0x866a5aba21966af95d6c7ab78eb2b2fc913915c28be3b9aa07cc04ff903e3f28",
+        "messageHash": "0x7d1be9b8c7677c8cc6adba965260e35822632ef4eb35ddd5d6aafe26cb1ef882"
+      }
+    }
+  ]
+}
