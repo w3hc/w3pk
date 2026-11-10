@@ -1,5 +1,6 @@
 import type {
   EIP1193ProviderInterface,
+  EIP1193ProviderOptions,
   ProviderConnectInfo,
   ProviderMessage,
   ProviderRpcError,
@@ -20,3 +21,17 @@ provider.on("chainChanged", () => {});
 provider.on("accountsChanged", (accounts: number[]) => accounts);
 // @ts-expect-error not an EIP-1193 event
 provider.on("unknownEvent", () => {});
+
+const onBeforeSign: EIP1193ProviderOptions["onBeforeSign"] = async (digests) => {
+  if (digests.method === "eth_sendTransaction") {
+    digests.calldataDigest satisfies string;
+    digests.value satisfies bigint;
+    // @ts-expect-error transactions have no EIP-712 Digest
+    digests.eip712Digest;
+  } else if (digests.method === "eth_signTypedData_v4") {
+    digests.domainHash satisfies string;
+  } else {
+    digests.erc191Digest satisfies string;
+  }
+};
+onBeforeSign;
