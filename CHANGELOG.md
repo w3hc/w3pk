@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `eth_signTypedData_v4` returns the EIP-712 Digest, Domain Hash and Message Hash, following `primaryType`
   - `personal_sign` and `eth_sign` return the ERC-191 Digest; `0x` hex is hashed as bytes, other strings as UTF-8
   - In `PRIMARY`, the digests are the original request's, not the ERC-7739 or ERC-4337 wrapping
+- **`getSigningDigests()` is tested against the published ERC-8213 vectors** ([#335](https://github.com/w3hc/w3pk/issues/335))
+  - `test/fixtures/erc8213-vectors.json` vendors the vectors of the ERC text, `ethereum/ethereum-app` and `PatrickAlphaC/erc8213`, each source pinned to a full commit SHA
+  - Covers ERC-191 (`"hello"`, `"héllo"`, as text and as hex), calldata (ERC-20 transfer, empty) and EIP-712 (Mail, Permit2)
 
 ## [0.12.3] - 2026-11-10
 
