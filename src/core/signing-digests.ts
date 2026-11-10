@@ -71,7 +71,9 @@ interface SigningDigestsByMethod {
 
 export type SigningDigests<R extends SigningRequest = SigningRequest> = SigningDigestsByMethod[R["method"]];
 
-const isHex = (value: string) => /^0x(?:[0-9a-fA-F]{2})*$/.test(value);
+/** Returns true if a value is 0x-prefixed hex encoding whole bytes */
+export const isHex = (value: unknown): value is string =>
+  typeof value === "string" && /^0x(?:[0-9a-fA-F]{2})*$/.test(value);
 
 function calldataDigests(tx: SigningTransaction): TransactionDigests {
   const data = getBytes(tx.data ?? "0x");

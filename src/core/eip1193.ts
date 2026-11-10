@@ -1,6 +1,7 @@
 import { getBytes } from "ethers";
 import type { SecurityMode } from "../types";
 import { WalletError } from "./errors";
+import { isHex } from "./signing-digests";
 import type { Web3Passkey } from "./sdk";
 
 /** Payload of the EIP-1193 `connect` event */
@@ -102,11 +103,6 @@ async function forward(url: string, method: string, params: unknown[] | undefine
     throw new WalletError(`w3pk EIP-1193: ${method} failed: HTTP ${response.status} from ${url}`);
   }
   return body.result;
-}
-
-/** Returns true if a string is 0x-prefixed hex encoding whole bytes */
-function isHex(value: string): boolean {
-  return typeof value === 'string' && /^0x(?:[0-9a-fA-F]{2})*$/.test(value);
 }
 
 function parseChainId(value: unknown): bigint {
