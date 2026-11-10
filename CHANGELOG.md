@@ -5,6 +5,17 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`getSigningDigests()` returns the ERC-8213 digests of a signing request** ([#334](https://github.com/w3hc/w3pk/issues/334))
+  - A pure helper, exported from `w3pk`, that takes a request as its EIP-1193 arguments, so the user can check what they sign on a second tool
+  - `eth_sendTransaction` returns the Calldata Digest with the checksummed `to` and the `value`, which the digest doesn't cover; empty calldata still has a digest
+  - `eth_signTypedData_v4` returns the EIP-712 Digest, Domain Hash and Message Hash, following `primaryType`
+  - `personal_sign` and `eth_sign` return the ERC-191 Digest; `0x` hex is hashed as bytes, other strings as UTF-8
+  - In `PRIMARY`, the digests are the original request's, not the ERC-7739 or ERC-4337 wrapping
+
 ## [0.12.3] - 2026-11-10
 
 ### Changed

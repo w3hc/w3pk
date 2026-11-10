@@ -10,6 +10,7 @@ Complete reference for all methods, types, and utilities in the w3pk SDK.
   - [Origin-Specific Address Derivation](#origin-specific-address-derivation)
   - [`sendTransaction()`](#sendtransactiontx-options-promisesendtransactionresult)
   - [`getEIP1193Provider()`](#geteip1193provideroptions-eip1193providerinterface)
+  - [`getSigningDigests()`](#getsigningdigestsrequest-signingrequest-signingdigests)
   - [`derivePrfSecret()`](#deriveprfsecrettag-string-promiseprfsecret)
   - [`getSemaphoreIdentity()`](#getsemaphoreidentitytag-string-promisesemaphoreidentity)
   - [`zkProve()`](#zkprovetag-artifacts-publicinputs-extrawitness-options-promisezkproveresult)
@@ -1555,6 +1556,60 @@ await provider.request({
 - `eth_sendTransaction` hex fields (`value`, `gas`, `maxFeePerGas`, `maxPriorityFeePerGas`, `nonce`) are automatically converted to `bigint` / `number` before passing to `sendTransaction()`.
 - `personal_sign` data that arrives as a `0x`-prefixed hex string is signed as the bytes it encodes, matching MetaMask's behaviour.
 - `eth_signTypedData_v4` throws a `WalletError` when the typed data's `domain.chainId` differs from the active chain, as [EIP-712](https://eips.ethereum.org/EIPS/eip-712) requires; switch chains first with `wallet_switchEthereumChain`.
+
+---
+
+### `getSigningDigests(request: SigningRequest): SigningDigests`
+
+Standalone function. Returns the [ERC-8213](https://erc8213.eth.limo/) digests of a signing request, for the user to check on a second, independent tool before signing. It's pure: no network call, no wallet access.
+
+**Parameters:**
+- `request` — the request as its EIP-1193 `request()` arguments, so a provider can pass its own `{ method, params }`:
+
+| `method` | `params` | Returns |
+|----------|----------|---------|
+| `eth_sendTransaction` | `[tx]` | `TransactionDigests` |
+| `eth_signTypedData_v4` | `[address, typedData]`, typed data as a JSON string or an object | `TypedDataDigests` |
+| `personal_sign` | `[message, address]` | `MessageDigests` |
+| `eth_sign` | `[address, message]` | `MessageDigests` |
+
+**Returns:** the digest set for the method, as `0x`-prefixed lowercase hex:
+
+| Field | ERC-8213 label | Value |
+|-------|----------------|-------|
+| `calldataDigest` | Calldata Digest | `keccak256(uint256(len(data)) ‖ data)`, the length as 32 big-endian bytes; chain-independent |
+| `to` | | Checksummed recipient, `null` for a contract creation |
+| `value` | | Wei sent as a `bigint`, `0n` when absent |
+| `eip712Digest` | EIP-712 Digest | `keccak256(0x1901 ‖ domainHash ‖ messageHash)` |
+| `domainHash` | Domain Hash | `hashStruct(eip712Domain)` |
+| `messageHash` | Message Hash | `hashStruct(message)` for `primaryType` |
+| `erc191Digest` | ERC-191 Digest | `keccak256("\x19Ethereum Signed Message:\n" ‖ len(message) ‖ message)` |
+
+```typescript
+import { getSigningDigests } from 'w3pk'
+
+const { calldataDigest, to, value } = getSigningDigests({
+  method: 'eth_sendTransaction',
+  params: [{ to: token, data: transferCalldata }],
+})
+
+const { eip712Digest, domainHash, messageHash } = getSigningDigests({
+  method: 'eth_signTypedData_v4',
+  params: [address, typedData],
+})
+
+const { erc191Digest } = getSigningDigests({ method: 'personal_sign', params: ['hello', address] })
+// 0x50b2c43fd39106bafbba0da34fc430e1f91e3c96ea2acee2bc34119f92b37750
+```
+
+**Notes:**
+- The Calldata Digest covers neither `to` nor `value`, as ERC-8213's security considerations warn: show and check them separately.
+- Missing or `0x` calldata still has a Calldata Digest: `0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563`, the hash of 32 zero bytes.
+- `personal_sign` and `eth_sign` messages that are `0x`-prefixed hex are hashed as the bytes they encode; any other string is UTF-8, as the provider signs them.
+- The Message Hash follows `primaryType`, and types it doesn't reference are ignored. A `types.EIP712Domain` that doesn't match the domain's fields throws a `WalletError`.
+- The digests depend on the request only, never on the mode. In `PRIMARY`, they are the original EIP-712 or ERC-191 digest, not the ERC-7739 hash the passkey signs, and the transaction's own `data`, not the ERC-4337 `execute()` callData.
+- One request at a time: batched `PRIMARY` sends (`sendTransaction([...])`) are not covered.
+- Unsupported methods throw a `WalletError`.
 
 ---
 
