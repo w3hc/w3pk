@@ -476,7 +476,7 @@ const gamingTx = await w3pk.sendTransaction(
 
 ### PRIMARY Mode: Passkey Smart Account
 
-In PRIMARY mode no secp256k1 key exists: the passkey's `W3pkAccount` sends an [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) UserOperation through a bundler that supports EntryPoint v0.9. Set a bundler per chain, and optionally an [ERC-7677](https://eips.ethereum.org/EIPS/eip-7677) paymaster service; without one, the account pays its own gas, so fund `await w3pk.getAddress('PRIMARY')` first. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](./DEPLOYMENT.md)).
+In PRIMARY mode no secp256k1 key exists: the passkey's `W3pkAccount` sends an [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) UserOperation through a bundler that supports EntryPoint v0.9. Set a bundler per chain, and optionally an [ERC-7677](https://eips.ethereum.org/EIPS/eip-7677) paymaster service; without one, the account pays its own gas, so fund `await w3pk.getAddress('PRIMARY')` first — with session funds, not savings, since the host is trusted with everything in this wallet ([SECURITY.md](./SECURITY.md#the-host-app-is-trusted-by-construction)). For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](./DEPLOYMENT.md)).
 
 ```typescript
 const w3pk = createWeb3Passkey({
