@@ -72,7 +72,7 @@ interface SigningDigestsByMethod {
 export type SigningDigests<R extends SigningRequest = SigningRequest> = SigningDigestsByMethod[R["method"]];
 
 /** Returns true if a value is 0x-prefixed hex encoding whole bytes */
-export const isHex = (value: unknown): value is string =>
+const isHex = (value: unknown): value is string =>
   typeof value === "string" && /^0x(?:[0-9a-fA-F]{2})*$/.test(value);
 
 function calldataDigests(tx: SigningTransaction): TransactionDigests {
@@ -84,8 +84,11 @@ function calldataDigests(tx: SigningTransaction): TransactionDigests {
   };
 }
 
+/** The ERC-191 message of `personal_sign` or `eth_sign` data: `0x` hex as bytes, any other string as UTF-8 */
+export const erc191Message = (data: string): string | Uint8Array => (isHex(data) ? getBytes(data) : data);
+
 function erc191Digests(data: string): MessageDigests {
-  return { erc191Digest: hashMessage(isHex(data) ? getBytes(data) : data) };
+  return { erc191Digest: hashMessage(erc191Message(data)) };
 }
 
 /** Keeps `primaryType` and the types it references, so ethers sees a single root type */

@@ -1,9 +1,8 @@
-import { getBytes } from "ethers";
 import type { SecurityMode } from "../types";
 import { WalletError } from "./errors";
 import {
+  erc191Message,
   getSigningDigests,
-  isHex,
   type SigningDigests,
   type SigningRequest,
 } from "./signing-digests";
@@ -67,15 +66,15 @@ export interface EIP1193ProviderOptions {
   chainId?: number;
   rpcUrl?: string;
   bundlerUrl?: string;
-  /** Awaited before each signing request's passkey prompt; throw or reject to cancel it with error 4001 */
-  onBeforeSign?: (digests: BeforeSignDigests) => void | Promise<void>;
+  /** Awaited before each signing request's passkey prompt; throw, reject or return `false` to cancel it with error 4001 */
+  onBeforeSign?: (digests: BeforeSignDigests) => boolean | void | Promise<boolean | void>;
 }
 
 /** EIP-1193 error 4001: the user rejected the request */
 class UserRejectedRequestError extends Error implements ProviderRpcError {
   code = 4001;
 
-  constructor(public cause: unknown) {
+  constructor(public cause?: unknown) {
     super("w3pk EIP-1193: onBeforeSign rejected the request");
     this.name = "UserRejectedRequestError";
   }
@@ -175,11 +174,13 @@ export function createEIP1193Provider(
   const beforeSign = async (request: SigningRequest) => {
     if (!options?.onBeforeSign) return;
     const digests = { method: request.method, ...getSigningDigests(request) } as BeforeSignDigests;
+    let approved;
     try {
-      await options.onBeforeSign(digests);
+      approved = await options.onBeforeSign(digests);
     } catch (error) {
       throw new UserRejectedRequestError(error);
     }
+    if (approved === false) throw new UserRejectedRequestError();
   };
 
   // Minimal EventEmitter (subset needed by EIP-1193)
@@ -219,36 +220,34 @@ export function createEIP1193Provider(
               `eth_sendTransaction: chainId ${txParam.chainId} does not match the active chain ${activeChainId}`
             );
           }
-          const chainId = activeChainId;
+          const tx = {
+            to: txParam.to,
+            value: txParam.value !== undefined
+              ? BigInt(txParam.value)
+              : undefined,
+            data: txParam.data ?? '0x',
+            chainId: activeChainId,
+            gasLimit: txParam.gas !== undefined
+              ? BigInt(txParam.gas)
+              : undefined,
+            maxFeePerGas: txParam.maxFeePerGas !== undefined
+              ? BigInt(txParam.maxFeePerGas)
+              : undefined,
+            maxPriorityFeePerGas: txParam.maxPriorityFeePerGas !== undefined
+              ? BigInt(txParam.maxPriorityFeePerGas)
+              : undefined,
+            nonce: txParam.nonce !== undefined
+              ? parseInt(txParam.nonce, 16)
+              : undefined,
+          };
+          const sendOptions = {
+            mode: options?.mode,
+            tag: options?.tag,
+            ...endpoints(),
+          };
           await beforeSign({ method: 'eth_sendTransaction', params: [txParam] });
 
-          const result = await sdk.sendTransaction(
-            {
-              to: txParam.to,
-              value: txParam.value !== undefined
-                ? BigInt(txParam.value)
-                : undefined,
-              data: txParam.data ?? '0x',
-              chainId,
-              gasLimit: txParam.gas !== undefined
-                ? BigInt(txParam.gas)
-                : undefined,
-              maxFeePerGas: txParam.maxFeePerGas !== undefined
-                ? BigInt(txParam.maxFeePerGas)
-                : undefined,
-              maxPriorityFeePerGas: txParam.maxPriorityFeePerGas !== undefined
-                ? BigInt(txParam.maxPriorityFeePerGas)
-                : undefined,
-              nonce: txParam.nonce !== undefined
-                ? parseInt(txParam.nonce, 16)
-                : undefined,
-            },
-            {
-              mode: options?.mode,
-              tag: options?.tag,
-              ...endpoints(),
-            }
-          );
+          const result = await sdk.sendTransaction(tx, sendOptions);
           return result.hash;
         }
 
@@ -256,16 +255,14 @@ export function createEIP1193Provider(
         // personal_sign(data, address) — params are reversed vs eth_sign
         case 'personal_sign': {
           const [data] = params ?? [];
-          await beforeSign({ method: 'personal_sign', params: [data] });
-          const message = isHex(data)
-            ? getBytes(data)
-            : data;
-          const result = await sdk.signMessage(message, {
+          const signOptions = {
             mode: options?.mode,
             tag: options?.tag,
-            signingMethod: 'EIP191',
+            signingMethod: 'EIP191' as const,
             ...primarySigning(),
-          });
+          };
+          await beforeSign({ method: 'personal_sign', params: [data] });
+          const result = await sdk.signMessage(erc191Message(data), signOptions);
           return result.signature;
         }
 
@@ -279,10 +276,7 @@ export function createEIP1193Provider(
           }
           const [address, data] = params ?? [];
           await beforeSign({ method: 'eth_sign', params: [address, data] });
-          const message = isHex(data)
-            ? getBytes(data)
-            : data;
-          const result = await sdk.signMessage(message, {
+          const result = await sdk.signMessage(erc191Message(data), {
             mode: options?.mode,
             tag: options?.tag,
             signingMethod: 'EIP191',
@@ -305,24 +299,22 @@ export function createEIP1193Provider(
             );
           }
 
-          await beforeSign({ method: 'eth_signTypedData_v4', params: [address, typedData] });
-
           // Remove EIP-712 meta-type if present (ethers doesn't want it)
           const filteredTypes = { ...types };
           delete filteredTypes['EIP712Domain'];
 
-          const result = await sdk.signMessage(
-            JSON.stringify(typedMessage),
-            {
-              mode: options?.mode,
-              tag: options?.tag,
-              signingMethod: 'EIP712',
-              eip712Domain: domain,
-              eip712Types: filteredTypes,
-              eip712PrimaryType: primaryType,
-              ...primarySigning(),
-            }
-          );
+          const signOptions = {
+            mode: options?.mode,
+            tag: options?.tag,
+            signingMethod: 'EIP712' as const,
+            eip712Domain: domain,
+            eip712Types: filteredTypes,
+            eip712PrimaryType: primaryType,
+            ...primarySigning(),
+          };
+          await beforeSign({ method: 'eth_signTypedData_v4', params: [address, typedData] });
+
+          const result = await sdk.signMessage(JSON.stringify(typedMessage), signOptions);
           return result.signature;
         }
 
