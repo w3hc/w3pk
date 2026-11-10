@@ -1185,7 +1185,7 @@ export class Web3Passkey {
    *   `rpcUrls` endpoint set for the chain is used. Throws if neither is set:
    *   chainid.network endpoints are never used to send
    * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
-   * @param options.onBeforeSign - Awaited with the request's ERC-8213 digests (getSigningDigests()) and its `method`, after the request is validated and before the passkey prompt; throw or reject to cancel with error 4001
+   * @param options.onBeforeSign - Awaited with the request's ERC-8213 digests (getSigningDigests()) and its `method`, after the request is validated and before the passkey prompt; throw, reject or return `false` to cancel with error 4001
    * @param options.paymasterUrl - PRIMARY mode: ERC-7677 paymaster service (default: `paymasterUrl`)
    * @param options.paymasterContext - PRIMARY mode: ERC-7677 context (default: {})
    * @param options.timeout - PRIMARY mode: inclusion timeout in ms (default: 60000)
@@ -1610,9 +1610,9 @@ export class Web3Passkey {
    *
    * With options.onBeforeSign, eth_sendTransaction, eth_signTypedData_v4,
    * personal_sign and eth_sign compute their ERC-8213 digests and await the
-   * hook before the passkey prompt. If it throws or rejects, the request
-   * rejects with error 4001 (User Rejected Request), its error as `cause`,
-   * and nothing is signed. The host app controls both the request and the
+   * hook before the passkey prompt. If it throws, rejects or returns false,
+   * the request rejects with error 4001 (User Rejected Request), the hook's
+   * error as `cause`, and nothing is signed. The host app controls both the request and the
    * hook, so the digests are only worth checking on a second, independent tool.
    *
    * @param options.mode       - Security mode for signing/sending (default: 'STANDARD')
@@ -1620,7 +1620,7 @@ export class Web3Passkey {
    * @param options.chainId    - Initial chainId reported to consumers (default: 1)
    * @param options.rpcUrl     - RPC endpoint for read methods, sendTransaction() and, in PRIMARY mode, signMessage() (default: `rpcUrls[chainId][0]`)
    * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
-   * @param options.onBeforeSign - Awaited with the request's ERC-8213 digests (getSigningDigests()) and its `method`, after the request is validated and before the passkey prompt; throw or reject to cancel with error 4001
+   * @param options.onBeforeSign - Awaited with the request's ERC-8213 digests (getSigningDigests()) and its `method`, after the request is validated and before the passkey prompt; throw, reject or return `false` to cancel with error 4001
    *
    * rpcUrl and bundlerUrl serve options.chainId only: after
    * wallet_switchEthereumChain, the config's rpcUrls and bundlerUrls for the new chain are used.
@@ -1634,9 +1634,7 @@ export class Web3Passkey {
    *
    * // show the digests before the passkey prompt
    * const provider = w3pk.getEIP1193Provider({
-   *   onBeforeSign: async (digests) => {
-   *     if (!(await confirmDigests(digests))) throw new Error('rejected')
-   *   },
+   *   onBeforeSign: (digests) => confirmDigests(digests), // false cancels
    * })
    *
    * // wagmi (custom connector)
