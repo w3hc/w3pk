@@ -1,7 +1,7 @@
 /**
  * getSemaphoreIdentity(tag)
  *
- * Same mocked PRF authenticator as prf-secret.test.ts. The expected private
+ * Same mocked PRF authenticator (prf-authenticator.ts) as prf-secret.test.ts. The expected private
  * key is recomputed here from the credential secret, so the commitment can
  * be checked against @semaphore-protocol/identity.
  *
@@ -17,8 +17,8 @@ import {
 } from "../src/index";
 import { babyJubPublicKey } from "../src/zk/babyjub";
 import { loadSemaphoreCommitment } from "../src/zk/semaphore";
-import { CredentialStorage } from "../src/auth/storage";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
+import { PrfAuthenticator, prf } from "./prf-authenticator";
 
 console.log("\n==================================================");
 console.log("🪪 Semaphore Identity Test");
@@ -64,74 +64,8 @@ function randomId(): string {
 
 const CRED_A = randomId();
 const CRED_B = randomId();
-const credentialSecrets = new Map<string, Uint8Array>([
-  [CRED_A, crypto.getRandomValues(new Uint8Array(32))],
-  [CRED_B, crypto.getRandomValues(new Uint8Array(32))],
-]);
-
-const authenticator = {
-  selected: CRED_A,
-  prf: true,
-  reject: null as Error | null,
-  calls: [] as PublicKeyCredentialRequestOptions[],
-};
-
-async function prf(secret: Uint8Array, input: BufferSource): Promise<ArrayBuffer> {
-  const label = new TextEncoder().encode("WebAuthn PRF");
-  const bytes = new Uint8Array(
-    ArrayBuffer.isView(input)
-      ? input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength)
-      : input
-  );
-  const salt = await crypto.subtle.digest(
-    "SHA-256",
-    new Uint8Array([...label, 0, ...bytes])
-  );
-  const key = await crypto.subtle.importKey(
-    "raw",
-    secret,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  return crypto.subtle.sign("HMAC", key, salt);
-}
-
-Object.defineProperty(globalThis, "navigator", {
-  configurable: true,
-  value: {
-    userAgent: "node",
-    credentials: {
-      get: async ({ publicKey }: { publicKey: PublicKeyCredentialRequestOptions }) => {
-        authenticator.calls.push(publicKey);
-        if (authenticator.reject) throw authenticator.reject;
-
-        const allowed = (publicKey.allowCredentials ?? []).map((c) =>
-          arrayBufferToBase64Url(c.id as ArrayBuffer)
-        );
-        const id = allowed.length > 0 ? allowed[0] : authenticator.selected;
-        const input = (publicKey.extensions as any)?.prf?.eval?.first;
-        const first =
-          authenticator.prf && input
-            ? await prf(credentialSecrets.get(id)!, input)
-            : undefined;
-
-        return {
-          id,
-          rawId: new Uint8Array(16).buffer,
-          type: "public-key",
-          response: {
-            authenticatorData: new Uint8Array(37).buffer,
-            clientDataJSON: new Uint8Array(0).buffer,
-            signature: new Uint8Array(0).buffer,
-          },
-          getClientExtensionResults: () =>
-            first ? { prf: { results: { first } } } : {},
-        };
-      },
-    },
-  },
-});
+const authenticator = new PrfAuthenticator(RP_ID, [CRED_A, CRED_B]);
+authenticator.install();
 
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
@@ -157,13 +91,14 @@ function snapshot(): string {
   return entries.sort().join("\n");
 }
 
-function loggedInSdk(credentialId: string): Web3Passkey {
+async function loggedInSdk(credentialId: string): Promise<Web3Passkey> {
   const sdk = new Web3Passkey();
   (sdk as any).currentUser = {
     username: USERNAME,
     ethereumAddress: ADDRESS,
     credentialId,
   };
+  (sdk as any).currentPublicKey = await authenticator.publicKey(credentialId);
   (sdk as any).getMnemonicFromSession = async () => MNEMONIC;
   return sdk;
 }
@@ -175,7 +110,7 @@ async function expectedPrivateKey(
 ): Promise<Uint8Array> {
   const context = new TextEncoder().encode(`w3pk-semaphore-v1:${origin}:${tag}`);
   const output = await prf(
-    credentialSecrets.get(credentialId)!,
+    authenticator.secret(credentialId),
     await crypto.subtle.digest("SHA-256", context)
   );
   const key = await crypto.subtle.importKey("raw", output, "HKDF", false, ["deriveBits"]);
@@ -215,11 +150,10 @@ async function runTests() {
     }
   }
 
-  function reset() {
-    authenticator.selected = CRED_A;
-    authenticator.prf = true;
-    authenticator.reject = null;
-    authenticator.calls = [];
+  async function reset() {
+    authenticator.reset();
+    localStorage.clear();
+    await authenticator.store(localStorage as unknown as Storage, USERNAME, ADDRESS);
     location.origin = `http://${RP_ID}`;
   }
 
@@ -227,7 +161,7 @@ async function runTests() {
 
   console.log("Test 1: the commitment matches @semaphore-protocol/identity");
   {
-    reset();
+    await reset();
     const sdk = new Web3Passkey();
     const a = await sdk.getSemaphoreIdentity("voting");
     const b = await sdk.getSemaphoreIdentity("voting");
@@ -255,7 +189,7 @@ async function runTests() {
 
   console.log("Test 2: a different tag or origin gives a different commitment");
   {
-    reset();
+    await reset();
     const sdk = new Web3Passkey();
     const base = await sdk.getSemaphoreIdentity("voting");
     const otherTag = await sdk.getSemaphoreIdentity("posting");
@@ -269,7 +203,7 @@ async function runTests() {
 
   console.log("Test 3: a new credential gives a new commitment and reports it");
   {
-    reset();
+    await reset();
     const before = await new Web3Passkey().getSemaphoreIdentity("voting");
     authenticator.selected = CRED_B;
     const after = await new Web3Passkey().getSemaphoreIdentity("voting");
@@ -279,7 +213,7 @@ async function runTests() {
 
     authenticator.selected = CRED_A;
     authenticator.calls = [];
-    const result = await loggedInSdk(CRED_B).getSemaphoreIdentity("voting");
+    const result = await (await loggedInSdk(CRED_B)).getSemaphoreIdentity("voting");
     const allowed = authenticator.calls[0].allowCredentials ?? [];
     assert(
       allowed.length === 1 &&
@@ -292,7 +226,7 @@ async function runTests() {
 
   console.log("Test 4: derivePrfSecret(tag) can't reach the identity's private key");
   {
-    reset();
+    await reset();
     const sdk = new Web3Passkey();
     await sdk.getSemaphoreIdentity("voting");
     const expected = await crypto.subtle.digest(
@@ -318,19 +252,8 @@ async function runTests() {
 
   console.log("Test 5: the private key is neither returned nor stored");
   {
-    reset();
-    localStorage.clear();
-    const now = new Date().toISOString();
-    await new CredentialStorage(localStorage as unknown as Storage).saveCredential({
-      id: CRED_A,
-      publicKey: "unused",
-      username: USERNAME,
-      ethereumAddress: ADDRESS,
-      createdAt: now,
-      lastUsed: now,
-    });
-
-    const sdk = loggedInSdk(CRED_A);
+    await reset();
+    const sdk = await loggedInSdk(CRED_A);
     const before = snapshot();
     const result = await sdk.getSemaphoreIdentity("voting");
     assert(
@@ -363,7 +286,7 @@ async function runTests() {
 
   console.log("Test 6: errors");
   {
-    reset();
+    await reset();
     authenticator.prf = false;
     const errors: unknown[] = [];
     const sdk = new Web3Passkey({ onError: (e) => errors.push(e) });

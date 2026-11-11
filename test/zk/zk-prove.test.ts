@@ -1,7 +1,7 @@
 /**
  * zkProve(tag, artifacts, publicInputs, extraWitness, options)
  *
- * Same mocked PRF authenticator as prf-secret.test.ts. Proves with the
+ * Same mocked PRF authenticator (prf-authenticator.ts) as prf-secret.test.ts. Proves with the
  * prebuilt circuit in fixtures/zk-prove (see its .circom): commitment =
  * Poseidon(secret), nullifier = Poseidon(contextSecret) with contextSecret =
  * Poseidon(secret, scope, 1), blinded = Poseidon(message, r). The expected
@@ -22,8 +22,8 @@ import {
   type ZkProveOptions,
 } from "../../src/index";
 import { deriveBabyJubKeyPair, BABYJUB_SUBORDER } from "../../src/zk/babyjub";
-import { CredentialStorage } from "../../src/auth/storage";
 import { arrayBufferToBase64Url } from "../../src/utils/base64";
+import { PrfAuthenticator, prf } from "../prf-authenticator";
 
 console.log("\n==================================================");
 console.log("🧾 zkProve Test");
@@ -83,74 +83,8 @@ function randomId(): string {
 
 const CRED_A = randomId();
 const CRED_B = randomId();
-const credentialSecrets = new Map<string, Uint8Array>([
-  [CRED_A, crypto.getRandomValues(new Uint8Array(32))],
-  [CRED_B, crypto.getRandomValues(new Uint8Array(32))],
-]);
-
-const authenticator = {
-  selected: CRED_A,
-  prf: true,
-  reject: null as Error | null,
-  calls: [] as PublicKeyCredentialRequestOptions[],
-};
-
-async function prf(secret: Uint8Array, input: BufferSource): Promise<ArrayBuffer> {
-  const label = new TextEncoder().encode("WebAuthn PRF");
-  const bytes = new Uint8Array(
-    ArrayBuffer.isView(input)
-      ? input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength)
-      : input
-  );
-  const salt = await crypto.subtle.digest(
-    "SHA-256",
-    new Uint8Array([...label, 0, ...bytes])
-  );
-  const key = await crypto.subtle.importKey(
-    "raw",
-    secret,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  return crypto.subtle.sign("HMAC", key, salt);
-}
-
-Object.defineProperty(globalThis, "navigator", {
-  configurable: true,
-  value: {
-    userAgent: "node",
-    credentials: {
-      get: async ({ publicKey }: { publicKey: PublicKeyCredentialRequestOptions }) => {
-        authenticator.calls.push(publicKey);
-        if (authenticator.reject) throw authenticator.reject;
-
-        const allowed = (publicKey.allowCredentials ?? []).map((c) =>
-          arrayBufferToBase64Url(c.id as ArrayBuffer)
-        );
-        const id = allowed.length > 0 ? allowed[0] : authenticator.selected;
-        const input = (publicKey.extensions as any)?.prf?.eval?.first;
-        const first =
-          authenticator.prf && input
-            ? await prf(credentialSecrets.get(id)!, input)
-            : undefined;
-
-        return {
-          id,
-          rawId: new Uint8Array(16).buffer,
-          type: "public-key",
-          response: {
-            authenticatorData: new Uint8Array(37).buffer,
-            clientDataJSON: new Uint8Array(0).buffer,
-            signature: new Uint8Array(0).buffer,
-          },
-          getClientExtensionResults: () =>
-            first ? { prf: { results: { first } } } : {},
-        };
-      },
-    },
-  },
-});
+const authenticator = new PrfAuthenticator(RP_ID, [CRED_A, CRED_B]);
+authenticator.install();
 
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
@@ -176,13 +110,14 @@ function snapshot(): string {
   return entries.sort().join("\n");
 }
 
-function loggedInSdk(credentialId: string): Web3Passkey {
+async function loggedInSdk(credentialId: string): Promise<Web3Passkey> {
   const sdk = new Web3Passkey();
   (sdk as any).currentUser = {
     username: USERNAME,
     ethereumAddress: ADDRESS,
     credentialId,
   };
+  (sdk as any).currentPublicKey = await authenticator.publicKey(credentialId);
   (sdk as any).getMnemonicFromSession = async () => MNEMONIC;
   return sdk;
 }
@@ -195,7 +130,7 @@ async function expectedPrfSecret(
 ): Promise<Uint8Array> {
   const context = new TextEncoder().encode(`${label}:${origin}:${tag}`);
   const output = await prf(
-    credentialSecrets.get(credentialId)!,
+    authenticator.secret(credentialId),
     await crypto.subtle.digest("SHA-256", context)
   );
   const key = await crypto.subtle.importKey("raw", output, "HKDF", false, ["deriveBits"]);
@@ -264,11 +199,10 @@ async function runTests() {
     }
   }
 
-  function reset() {
-    authenticator.selected = CRED_A;
-    authenticator.prf = true;
-    authenticator.reject = null;
-    authenticator.calls = [];
+  async function reset() {
+    authenticator.reset();
+    localStorage.clear();
+    await authenticator.store(localStorage as unknown as Storage, USERNAME, ADDRESS);
   }
 
   const ORIGIN = `http://${RP_ID}`;
@@ -277,7 +211,7 @@ async function runTests() {
 
   console.log("Test 1: a valid proof using the zk secret, a derived and a random input");
   {
-    reset();
+    await reset();
     const sdk = new Web3Passkey();
     const result = await sdk.zkProve("voting", ARTIFACTS, { scope: SCOPE }, { message: MESSAGE }, OPTIONS);
     assert(
@@ -314,7 +248,7 @@ async function runTests() {
 
   console.log("Test 2: the Semaphore identity's secretScalar as the secret");
   {
-    reset();
+    await reset();
     const result = await new Web3Passkey().zkProve(
       "voting",
       ARTIFACTS,
@@ -338,18 +272,8 @@ async function runTests() {
 
   console.log("Test 3: secret, derived and random values are neither returned nor stored");
   {
-    reset();
-    localStorage.clear();
-    const now = new Date().toISOString();
-    await new CredentialStorage(localStorage as unknown as Storage).saveCredential({
-      id: CRED_A,
-      publicKey: "unused",
-      username: USERNAME,
-      ethereumAddress: ADDRESS,
-      createdAt: now,
-      lastUsed: now,
-    });
-    const sdk = loggedInSdk(CRED_A);
+    await reset();
+    const sdk = await loggedInSdk(CRED_A);
     const before = snapshot();
     draws.length = 0;
     const result = await sdk.zkProve("voting", ARTIFACTS, { scope: SCOPE }, { message: MESSAGE }, OPTIONS);
@@ -385,7 +309,7 @@ async function runTests() {
 
   console.log("Test 4: artifacts failing verification are rejected before the prompt");
   {
-    reset();
+    await reset();
     const tampered = WASM.slice();
     tampered[tampered.length - 1] ^= 1;
     const error = await capture(() =>
@@ -409,7 +333,7 @@ async function runTests() {
 
   console.log("Test 5: a circuit making the secret public gets no proof");
   {
-    reset();
+    await reset();
     const error = await capture(() =>
       new Web3Passkey().zkProve(
         "voting",
@@ -428,7 +352,7 @@ async function runTests() {
 
   console.log("Test 6: invalid calls fail before the prompt");
   {
-    reset();
+    await reset();
     const errors: unknown[] = [];
     const sdk = new Web3Passkey({ onError: (e) => errors.push(e) });
     const cases: [string, () => Promise<unknown>][] = [
@@ -465,7 +389,7 @@ async function runTests() {
 
   console.log("Test 7: proving goes through the worker when Worker exists");
   {
-    reset();
+    await reset();
     // Runs prove-worker.ts in this thread, with postMessage wired both ways
     const workers: FakeWorker[] = [];
     class FakeWorker {
@@ -508,7 +432,7 @@ async function runTests() {
 
   console.log("Test 8: a worker that can't start falls back to proving in-thread");
   {
-    reset();
+    await reset();
     (globalThis as any).Worker = class {
       constructor() {
         throw new TypeError("Invalid URL");
