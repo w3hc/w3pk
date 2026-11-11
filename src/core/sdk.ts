@@ -532,7 +532,7 @@ export class Web3Passkey {
       // STEP 2: No silent restore - proceed with WebAuthn authentication
       const result = await login(this.config.userVerification);
 
-      if (!result.verified || !result.user) {
+      if (!result.verified || !result.user || !result.credential) {
         throw new AuthenticationError("Login failed");
       }
 
@@ -550,7 +550,7 @@ export class Web3Passkey {
         );
       }
 
-      const { publicKey, publicKeyMac } = result.credential!;
+      const { publicKey, publicKeyMac } = result.credential;
       if (!(await verifyPublicKeyMac(result.prfOutput, result.user.credentialId, publicKey, publicKeyMac))) {
         throw new AuthenticationError("The passkey's stored public key failed authentication");
       }
@@ -880,7 +880,7 @@ export class Web3Passkey {
         this.config.userVerification,
         this.currentUser.credentialId
       );
-      if (authResult.user?.credentialId !== this.currentUser.credentialId) {
+      if (authResult.credential?.id !== this.currentUser.credentialId) {
         throw new WalletError("Authenticate with the logged-in passkey to import a mnemonic");
       }
       if (!authResult.prfOutput) {
@@ -888,7 +888,7 @@ export class Web3Passkey {
       }
       await bootstrapCredential(
         this.ctx,
-        authResult.credential!,
+        authResult.credential,
         phrase,
         ethereumAddress,
         authResult.prfOutput,
