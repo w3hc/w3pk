@@ -67,7 +67,7 @@ interface PersistentSessionConfig {
 
 **PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. A login without a PRF output (an unverified assertion with `userVerification: 'preferred'`) stores no persistent session — the device falls back to an in-memory session only (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored next to the blob in localStorage to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
 
-**User verification:** `userVerification` sets the WebAuthn [user verification](https://www.w3.org/TR/webauthn-3/#user-verification) requirement for `register()` and `login()`; PRIMARY `signMessage()` always asks for `'required'`, since the account checks the UV flag. With `'required'` (the default), every prompt asks for a biometric or PIN. With `'preferred'`, authenticators that can skip the check, such as security keys and unlocked password managers, sign in with one click; the authenticator decides, not the app. Registration accepts any authenticator with PRF support either way: a built-in one, a phone through a QR code, a security key or a password manager. When creation isn't user-verified or returns no PRF output, one assertion with `'required'` evaluates the PRF before anything is stored. PRF calls (`derivePrfSecret()`, PRF device sync) always require user verification, since an unverified assertion would return a different PRF output. A login whose assertion isn't user-verified gets an in-memory session only, never a persistent one.
+**User verification:** `userVerification` sets the WebAuthn [user verification](https://www.w3.org/TR/webauthn-3/#user-verification) requirement for `register()` and `login()`; PRIMARY `signMessage()` always asks for `'required'`, since the account checks the UV flag. With `'required'` (the default), every prompt asks for a biometric or PIN. With `'preferred'`, authenticators that can skip the check, such as security keys and unlocked password managers, sign in with one click; the authenticator decides, not the app. Registration accepts any authenticator with PRF support either way: a built-in one, a phone through a QR code, a security key or a password manager. When creation isn't user-verified or returns no PRF output, one assertion with `'required'` evaluates the PRF before anything is stored. PRF calls (`derivePrfSecret()`, PRF device sync) always require user verification, since an unverified assertion would return a different PRF output. With `'preferred'`, a login whose assertion isn't user-verified gets an in-memory session only, never a persistent one; with `'required'`, an assertion without the UV flag is rejected with `AuthenticationError`.
 
 **Example:**
 
@@ -1076,7 +1076,8 @@ interface PrfSecret {
 **What happens:**
 1. Prompts for the passkey with `userVerification: "required"`; when logged in, only the current user's passkey is allowed, otherwise the user picks one
 2. Evaluates the PRF at `SHA-256("w3pk-prf-v1:" + origin + ":" + tag)`, with `origin` the normalized current origin (the browser further hashes it with the `"WebAuthn PRF"` context)
-3. Returns `HKDF-SHA256(PRF output, salt "w3pk-prf-secret-v1", info "w3pk-prf-v1:" + origin + ":" + tag)`, 32 bytes
+3. Checks the assertion as `login()` does before using the PRF output: client data, RP ID hash, the UV flag and the signature, against the public key checked at login, or, logged out, the one stored for the passkey on this device
+4. Returns `HKDF-SHA256(PRF output, salt "w3pk-prf-secret-v1", info "w3pk-prf-v1:" + origin + ":" + tag)`, 32 bytes
 
 The same passkey, origin and tag always give the same secret. A different tag, origin or passkey gives an unrelated one. Store `credentialId` next to whatever the secret protects: when it changes (a new passkey), so does the secret.
 
@@ -1097,7 +1098,8 @@ try {
 
 **Throws:**
 - `PrfUnsupportedError` (`code: 'PRF_UNSUPPORTED'`, with `credentialId`) if the authenticator returns no PRF output. There is no fallback.
-- `AuthenticationError` if the prompt is cancelled or the passkey isn't available
+- `AuthenticationError` if the prompt is cancelled, the passkey isn't available, or the assertion fails `login()`'s checks (no UV flag, a bad signature)
+- `SyncRequiredError` if logged out and this device has no metadata for the passkey picked, so its signature can't be checked
 - `CryptoError` if `tag` is empty or contains `:`
 
 **Threat model:**
@@ -2897,7 +2899,7 @@ Sync wallet to this device using an existing cloud-synced passkey and a backup f
 
 **Use case:** New device that already has a passkey synced via iCloud/Google Password Manager. The user provides their backup file; the SDK prompts them to select the passkey, decrypts the backup, saves the passkey's metadata if this device has none, stores wallet data locally, starts a session and fires `onAuthStateChanged(true, user)`.
 
-A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`) and carry the username. The username comes from the passkey's user handle when the passkey was registered before 0.11.1, else from the backup; a backup without one, with one `register()` wouldn't accept, or with one another passkey already has on this device falls back to the wallet's address. Since 0.11.1 the user handle is 32 random bytes: WebAuthn requires it to hold no personal information. In both cases the backup's public key is checked against the assertion's signature. On a device that has the passkey's metadata, the assertion passes `login()`'s checks instead: its signature against the stored public key, and its counter, which is saved.
+A PRF sync file from `exportForSync()` takes no password: it's restored as `importFromSync()` does, with one assertion restricted to its passkey. On a device with no data for the passkey, the other backups that work are password backups made by a logged-in user: they name their passkey (`credential: { id, publicKey }`) and carry the username. The username comes from the passkey's user handle when the passkey was registered before 0.11.1, else from the backup; a backup without one, with one `register()` wouldn't accept, or with one another passkey already has on this device falls back to the wallet's address. Since 0.11.1 the user handle is 32 random bytes: WebAuthn requires it to hold no personal information. In both cases the backup's public key is checked against the assertion's signature, and the assertion must be user-verified. On a device that has the passkey's metadata, the assertion passes `login()`'s checks instead: its UV flag, its signature against the stored public key, and its counter, which is saved.
 
 When this device already stores another wallet for the selected passkey, the backup would replace it: that throws `AddressChangeError` after the assertion and before anything stored changes, unless the app confirms the replacement with the user and passes `{ allowAddressChange: true }`.
 
@@ -3928,7 +3930,7 @@ import {
   - `CryptoError` - Cryptographic operations (encryption, decryption)
   - `StorageError` - Storage operations (localStorage)
   - `ApiError` - API/network errors (RPC, chainlist)
-  - `SyncRequiredError` - `login()`: passkey authenticated, but this device has no credential metadata (`credentialId`)
+  - `SyncRequiredError` - `login()`, and `derivePrfSecret()`, `getSemaphoreIdentity()` and `zkProve()` when logged out: passkey authenticated, but this device has no credential metadata (`credentialId`)
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
   - `PrfUnsupportedError` - `register()`, `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)

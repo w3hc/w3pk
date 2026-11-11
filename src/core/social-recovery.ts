@@ -1,5 +1,5 @@
 import { WalletError } from "./errors";
-import { applyRestoredWallet, backupCredential } from "./backup-sync";
+import { applyRestoredWallet, loggedInCredential } from "./backup-sync";
 import type { SdkContext } from "./context";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
 
@@ -27,7 +27,7 @@ export async function setupSocialRecovery(
   const { backupFile } = await new BackupFileManager().createPasswordBackup(
     mnemonic,
     password,
-    await backupCredential(ctx),
+    await loggedInCredential(ctx),
     ctx.currentUser.username
   );
 

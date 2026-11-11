@@ -1,7 +1,8 @@
 /**
  * userVerification option: any authenticator at registration, the configured
  * requirement on login, registration and signing, PRF calls always verified,
- * and PRF output ignored when the authenticator data's UV flag is clear
+ * PRF output ignored when the UV flag is clear under 'preferred', and an
+ * assertion without it rejected under 'required'
  *
  * NOTE: the mnemonic is the standard BIP39 test vector, not a real secret
  */
@@ -64,6 +65,8 @@ const localStorage = new MemoryStorage();
 
 const authenticator = {
   flags: UP | UV,
+  /** Verify the user whenever the request requires it, whatever `flags` says */
+  verifiesWhenRequired: false,
   prfOutput: crypto.getRandomValues(new Uint8Array(32)).buffer,
   createCalls: [] as PublicKeyCredentialCreationOptions[],
   getCalls: [] as PublicKeyCredentialRequestOptions[],
@@ -156,7 +159,10 @@ async function setupAuthenticator(): Promise<string> {
           signCount++;
           const authenticatorData = new Uint8Array(37);
           authenticatorData.set(await rpIdHash(), 0);
-          authenticatorData[32] = authenticator.flags;
+          authenticatorData[32] =
+            authenticator.verifiesWhenRequired && publicKey.userVerification === "required"
+              ? authenticator.flags | UV
+              : authenticator.flags;
           new DataView(authenticatorData.buffer).setUint32(33, signCount);
 
           const clientDataJSON = new TextEncoder().encode(
@@ -221,6 +227,7 @@ async function storeWallet(publicKey: string): Promise<void> {
 
 function reset(flags: number) {
   authenticator.flags = flags;
+  authenticator.verifiesWhenRequired = false;
   authenticator.createCalls = [];
   authenticator.getCalls = [];
 }
@@ -286,6 +293,7 @@ async function runTests() {
   {
     localStorage.clear();
     reset(UP);
+    authenticator.verifiesWhenRequired = true;
     const result = await register({
       username: USERNAME,
       ethereumAddress: ADDRESS,
@@ -319,6 +327,13 @@ async function runTests() {
     reset(UP | UV);
     await login();
     assert(authenticator.getCalls[0].userVerification === "required", "defaults to required");
+
+    reset(UP);
+    const error = await login().then(() => undefined, (e) => e);
+    assert(
+      error?.name === "AuthenticationError" && error.message === "User verification flag not set",
+      "'required' rejects an assertion without the UV flag"
+    );
   }
   console.log("");
 

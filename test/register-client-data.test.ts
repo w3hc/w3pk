@@ -1,7 +1,8 @@
 /**
  * Registration checks the attestation per WebAuthn L3 §7.1: client data type,
  * challenge and origin, the RP ID hash and the user-presence flag, and gets a
- * PRF output, before storing the credential.
+ * PRF output, before storing the credential. A fallback assertion that
+ * provides the PRF output is checked against the attested public key.
  */
 
 import { mockLocalStorage } from "./setup";
@@ -10,6 +11,7 @@ import { PrfUnsupportedError } from "../src/core/errors";
 import { CredentialStorage } from "../src/auth/storage";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 import { runTestSuite, assert } from "./test-utils";
+import { rawToDer } from "./prf-authenticator";
 
 const RP_ID = window.location.hostname;
 const USERNAME = "alice";
@@ -29,6 +31,10 @@ interface Overrides {
   attestationObject?: ArrayBuffer;
   /** Where the authenticator evaluates the PRF, or how the fallback assertion ends */
   prf?: "create" | "short" | "get" | "none" | "cancel";
+  /** Flags of the fallback assertion */
+  getFlags?: number;
+  /** Sign the fallback assertion with another key */
+  badSignature?: boolean;
 }
 
 let next: Overrides = {};
@@ -36,6 +42,8 @@ let createdId: string | undefined;
 let signalled: { rpId: string; credentialId: string }[] = [];
 let assertions = 0;
 let publicKeyRaw: Uint8Array;
+let keyPair: CryptoKeyPair;
+let otherKeyPair: CryptoKeyPair;
 
 async function attestationObject(rpId: string, flags: number): Promise<ArrayBuffer> {
   const x = publicKeyRaw.slice(1, 33);
@@ -65,11 +73,41 @@ async function attestationObject(rpId: string, flags: number): Promise<ArrayBuff
 
 const prfResults = { prf: { results: { first: crypto.getRandomValues(new Uint8Array(32)).buffer } } };
 
+async function assertion(publicKey: PublicKeyCredentialRequestOptions) {
+  const authenticatorData = new Uint8Array(37);
+  authenticatorData.set(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(RP_ID))),
+    0
+  );
+  authenticatorData[32] = next.getFlags ?? UP | UV;
+  new DataView(authenticatorData.buffer).setUint32(33, 1);
+  const clientDataJSON = new TextEncoder().encode(
+    JSON.stringify({
+      type: "webauthn.get",
+      challenge: arrayBufferToBase64Url(publicKey.challenge as ArrayBuffer),
+      origin: window.location.origin,
+    })
+  );
+  const clientDataHash = new Uint8Array(await crypto.subtle.digest("SHA-256", clientDataJSON));
+  const signature = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      (next.badSignature ? otherKeyPair : keyPair).privateKey,
+      new Uint8Array([...authenticatorData, ...clientDataHash])
+    )
+  );
+  return {
+    authenticatorData: authenticatorData.buffer,
+    clientDataJSON: clientDataJSON.buffer,
+    signature: rawToDer(signature).buffer,
+  };
+}
+
 async function setup() {
-  const keyPair = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true,
-    ["sign", "verify"]
+  [keyPair, otherKeyPair] = await Promise.all(
+    [0, 1].map(() =>
+      crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])
+    )
   );
   publicKeyRaw = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
 
@@ -114,13 +152,14 @@ async function setup() {
                 ? { prf: { results: { first: new Uint8Array(16).buffer } } }
                 : {},
         }),
-        get: async () => {
+        get: async ({ publicKey }: { publicKey: PublicKeyCredentialRequestOptions }) => {
           assertions++;
           if (next.prf === "cancel") {
             throw new DOMException("The operation was aborted.", "NotAllowedError");
           }
           return {
             id: createdId,
+            response: await assertion(publicKey),
             getClientExtensionResults: () =>
               next.prf === "get" || next.prf === "short" ? prfResults : {},
           };
@@ -209,6 +248,14 @@ setup().then(() =>
         assert(!stored, "a cancelled assertion should not store the credential");
         assert(signalled.length === 1, "a cancelled assertion should signal the passkey as unknown");
       },
+    },
+    {
+      name: "fallback assertion without the UV flag is rejected",
+      fn: rejected({ prf: "get", getFlags: UP }, "a fallback assertion without UV", "User verification flag not set"),
+    },
+    {
+      name: "fallback assertion with a bad signature is rejected",
+      fn: rejected({ prf: "get", badSignature: true }, "a fallback assertion with a bad signature", "Signature verification failed"),
     },
     {
       name: "clientDataJSON type webauthn.get is rejected",

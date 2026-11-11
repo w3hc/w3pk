@@ -2,7 +2,8 @@
  * WebAuthn PRF evaluation
  *
  * The PRF extension releases HMAC(credential secret, salt) only on a live,
- * user-verified assertion. The browser hashes each input as
+ * user-verified assertion, and the output is only used once the assertion
+ * passes login()'s checks. The browser hashes each input as
  * SHA-256("WebAuthn PRF" || 0x00 || input) before it reaches the
  * authenticator, so inputs here can be any bytes.
  */
@@ -11,10 +12,41 @@ import {
   AuthenticationError,
   CryptoError,
   PrfUnsupportedError,
+  SyncRequiredError,
 } from "../core/errors";
 import type { AuthenticationCredential } from "./types";
+import {
+  takePrfResults,
+  verifyPrfAssertion,
+  wipeBuffer,
+  type PrfAssertionCheck,
+} from "./authenticate";
+import { CredentialStorage } from "./storage";
 import { base64UrlToArrayBuffer } from "../utils/base64";
 import { generateChallenge } from "../wallet/crypto";
+
+export interface PrfCredential {
+  id: string;
+  /**
+   * Base64url SPKI public key, already checked: against its MAC at login,
+   * from the attestation at registration, or against a backup
+   */
+  publicKey: string;
+}
+
+export interface PrfOptions {
+  /**
+   * Restrict the assertion to this passkey and check it against
+   * `credential.publicKey`. Without it, the user picks any discoverable
+   * passkey for this RP, and the assertion is checked against the public
+   * key stored for it on this device.
+   */
+  credential?: PrfCredential;
+  /** Second PRF input, evaluated as `prf.eval.second` */
+  second?: BufferSource;
+  /** See verifyPrfAssertion() */
+  mismatchError?: PrfAssertionCheck["mismatchError"];
+}
 
 export interface PrfEvaluation {
   /** 32-byte PRF output for `input` */
@@ -23,29 +55,62 @@ export interface PrfEvaluation {
   secondOutput?: ArrayBuffer;
   /** Credential the authenticator used */
   credentialId: string;
+  /** The assertion, checked by verifyPrfAssertion(); its signature counter is not */
   assertion: AuthenticationCredential;
-  /** Base64url challenge the assertion answers */
-  challenge: string;
 }
 
 /**
- * Run a fresh user-verified assertion that evaluates the PRF at `input`.
+ * Run a fresh user-verified assertion that evaluates the PRF at `input`, and
+ * check it with verifyPrfAssertion(), as login() does, before any output is
+ * returned.
  *
  * @param input - PRF input, evaluated as `prf.eval.first`
- * @param credentialId - Restrict the assertion to this credential;
- *   without it, the user picks any discoverable passkey for this RP
- * @param second - Optional second PRF input, evaluated as `prf.eval.second`
- *   in the same assertion
  * @throws PrfUnsupportedError when the authenticator returns no PRF output
- * @throws AuthenticationError when the assertion fails or is cancelled
+ * @throws AuthenticationError when the assertion fails, is cancelled, comes
+ *   from another passkey, isn't user-verified or its signature doesn't verify
+ * @throws SyncRequiredError without `credential`, when the picked passkey has
+ *   no metadata on this device
  */
 export async function evaluatePrf(
   input: BufferSource,
-  credentialId?: string,
-  second?: BufferSource
+  { credential, second, mismatchError }: PrfOptions = {}
 ): Promise<PrfEvaluation> {
-  let assertion: AuthenticationCredential;
   const challenge = generateChallenge();
+  const assertion = await requestPrf(input, second, challenge, credential?.id);
+
+  let publicKey = credential?.publicKey;
+  if (!publicKey) {
+    const stored = await new CredentialStorage().getCredentialById(assertion.id);
+    if (!stored) {
+      const { first, second } = takePrfResults(assertion);
+      wipeBuffer(first);
+      wipeBuffer(second);
+      throw new SyncRequiredError(assertion.id);
+    }
+    publicKey = stored.publicKey;
+  }
+
+  const { first: output, second: secondOutput } = await verifyPrfAssertion(assertion, {
+    publicKey,
+    challenge,
+    userVerification: "required",
+    credentialId: credential?.id,
+    mismatchError,
+  });
+  if (!output) {
+    wipeBuffer(secondOutput);
+    throw new PrfUnsupportedError(assertion.id);
+  }
+
+  return { output, secondOutput, credentialId: assertion.id, assertion };
+}
+
+async function requestPrf(
+  first: BufferSource,
+  second: BufferSource | undefined,
+  challenge: string,
+  credentialId: string | undefined
+): Promise<AuthenticationCredential> {
   try {
     const options: PublicKeyCredentialRequestOptions = {
       challenge: base64UrlToArrayBuffer(challenge),
@@ -54,7 +119,7 @@ export async function evaluatePrf(
       userVerification: "required",
       timeout: 60000,
       extensions: {
-        prf: { eval: second ? { first: input, second } : { first: input } },
+        prf: { eval: second ? { first, second } : { first } },
       } as AuthenticationExtensionsClientInputs,
     };
 
@@ -73,7 +138,7 @@ export async function evaluatePrf(
     if (!credential) {
       throw new AuthenticationError("Authentication failed - no credential returned");
     }
-    assertion = credential;
+    return credential;
   } catch (error: any) {
     if (error instanceof AuthenticationError) throw error;
     if (error?.name === "NotAllowedError") {
@@ -87,23 +152,6 @@ export async function evaluatePrf(
       error
     );
   }
-
-  const results = assertion.getClientExtensionResults?.().prf?.results;
-  const output = copyPrfResult(results?.first);
-  if (!output) {
-    throw new PrfUnsupportedError(assertion.id);
-  }
-  const secondOutput = second ? copyPrfResult(results?.second) : undefined;
-
-  return { output, secondOutput, credentialId: assertion.id, assertion, challenge };
-}
-
-export function copyPrfResult(result: BufferSource | undefined): ArrayBuffer | undefined {
-  if (!result) return undefined;
-  const copy = ArrayBuffer.isView(result)
-    ? new Uint8Array(result.buffer, result.byteOffset, result.byteLength).slice().buffer
-    : result.slice(0);
-  return copy.byteLength === 32 ? copy : undefined;
 }
 
 export interface PrfSecret {
@@ -138,16 +186,18 @@ function prfSecretContext(label: string, origin: string, tag: string): Uint8Arra
  * Tags can't contain ':' so no origin/tag pair collides with another.
  * The public API always uses `PRF_SECRET_LABEL`; secrets w3pk keeps to itself
  * use their own label, which no public tag can reach.
+ *
+ * @param credential - The logged-in passkey; see evaluatePrf()
  */
 export async function derivePrfSecret(
   label: string,
   origin: string,
   tag: string,
-  credentialId?: string
+  credential?: PrfCredential
 ): Promise<PrfSecret> {
   const context = prfSecretContext(label, origin, tag);
   const input = await crypto.subtle.digest("SHA-256", context);
-  const evaluation = await evaluatePrf(input, credentialId);
+  const evaluation = await evaluatePrf(input, { credential });
 
   try {
     const keyMaterial = await crypto.subtle.importKey(

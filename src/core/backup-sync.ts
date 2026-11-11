@@ -1,4 +1,4 @@
-import { verifyAssertion, verifyAssertionSignature } from "../auth/authenticate";
+import { verifyPrfAssertion, verifySignCount } from "../auth/authenticate";
 import { evaluatePrf } from "../auth/prf";
 import { CredentialStorage } from "../auth/storage";
 import type { PasskeySelectionResult } from "../auth/sync-auth";
@@ -48,7 +48,7 @@ export async function createBackupFile(ctx: SdkContext, password: string): Promi
   const { backupFile } = await manager.createPasswordBackup(
     mnemonic,
     password,
-    await backupCredential(ctx),
+    await loggedInCredential(ctx),
     ctx.currentUser.username
   );
 
@@ -72,7 +72,7 @@ export async function recordBackup(ctx: SdkContext, method: 'file' | 'prf'): Pro
 }
 
 /** The logged-in passkey, with the public key checked at login */
-export async function backupCredential(
+export async function loggedInCredential(
   ctx: Pick<SdkContext, 'currentUser' | 'currentPublicKey'>
 ): Promise<BackupCredential | undefined> {
   return ctx.currentUser && ctx.currentPublicKey
@@ -140,10 +140,14 @@ export async function applyRestoredWallet(
   // One assertion releases the PRF output the wallet key comes from. Until
   // it succeeds and passes login()'s checks, the stored wallet and the
   // credential stay as they were
-  const { output: prfOutput, assertion, challenge } = await evaluatePrf(PRF_INPUT, credential.id);
-  if (!(await verifyAssertion(assertion, credential, storage, challenge))) {
+  const checked = await loggedInCredential(ctx);
+  if (credential.publicKey !== checked?.publicKey) {
+    throw new AuthenticationError("The passkey's stored public key changed since login");
+  }
+  const { output: prfOutput, assertion } = await evaluatePrf(PRF_INPUT, { credential: checked });
+  if (!(await verifySignCount(assertion, credential, storage))) {
     new Uint8Array(prfOutput).fill(0);
-    throw new AuthenticationError("Signature verification failed");
+    throw new AuthenticationError("Signature counter did not increase");
   }
 
   await bootstrapCredential(
@@ -187,14 +191,13 @@ export async function syncWalletWithPasskey(
 
   const passkeyResult = await promptPasskeySelection();
   const credentialId = passkeyResult.credentialId;
-  let publicKey: string;
+  const { publicKey, prfOutput } = await verifySyncAssertion(passkeyResult, backupFile);
   let mnemonic: string;
   let ethereumAddress: string;
   try {
-    publicKey = await verifySyncAssertion(passkeyResult, backupFile);
     ({ mnemonic, ethereumAddress } = await manager.restoreWithPassword(backupFile, password));
   } catch (error) {
-    if (passkeyResult.prfOutput) new Uint8Array(passkeyResult.prfOutput).fill(0);
+    if (prfOutput) new Uint8Array(prfOutput).fill(0);
     throw error;
   }
 
@@ -206,7 +209,7 @@ export async function syncWalletWithPasskey(
     },
     mnemonic,
     ethereumAddress,
-    passkeyResult.prfOutput,
+    prfOutput,
     allowAddressChange
   );
 
@@ -216,24 +219,31 @@ export async function syncWalletWithPasskey(
 }
 
 /**
- * Check the passkey selection's assertion and return the public key it
- * answers to. A known passkey's assertion passes login()'s checks against
- * its stored metadata. A fresh device has none: the public key comes from
- * the password backup that names the passkey.
+ * Check the passkey selection's assertion with verifyPrfAssertion() and
+ * return the public key it answers to and its PRF output. A known passkey's
+ * assertion passes login()'s checks against its stored metadata. A fresh
+ * device has none: the public key comes from the password backup that
+ * names the passkey.
  */
 async function verifySyncAssertion(
   passkeyResult: PasskeySelectionResult,
   backupFile: BackupFile
-): Promise<string> {
+): Promise<{ publicKey: string; prfOutput?: ArrayBuffer }> {
   const { credentialId, assertion, challenge } = passkeyResult;
   const storage = new CredentialStorage();
   const stored = await storage.getCredentialById(credentialId);
 
   if (stored) {
-    if (!(await verifyAssertion(assertion, stored, storage, challenge))) {
-      throw new AuthenticationError("Signature verification failed");
+    const { first: prfOutput } = await verifyPrfAssertion(assertion, {
+      publicKey: stored.publicKey,
+      challenge,
+      userVerification: "required",
+    });
+    if (!(await verifySignCount(assertion, stored, storage))) {
+      if (prfOutput) new Uint8Array(prfOutput).fill(0);
+      throw new AuthenticationError("Signature counter did not increase");
     }
-    return stored.publicKey;
+    return { publicKey: stored.publicKey, prfOutput };
   }
 
   if (!backupFile.credential) {
@@ -242,10 +252,14 @@ async function verifySyncAssertion(
   if (backupFile.credential.id !== credentialId) {
     throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
   }
-  if (!(await verifyAssertionSignature(assertion, backupFile.credential.publicKey, challenge))) {
-    throw new SyncBootstrapError("PUBLIC_KEY_MISMATCH", credentialId);
-  }
-  return backupFile.credential.publicKey;
+  const { publicKey } = backupFile.credential;
+  const { first: prfOutput } = await verifyPrfAssertion(assertion, {
+    publicKey,
+    challenge,
+    userVerification: "required",
+    mismatchError: (reason, id) => new SyncBootstrapError(reason, id),
+  });
+  return { publicKey, prfOutput };
 }
 
 /** The backup's username, unless it isn't one register() would accept */
@@ -483,7 +497,7 @@ export async function exportForSync(
     throw new WalletError("No wallet data found");
   }
 
-  const credential = await backupCredential(ctx);
+  const credential = await loggedInCredential(ctx);
   if (!credential) {
     throw new WalletError("Credential not found");
   }

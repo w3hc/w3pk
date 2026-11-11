@@ -215,6 +215,7 @@ async function loggedInWith(publicKey: string, mnemonic: string): Promise<Web3Pa
     ethereumAddress: address,
     credentialId: CREDENTIAL_ID,
   };
+  (sdk as any).currentPublicKey = publicKey;
   authenticator.calls = 0;
   return sdk;
 }

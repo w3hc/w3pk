@@ -1,9 +1,8 @@
 /**
  * derivePrfSecret(tag) and the evaluatePrf helper
  *
- * Mocks navigator.credentials.get with an authenticator that computes the
- * PRF as the spec describes: HMAC-SHA256(credential secret,
- * SHA-256("WebAuthn PRF" || 0x00 || input)).
+ * Mocks navigator.credentials.get with PrfAuthenticator: signed assertions
+ * and a PRF computed as the spec describes.
  *
  * NOTE: the mnemonic is the standard BIP39 test vector, not a real secret
  */
@@ -14,10 +13,12 @@ import {
   PrfUnsupportedError,
   AuthenticationError,
   CryptoError,
+  SyncRequiredError,
   Web3PasskeyError,
 } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
+import { PrfAuthenticator, UP } from "./prf-authenticator";
 
 console.log("\n==================================================");
 console.log("🔑 PRF Secret Test");
@@ -63,74 +64,8 @@ function randomId(): string {
 
 const CRED_A = randomId();
 const CRED_B = randomId();
-const credentialSecrets = new Map<string, Uint8Array>([
-  [CRED_A, crypto.getRandomValues(new Uint8Array(32))],
-  [CRED_B, crypto.getRandomValues(new Uint8Array(32))],
-]);
-
-const authenticator = {
-  selected: CRED_A,
-  prf: true,
-  reject: null as Error | null,
-  calls: [] as PublicKeyCredentialRequestOptions[],
-};
-
-async function prf(secret: Uint8Array, input: BufferSource): Promise<ArrayBuffer> {
-  const label = new TextEncoder().encode("WebAuthn PRF");
-  const bytes = new Uint8Array(
-    ArrayBuffer.isView(input)
-      ? input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength)
-      : input
-  );
-  const salt = await crypto.subtle.digest(
-    "SHA-256",
-    new Uint8Array([...label, 0, ...bytes])
-  );
-  const key = await crypto.subtle.importKey(
-    "raw",
-    secret,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  return crypto.subtle.sign("HMAC", key, salt);
-}
-
-Object.defineProperty(globalThis, "navigator", {
-  configurable: true,
-  value: {
-    userAgent: "node",
-    credentials: {
-      get: async ({ publicKey }: { publicKey: PublicKeyCredentialRequestOptions }) => {
-        authenticator.calls.push(publicKey);
-        if (authenticator.reject) throw authenticator.reject;
-
-        const allowed = (publicKey.allowCredentials ?? []).map((c) =>
-          arrayBufferToBase64Url(c.id as ArrayBuffer)
-        );
-        const id = allowed.length > 0 ? allowed[0] : authenticator.selected;
-        const input = (publicKey.extensions as any)?.prf?.eval?.first;
-        const first =
-          authenticator.prf && input
-            ? await prf(credentialSecrets.get(id)!, input)
-            : undefined;
-
-        return {
-          id,
-          rawId: new Uint8Array(16).buffer,
-          type: "public-key",
-          response: {
-            authenticatorData: new Uint8Array(37).buffer,
-            clientDataJSON: new Uint8Array(0).buffer,
-            signature: new Uint8Array(0).buffer,
-          },
-          getClientExtensionResults: () =>
-            first ? { prf: { results: { first } } } : {},
-        };
-      },
-    },
-  },
-});
+const authenticator = new PrfAuthenticator(RP_ID, [CRED_A, CRED_B]);
+authenticator.install();
 
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
@@ -156,13 +91,14 @@ function snapshot(): string {
   return entries.sort().join("\n");
 }
 
-function loggedInSdk(credentialId: string): Web3Passkey {
+async function loggedInSdk(credentialId: string): Promise<Web3Passkey> {
   const sdk = new Web3Passkey();
   (sdk as any).currentUser = {
     username: USERNAME,
     ethereumAddress: ADDRESS,
     credentialId,
   };
+  (sdk as any).currentPublicKey = await authenticator.publicKey(credentialId);
   (sdk as any).getMnemonicFromSession = async () => MNEMONIC;
   return sdk;
 }
@@ -190,17 +126,16 @@ async function runTests() {
     }
   }
 
-  function reset() {
-    authenticator.selected = CRED_A;
-    authenticator.prf = true;
-    authenticator.reject = null;
-    authenticator.calls = [];
+  async function reset() {
+    authenticator.reset();
     location.origin = `http://${RP_ID}`;
+    localStorage.clear();
+    await authenticator.store(localStorage as unknown as Storage, USERNAME, ADDRESS);
   }
 
   console.log("Test 1: same credential, origin and tag give the same secret");
   {
-    reset();
+    await reset();
     const sdk = new Web3Passkey();
     const a = await sdk.derivePrfSecret("zk-identity");
     const b = await sdk.derivePrfSecret("zk-identity");
@@ -213,7 +148,7 @@ async function runTests() {
 
   console.log("Test 2: a different tag, origin or credential gives a different secret");
   {
-    reset();
+    await reset();
     const sdk = new Web3Passkey();
     const base = await sdk.derivePrfSecret("zk-identity");
     const otherTag = await sdk.derivePrfSecret("encryption");
@@ -236,7 +171,7 @@ async function runTests() {
 
   console.log("Test 3: the assertion requests the PRF on a user-verified assertion");
   {
-    reset();
+    await reset();
     await new Web3Passkey().derivePrfSecret("zk-identity");
     const options = authenticator.calls[0];
     assert(options.userVerification === "required", "userVerification is required");
@@ -253,7 +188,7 @@ async function runTests() {
     assert(!options.allowCredentials, "logged out: any passkey can be picked");
 
     authenticator.calls = [];
-    const result = await loggedInSdk(CRED_B).derivePrfSecret("zk-identity");
+    const result = await (await loggedInSdk(CRED_B)).derivePrfSecret("zk-identity");
     const allowed = authenticator.calls[0].allowCredentials ?? [];
     assert(
       allowed.length === 1 &&
@@ -266,7 +201,7 @@ async function runTests() {
 
   console.log("Test 4: no PRF support throws PrfUnsupportedError");
   {
-    reset();
+    await reset();
     authenticator.prf = false;
     const errors: unknown[] = [];
     const sdk = new Web3Passkey({ onError: (e) => errors.push(e) });
@@ -281,7 +216,7 @@ async function runTests() {
 
   console.log("Test 5: invalid tags and cancelled prompts");
   {
-    reset();
+    await reset();
     const sdk = new Web3Passkey();
     for (const tag of ["", "8080:zk-identity"]) {
       const error = await capture(() => sdk.derivePrfSecret(tag));
@@ -299,19 +234,8 @@ async function runTests() {
 
   console.log("Test 6: the secret never reaches storage, sessions or backups");
   {
-    reset();
-    localStorage.clear();
-    const now = new Date().toISOString();
-    await new CredentialStorage(localStorage as unknown as Storage).saveCredential({
-      id: CRED_A,
-      publicKey: "unused",
-      username: USERNAME,
-      ethereumAddress: ADDRESS,
-      createdAt: now,
-      lastUsed: now,
-    });
-
-    const sdk = loggedInSdk(CRED_A);
+    await reset();
+    const sdk = await loggedInSdk(CRED_A);
     const before = snapshot();
     const { secret } = await sdk.derivePrfSecret("zk-identity");
     assert(snapshot() === before, "localStorage is unchanged");
@@ -324,6 +248,67 @@ async function runTests() {
       (e) => backup.includes(e) || stored.includes(e)
     );
     assert(leaks.length === 0, "secret is in neither the backup file nor storage");
+  }
+  console.log("");
+
+  console.log("Test 7: the assertion is checked as login() checks it");
+  {
+    for (const label of ["logged out", "logged in"]) {
+      const sdk = () => (label === "logged in" ? loggedInSdk(CRED_A) : Promise.resolve(new Web3Passkey()));
+
+      await reset();
+      authenticator.flags = UP;
+      const noUv = await capture(async () => (await sdk()).derivePrfSecret("zk-identity"));
+      assert(
+        noUv instanceof AuthenticationError && noUv.message === "User verification flag not set",
+        `${label}: a missing UV flag throws AuthenticationError`
+      );
+
+      await reset();
+      authenticator.badSignature = true;
+      const badSignature = await capture(async () => (await sdk()).derivePrfSecret("zk-identity"));
+      assert(
+        badSignature instanceof AuthenticationError &&
+          badSignature.message === "Signature verification failed",
+        `${label}: a bad signature throws AuthenticationError`
+      );
+      assert(
+        new Uint8Array(authenticator.lastResults.first!).every((b) => b === 0),
+        `${label}: the rejected PRF output is zeroed`
+      );
+    }
+
+    await reset();
+    const swapped = await loggedInSdk(CRED_A);
+    (swapped as any).currentPublicKey = await authenticator.publicKey(CRED_B);
+    const error = await capture(() => swapped.derivePrfSecret("zk-identity"));
+    assert(
+      error instanceof AuthenticationError,
+      "logged in: checked against the public key checked at login"
+    );
+
+    await reset();
+    const credentials = new CredentialStorage(localStorage as unknown as Storage);
+    const stored = await credentials.getCredentialById(CRED_A);
+    await credentials.saveCredential({ ...stored!, publicKey: await authenticator.publicKey(CRED_B) });
+    const swappedStored = await capture(() => new Web3Passkey().derivePrfSecret("zk-identity"));
+    assert(
+      swappedStored instanceof AuthenticationError &&
+        swappedStored.message === "Signature verification failed",
+      "logged out: checked against the public key stored for the passkey"
+    );
+    assert(
+      !(authenticator.calls[0].extensions as any).prf.eval.second,
+      "logged out: no other PRF input is evaluated"
+    );
+
+    await reset();
+    localStorage.clear();
+    const unknown = await capture(() => new Web3Passkey().derivePrfSecret("zk-identity"));
+    assert(
+      unknown instanceof SyncRequiredError,
+      "logged out: a passkey without metadata on this device throws SyncRequiredError"
+    );
   }
   console.log("");
 

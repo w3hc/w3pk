@@ -122,7 +122,7 @@ async function setupAuthenticator(): Promise<void> {
 
   const prfResults = (enabled: boolean, extensions: any) =>
     enabled && extensions?.prf?.eval?.first
-      ? { prf: { results: { first: authenticator.prfOutput } } }
+      ? { prf: { results: { first: authenticator.prfOutput.slice(0) } } }
       : {};
 
   Object.defineProperty(globalThis, "navigator", {
