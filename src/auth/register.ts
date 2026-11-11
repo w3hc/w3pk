@@ -1,4 +1,4 @@
-import { RegistrationError } from "../core/errors";
+import { PrfUnsupportedError, RegistrationError } from "../core/errors";
 import { assertUsername, assertEthereumAddress } from "../utils/validation";
 import type { RegisterOptions, RegistrationCredential } from "./types";
 import { CredentialStorage } from "./storage";
@@ -10,6 +10,7 @@ import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
 import { verifyClientData, verifyRpIdHash } from "./authenticate";
 import { authDataFromAttestationObject, credentialPublicKeyFromAuthData } from "./attestation";
+import { evaluatePrf } from "./prf";
 
 /**
  * Asks the authenticator to drop a passkey that was created but not stored
@@ -24,7 +25,7 @@ function signalUnknownCredential(rpId: string, credentialId: string): void {
 
 export async function register(
   options: RegisterOptions
-): Promise<{ credentialId: string; signature: ArrayBuffer; prfOutput?: ArrayBuffer }> {
+): Promise<{ credentialId: string; signature: ArrayBuffer; prfOutput: ArrayBuffer }> {
   let unstored: { rpId: string; credentialId: string } | null = null;
   try {
     const { username, ethereumAddress, userVerification = "required" } = options;
@@ -64,10 +65,8 @@ export async function register(
       },
       timeout: 60000,
       attestation: "none",
-      // Ask for a PRF evaluation at creation. Platforms that support it
-      // return the secret immediately (persistent session available right
-      // after registration); platforms that only evaluate on get() return
-      // nothing here and the first login() provides it instead.
+      // Platforms that only evaluate the PRF on get() return nothing here,
+      // and one assertion right after creation provides it instead
       extensions: {
         prf: {
           eval: {
@@ -102,6 +101,13 @@ export async function register(
 
     const publicKey = arrayBufferToBase64Url(await credentialPublicKeyFromAuthData(authData));
 
+    // Without PRF there is no key to store the wallet under: fail before
+    // any record exists, so the passkey can be dropped
+    const prfOutput =
+      (isUserVerified(authData)
+        ? credential.getClientExtensionResults?.().prf?.results?.first
+        : undefined) ?? (await evaluatePrf(PRF_INPUT, credential.id)).output;
+
     // Past this point a record may be on disk, so the passkey must stay
     unstored = null;
     await storage.saveCredential({
@@ -114,13 +120,10 @@ export async function register(
       signCount: 0, // Initialize signature counter
     });
 
-    const prfOutput = isUserVerified(authData)
-      ? credential.getClientExtensionResults?.().prf?.results?.first
-      : undefined;
-
     return { credentialId: credential.id, signature: attestationObject, prfOutput };
   } catch (error) {
     if (unstored) signalUnknownCredential(unstored.rpId, unstored.credentialId);
+    if (error instanceof PrfUnsupportedError) throw error;
     throw new RegistrationError(
       error instanceof Error ? error.message : "Registration failed",
       error
