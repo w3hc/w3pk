@@ -58,12 +58,16 @@ export interface SiweMessage {
  */
 export function generateSiweNonce(length: number = 11): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const randomValues = new Uint8Array(length);
-  crypto.getRandomValues(randomValues);
-
-  return Array.from(randomValues)
-    .map(x => chars[x % chars.length])
-    .join('');
+  // Bytes at or above 248 (4 * 62) are dropped so each character is equally likely
+  const limit = 256 - (256 % chars.length);
+  let nonce = '';
+  while (nonce.length < length) {
+    const bytes = crypto.getRandomValues(new Uint8Array(Math.min(length - nonce.length, 65536)));
+    for (const byte of bytes) {
+      if (byte < limit) nonce += chars[byte % chars.length];
+    }
+  }
+  return nonce;
 }
 
 export const SIWE_HEADER = ' wants you to sign in with your Ethereum account:';

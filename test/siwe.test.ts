@@ -37,6 +37,37 @@ async function runTests() {
     console.log("✅ Nonce generation works");
   }
 
+  // Test 1b: Nonce bytes past the last multiple of 62 are dropped
+  console.log("\nTest 1b: Nonce has no modulo bias");
+  {
+    const original = crypto.getRandomValues;
+    const batches = [[248, 255, 0, 61], [62, 1]];
+    crypto.getRandomValues = (<T extends ArrayBufferView>(array: T): T => {
+      (array as unknown as Uint8Array).set(batches.shift()!);
+      return array;
+    }) as typeof crypto.getRandomValues;
+    let nonce: string;
+    try {
+      nonce = generateSiweNonce(4);
+    } finally {
+      crypto.getRandomValues = original;
+    }
+    assert(nonce === "A9AB", `Bytes 248 and 255 should be skipped, got ${nonce}`);
+
+    const counts = new Map<string, number>();
+    for (let i = 0; i < 2000; i++) {
+      for (const char of generateSiweNonce(62)) counts.set(char, (counts.get(char) ?? 0) + 1);
+    }
+    assert(counts.size === 62, "Every character should appear");
+    for (const [char, count] of counts) {
+      assert(count > 1700 && count < 2300, `"${char}" appears ${count} times out of an expected 2000`);
+    }
+
+    console.log("  ✓ Bytes >= 248 are rejected");
+    console.log("  ✓ Characters are uniformly distributed");
+    console.log("✅ Nonce rejection sampling works");
+  }
+
   // Test 2: Create basic SIWE message (required fields only)
   console.log("\nTest 2: Create basic SIWE message");
   {
