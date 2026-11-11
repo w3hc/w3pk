@@ -91,8 +91,8 @@ function erc191Digests(data: string): MessageDigests {
   return { erc191Digest: hashMessage(erc191Message(data)) };
 }
 
-/** Keeps `primaryType` and the types it references, so ethers sees a single root type */
-function typesOf(types: SigningTypedData["types"], primaryType: string): SigningTypedData["types"] {
+/** `primaryType` and the types it references, without `EIP712Domain` */
+function reachableTypes(types: SigningTypedData["types"], primaryType: string): SigningTypedData["types"] {
   const reached: SigningTypedData["types"] = {};
   const visit = (type: string) => {
     const name = type.replace(/(\[\d*\])+$/, "");
@@ -102,22 +102,44 @@ function typesOf(types: SigningTypedData["types"], primaryType: string): Signing
   };
   visit(primaryType);
   if (!reached[primaryType]) {
-    throw new WalletError(`getSigningDigests: primaryType ${primaryType} is not in types`);
+    throw new WalletError(`EIP-712: primaryType ${primaryType} is not in types`);
   }
   return reached;
 }
 
-function typedDataDigests(typedData: string | SigningTypedData): TypedDataDigests {
-  const { domain, types, primaryType, message } =
-    typeof typedData === "string" ? (JSON.parse(typedData) as SigningTypedData) : typedData;
-  const domainHash = TypedDataEncoder.hashDomain(domain);
+/**
+ * A copy of typed data as it is signed: `types` without `EIP712Domain`, so that ethers, which
+ * infers the primary type, hashes `primaryType`
+ *
+ * Throws on types `primaryType` doesn't reach, and on a domain that `types.EIP712Domain` doesn't
+ * declare as is.
+ */
+export function signableTypedData(typedData: string | SigningTypedData): SigningTypedData {
+  const { domain, types, primaryType, message }: SigningTypedData =
+    typeof typedData === "string" ? JSON.parse(typedData) : structuredClone(typedData);
   if (
     types.EIP712Domain &&
-    TypedDataEncoder.hashStruct("EIP712Domain", { EIP712Domain: types.EIP712Domain }, domain) !== domainHash
+    TypedDataEncoder.hashStruct("EIP712Domain", { EIP712Domain: types.EIP712Domain }, domain) !==
+      TypedDataEncoder.hashDomain(domain)
   ) {
-    throw new WalletError("getSigningDigests: domain does not match types.EIP712Domain");
+    throw new WalletError("EIP-712: domain does not match types.EIP712Domain");
   }
-  const messageHash = new TypedDataEncoder(typesOf(types, primaryType)).hashStruct(primaryType, message);
+  const reached = reachableTypes(types, primaryType);
+  const unused = Object.keys(types).filter((name) => name !== "EIP712Domain" && !reached[name]);
+  if (unused.length > 0) {
+    throw new WalletError(`EIP-712: types not reached from primaryType ${primaryType}: ${unused.join(", ")}`);
+  }
+  const root = TypedDataEncoder.getPrimaryType(reached);
+  if (root !== primaryType) {
+    throw new WalletError(`EIP-712: the root type is ${root}, not primaryType ${primaryType}`);
+  }
+  return { domain, types: reached, primaryType, message };
+}
+
+function typedDataDigests(typedData: string | SigningTypedData): TypedDataDigests {
+  const { domain, types, primaryType, message } = signableTypedData(typedData);
+  const domainHash = TypedDataEncoder.hashDomain(domain);
+  const messageHash = TypedDataEncoder.hashStruct(primaryType, types, message);
   return {
     eip712Digest: keccak256(concat(["0x1901", domainHash, messageHash])),
     domainHash,
@@ -129,7 +151,8 @@ function typedDataDigests(typedData: string | SigningTypedData): TypedDataDigest
  * ERC-8213 digests of a signing request, for the user to check on a second tool before signing
  *
  * - `eth_sendTransaction`: Calldata Digest, plus `to` and `value`, which the digest does not cover
- * - `eth_signTypedData_v4`: EIP-712 Digest, Domain Hash and Message Hash
+ * - `eth_signTypedData_v4`: EIP-712 Digest, Domain Hash and Message Hash; throws on types that
+ *   `primaryType` doesn't reach, as the root type is the one signed
  * - `personal_sign`, `eth_sign`: ERC-191 Digest; `0x` hex is decoded to bytes, any other string is UTF-8
  *
  * Empty or missing calldata still has a Calldata Digest (`keccak256` of 32 zero bytes). The digests

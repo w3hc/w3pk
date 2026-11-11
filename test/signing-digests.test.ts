@@ -3,6 +3,7 @@
  */
 
 import assert from "node:assert";
+import { TypedDataEncoder } from "ethers";
 import { getSigningDigests } from "../src/index";
 
 const ERC191_HELLO = "0x50b2c43fd39106bafbba0da34fc430e1f91e3c96ea2acee2bc34119f92b37750";
@@ -47,6 +48,39 @@ const MAIL_DIGESTS = {
   eip712Digest: "0xbe609aee343fb3c4b28e1df9e632fca64fcfaede20f02e86244efddf30957bd2",
   domainHash: "0xf2cee375fa42b42143804025fc449deafd50cc031ca257e0b194a650a912090f",
   messageHash: "0xc52c0ee5d84264471806290a3f2c4cecfc5490626bf912d01f240d7a274b371e",
+};
+
+const PERMIT_SINGLE = {
+  types: {
+    EIP712Domain: [
+      { name: "name", type: "string" },
+      { name: "chainId", type: "uint256" },
+      { name: "verifyingContract", type: "address" },
+    ],
+    PermitDetails: [
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint160" },
+      { name: "expiration", type: "uint48" },
+      { name: "nonce", type: "uint48" },
+    ],
+    PermitSingle: [
+      { name: "details", type: "PermitDetails" },
+      { name: "spender", type: "address" },
+      { name: "sigDeadline", type: "uint256" },
+    ],
+  },
+  primaryType: "PermitSingle",
+  domain: { name: "Permit2", chainId: 1, verifyingContract: "0x000000000022D473030F116dDEE9F6B43aC78BA3" },
+  message: {
+    details: {
+      token: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      amount: "1461501637330902918203684832716283019655932542975",
+      expiration: "1735689600",
+      nonce: "0",
+    },
+    spender: "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
+    sigDeadline: "1735689600",
+  },
 };
 
 const ADDRESS = "0x4675C7e5BaAFBFFbca748158bEcBA61ef3b0a263";
@@ -128,15 +162,32 @@ async function runTests() {
     console.log("✅ Object and JSON string match the EIP-712 Mail vector");
   }
 
-  console.log("\nTest 7: eth_signTypedData_v4 honors primaryType");
+  console.log("\nTest 7: eth_signTypedData_v4 hashes the root type, named by primaryType");
   {
-    const withUnusedType = {
-      ...MAIL,
-      types: { ...MAIL.types, Unused: [{ name: "x", type: "uint256" }] },
-    };
+    const { EIP712Domain: _, ...types } = PERMIT_SINGLE.types;
     assert.deepStrictEqual(
-      getSigningDigests({ method: "eth_signTypedData_v4", params: [ADDRESS, withUnusedType] }),
-      MAIL_DIGESTS
+      getSigningDigests({ method: "eth_signTypedData_v4", params: [ADDRESS, PERMIT_SINGLE] }),
+      {
+        eip712Digest: TypedDataEncoder.hash(PERMIT_SINGLE.domain, types, PERMIT_SINGLE.message),
+        domainHash: TypedDataEncoder.hashDomain(PERMIT_SINGLE.domain),
+        messageHash: TypedDataEncoder.from(types).hash(PERMIT_SINGLE.message),
+      }
+    );
+    assert.throws(
+      () =>
+        getSigningDigests({
+          method: "eth_signTypedData_v4",
+          params: [ADDRESS, { ...PERMIT_SINGLE, primaryType: "PermitDetails", message: PERMIT_SINGLE.message.details }],
+        }),
+      /types not reached from primaryType PermitDetails: PermitSingle/
+    );
+    assert.throws(
+      () =>
+        getSigningDigests({
+          method: "eth_signTypedData_v4",
+          params: [ADDRESS, { ...MAIL, types: { ...MAIL.types, Unused: [{ name: "x", type: "uint256" }] } }],
+        }),
+      /types not reached from primaryType Mail: Unused/
     );
     assert.throws(
       () =>
@@ -146,7 +197,7 @@ async function runTests() {
         }),
       /primaryType Letter is not in types/
     );
-    console.log("✅ Unused types are ignored, an unknown primaryType throws");
+    console.log("✅ Permit2's nested root is hashed, a nested primaryType, unused types and an unknown primaryType throw");
   }
 
   console.log("\nTest 8: eth_signTypedData_v4 rejects a domain that types.EIP712Domain does not declare");
