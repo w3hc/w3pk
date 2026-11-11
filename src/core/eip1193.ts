@@ -263,6 +263,10 @@ export function createEIP1193Provider(
         case 'eth_sendTransaction': {
           const txParam = (params ?? [])[0] ?? {};
           const from = accountParam('eth_sendTransaction', txParam.from);
+          const { data, input } = txParam;
+          if (data != null && input != null && String(data).toLowerCase() !== String(input).toLowerCase()) {
+            throw invalidParams('eth_sendTransaction: data and input differ');
+          }
           if (!txParam.chainId && !activeChainId) {
             throw new WalletError('eth_sendTransaction: chainId is required');
           }
@@ -276,7 +280,7 @@ export function createEIP1193Provider(
             value: txParam.value !== undefined
               ? BigInt(txParam.value)
               : undefined,
-            data: txParam.data ?? '0x',
+            data: data ?? input ?? '0x',
             chainId: activeChainId,
             gasLimit: txParam.gas !== undefined
               ? BigInt(txParam.gas)

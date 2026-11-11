@@ -7,6 +7,7 @@
  * - eth_chainId (default and custom)
  * - wallet_switchEthereumChain + chainChanged event
  * - eth_sendTransaction param mapping (hex → bigint)
+ * - eth_sendTransaction reads input as data, rejects them when they differ
  * - personal_sign / eth_sign (plain text, and hex signed as bytes)
  * - eth_signTypedData_v4 (EIP-712 typed data, bound to the active chain)
  * - The account of eth_sendTransaction, personal_sign, eth_sign and
@@ -440,6 +441,30 @@ async function runTests() {
     assertEqual(txs.length, 2, "matching or absent chainId should be sent");
     assert(txs.every((tx) => tx.chainId === 10), "transactions go to the active chain");
     passTest("Transactions are bound to the active chain");
+  });
+
+  await runTest("eth_sendTransaction reads input as data, and rejects both when they differ", async () => {
+    const seen: string[] = [];
+    const { sdk, txs } = stubSdk();
+    const provider = createEIP1193Provider(sdk, {
+      onBeforeSign: (d) => void (d.method === "eth_sendTransaction" && seen.push(d.calldataDigest)),
+    });
+    const to = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
+    const send = (fields: object) =>
+      provider.request({ method: "eth_sendTransaction", params: [{ from: ACCOUNT, to, ...fields }] });
+
+    await send({ input: "0xa9059cbb" });
+    await send({ data: "0xA9059CBB", input: "0xa9059cbb" });
+    await send({ data: "0xa9059cbb", input: null });
+    await send({});
+    assertEqual(txs.map((tx) => tx.data).join(), "0xa9059cbb,0xA9059CBB,0xa9059cbb,0x", "input is data");
+    const calldata = getSigningDigests({ method: "eth_sendTransaction", params: [{ to, data: "0xa9059cbb" }] });
+    assertEqual(seen[0], calldata.calldataDigest, "the hook sees input as calldata");
+
+    const error = await send({ data: "0xa9059cbb", input: "0x" }).catch((e) => e);
+    assertEqual(error.code, -32602, "differing data and input: Invalid params");
+    assertEqual(txs.length, 4, "nothing sent");
+    passTest("input is an alias of data");
   });
 
   // ------------------------------------------------------------------

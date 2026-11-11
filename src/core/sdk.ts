@@ -1664,6 +1664,9 @@ export class Web3Passkey {
    * another than eth_accounts' with error 4100 (Unauthorized) before signing,
    * in any letter case.
    *
+   * eth_sendTransaction reads `input` as `data`, and rejects both with error
+   * -32602 when they differ.
+   *
    * In PRIMARY mode the passkey's P-256 smart account sends ERC-4337
    * UserOperations and signs ERC-7739 signatures bound to the active chain;
    * the EOA `nonce` is ignored, `gas` raises the UserOperation's
