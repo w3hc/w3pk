@@ -14,6 +14,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: npm
     permissions:
       contents: read
       id-token: write
@@ -63,7 +64,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Install deps
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Audit production deps
         run: pnpm audit --prod --audit-level moderate
