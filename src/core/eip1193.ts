@@ -60,6 +60,12 @@ export type BeforeSignDigests = {
   [M in SigningMethod]: { method: M } & SigningDigests<Extract<SigningRequest, { method: M }>>;
 }[SigningMethod];
 
+/** ERC-8213 digests of a transaction, with its method */
+export type TransactionBeforeSignDigests = Extract<BeforeSignDigests, { method: "eth_sendTransaction" }>;
+
+/** Awaited with a request's digests before its passkey prompt; throw, reject or return `false` to cancel it */
+export type BeforeSignHook<D> = (digests: D) => boolean | void | Promise<boolean | void>;
+
 /** Options of `Web3Passkey.getEIP1193Provider()` */
 export interface EIP1193ProviderOptions {
   mode?: SecurityMode;
@@ -68,17 +74,28 @@ export interface EIP1193ProviderOptions {
   rpcUrl?: string;
   bundlerUrl?: string;
   /** Awaited before each signing request's passkey prompt; throw, reject or return `false` to cancel it with error 4001 */
-  onBeforeSign?: (digests: BeforeSignDigests) => boolean | void | Promise<boolean | void>;
+  onBeforeSign?: BeforeSignHook<BeforeSignDigests>;
 }
 
-/** EIP-1193 error 4001: the user rejected the request */
-class UserRejectedRequestError extends Error implements ProviderRpcError {
+/** EIP-1193 error 4001: onBeforeSign cancelled the request, its error as `cause` */
+export class UserRejectedRequestError extends Error implements ProviderRpcError {
   code = 4001;
 
   constructor(public cause?: unknown) {
-    super("w3pk EIP-1193: onBeforeSign rejected the request");
+    super("w3pk: onBeforeSign rejected the request");
     this.name = "UserRejectedRequestError";
   }
+}
+
+/** Awaits `hook` with `digests`; throws UserRejectedRequestError if it throws, rejects or returns `false` */
+export async function confirmBeforeSign<D>(hook: BeforeSignHook<D>, digests: D): Promise<void> {
+  let approved;
+  try {
+    approved = await hook(digests);
+  } catch (error) {
+    throw new UserRejectedRequestError(error);
+  }
+  if (approved === false) throw new UserRejectedRequestError();
 }
 
 /** EIP-1193 error 4200: the provider does not support the method */
@@ -175,13 +192,7 @@ export function createEIP1193Provider(
   const beforeSign = async (request: SigningRequest) => {
     if (!options?.onBeforeSign) return;
     const digests = { method: request.method, ...getSigningDigests(request) } as BeforeSignDigests;
-    let approved;
-    try {
-      approved = await options.onBeforeSign(digests);
-    } catch (error) {
-      throw new UserRejectedRequestError(error);
-    }
-    if (approved === false) throw new UserRejectedRequestError();
+    await confirmBeforeSign(options.onBeforeSign, digests);
   };
 
   // Minimal EventEmitter (subset needed by EIP-1193)
