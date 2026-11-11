@@ -28,6 +28,7 @@ import {
   typedDataSignPayload,
 } from "../src/wallet/erc7739";
 import { encodeWebAuthnSignature } from "../src/wallet/webauthn-signature";
+import { UnauthorizedError } from "../src/index";
 
 const coder = AbiCoder.defaultAbiCoder();
 const factoryInterface = new Interface([
@@ -151,6 +152,18 @@ async function runTests() {
     const gaming1 = personalSignHash(hashMessage("hi"), { address: GAMING_ACCOUNT, chainId: 1 });
     assert.strictEqual(new Set([main1, main10, gaming1]).size, 3, "distinct per account and chain");
     console.log("✅ binding works");
+  }
+
+  console.log("\nTest 4b: options.from other than the smart account throws 4100 before the passkey prompt");
+  {
+    passkeyCalls.length = 0;
+    const error = await sdk.signMessage("hi", { mode: "PRIMARY", chainId: 1, from: GAMING_ACCOUNT }).catch((e) => e);
+    assert(error instanceof UnauthorizedError, String(error));
+    assert.strictEqual(error.code, 4100);
+    assert.strictEqual(passkeyCalls.length, 0, "no passkey prompt");
+    const signed = await sdk.signMessage("hi", { mode: "PRIMARY", chainId: 1, from: MAIN_ACCOUNT.toLowerCase() });
+    assert.strictEqual(signed.address, MAIN_ACCOUNT, "lowercase from signs");
+    console.log("✅ from checked against the smart account");
   }
 
   console.log("\nTest 5: EIP-191 needs a chain ID");

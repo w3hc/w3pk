@@ -89,6 +89,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Storage format change, with no migration: records stored by earlier versions aren't read, so `login()` throws `SyncRequiredError` and the wallet is restored from a backup. `login()` no longer re-encrypts a wallet record from a persistent session
   - `SessionManager.startSession()` and `restoreFromPersistentStorage()` take the account (`ethereumAddress` and `publicKey`) instead of the address; `CredentialStorage.updateCredentialAddress()` is replaced by `updateCredential()`
   - No extra passkey prompt
+- **BREAKING: the EIP-1193 provider rejects malformed and mismatched requests** ([#351](https://github.com/w3hc/w3pk/issues/351)), audit finding L-4. Before, it ignored the account a request named, ignored `input`, so a contract call sent as `input` became a plain value transfer, dropped `gasPrice`, and switched to any chain, `NaN` included
+  - `eth_sendTransaction` requires `from`, and `personal_sign`, `eth_sign` and `eth_signTypedData_v4` their address, as [EIP-1474](https://eips.ethereum.org/EIPS/eip-1474) does: a missing or malformed one rejects with `-32602` (Invalid params), another than `eth_accounts`' with [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) `4100` (Unauthorized); the comparison ignores letter case
+  - `sendTransaction()` and `signMessage()` take `options.from` and throw `UnauthorizedError` (code `4100`) before signing when it isn't the signer's address, unwrapped and not passed to `onError`; in `PRIMARY`, before the passkey prompt. `UnauthorizedError` is exported from `w3pk`
+  - `eth_sendTransaction` reads `input` as `data`, and rejects with `-32602` when both are set and differ
+  - `TransactionRequest` takes `gasPrice`, which the provider passes on: ethers sends it as both EIP-1559 fees on an EIP-1559 chain, and `PRIMARY` sets both UserOperation fees to it. With `maxFeePerGas` or `maxPriorityFeePerGas` it throws, or rejects with `-32602`. A `null` field of `eth_sendTransaction` is treated as absent
+  - `wallet_switchEthereumChain` takes a hex quantity chain ID or rejects with `-32602`, and switches only to the initial chain or one with `rpcUrls`, else rejects with `4902` (unrecognized chain, as MetaMask); `chainChanged` is emitted only when the chain changes
+  - No change for well-formed requests that name the provider's account
 
 ## [0.12.3] - 2026-11-10
 

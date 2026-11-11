@@ -122,7 +122,9 @@ import type { SyncCapabilities } from "../sync/types";
 import { supportsEIP7702 } from "../eip7702";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
 import {
+  UnauthorizedError,
   UserRejectedRequestError,
+  assertSigner,
   confirmBeforeSign,
   createEIP1193Provider,
   type EIP1193ProviderInterface,
@@ -914,6 +916,8 @@ export class Web3Passkey {
    *   rawHash always requires a fresh user-verified passkey assertion, and is refused in PRIMARY mode
    * @param options.chainId - PRIMARY mode: chain the signature is bound to, required for EIP191
    * @param options.rpcUrl - PRIMARY mode: RPC endpoint used to check whether the account is deployed
+   * @param options.from - Expected signer address, in any letter case: another throws
+   *   UnauthorizedError (code 4100), unwrapped, before signing
    *
    * In PRIMARY mode the passkey signs an ERC-7739 signature for its P-256 smart account, which
    * verifies through EIP-1271 `isValidSignature`, or through ERC-6492 while the account isn't
@@ -1004,6 +1008,7 @@ export class Web3Passkey {
 
       // Derive the wallet from the specified mode and tag
       const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+      assertSigner(derived.address, options?.from);
 
       const { Wallet } = await import("ethers");
 
@@ -1083,6 +1088,7 @@ export class Web3Passkey {
         origin: derived.origin,
       };
     } catch (error) {
+      if (error instanceof UnauthorizedError) throw error;
       this.config.onError?.(error as any);
       throw new WalletError("Failed to sign message", error);
     }
@@ -1116,6 +1122,7 @@ export class Web3Passkey {
     }
 
     const address = await getSmartAccountAddress(publicKey, tag, this.config.smartAccount);
+    assertSigner(address, options?.from);
     const account = { address, chainId };
     const { hashMessage } = await import("ethers");
 
@@ -1194,6 +1201,8 @@ export class Web3Passkey {
    *   callGasLimit is the larger of the bundler's estimate and the sum of the gasLimits
    * @param tx.maxFeePerGas - EIP-1559 max fee per gas (optional)
    * @param tx.maxPriorityFeePerGas - EIP-1559 max priority fee per gas (optional)
+   * @param tx.gasPrice - Legacy gas price (optional), not with the EIP-1559 fees; on an
+   *   EIP-1559 chain, and in PRIMARY mode, it is both the max fee and the max priority fee
    * @param tx.nonce - Nonce override (optional, ignored in PRIMARY mode: the EntryPoint sets it)
    * @param options.mode - Security mode (default: STANDARD)
    * @param options.tag - Wallet tag (optional)
@@ -1206,6 +1215,8 @@ export class Web3Passkey {
    *   and `method: "eth_sendTransaction"`, an array of them for an array of transactions, before the
    *   passkey prompt; in PRIMARY mode each also carries the UserOperation's `maxFee` in wei; throw, reject or return `false` to cancel with UserRejectedRequestError (code 4001).
    *   The transactions are copied first, and the copy is sent
+   * @param options.from - Expected sender address, in any letter case: another throws
+   *   UnauthorizedError (code 4100), unwrapped, before signing
    * @param options.paymasterUrl - PRIMARY mode: ERC-7677 paymaster service (default: `paymasterUrl`)
    * @param options.paymasterContext - PRIMARY mode: ERC-7677 context (default: {})
    * @param options.timeout - PRIMARY mode: inclusion timeout in ms (default: 60000)
@@ -1231,9 +1242,15 @@ export class Web3Passkey {
       const snapshot = Array.isArray(tx) ? tx.map((t) => ({ ...t })) : { ...tx };
       const txs = Array.isArray(snapshot) ? snapshot : [snapshot];
       const confirm = (maxFee?: bigint) => this.confirmTransaction(snapshot, options?.onBeforeSign, maxFee);
+      if (txs.some((t) => t.gasPrice !== undefined && (t.maxFeePerGas !== undefined || t.maxPriorityFeePerGas !== undefined))) {
+        throw new WalletError("gasPrice can't be set with maxFeePerGas or maxPriorityFeePerGas");
+      }
 
       if (effectiveMode === 'PRIMARY') {
-        return await this.sendWithSmartAccount(txs, effectiveTag, origin, confirm, options);
+        const ops = txs.map(({ gasPrice, ...t }) =>
+          gasPrice === undefined ? t : { ...t, maxFeePerGas: gasPrice, maxPriorityFeePerGas: gasPrice }
+        );
+        return await this.sendWithSmartAccount(ops, effectiveTag, origin, confirm, options);
       }
       if (Array.isArray(tx)) {
         throw new WalletError("Only PRIMARY mode sends an array of transactions");
@@ -1250,6 +1267,7 @@ export class Web3Passkey {
 
       // Derive the wallet from the specified mode and tag
       const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+      assertSigner(derived.address, options?.from);
 
       const { Wallet, JsonRpcProvider } = await import("ethers");
 
@@ -1275,6 +1293,7 @@ export class Web3Passkey {
         gasLimit: request.gasLimit,
         maxFeePerGas: request.maxFeePerGas,
         maxPriorityFeePerGas: request.maxPriorityFeePerGas,
+        gasPrice: request.gasPrice,
         nonce: request.nonce,
       });
 
@@ -1287,7 +1306,7 @@ export class Web3Passkey {
         origin: derived.origin,
       };
     } catch (error) {
-      if (error instanceof UserRejectedRequestError) throw error;
+      if (error instanceof UserRejectedRequestError || error instanceof UnauthorizedError) throw error;
       this.config.onError?.(error as any);
       const reason = (error as any)?.shortMessage ?? (error instanceof Error ? error.message : String(error));
       throw new WalletError(`Failed to send transaction: ${reason}`, error);
@@ -1394,6 +1413,7 @@ export class Web3Passkey {
     return this.queuePrimarySend(`${credentialId}:${tag}:${chainId}`, async () => {
       const publicKey = this.primaryPublicKey();
       const sender = await getSmartAccountAddress(publicKey, tag, this.config.smartAccount);
+      assertSigner(sender, options?.from);
 
       const { JsonRpcProvider } = await import("ethers");
       const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
@@ -1635,7 +1655,7 @@ export class Web3Passkey {
    * - eth_sendTransaction                  → delegates to sendTransaction()
    * - personal_sign / eth_sign            → delegates to signMessage() EIP-191
    * - eth_signTypedData_v4                → delegates to signMessage() EIP-712
-   * - wallet_switchEthereumChain          → updates the active chainId
+   * - wallet_switchEthereumChain          → switches to options.chainId or a chain set in rpcUrls
    * - eth_blockNumber, eth_call, eth_estimateGas, eth_getBalance, eth_getCode,
    *   eth_getStorageAt, eth_getTransactionCount, eth_getTransactionByHash,
    *   eth_getTransactionReceipt, eth_getBlockByNumber, eth_getBlockByHash,
@@ -1647,10 +1667,26 @@ export class Web3Passkey {
    * neither is set. JSON-RPC errors pass through with their code and data.
    * Any other method rejects with error 4200.
    *
+   * The account a signing request names (eth_sendTransaction's `from`, the
+   * address of personal_sign, eth_sign and eth_signTypedData_v4) is required:
+   * a missing or malformed one rejects with error -32602 (Invalid params),
+   * another than eth_accounts' with error 4100 (Unauthorized) before signing,
+   * in any letter case.
+   *
+   * eth_sendTransaction reads `input` as `data`, and rejects both with error
+   * -32602 when they differ. It sends a legacy `gasPrice`, and rejects it with
+   * error -32602 alongside `maxFeePerGas` or `maxPriorityFeePerGas`.
+   *
+   * wallet_switchEthereumChain rejects a chainId that isn't a hex quantity
+   * with error -32602, and a chain other than options.chainId without
+   * `rpcUrls` with error 4902 (unrecognized chain, which wallet libraries read
+   * as a cue for wallet_addEthereumChain). chainChanged is emitted only when
+   * the chain changes.
+   *
    * In PRIMARY mode the passkey's P-256 smart account sends ERC-4337
    * UserOperations and signs ERC-7739 signatures bound to the active chain;
    * the EOA `nonce` is ignored, `gas` raises the UserOperation's
-   * callGasLimit, and eth_sign rejects with error 4200: through EIP-1271, a
+   * callGasLimit, `gasPrice` sets both its fees, and eth_sign rejects with error 4200: through EIP-1271, a
    * bare hash would skip ERC-7739's replay protection.
    *
    * With options.onBeforeSign, eth_sendTransaction, eth_signTypedData_v4,

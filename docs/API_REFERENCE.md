@@ -710,6 +710,7 @@ You can specify a different mode, tag, and signing method to customize the signa
 - `options.signingMethod?: SigningMethod` - Signing method: 'EIP191' | 'SIWE' | 'EIP712' | 'rawHash' (default: 'EIP191'; rawHash throws in PRIMARY mode)
 - `options.chainId?: number` - PRIMARY mode: chain the signature is bound to. Required for EIP191; SIWE reads the message's `Chain ID` and EIP712 `eip712Domain.chainId` when it's not set; a SIWE `Chain ID` other than `options.chainId` throws
 - `options.rpcUrl?: string` - PRIMARY mode: RPC endpoint used to check whether the account is deployed (default: the first `rpcUrls` endpoint for the chain)
+- `options.from?: string` - Expected signer address, in any letter case; another throws `UnauthorizedError` (`code` `4100`), unwrapped and not passed to `onError`, before signing
 - `options.eip712Domain?: TypedDataDomain` - EIP-712 domain separator (ethers' [`TypedDataDomain`](https://docs.ethers.org/v6/api/hashing/#TypedDataDomain)) (required for EIP712 method)
 - `options.eip712Types?: object` - EIP-712 type definitions (required for EIP712 method)
 - `options.eip712PrimaryType?: string` - Primary type name (required for EIP712 method); every type in `eip712Types` other than `EIP712Domain` must be reachable from it, or the call throws
@@ -1239,6 +1240,7 @@ interface TransactionRequest {
   gasLimit?: bigint;             // Override gas limit (ethers auto-estimates if omitted; PRIMARY: raises callGasLimit above the bundler's estimate)
   maxFeePerGas?: bigint;         // EIP-1559 max fee per gas
   maxPriorityFeePerGas?: bigint; // EIP-1559 max priority fee per gas
+  gasPrice?: bigint;             // Legacy gas price, not with the EIP-1559 fees; on an EIP-1559 chain, and in PRIMARY, both max fee and max priority fee
   nonce?: number;                // Override nonce (provider auto-fetches if omitted; ignored in PRIMARY mode)
 }
 
@@ -1253,6 +1255,7 @@ interface SendTransactionOptions {
   paymasterUrl?: string;  // PRIMARY: ERC-7677 paymaster service (default: paymasterUrl config)
   paymasterContext?: Record<string, unknown>;  // PRIMARY: ERC-7677 context, e.g. a policy ID (default: {})
   timeout?: number;       // PRIMARY: inclusion timeout in ms (default: 60000)
+  from?: string;          // Expected sender address, any letter case; another throws UnauthorizedError (code 4100) before signing
   onBeforeSign?: (digests: TransactionBeforeSignDigests | TransactionBeforeSignDigests[]) => boolean | void | Promise<boolean | void>;  // Awaited before the passkey prompt; throw, reject or return false to cancel
 }
 
@@ -1504,6 +1507,13 @@ type BeforeSignDigests =
 
 In every mode, `rpcUrl` and `bundlerUrl` serve the initial `chainId` only: after `wallet_switchEthereumChain`, the config's `rpcUrls` and `bundlerUrls` for the new chain are used.
 
+**Request validation:** the provider rejects malformed or mismatched requests with an EIP-1193 or [EIP-1474](https://eips.ethereum.org/EIPS/eip-1474) error, and nothing is signed:
+
+- The account a signing request names, `from` in `eth_sendTransaction` and the address of `personal_sign`, `eth_sign` and `eth_signTypedData_v4`, is required. A missing or malformed one rejects with `-32602` (Invalid params) before `onBeforeSign`; another than `eth_accounts`' with `4100` (Unauthorized), in any letter case. The provider passes it to `sendTransaction()` and `signMessage()` as `options.from`, which check it before signing: in `PRIMARY`, before the passkey prompt, and for `eth_sendTransaction` before `onBeforeSign`; in `STANDARD`, `STRICT` and `YOLO` the address derives from the session's wallet, so after `onBeforeSign` and the session's passkey prompt
+- `eth_sendTransaction` reads `input` as `data`; both set and different rejects with `-32602`
+- `eth_sendTransaction` sends a legacy `gasPrice`; with `maxFeePerGas` or `maxPriorityFeePerGas` it rejects with `-32602`. ethers sends it as both EIP-1559 fees on an EIP-1559 chain, as a legacy transaction otherwise; in `PRIMARY` it sets both UserOperation fees. Null fields are absent
+- `wallet_switchEthereumChain` takes `[{ chainId }]`, a hex quantity (`0x`, no leading zero, not `0x0`), or rejects with `-32602`. The chain must be the initial `chainId` or have `rpcUrls` in the config, or the request rejects with `4902` (unrecognized chain, as MetaMask, which viem and wagmi read as a cue for `wallet_addEthereumChain`). Switching to the active chain returns `null` without `chainChanged`
+
 **`onBeforeSign`:** on `eth_sendTransaction`, `eth_signTypedData_v4`, `personal_sign` and `eth_sign`, the provider validates the request (the active chain, and `eth_sign` in `PRIMARY`, which rejects with `4200` before the hook), computes its [`getSigningDigests()`](#getsigningdigestsrequest-signingrequest-signingdigests) result and awaits `onBeforeSign` with it and the request's `method`, before the passkey prompt. `eth_sendTransaction` passes the hook to [`sendTransaction()`](#sendtransactiontx-options-promisesendtransactionresult), which awaits it at the same point as its own `onBeforeSign`: in `PRIMARY`, once the UserOperation is built, with its `maxFee`. The request stays bound to the chain it was validated on, even if `wallet_switchEthereumChain` runs while the hook waits.
 
 - If the hook throws, rejects or returns `false`, the request rejects with `code` `4001` (User Rejected Request), the hook's error as `cause`, and nothing is signed; ethers reports `ACTION_REJECTED`
@@ -1555,11 +1565,11 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 | `eth_accounts` | `string[]` | Address for the configured mode + tag |
 | `eth_requestAccounts` | `string[]` | Same as `eth_accounts` |
 | `eth_chainId` | `string` (hex) | Active chainId; updated by `wallet_switchEthereumChain` |
-| `eth_sendTransaction` | `string` (tx hash) | Delegates to `sendTransaction()`; hex params auto-converted; refused if `chainId` isn't the active chain |
-| `personal_sign` | `string` (sig) | EIP-191; hex-encoded data signed as raw bytes |
+| `eth_sendTransaction` | `string` (tx hash) | Delegates to `sendTransaction()`; hex params auto-converted; `input` read as `data`; `from` required; refused if `chainId` isn't the active chain |
+| `personal_sign` | `string` (sig) | EIP-191; hex-encoded data signed as raw bytes; the address is required |
 | `eth_sign` | `string` (sig) | Legacy; same behaviour as `personal_sign` |
 | `eth_signTypedData_v4` | `string` (sig) | EIP-712; `EIP712Domain` stripped automatically; refused if the domain `chainId` isn't the active chain |
-| `wallet_switchEthereumChain` | `null` | Updates active chainId and emits `chainChanged` |
+| `wallet_switchEthereumChain` | `null` | Switches to the initial `chainId` or a chain with `rpcUrls`, and emits `chainChanged` when the chain changes |
 | `eth_blockNumber`, `eth_call`, `eth_estimateGas`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_getLogs`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `net_version` | The endpoint's result | Forwarded as raw JSON-RPC to the active chain's endpoint |
 
 **Read methods:** They go to the provider's `rpcUrl` option on the initial chain, otherwise to `rpcUrls[chainId][0]` from the config for the active chain, and follow `wallet_switchEthereumChain`; without an endpoint for the chain they throw before any request. JSON-RPC errors pass through with their `code` and `data`, so ethers decodes reverts.
@@ -1570,7 +1580,7 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 |--------|------------------------|---------|
 | `eth_accounts`, `eth_requestAccounts` | Derived EOA address | P-256 smart account address for the tag |
 | `eth_chainId`, `wallet_switchEthereumChain` | ✅ | ✅ |
-| `eth_sendTransaction` | EOA transaction | ERC-4337 UserOperation through the bundler; returns the hash of the transaction that included it. `nonce` is ignored (the EntryPoint sets it), `maxFeePerGas` and `maxPriorityFeePerGas` set the UserOperation's fees, and `gas` raises its `callGasLimit` above the bundler's estimate |
+| `eth_sendTransaction` | EOA transaction | ERC-4337 UserOperation through the bundler; returns the hash of the transaction that included it. `nonce` is ignored (the EntryPoint sets it), `maxFeePerGas` and `maxPriorityFeePerGas`, or `gasPrice` for both, set the UserOperation's fees, and `gas` raises its `callGasLimit` above the bundler's estimate |
 | `personal_sign` | EIP-191 signature | ERC-7739 `PersonalSign`, bound to the active chain; a SIWE message for another chain is refused |
 | `eth_signTypedData_v4` | EIP-712 signature | ERC-7739 `TypedDataSign`, bound to the active chain |
 | `eth_sign` | EIP-191 signature | ❌ Rejects with code `4200`: through EIP-1271, a bare hash would skip ERC-7739's replay protection |
@@ -1585,7 +1595,7 @@ Only `chainChanged` is emitted, by `wallet_switchEthereumChain`.
 |-------|---------|---------|
 | `chainChanged` | `string` (hex chainId) | `wallet_switchEthereumChain` |
 
-Any other method rejects, in every mode, with an error whose `code` is `4200` (Unsupported Method) and whose message is `w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with code `4200` too. A request cancelled by `onBeforeSign` rejects with code `4001` (User Rejected Request).
+Any other method rejects, in every mode, with an error whose `code` is `4200` (Unsupported Method) and whose message is `w3pk EIP-1193: unsupported method "<method>"`. In `PRIMARY` mode, `eth_sign` rejects with code `4200` too. A request cancelled by `onBeforeSign` rejects with code `4001` (User Rejected Request). Malformed or mismatched requests reject with `-32602`, `4100` or `4902`, as **Request validation** above lists.
 
 **Example — ethers v6:**
 
@@ -1655,7 +1665,7 @@ await provider.request({
 
 **Notes:**
 - Each call to `getEIP1193Provider()` returns a **new independent instance** with its own `chainId` state and event listeners.
-- `eth_sendTransaction` hex fields (`value`, `gas`, `maxFeePerGas`, `maxPriorityFeePerGas`, `nonce`) are automatically converted to `bigint` / `number` before passing to `sendTransaction()`.
+- `eth_sendTransaction` hex fields (`value`, `gas`, `maxFeePerGas`, `maxPriorityFeePerGas`, `gasPrice`, `nonce`) are automatically converted to `bigint` / `number` before passing to `sendTransaction()`.
 - `personal_sign` data that arrives as a `0x`-prefixed hex string is signed as the bytes it encodes, matching MetaMask's behaviour.
 - `eth_signTypedData_v4` throws a `WalletError` when the typed data's `domain.chainId` differs from the active chain, as [EIP-712](https://eips.ethereum.org/EIPS/eip-712) requires; switch chains first with `wallet_switchEthereumChain`.
 - `eth_signTypedData_v4` copies the typed data before `onBeforeSign` and signs that copy, so changing the request while the hook waits has no effect. It signs `primaryType` with the types it references, and throws on types `primaryType` doesn't reach, such as a `primaryType` nested under another root, and on a domain that `types.EIP712Domain` doesn't declare as is.
@@ -3928,7 +3938,7 @@ import {
   - `InvalidGuardianShareError` - `recoverFromGuardians()`: a share is corrupted, edited, from another setup, given twice or in an older format (`shareIndex`, `guardianName`)
   - `WeakPasswordError` - `createBackupFile()`, `setupSocialRecovery()`, `exportForSync(password)`: the password fails `isStrongPassword()` (`code: 'WEAK_PASSWORD'`, `feedback: string[]` gives each reason)
 
-`UserRejectedRequestError` stands apart: `sendTransaction()` throws it, and the EIP-1193 provider rejects with it, when `onBeforeSign` cancels the request (`code: 4001`, the hook's error as `cause`).
+`UserRejectedRequestError` stands apart: `sendTransaction()` throws it, and the EIP-1193 provider rejects with it, when `onBeforeSign` cancels the request (`code: 4001`, the hook's error as `cause`). So does `UnauthorizedError`: `sendTransaction()` and `signMessage()` throw it, and the provider rejects with it, when `options.from` or the request's account isn't the signer's (`code: 4100`).
 
 ### Error Handling
 

@@ -97,6 +97,23 @@ export class UserRejectedRequestError extends Error implements ProviderRpcError 
   }
 }
 
+/** EIP-1193 error 4100: the request names an account other than the signer's */
+export class UnauthorizedError extends Error implements ProviderRpcError {
+  code = 4100;
+
+  constructor(account: string) {
+    super(`w3pk: ${account} is not the signer's account`);
+    this.name = "UnauthorizedError";
+  }
+}
+
+/** Throws UnauthorizedError unless `expected` is unset or `address`, in any letter case */
+export function assertSigner(address: string, expected: string | undefined): void {
+  if (expected !== undefined && expected.toLowerCase() !== address.toLowerCase()) {
+    throw new UnauthorizedError(expected);
+  }
+}
+
 /** Awaits `hook` with `digests`; throws UserRejectedRequestError if it throws, rejects or returns `false` */
 export async function confirmBeforeSign<D>(hook: BeforeSignHook<D>, digests: D): Promise<void> {
   let approved;
@@ -118,7 +135,7 @@ class UnsupportedMethodError extends Error implements ProviderRpcError {
   }
 }
 
-/** A JSON-RPC error from the chain's endpoint, with its code and data unchanged */
+/** A JSON-RPC error with its code: the chain endpoint's, unchanged, or the provider's own */
 class JsonRpcError extends Error implements ProviderRpcError {
   constructor(public code: number, message: string, public data?: unknown) {
     super(message);
@@ -163,6 +180,17 @@ async function forward(url: string, method: string, params: unknown[] | undefine
     throw new WalletError(`w3pk EIP-1193: ${method} failed: HTTP ${response.status} from ${url}`);
   }
   return body.result;
+}
+
+/** EIP-1474 error -32602: a malformed parameter */
+const invalidParams = (message: string) => new JsonRpcError(-32602, `w3pk EIP-1193: ${message}`);
+
+/** The request's account parameter, which must be a 20-byte hex address */
+function accountParam(method: string, value: unknown): string {
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
+    throw invalidParams(`${method} needs the account address, got ${String(value)}`);
+  }
+  return value;
 }
 
 function parseChainId(value: unknown): bigint {
@@ -234,6 +262,14 @@ export function createEIP1193Provider(
         // ── Transaction ────────────────────────────────────────────────
         case 'eth_sendTransaction': {
           const txParam = (params ?? [])[0] ?? {};
+          const from = accountParam('eth_sendTransaction', txParam.from);
+          const { data, input } = txParam;
+          if (data != null && input != null && String(data).toLowerCase() !== String(input).toLowerCase()) {
+            throw invalidParams('eth_sendTransaction: data and input differ');
+          }
+          if (txParam.gasPrice != null && (txParam.maxFeePerGas != null || txParam.maxPriorityFeePerGas != null)) {
+            throw invalidParams('eth_sendTransaction: gasPrice can\'t be set with maxFeePerGas or maxPriorityFeePerGas');
+          }
           if (!txParam.chainId && !activeChainId) {
             throw new WalletError('eth_sendTransaction: chainId is required');
           }
@@ -242,30 +278,23 @@ export function createEIP1193Provider(
               `eth_sendTransaction: chainId ${txParam.chainId} does not match the active chain ${activeChainId}`
             );
           }
+          const quantity = (value: unknown) => (value != null ? BigInt(value as string) : undefined);
           const tx = {
             to: txParam.to,
-            value: txParam.value !== undefined
-              ? BigInt(txParam.value)
-              : undefined,
-            data: txParam.data ?? '0x',
+            value: quantity(txParam.value),
+            data: data ?? input ?? '0x',
             chainId: activeChainId,
-            gasLimit: txParam.gas !== undefined
-              ? BigInt(txParam.gas)
-              : undefined,
-            maxFeePerGas: txParam.maxFeePerGas !== undefined
-              ? BigInt(txParam.maxFeePerGas)
-              : undefined,
-            maxPriorityFeePerGas: txParam.maxPriorityFeePerGas !== undefined
-              ? BigInt(txParam.maxPriorityFeePerGas)
-              : undefined,
-            nonce: txParam.nonce !== undefined
-              ? parseInt(txParam.nonce, 16)
-              : undefined,
+            gasLimit: quantity(txParam.gas),
+            maxFeePerGas: quantity(txParam.maxFeePerGas),
+            maxPriorityFeePerGas: quantity(txParam.maxPriorityFeePerGas),
+            gasPrice: quantity(txParam.gasPrice),
+            nonce: txParam.nonce != null ? parseInt(txParam.nonce, 16) : undefined,
           };
           const hook = options?.onBeforeSign;
           const result = await sdk.sendTransaction(tx, {
             mode: options?.mode,
             tag: options?.tag,
+            from,
             ...endpoints(),
             onBeforeSign: hook && ((digests) => hook(digests as TransactionBeforeSignDigests)),
           });
@@ -275,10 +304,11 @@ export function createEIP1193Provider(
         // ── Message signing ────────────────────────────────────────────
         // personal_sign(data, address) — params are reversed vs eth_sign
         case 'personal_sign': {
-          const [data] = params ?? [];
+          const [data, address] = params ?? [];
           const signOptions = {
             mode: options?.mode,
             tag: options?.tag,
+            from: accountParam('personal_sign', address),
             signingMethod: 'EIP191' as const,
             ...primarySigning(),
           };
@@ -296,10 +326,12 @@ export function createEIP1193Provider(
             );
           }
           const [address, data] = params ?? [];
+          const from = accountParam('eth_sign', address);
           await beforeSign({ method: 'eth_sign', params: [address, data] });
           const result = await sdk.signMessage(erc191Message(data), {
             mode: options?.mode,
             tag: options?.tag,
+            from,
             signingMethod: 'EIP191',
           });
           return result.signature;
@@ -308,6 +340,7 @@ export function createEIP1193Provider(
         // EIP-712 typed data signing
         case 'eth_signTypedData_v4': {
           const [address, request] = params ?? [];
+          const from = accountParam('eth_signTypedData_v4', address);
           const typedData = signableTypedData(request);
           const { domain, types, primaryType, message } = typedData;
 
@@ -320,6 +353,7 @@ export function createEIP1193Provider(
           const signOptions = {
             mode: options?.mode,
             tag: options?.tag,
+            from,
             signingMethod: 'EIP712' as const,
             eip712Domain: domain,
             eip712Types: types,
@@ -335,9 +369,22 @@ export function createEIP1193Provider(
 
         // ── Chain switching ────────────────────────────────────────────
         case 'wallet_switchEthereumChain': {
-          const newChainId = parseInt((params ?? [])[0]?.chainId ?? '0x1', 16);
-          activeChainId = newChainId;
-          emit('chainChanged', '0x' + newChainId.toString(16));
+          const chainId = (params ?? [])[0]?.chainId;
+          if (typeof chainId !== 'string' || !/^0x[1-9a-fA-F][0-9a-fA-F]*$/.test(chainId)) {
+            throw invalidParams(`wallet_switchEthereumChain needs a hex chainId, got ${String(chainId)}`);
+          }
+          const newChainId = Number(chainId);
+          if (newChainId !== initialChainId && !(Number.isSafeInteger(newChainId) && rpcUrlFor?.(newChainId))) {
+            throw new JsonRpcError(
+              4902,
+              `w3pk EIP-1193: unrecognized chain ${chainId}. Set rpcUrls in the config ` +
+              `(rpcUrls: { ${BigInt(chainId)}: ['https://...'] }).`
+            );
+          }
+          if (newChainId !== activeChainId) {
+            activeChainId = newChainId;
+            emit('chainChanged', chainId.toLowerCase());
+          }
           return null;
         }
 

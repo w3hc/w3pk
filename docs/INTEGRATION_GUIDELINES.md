@@ -621,7 +621,7 @@ const config = createConfig({
 
 ### Chain switching
 
-The provider maintains its own `chainId` state. Call `wallet_switchEthereumChain` and listen for `chainChanged`:
+The provider maintains its own `chainId` state. Call `wallet_switchEthereumChain` and listen for `chainChanged`. It switches to the initial `chainId` or a chain set in `rpcUrls`, and rejects any other with code `4902`:
 
 ```typescript
 const provider = w3pk.getEIP1193Provider({ chainId: 1 })

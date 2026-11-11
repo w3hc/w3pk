@@ -21,7 +21,7 @@ import {
 } from "./fixtures/mock-bundler";
 import { W3PK_ACCOUNT_FACTORY } from "../src/wallet/smart-account";
 import { DEFAULT_USER_OPERATION_CAPS } from "../src/wallet/bundler";
-import { UserRejectedRequestError, getSigningDigests, type TransactionRequest } from "../src/index";
+import { UnauthorizedError, UserRejectedRequestError, getSigningDigests, type TransactionRequest } from "../src/index";
 import {
   P256_PRECOMPILE_GAS,
   P256_SOLIDITY_GAS,
@@ -536,6 +536,50 @@ async function runTests() {
     await exact.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" });
     assert.strictEqual(bundler.included.length, 2, "a max fee at its cap is sent");
     console.log("✅ Gas caps enforced before signing");
+  });
+
+  console.log("\nTest 19: options.from other than the smart account throws 4100 before the hook and the passkey prompt");
+  await withBundler({}, async (bundler) => {
+    const sdk = await primarySdk(config(bundler));
+    let hooked = false;
+    passkeyCalls.length = 0;
+    const error = await sdk
+      .sendTransaction(
+        { to: RECIPIENT, chainId: 1 },
+        { mode: "PRIMARY", from: GAMING_ACCOUNT, onBeforeSign: () => void (hooked = true) }
+      )
+      .catch((e) => e);
+    assert(error instanceof UnauthorizedError, String(error));
+    assert.strictEqual(error.code, 4100);
+    assert(!hooked, "hook not called");
+    assert.strictEqual(passkeyCalls.length, 0, "no passkey prompt");
+    assert.strictEqual(bundler.calls.length, 0, "no bundler or RPC call");
+
+    await sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY", from: MAIN_ACCOUNT.toLowerCase() });
+    assert.strictEqual(bundler.included.length, 1, "lowercase from is sent");
+    console.log("✅ from checked against the smart account");
+  });
+
+  console.log("\nTest 20: gasPrice sets both UserOperation fees, and is refused with EIP-1559 fees");
+  await withBundler({}, async (bundler) => {
+    const sdk = await primarySdk(config(bundler));
+    await sdk.sendTransaction([{ to: RECIPIENT, chainId: 1, gasPrice: 7n }, { to: TOKEN, chainId: 1, gasPrice: 7n }], { mode: "PRIMARY" });
+    const [op] = bundler.included;
+    assert.strictEqual(BigInt(op.maxFeePerGas), 7n);
+    assert.strictEqual(BigInt(op.maxPriorityFeePerGas), 7n);
+    assert(!bundler.calls.some((c) => c.method === "eth_gasPrice" || c.method === "eth_maxPriorityFeePerGas"), "no fee lookup");
+
+    const mixed = await rejection(
+      sdk.sendTransaction([{ to: RECIPIENT, chainId: 1, gasPrice: 7n }, { to: TOKEN, chainId: 1 }], { mode: "PRIMARY" })
+    );
+    assert(mixed.includes("maxFeePerGas"), mixed);
+    passkeyCalls.length = 0;
+    const both = await rejection(
+      sdk.sendTransaction({ to: RECIPIENT, chainId: 1, gasPrice: 7n, maxPriorityFeePerGas: 1n }, { mode: "PRIMARY" })
+    );
+    assert(both.includes("gasPrice"), both);
+    assert.strictEqual(passkeyCalls.length, 0, "no passkey prompt");
+    console.log("✅ gasPrice maps to both UserOperation fees");
   });
 
   console.log("\n🎉 All PRIMARY mode sendTransaction tests passed!\n");
