@@ -220,7 +220,8 @@ export function createEIP1193Provider(
     if (!url) {
       throw new WalletError(
         `No RPC endpoint set for chainId ${activeChainId}. Set rpcUrls in the config ` +
-        `(rpcUrls: { ${activeChainId}: ['https://...'] }) or pass options.rpcUrl.`
+        `(rpcUrls: { ${activeChainId}: ['https://...'] })` +
+        (activeChainId === initialChainId ? ' or pass options.rpcUrl.' : '.')
       );
     }
     return url;
@@ -277,26 +278,17 @@ export function createEIP1193Provider(
               `eth_sendTransaction: chainId ${txParam.chainId} does not match the active chain ${activeChainId}`
             );
           }
+          const quantity = (value: unknown) => (value != null ? BigInt(value as string) : undefined);
           const tx = {
             to: txParam.to,
-            value: txParam.value !== undefined
-              ? BigInt(txParam.value)
-              : undefined,
+            value: quantity(txParam.value),
             data: data ?? input ?? '0x',
             chainId: activeChainId,
-            gasLimit: txParam.gas !== undefined
-              ? BigInt(txParam.gas)
-              : undefined,
-            maxFeePerGas: txParam.maxFeePerGas !== undefined
-              ? BigInt(txParam.maxFeePerGas)
-              : undefined,
-            maxPriorityFeePerGas: txParam.maxPriorityFeePerGas !== undefined
-              ? BigInt(txParam.maxPriorityFeePerGas)
-              : undefined,
-            gasPrice: txParam.gasPrice != null ? BigInt(txParam.gasPrice) : undefined,
-            nonce: txParam.nonce !== undefined
-              ? parseInt(txParam.nonce, 16)
-              : undefined,
+            gasLimit: quantity(txParam.gas),
+            maxFeePerGas: quantity(txParam.maxFeePerGas),
+            maxPriorityFeePerGas: quantity(txParam.maxPriorityFeePerGas),
+            gasPrice: quantity(txParam.gasPrice),
+            nonce: txParam.nonce != null ? parseInt(txParam.nonce, 16) : undefined,
           };
           const hook = options?.onBeforeSign;
           const result = await sdk.sendTransaction(tx, {

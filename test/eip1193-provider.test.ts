@@ -506,13 +506,19 @@ async function runTests() {
       provider.request({ method: "eth_sendTransaction", params: [{ from: ACCOUNT, to: ACCOUNT, ...fields }] });
     await send({ gasPrice: "0x7" });
     await send({ gasPrice: null, maxFeePerGas: "0x9" });
+    await send({ gasPrice: "0x7", maxFeePerGas: null, maxPriorityFeePerGas: null, value: null, gas: null, nonce: null });
     assertEqual(txs[0].gasPrice, 7n, "gasPrice passed on");
     assertEqual(txs[1].gasPrice, undefined, "null gasPrice is absent");
+    assertEqual(
+      Object.entries(txs[2]).filter(([, v]) => v !== undefined).map(([k]) => k).join(),
+      "to,data,chainId,gasPrice",
+      "null fields are absent"
+    );
     for (const fees of [{ maxFeePerGas: "0x9" }, { maxPriorityFeePerGas: "0x1" }]) {
       const error = await send({ gasPrice: "0x7", ...fees }).catch((e) => e);
       assertEqual(error.code, -32602, `gasPrice with ${Object.keys(fees)[0]}: Invalid params`);
     }
-    assertEqual(txs.length, 2, "nothing sent");
+    assertEqual(txs.length, 3, "nothing sent");
     passTest("gasPrice is honoured, and exclusive of EIP-1559 fees");
   });
 
