@@ -107,11 +107,13 @@ export async function register(
     const publicKey = arrayBufferToBase64Url(await credentialPublicKeyFromAuthData(authData));
 
     // Without PRF there is no key to store the wallet under: fail before
-    // any record exists, so the passkey can be dropped
+    // any record exists, so the passkey can be dropped. The fallback
+    // assertion is checked against the public key just attested
     const prfOutput =
       (isUserVerified(authData)
         ? copyPrfResult(credential.getClientExtensionResults?.().prf?.results?.first)
-        : undefined) ?? (await evaluatePrf(PRF_INPUT, credential.id)).output;
+        : undefined) ??
+      (await evaluatePrf(PRF_INPUT, { credential: { id: credential.id, publicKey } })).output;
     const publicKeyMac = await macPublicKey(prfOutput, credential.id, publicKey);
 
     // Past this point a record may be on disk, so the passkey must stay

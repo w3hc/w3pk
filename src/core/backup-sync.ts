@@ -48,7 +48,7 @@ export async function createBackupFile(ctx: SdkContext, password: string): Promi
   const { backupFile } = await manager.createPasswordBackup(
     mnemonic,
     password,
-    await backupCredential(ctx),
+    await loggedInCredential(ctx),
     ctx.currentUser.username
   );
 
@@ -72,7 +72,7 @@ export async function recordBackup(ctx: SdkContext, method: 'file' | 'prf'): Pro
 }
 
 /** The logged-in passkey, with the public key checked at login */
-export async function backupCredential(
+export async function loggedInCredential(
   ctx: Pick<SdkContext, 'currentUser' | 'currentPublicKey'>
 ): Promise<BackupCredential | undefined> {
   return ctx.currentUser && ctx.currentPublicKey
@@ -140,20 +140,19 @@ export async function applyRestoredWallet(
   // One assertion releases the PRF output the wallet key comes from. Until
   // it succeeds and passes login()'s checks, the stored wallet and the
   // credential stay as they were
-  const { output: prfOutput, assertion, challenge } = await evaluatePrf(PRF_INPUT, credential.id);
-  try {
-    await verifyPrfAssertion(assertion, credential.publicKey, challenge, "required");
-    if (!(await verifySignCount(assertion, credential, storage))) {
-      throw new AuthenticationError("Signature counter did not increase");
-    }
-  } catch (error) {
+  const checked = await loggedInCredential(ctx);
+  if (!checked) {
+    throw new WalletError("Credential not found");
+  }
+  const { output: prfOutput, assertion } = await evaluatePrf(PRF_INPUT, { credential: checked });
+  if (!(await verifySignCount(assertion, credential, storage))) {
     new Uint8Array(prfOutput).fill(0);
-    throw error;
+    throw new AuthenticationError("Signature counter did not increase");
   }
 
   await bootstrapCredential(
     ctx,
-    credential,
+    { ...credential, publicKey: checked.publicKey },
     mnemonic,
     ethereumAddress,
     prfOutput,
@@ -495,7 +494,7 @@ export async function exportForSync(
     throw new WalletError("No wallet data found");
   }
 
-  const credential = await backupCredential(ctx);
+  const credential = await loggedInCredential(ctx);
   if (!credential) {
     throw new WalletError("Credential not found");
   }

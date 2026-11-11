@@ -146,6 +146,7 @@ import {
   getBackupStatus,
   getSyncStatus,
   importFromSync,
+  loggedInCredential,
   registerWithBackupFile,
   restoreFromBackupFile,
   syncWalletWithPasskey,
@@ -2049,7 +2050,7 @@ export class Web3Passkey {
         PRF_SECRET_LABEL,
         normalizeOrigin(getCurrentOrigin()),
         tag,
-        this.currentUser?.credentialId
+        await loggedInCredential(this.ctx)
       );
     } catch (error) {
       this.config.onError?.(error as any);
@@ -2086,7 +2087,7 @@ export class Web3Passkey {
         SEMAPHORE_PRF_LABEL,
         normalizeOrigin(getCurrentOrigin()),
         tag,
-        this.currentUser?.credentialId
+        await loggedInCredential(this.ctx)
       );
       return { commitment: commit(secret), credentialId };
     } catch (error) {
@@ -2150,9 +2151,9 @@ export class Web3Passkey {
       assertPrfSecretTag(tag);
       const { zkProve } = await import("../zk/prove");
       const origin = normalizeOrigin(getCurrentOrigin());
-      const credentialId = this.currentUser?.credentialId;
+      const credential = await loggedInCredential(this.ctx);
       return await zkProve(
-        async (label) => (await derivePrfSecret(label, origin, tag, credentialId)).secret,
+        async (label) => (await derivePrfSecret(label, origin, tag, credential)).secret,
         artifacts,
         publicInputs,
         extraWitness,
