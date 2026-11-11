@@ -76,6 +76,7 @@ A malicious host app can still attempt the following in `PRIMARY` mode:
 - **Prompt fatigue.** It can ask for prompt after prompt until the user approves one without thinking.
 - **Misleading display.** It controls the UI and chooses the RPC, so it can show false balances, prices, recipients or transaction results.
 - **Censorship.** It chooses the bundler and paymaster. It can delay, drop or refuse to send a UserOperation, but can't change one after it is signed.
+- **Overcharging.** Its bundler and RPC choose the gas values the passkey signs, up to the `userOperationCaps` it sets, and the prompt doesn't show the max fee.
 - **Privacy.** It learns the account's address. Every tag's account shares the same owner key, so they're linkable onchain.
 
 So in `PRIMARY` the user's protection is the prompt: approve it only for an action you started. The host is still trusted with everything in this wallet, by construction — keep session funds in it, not savings ([threat model](./docs/SECURITY.md#the-host-app-is-trusted-by-construction)). Spending limits and allowlists can be enforced onchain by an ERC-7579 hook, which sees every execution.
