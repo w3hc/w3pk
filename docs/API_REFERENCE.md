@@ -1732,6 +1732,8 @@ Stealth keys are shared across origins: every app that enables stealth addresses
 
 > **🔒 Security Note:** The ERC-5564 implementation properly reduces all scalars modulo the secp256k1 curve order to prevent unspendable funds. The same reduced scalar is used consistently in both public-key operations (`s_h × G`) and private-key operations (`spendingKey + s_h`) to ensure the derived stealth address always matches the derived private key.
 
+The shared secret `s = viewing_privkey × ephemeral_pubkey` is hashed as its 33-byte compressed point, `s_h = keccak256(s)`, with the view tag `s_h[0]`. ERC-5564 doesn't fix the encoding; this is the one ScopeLift's [stealth-address-sdk](https://github.com/ScopeLift/stealth-address-sdk) hashes, so w3pk and ScopeLift-based apps derive the same stealth addresses. Stealth addresses derived by w3pk v0.12.3 and earlier hashed the 65-byte uncompressed point and aren't recognized anymore.
+
 ### `stealth.generateStealthAddress(options?: { requireAuth?: boolean }): Promise<StealthAddressResult>`
 
 Generate a fresh ERC-5564 compliant stealth address for a recipient.
