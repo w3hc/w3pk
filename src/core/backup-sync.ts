@@ -141,8 +141,8 @@ export async function applyRestoredWallet(
   // it succeeds and passes login()'s checks, the stored wallet and the
   // credential stay as they were
   const checked = await loggedInCredential(ctx);
-  if (!checked) {
-    throw new WalletError("Credential not found");
+  if (credential.publicKey !== checked?.publicKey) {
+    throw new AuthenticationError("The passkey's stored public key changed since login");
   }
   const { output: prfOutput, assertion } = await evaluatePrf(PRF_INPUT, { credential: checked });
   if (!(await verifySignCount(assertion, credential, storage))) {
@@ -152,7 +152,7 @@ export async function applyRestoredWallet(
 
   await bootstrapCredential(
     ctx,
-    { ...credential, publicKey: checked.publicKey },
+    credential,
     mnemonic,
     ethereumAddress,
     prfOutput,
@@ -234,7 +234,11 @@ async function verifySyncAssertion(
   const stored = await storage.getCredentialById(credentialId);
 
   if (stored) {
-    const { first: prfOutput } = await verifyPrfAssertion(assertion, stored.publicKey, challenge, "required");
+    const { first: prfOutput } = await verifyPrfAssertion(assertion, {
+      publicKey: stored.publicKey,
+      challenge,
+      userVerification: "required",
+    });
     if (!(await verifySignCount(assertion, stored, storage))) {
       if (prfOutput) new Uint8Array(prfOutput).fill(0);
       throw new AuthenticationError("Signature counter did not increase");
@@ -249,13 +253,12 @@ async function verifySyncAssertion(
     throw new SyncBootstrapError("CREDENTIAL_MISMATCH", credentialId);
   }
   const { publicKey } = backupFile.credential;
-  const { first: prfOutput } = await verifyPrfAssertion(
-    assertion,
+  const { first: prfOutput } = await verifyPrfAssertion(assertion, {
     publicKey,
     challenge,
-    "required",
-    () => new SyncBootstrapError("PUBLIC_KEY_MISMATCH", credentialId)
-  );
+    userVerification: "required",
+    mismatchError: (reason, id) => new SyncBootstrapError(reason, id),
+  });
   return { publicKey, prfOutput };
 }
 

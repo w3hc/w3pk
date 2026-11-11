@@ -15,10 +15,15 @@ import {
   SyncRequiredError,
 } from "../core/errors";
 import type { AuthenticationCredential } from "./types";
-import { assertPublicKeyMac, verifyPrfAssertion } from "./authenticate";
-import { CredentialStorage, type StoredCredential } from "./storage";
+import {
+  takePrfResults,
+  verifyPrfAssertion,
+  wipeBuffer,
+  type PrfAssertionCheck,
+} from "./authenticate";
+import { CredentialStorage } from "./storage";
 import { base64UrlToArrayBuffer } from "../utils/base64";
-import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
+import { generateChallenge } from "../wallet/crypto";
 
 export interface PrfCredential {
   id: string;
@@ -31,17 +36,16 @@ export interface PrfCredential {
 
 export interface PrfOptions {
   /**
-   * Restrict the assertion to this passkey and check its signature against
+   * Restrict the assertion to this passkey and check it against
    * `credential.publicKey`. Without it, the user picks any discoverable
-   * passkey for this RP, and the signature is checked against the passkey's
-   * stored public key once that key's MAC checks out, with the PRF output at
-   * `PRF_INPUT` evaluated as the second input of the same assertion.
+   * passkey for this RP, and the assertion is checked against the public
+   * key stored for it on this device.
    */
   credential?: PrfCredential;
-  /** Second PRF input, evaluated as `prf.eval.second`; only with `credential` */
+  /** Second PRF input, evaluated as `prf.eval.second` */
   second?: BufferSource;
-  /** Thrown when the signature doesn't verify; AuthenticationError by default */
-  signatureError?: () => Error;
+  /** See verifyPrfAssertion() */
+  mismatchError?: PrfAssertionCheck["mismatchError"];
 }
 
 export interface PrfEvaluation {
@@ -53,10 +57,6 @@ export interface PrfEvaluation {
   credentialId: string;
   /** The assertion, checked by verifyPrfAssertion(); its signature counter is not */
   assertion: AuthenticationCredential;
-}
-
-function wipe(buffer: ArrayBuffer | undefined): void {
-  if (buffer) new Uint8Array(buffer).fill(0);
 }
 
 /**
@@ -73,60 +73,36 @@ function wipe(buffer: ArrayBuffer | undefined): void {
  */
 export async function evaluatePrf(
   input: BufferSource,
-  { credential, second, signatureError }: PrfOptions = {}
+  { credential, second, mismatchError }: PrfOptions = {}
 ): Promise<PrfEvaluation> {
-  if (second && !credential) {
-    throw new CryptoError("A second PRF input needs a credential");
-  }
   const challenge = generateChallenge();
-  const assertion = await requestPrf(input, credential ? second : PRF_INPUT, challenge, credential?.id);
+  const assertion = await requestPrf(input, second, challenge, credential?.id);
 
-  let publicKey: string;
-  let stored: StoredCredential | null = null;
-  if (credential) {
-    // WebAuthn L3 §7.2: the credential must be the one allowCredentials lists
-    if (assertion.id !== credential.id) {
-      throw new AuthenticationError("The assertion is from another passkey");
-    }
-    publicKey = credential.publicKey;
-  } else {
-    stored = await new CredentialStorage().getCredentialById(assertion.id);
+  let publicKey = credential?.publicKey;
+  if (!publicKey) {
+    const stored = await new CredentialStorage().getCredentialById(assertion.id);
     if (!stored) {
+      const { first, second } = takePrfResults(assertion);
+      wipeBuffer(first);
+      wipeBuffer(second);
       throw new SyncRequiredError(assertion.id);
     }
     publicKey = stored.publicKey;
   }
 
-  const { first: output, second: secondOutput } = await verifyPrfAssertion(
-    assertion,
+  const { first: output, second: secondOutput } = await verifyPrfAssertion(assertion, {
     publicKey,
     challenge,
-    "required",
-    signatureError
-  );
+    userVerification: "required",
+    credentialId: credential?.id,
+    mismatchError,
+  });
   if (!output) {
-    wipe(secondOutput);
+    wipeBuffer(secondOutput);
     throw new PrfUnsupportedError(assertion.id);
   }
 
-  if (stored) {
-    try {
-      await assertPublicKeyMac(secondOutput, stored);
-    } catch (error) {
-      wipe(output);
-      throw error;
-    } finally {
-      wipe(secondOutput);
-    }
-    return { output, credentialId: assertion.id, assertion };
-  }
-
-  return {
-    output,
-    secondOutput: second ? secondOutput : undefined,
-    credentialId: assertion.id,
-    assertion,
-  };
+  return { output, secondOutput, credentialId: assertion.id, assertion };
 }
 
 async function requestPrf(

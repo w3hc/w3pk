@@ -2,6 +2,7 @@ import {
   AuthenticationError,
   SyncRequiredError,
   Web3PasskeyError,
+  type SyncBootstrapReason,
 } from "../core/errors";
 import type { AuthResult, AuthenticationCredential } from "./types";
 import type { StoredCredential } from "./storage";
@@ -110,12 +111,11 @@ export async function login(
     // didn't require UV wasn't user-verified (it would be a different
     // secret) — persistent sessions are then disabled (in-memory sessions
     // still work).
-    const { first: prfOutput } = await verifyPrfAssertion(
-      assertion,
-      credential.publicKey,
+    const { first: prfOutput } = await verifyPrfAssertion(assertion, {
+      publicKey: credential.publicKey,
       challenge,
-      userVerification
-    );
+      userVerification,
+    });
 
     if (!(await verifySignCount(assertion, credential, storage))) {
       throw new Error("Signature counter did not increase");
@@ -146,47 +146,90 @@ export interface PrfResults {
   second?: ArrayBuffer;
 }
 
+export type AssertionMismatch = Extract<SyncBootstrapReason, "CREDENTIAL_MISMATCH" | "PUBLIC_KEY_MISMATCH">;
+
+export interface PrfAssertionCheck {
+  /** Base64url SPKI the signature must verify against */
+  publicKey: string;
+  /** The base64url challenge sent in the request options */
+  challenge: string;
+  userVerification: UserVerificationRequirement;
+  /** The credential the request's allowCredentials listed, if any */
+  credentialId?: string;
+  /** The error for an assertion from another passkey or with a signature that doesn't verify */
+  mismatchError?: (reason: AssertionMismatch, credentialId: string) => Error;
+}
+
+function defaultMismatchError(reason: AssertionMismatch): Error {
+  return new AuthenticationError(
+    reason === "CREDENTIAL_MISMATCH"
+      ? "The assertion is from another passkey"
+      : "Signature verification failed"
+  );
+}
+
 /**
  * Check an assertion that evaluated the PRF as login() does, and return its
- * PRF outputs: verifyAssertionSignature() against `publicKey`, then the UV
- * flag, which must be set when `userVerification` is "required" (WebAuthn L3
- * §7.2). Without UV, hmac-secret evaluates the credential's other PRF
- * (§10.1.4), so the outputs are dropped. Outputs that aren't 32 bytes are
- * dropped too.
+ * PRF outputs (WebAuthn L3 §7.2): the credential the request allowed,
+ * verifyAssertionSignature() against `publicKey`, then the UV flag, which
+ * must be set when `userVerification` is "required". Without UV,
+ * hmac-secret evaluates the credential's other PRF (§10.1.4), so the
+ * outputs are dropped. Outputs that aren't 32 bytes are dropped too. The
+ * outputs are taken out of the assertion either way (see takePrfResults()).
  *
- * @param publicKey - Base64url SPKI the signature must verify against
- * @param challenge - The base64url challenge sent in the request options
- * @param signatureError - Thrown when the signature doesn't verify
- * @throws AuthenticationError when the signature doesn't verify, or UV is
- *   required and not set
+ * @throws `mismatchError()` (AuthenticationError by default) when the
+ *   assertion is from another passkey or its signature doesn't verify
+ * @throws AuthenticationError when UV is required and not set
  */
 export async function verifyPrfAssertion(
   assertion: AuthenticationCredential,
-  publicKey: string,
-  challenge: string,
-  userVerification: UserVerificationRequirement,
-  signatureError: () => Error = () => new AuthenticationError("Signature verification failed")
+  { publicKey, challenge, userVerification, credentialId, mismatchError = defaultMismatchError }: PrfAssertionCheck
 ): Promise<PrfResults> {
+  const results = takePrfResults(assertion);
+  const discard = () => {
+    wipeBuffer(results.first);
+    wipeBuffer(results.second);
+  };
+  if (credentialId && assertion.id !== credentialId) {
+    discard();
+    throw mismatchError("CREDENTIAL_MISMATCH", assertion.id);
+  }
   if (!(await verifyAssertionSignature(assertion, publicKey, challenge))) {
-    throw signatureError();
+    discard();
+    throw mismatchError("PUBLIC_KEY_MISMATCH", assertion.id);
   }
   if (!isUserVerified(new Uint8Array(assertion.response.authenticatorData))) {
+    discard();
     if (userVerification === "required") {
       throw new AuthenticationError("User verification flag not set");
     }
     return {};
   }
-  const results = assertion.getClientExtensionResults?.().prf?.results;
-  return { first: copyPrfResult(results?.first), second: copyPrfResult(results?.second) };
+  return results;
 }
 
-/** A copy of a 32-byte PRF output, or undefined for any other length */
-export function copyPrfResult(result: BufferSource | undefined): ArrayBuffer | undefined {
+/**
+ * Take an assertion's PRF outputs out of its client extension results:
+ * copies of the 32-byte ones, the originals zeroed
+ */
+export function takePrfResults(assertion: AuthenticationCredential): PrfResults {
+  const results = assertion.getClientExtensionResults?.().prf?.results;
+  return { first: takePrfResult(results?.first), second: takePrfResult(results?.second) };
+}
+
+/** A copy of a 32-byte PRF output, or undefined for any other length. The original is zeroed. */
+export function takePrfResult(result: BufferSource | undefined): ArrayBuffer | undefined {
   if (!result) return undefined;
-  const copy = ArrayBuffer.isView(result)
-    ? new Uint8Array(result.buffer, result.byteOffset, result.byteLength).slice().buffer
-    : result.slice(0);
+  const bytes = ArrayBuffer.isView(result)
+    ? new Uint8Array(result.buffer, result.byteOffset, result.byteLength)
+    : new Uint8Array(result);
+  const copy = bytes.slice().buffer;
+  bytes.fill(0);
   return copy.byteLength === 32 ? copy : undefined;
+}
+
+export function wipeBuffer(buffer: ArrayBuffer | undefined): void {
+  if (buffer) new Uint8Array(buffer).fill(0);
 }
 
 /**

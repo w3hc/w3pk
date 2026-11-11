@@ -8,7 +8,7 @@ import {
 } from "../utils/base64";
 import { generateChallenge, macPublicKey, PRF_INPUT } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
-import { copyPrfResult, verifyClientData, verifyRpIdHash } from "./authenticate";
+import { takePrfResult, verifyClientData, verifyRpIdHash } from "./authenticate";
 import { authDataFromAttestationObject, credentialPublicKeyFromAuthData } from "./attestation";
 import { evaluatePrf } from "./prf";
 
@@ -111,7 +111,7 @@ export async function register(
     // assertion is checked against the public key just attested
     const prfOutput =
       (isUserVerified(authData)
-        ? copyPrfResult(credential.getClientExtensionResults?.().prf?.results?.first)
+        ? takePrfResult(credential.getClientExtensionResults?.().prf?.results?.first)
         : undefined) ??
       (await evaluatePrf(PRF_INPUT, { credential: { id: credential.id, publicKey } })).output;
     const publicKeyMac = await macPublicKey(prfOutput, credential.id, publicKey);

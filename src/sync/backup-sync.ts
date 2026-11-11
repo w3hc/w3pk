@@ -156,7 +156,7 @@ export class DeviceSyncManager {
     const evaluation = await evaluatePrf(await prfSyncInput(backupFile.prfSalt), {
       credential: { id: credentialId, publicKey },
       second: PRF_INPUT,
-      signatureError: () => new SyncBootstrapError('PUBLIC_KEY_MISMATCH', credentialId),
+      mismatchError: (reason, id) => new SyncBootstrapError(reason, id),
     });
     let result: { mnemonic: string; ethereumAddress: string };
     try {
