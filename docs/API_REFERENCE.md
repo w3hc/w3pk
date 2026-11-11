@@ -1252,7 +1252,11 @@ interface SendTransactionOptions {
   paymasterUrl?: string;  // PRIMARY: ERC-7677 paymaster service (default: paymasterUrl config)
   paymasterContext?: Record<string, unknown>;  // PRIMARY: ERC-7677 context, e.g. a policy ID (default: {})
   timeout?: number;       // PRIMARY: inclusion timeout in ms (default: 60000)
+  onBeforeSign?: (digests: TransactionBeforeSignDigests | TransactionBeforeSignDigests[]) => boolean | void | Promise<boolean | void>;  // Awaited before the passkey prompt; throw, reject or return false to cancel
 }
+
+// import type { TransactionBeforeSignDigests } from 'w3pk'
+type TransactionBeforeSignDigests = { method: 'eth_sendTransaction' } & TransactionDigests
 ```
 
 **Returns:** `SendTransactionResult`
@@ -1284,6 +1288,30 @@ const w3pk = createWeb3Passkey({
 })
 ```
 
+**`onBeforeSign`:** awaited with the transaction's [`getSigningDigests()`](#getsigningdigestsrequest-signingrequest-signingdigests) result and `method: 'eth_sendTransaction'`, or, for an array of transactions, an array of them in the same order. In `STANDARD`, `STRICT` and `YOLO` it runs after the RPC endpoint is resolved and before the session's passkey prompt; in `PRIMARY`, once the UserOperation is built, right before the passkey signs it.
+
+- If the hook throws, rejects or returns `false`, `sendTransaction()` throws `UserRejectedRequestError` (`code` `4001`), the hook's error as `cause`, not wrapped in `WalletError` and not passed to `onError`; nothing is signed or sent
+- The transactions are copied before the hook and the copy is sent, so changing them while the hook waits has no effect
+- If the digests can't be computed, for example a `to` that isn't an address, the send fails with that error, before the hook
+- Unset, no digests are computed and the send is unchanged
+- The Calldata Digest covers neither `to` nor `value`, which the hook also receives: show them next to it
+
+```typescript
+import { UserRejectedRequestError } from 'w3pk'
+
+try {
+  await w3pk.sendTransaction(tx, {
+    onBeforeSign: (digests) => {
+      const list = Array.isArray(digests) ? digests : [digests]
+      return confirm(list.map((d) => `Calldata Digest ${d.calldataDigest}\nTo ${d.to}\nValue ${d.value} wei`).join('\n\n'))
+    },
+  })
+} catch (error) {
+  if (error instanceof UserRejectedRequestError) return // cancelled
+  throw error
+}
+```
+
 **Sender address**
 
 The transaction is always sent **from the address derived for the active mode, tag, and origin**. With no options the defaults are `mode: 'STANDARD'` and `tag: 'MAIN'`; the origin is always `window.location.origin`.
@@ -1301,12 +1329,13 @@ console.log('will send from:', from)
 
 **What happens:**
 1. Guards: requires authenticated user
-2. Resolves `effectiveMode`, `effectiveTag`, `origin` (defaults: `'STANDARD'`, `'MAIN'`, `window.location.origin`)
+2. Resolves `effectiveMode`, `effectiveTag`, `origin` (defaults: `'STANDARD'`, `'MAIN'`, `window.location.origin`), and copies the transaction
 3. Resolves the RPC endpoint; throws if the app set none for the chain
-4. STRICT mode forces fresh authentication; other modes use active session
-5. Derives sender wallet from mnemonic at the mode/tag/origin-specific path — this is the `from` address
-6. Connects wallet to `JsonRpcProvider` and calls `sendTransaction()`
-7. Returns `{ hash, from, chainId, mode, tag, origin }`
+4. Awaits `onBeforeSign`, if set
+5. STRICT mode forces fresh authentication; other modes use active session
+6. Derives sender wallet from mnemonic at the mode/tag/origin-specific path — this is the `from` address
+7. Connects wallet to `JsonRpcProvider` and calls `sendTransaction()`
+8. Returns `{ hash, from, chainId, mode, tag, origin }`
 
 **Mode Summary:**
 
@@ -3856,6 +3885,8 @@ import {
   - `UnsupportedBackupVersionError` - the same methods and `registerWithBackupFile()`: the file isn't BackupFile v4 (`version`); decrypt a v3 password file with the extractor at commit `b14c32c`, a v2 one with the v0.10.6 offline tool
   - `InvalidGuardianShareError` - `recoverFromGuardians()`: a share is corrupted, edited, from another setup, given twice or in an older format (`shareIndex`, `guardianName`)
   - `WeakPasswordError` - `createBackupFile()`, `setupSocialRecovery()`, `exportForSync(password)`: the password fails `isStrongPassword()` (`code: 'WEAK_PASSWORD'`, `feedback: string[]` gives each reason)
+
+`UserRejectedRequestError` stands apart: `sendTransaction()` throws it, and the EIP-1193 provider rejects with it, when `onBeforeSign` cancels the request (`code: 4001`, the hook's error as `cause`).
 
 ### Error Handling
 

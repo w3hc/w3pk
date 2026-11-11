@@ -18,7 +18,9 @@ export type {
   ProviderConnectInfo,
   ProviderMessage,
   ProviderRpcError,
+  TransactionBeforeSignDigests,
 } from "./core/eip1193";
+export { UserRejectedRequestError } from "./core/eip1193";
 export type {
   UserInfo,
   GeneratedWallet,

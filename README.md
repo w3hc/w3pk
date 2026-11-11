@@ -203,6 +203,8 @@ const yoloTx = await w3pk.sendTransaction(
 
 `sendTransaction()` uses `options.rpcUrl`, then the first `rpcUrls` endpoint for the chain, and throws a `WalletError` naming `rpcUrls` if neither is set, before any passkey prompt. It never sends through public chainid.network endpoints: the RPC supplies the nonce, gas and fees, so use endpoints you trust.
 
+`options.onBeforeSign` is awaited with the transaction's [ERC-8213](https://erc8213.eth.limo/) digests (an array of them for an array of transactions), before the passkey prompt, in every mode. If it throws, rejects or returns `false`, `sendTransaction()` throws `UserRejectedRequestError` (code `4001`) and nothing is signed. Unset, no digests are computed.
+
 **Mode behaviour:**
 
 | Mode | Auth on send | Gas source |

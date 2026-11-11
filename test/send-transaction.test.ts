@@ -17,7 +17,7 @@
  */
 
 import { mockLocalStorage } from "./setup";
-import { createWeb3Passkey } from "../src/index";
+import { UserRejectedRequestError, createWeb3Passkey, getSigningDigests } from "../src/index";
 import { startMockBundler } from "./fixtures/mock-bundler";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { deriveWalletFromPath } from "../src/wallet/generate";
@@ -184,6 +184,69 @@ async function runTests() {
       await chain.close();
     }
     passTest("STRICT / STANDARD / YOLO send as in v0.11.2");
+  });
+
+  // ------------------------------------------------------------------
+  // 4. onBeforeSign in STRICT / STANDARD / YOLO
+  // ------------------------------------------------------------------
+  await runTest("STRICT / STANDARD / YOLO await onBeforeSign with the digests before the passkey prompt", async () => {
+    const { Transaction } = await import("ethers");
+    const chain = await startMockBundler();
+    try {
+      for (const mode of ["STRICT", "STANDARD", "YOLO"] as const) {
+        const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [chain.url] } });
+        (sdk as any).currentUser = { username: "eoa", ethereumAddress: TEST_CONTRACT, credentialId: "eoa" };
+        const log: string[] = [];
+        (sdk as any).getMnemonicFromSession = async () => {
+          log.push("passkey");
+          return TEST_MNEMONIC;
+        };
+        const sent = () => chain.calls.filter((c) => c.method === "eth_sendRawTransaction");
+        chain.calls.length = 0;
+
+        const tx = { to: TEST_CONTRACT, value: 3n, data: "0xbeef", chainId: 1 };
+        const expected = getSigningDigests({ method: "eth_sendTransaction", params: [tx] });
+        await sdk.sendTransaction(tx, {
+          mode,
+          onBeforeSign: async (digests) => {
+            log.push("hook");
+            assert(!Array.isArray(digests), `${mode}: one transaction, one digests object`);
+            assertEqual(digests.method, "eth_sendTransaction", `${mode}: method`);
+            assertEqual(digests.calldataDigest, expected.calldataDigest, `${mode}: Calldata Digest`);
+            assertEqual(digests.to, expected.to, `${mode}: to`);
+            assertEqual(digests.value, 3n, `${mode}: value`);
+            tx.data = "0xdead";
+            tx.value = 9n;
+          },
+        });
+        assertEqual(log.join(","), "hook,passkey", `${mode}: hook before the passkey prompt`);
+        const signed = Transaction.from(sent()[0].params[0]);
+        assertEqual(signed.data, "0xbeef", `${mode}: the copy taken before the hook is sent`);
+        assertEqual(signed.value, 3n, `${mode}: value from the copy`);
+
+        const cancel = new Error("cancelled");
+        const cancels = [
+          { hook: () => false, cause: undefined },
+          { hook: () => { throw cancel; }, cause: cancel },
+          { hook: () => Promise.reject(cancel), cause: cancel },
+        ];
+        for (const { hook, cause } of cancels) {
+          log.length = 0;
+          chain.calls.length = 0;
+          const error = await sdk
+            .sendTransaction({ to: TEST_CONTRACT, chainId: 1 }, { mode, onBeforeSign: hook })
+            .catch((e) => e);
+          assert(error instanceof UserRejectedRequestError, `${mode}: UserRejectedRequestError, got ${error}`);
+          assertEqual(error.code, 4001, `${mode}: code 4001`);
+          assertEqual(error.cause, cause, `${mode}: the hook's error as cause`);
+          assertEqual(log.length, 0, `${mode}: no passkey prompt`);
+          assertEqual(sent().length, 0, `${mode}: nothing sent`);
+        }
+      }
+    } finally {
+      await chain.close();
+    }
+    passTest("onBeforeSign approves or cancels EOA transactions before the passkey prompt");
   });
 
   // ------------------------------------------------------------------
