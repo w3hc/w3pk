@@ -10,7 +10,9 @@ import { validateBackupFile } from '../backup/backup-file';
 import { InvalidGuardianShareError } from '../core/errors';
 import {
   splitSecret,
-  combineShares,
+  combineShareSubsets,
+  subsetCount,
+  MAX_SHARE_SUBSETS,
   stringToBytes,
   bytesToString,
   bytesToHex,
@@ -186,18 +188,42 @@ export class SocialRecovery {
   }
 
   /**
-   * Combine guardian shares to recover the encrypted wallet data
+   * Combine guardian shares to recover the encrypted wallet data: the backup
+   * that most threshold-sized subsets of the shares rebuild
    *
    * @param shares - Array of guardian shares (must have at least threshold shares)
+   * @throws InvalidGuardianShareError as rebuildBackups()
+   */
+  async recoverFromShares(shares: GuardianShare[]): Promise<BackupFile> {
+    return (await this.rebuildBackups(shares)).backups[0];
+  }
+
+  /**
+   * The distinct backups that threshold-sized subsets of the shares rebuild
+   * (up to MAX_SHARE_SUBSETS subsets), the one most subsets agree on first.
+   * When more shares than the threshold are given, a share whose checksum
+   * fails is left out as long as the others reach the threshold.
+   * `walletAddress` is the address the shares left in carry.
+   *
    * @throws InvalidGuardianShareError naming a corrupted or edited share, one
    * from another split, a duplicate, or a share in an old format
    */
-  async recoverFromShares(shares: GuardianShare[]): Promise<BackupFile> {
+  async rebuildBackups(
+    shares: GuardianShare[]
+  ): Promise<{ backups: BackupFile[]; walletAddress: string }> {
     if (shares.length < 2) {
       throw new Error('At least 2 shares required for recovery');
     }
 
-    await Promise.all(shares.map(checkShare));
+    const failures = await Promise.all(
+      shares.map((share) => checkShare(share).then(() => undefined, (error: unknown) => error))
+    );
+    const valid = shares.filter((_, i) => failures[i] === undefined);
+    const failure = failures.find((error) => error !== undefined);
+    if (failure !== undefined && (valid.length < 2 || valid.length < valid[0].threshold)) {
+      throw failure;
+    }
+    shares = valid;
 
     const splitCounts = new Map<string, number>();
     const splitOf = (share: GuardianShare) => share.splitId.toLowerCase();
@@ -225,17 +251,12 @@ export class SocialRecovery {
     const threshold = shares[0].threshold;
     const firstAddress = shares[0].walletAddress;
 
-    if (!threshold) {
-      throw new Error('Invalid share: missing threshold information');
-    }
-
     if (shares.length < threshold) {
       throw new Error(
         `Need at least ${threshold} shares to recover, but only ${shares.length} provided`
       );
     }
 
-    // Verify all shares are for the same wallet and have consistent threshold
     const allMatch = shares.every(
       share =>
         share.walletAddress.toLowerCase() === firstAddress.toLowerCase() &&
@@ -246,22 +267,41 @@ export class SocialRecovery {
       throw new Error('Shares are from different wallets or have inconsistent thresholds');
     }
 
-    // Convert hex shares back to bytes
     const shareBytes = shares.map(share => hexToBytes(share.shareData));
-
-    // Combine shares using Shamir with the original threshold
-    const recoveredBytes = combineShares(shareBytes, threshold);
-
-    // Convert back to string and parse JSON
-    const backupJson = bytesToString(recoveredBytes);
-    let recovered: unknown;
-    try {
-      recovered = JSON.parse(backupJson);
-    } catch {
-      throw new Error('Recovered data is not a backup file - corrupted shares');
+    const votes = new Map<string, { backup: BackupFile; count: number }>();
+    let firstError: unknown;
+    for (const secret of combineShareSubsets(shareBytes, threshold)) {
+      const json = bytesToString(secret);
+      const known = votes.get(json);
+      if (known) {
+        known.count++;
+        continue;
+      }
+      try {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(json);
+        } catch {
+          throw new Error('Recovered data is not a backup file - corrupted shares');
+        }
+        votes.set(json, { backup: validateBackupFile(parsed), count: 1 });
+      } catch (error) {
+        if (firstError === undefined) firstError = error;
+      }
     }
 
-    return validateBackupFile(recovered);
+    if (votes.size === 0) {
+      const tried = Math.min(subsetCount(shares.length, threshold), MAX_SHARE_SUBSETS);
+      throw tried === 1
+        ? firstError
+        : new Error(
+            `None of the ${tried} subsets of ${threshold} shares rebuilds a backup file: the shares are corrupted`
+          );
+    }
+    return {
+      backups: [...votes.values()].sort((a, b) => b.count - a.count).map(({ backup }) => backup),
+      walletAddress: firstAddress,
+    };
   }
 
   /**
