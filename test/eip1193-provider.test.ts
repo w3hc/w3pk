@@ -20,7 +20,9 @@
  * - Typed event handlers compile (type-level, via the TypeScript compiler)
  * - Without mode, the options passed to the SDK are those of v0.11.2
  * - onBeforeSign: awaited with each signing method's digests before the SDK
- *   call, skipped when unset, a throwing hook rejects with 4001
+ *   call, skipped when unset, a throwing hook rejects with 4001; typed data is
+ *   signed as hashed for the hook (Permit2's nested root), mutations during the
+ *   hook have no effect
  * - PRIMARY mode against the mock bundler of test/fixtures/mock-bundler.ts:
  *   accounts, eth_sendTransaction, signing bound to the active chain,
  *   eth_sign refused with 4200, bundlerUrl option
@@ -941,6 +943,106 @@ Issued At: 2021-09-30T16:25:24Z`)
     passTest("Rejected requests never reach the hook");
   });
 
+  const permitSingle = () => ({
+    domain: { name: "Permit2", chainId: 1, verifyingContract: "0x000000000022D473030F116dDEE9F6B43aC78BA3" },
+    types: {
+      EIP712Domain: [
+        { name: "name", type: "string" },
+        { name: "chainId", type: "uint256" },
+        { name: "verifyingContract", type: "address" },
+      ],
+      PermitDetails: [
+        { name: "token", type: "address" },
+        { name: "amount", type: "uint160" },
+        { name: "expiration", type: "uint48" },
+        { name: "nonce", type: "uint48" },
+      ],
+      PermitSingle: [
+        { name: "details", type: "PermitDetails" },
+        { name: "spender", type: "address" },
+        { name: "sigDeadline", type: "uint256" },
+      ],
+    },
+    primaryType: "PermitSingle",
+    message: {
+      details: { token: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", amount: "1000000", expiration: "1735689600", nonce: "0" },
+      spender: "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
+      sigDeadline: "1735689600",
+    },
+  });
+  const permitHash = (typedData: ReturnType<typeof permitSingle>) => {
+    const { EIP712Domain: _, ...types } = typedData.types;
+    return TypedDataEncoder.hash(typedData.domain, types, typedData.message);
+  };
+  const standardSdk = async () => {
+    const { Wallet } = await import("ethers");
+    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    (sdk as any).currentUser = {
+      username: "typed-data",
+      ethereumAddress: Wallet.createRandom().address,
+      credentialId: "test-credential",
+    };
+    (sdk as any).getMnemonicFromSession = async () => TEST_MNEMONIC;
+    return sdk;
+  };
+
+  await runTest("eth_signTypedData_v4 signs the digest onBeforeSign saw, for a nested root", async () => {
+    const sdk = await standardSdk();
+    const digests: string[] = [];
+    const provider = sdk.getEIP1193Provider({
+      onBeforeSign: (d) => {
+        if (d.method === "eth_signTypedData_v4") digests.push(d.eip712Digest);
+      },
+    });
+    const [account] = (await provider.request({ method: "eth_accounts" })) as string[];
+    const typedData = permitSingle();
+    const signature = (await provider.request({
+      method: "eth_signTypedData_v4",
+      params: [account, JSON.stringify(typedData)],
+    })) as string;
+    assertEqual(digests[0], permitHash(typedData), "hook sees PermitSingle's EIP-712 Digest");
+    assertEqual(recoverAddress(digests[0], signature), account, "signature covers that digest");
+
+    const nested = { ...typedData, primaryType: "PermitDetails", message: typedData.message.details };
+    await assertThrows(
+      () => provider.request({ method: "eth_signTypedData_v4", params: [account, nested] }),
+      "primaryType other than the root"
+    );
+    const unused = { ...typedData, types: { ...typedData.types, Unused: [{ name: "x", type: "uint256" }] } };
+    await assertThrows(
+      () => provider.request({ method: "eth_signTypedData_v4", params: [account, unused] }),
+      "unused types"
+    );
+    assertEqual(digests.length, 1, "hook not called on rejected typed data");
+    passTest("Permit2 PermitSingle signed as hashed, a nested primaryType rejected");
+  });
+
+  await runTest("Mutating eth_signTypedData_v4 params while onBeforeSign waits changes nothing", async () => {
+    const sdk = await standardSdk();
+    const typedData = permitSingle();
+    const approved = permitHash(typedData);
+    let digest = "";
+    const provider = sdk.getEIP1193Provider({
+      onBeforeSign: async (d) => {
+        if (d.method !== "eth_signTypedData_v4") return;
+        digest = d.eip712Digest;
+        typedData.message.details.amount = "1461501637330902918203684832716283019655932542975";
+        typedData.message.spender = "0x000000000000000000000000000000000000dEaD";
+        typedData.domain.verifyingContract = "0x000000000000000000000000000000000000dEaD";
+        typedData.types.PermitSingle.pop();
+        typedData.primaryType = "PermitDetails";
+      },
+    });
+    const [account] = (await provider.request({ method: "eth_accounts" })) as string[];
+    const signature = (await provider.request({
+      method: "eth_signTypedData_v4",
+      params: [account, typedData],
+    })) as string;
+    assertEqual(digest, approved, "hook saw the request as sent");
+    assertEqual(recoverAddress(approved, signature), account, "signature covers the approved digest");
+    passTest("The snapshot taken before the hook is signed");
+  });
+
   // ------------------------------------------------------------------
   // 24. PRIMARY mode, against the mock bundler
   // ------------------------------------------------------------------
@@ -1093,6 +1195,29 @@ Issued At: 2021-09-30T16:25:24Z`)
         "ERC-7739 TypedDataSign on the active chain"
       );
       passTest("Signatures are ERC-7739, bound to the active chain");
+    });
+
+    await runTest("PRIMARY: onBeforeSign's EIP-712 Digest is the hash the ERC-7739 signature covers", async () => {
+      const sdk = await primarySdk();
+      const typedData = permitSingle();
+      let digest = "";
+      const provider = sdk.getEIP1193Provider({
+        mode: "PRIMARY",
+        chainId: 1,
+        onBeforeSign: (d) => {
+          if (d.method !== "eth_signTypedData_v4") return;
+          digest = d.eip712Digest;
+          typedData.message.spender = "0x000000000000000000000000000000000000dEaD";
+        },
+      });
+      const { EIP712Domain: _, ...types } = permitSingle().types;
+      const { domain, message } = permitSingle();
+      const payload = typedDataSignPayload(domain, types, "PermitSingle", message, { address: MAIN_ACCOUNT, chainId: 1 });
+      passkeyCalls.length = 0;
+      await provider.request({ method: "eth_signTypedData_v4", params: [MAIN_ACCOUNT, typedData] });
+      assertEqual(digest, payload.hash, "hook sees the hash isValidSignature gets");
+      assertEqual(hexlify(passkeyCalls[0].challenge as Uint8Array), payload.challenge, "passkey signs it, unmutated");
+      passTest("PRIMARY signs the digest the hook saw");
     });
 
     await runTest("PRIMARY: eth_sign rejects with 4200 before any passkey prompt", async () => {
