@@ -6,6 +6,7 @@
 
 import { Wallet } from "ethers";
 import { InvalidGuardianShareError, Web3Passkey, WeakPasswordError } from "../src/index";
+import { guardianShareChecksum } from "../src/recovery/backup-based-recovery";
 import {
   splitSecret,
   combineShares,
@@ -330,6 +331,11 @@ async function runTests() {
     const relabelled = await rejection([files[0], JSON.stringify({ ...bob, threshold: 3 })]);
     named(relabelled, 2, "Bob", "edited threshold");
     named(await rejection([files[0], JSON.stringify({ ...bob, guardianName: "Charlie" })]), 2, "Charlie", "renamed share");
+
+    const misfit = { ...bob, shareData: "03" + bob.shareData.slice(2) };
+    const wrongX = await rejection([files[0], JSON.stringify({ ...misfit, checksum: await guardianShareChecksum(misfit) })]);
+    named(wrongX, 2, "Bob", "x-coordinate other than the share index");
+    assert(/x-coordinate 3, not its share index/.test(wrongX.message), "wrong x: says so");
 
     const upper = { ...bob, shareData: bob.shareData.toUpperCase(), splitId: bob.splitId.toUpperCase() };
     const fromUpper = await new Web3Passkey().recoverFromGuardians([files[0], JSON.stringify(upper)], PASSWORD);

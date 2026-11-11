@@ -95,6 +95,10 @@ async function checkShare(share: GuardianShare): Promise<void> {
   if ((await guardianShareChecksum(share)) !== share.checksum.toLowerCase()) {
     fail("is corrupted or was edited: its checksum doesn't match");
   }
+  const x = hexToBytes(share.shareData)[0];
+  if (x !== share.shareIndex) {
+    fail(`holds the x-coordinate ${x}, not its share index`);
+  }
 }
 
 export interface SocialRecoverySetup {
