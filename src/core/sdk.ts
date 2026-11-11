@@ -358,6 +358,10 @@ export class Web3Passkey {
   /**
    * Register new user with WebAuthn
    * Automatically generates wallet if none exists and associates with passkey
+   *
+   * @throws PrfUnsupportedError if the authenticator returns no PRF output, at
+   *   creation or in the one assertion after it: nothing is stored, and the
+   *   passkey is signalled as unknown where the browser supports it
    */
   async register(options: { username: string }): Promise<RegisterResult> {
     try {
