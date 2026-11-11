@@ -20,6 +20,7 @@
 
 import { register } from "../auth/register";
 import { assertPublicKeyMac, login } from "../auth/authenticate";
+import type { AuthResult } from "../auth/types";
 import {
   LocalStorageWalletStorage,
   openWalletRecord,
@@ -174,6 +175,19 @@ function siweText(message: string | Uint8Array): string | undefined {
   } catch {
     throw new WalletError("Invalid SIWE message: not valid UTF-8");
   }
+}
+
+/**
+ * @throws UserVerificationRequiredError for an assertion without UV
+ *   ('preferred'), which carries no PRF output
+ * @throws PrfUnsupportedError for a verified one without a PRF output
+ */
+function assertPrfOutput(
+  result: AuthResult,
+  credentialId: string
+): asserts result is AuthResult & { prfOutput: ArrayBuffer } {
+  if (!result.userVerified) throw new UserVerificationRequiredError(credentialId);
+  if (!result.prfOutput) throw new PrfUnsupportedError(credentialId);
 }
 
 export class Web3Passkey {
@@ -331,9 +345,7 @@ export class Web3Passkey {
     if (authResult.user.credentialId !== this.currentUser.credentialId) {
       throw new WalletError("Authenticate with the logged-in passkey");
     }
-    if (!authResult.prfOutput) {
-      throw new PrfUnsupportedError(authResult.user.credentialId);
-    }
+    assertPrfOutput(authResult, authResult.user.credentialId);
 
     const mnemonic = await this.decryptWallet(walletData, authResult.prfOutput);
 
@@ -553,13 +565,7 @@ export class Web3Passkey {
           result.user.ethereumAddress
         );
       }
-      // An assertion without UV ('preferred') carries no PRF output
-      if (!result.userVerified) {
-        throw new UserVerificationRequiredError(result.user.credentialId);
-      }
-      if (!result.prfOutput) {
-        throw new PrfUnsupportedError(result.user.credentialId);
-      }
+      assertPrfOutput(result, result.user.credentialId);
 
       const { publicKey } = result.credential;
       await assertPublicKeyMac(result.prfOutput, result.credential);
@@ -892,9 +898,7 @@ export class Web3Passkey {
       if (authResult.credential?.id !== this.currentUser.credentialId) {
         throw new WalletError("Authenticate with the logged-in passkey to import a mnemonic");
       }
-      if (!authResult.prfOutput) {
-        throw new PrfUnsupportedError(this.currentUser.credentialId);
-      }
+      assertPrfOutput(authResult, this.currentUser.credentialId);
       await bootstrapCredential(
         this.ctx,
         authResult.credential,

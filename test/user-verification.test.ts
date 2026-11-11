@@ -384,6 +384,13 @@ async function runTests() {
     await sdk.login();
     assert(sdk.isAuthenticated, "verified login opens the wallet");
 
+    reset(UP);
+    const reauthError = await sdk.signMessage("hello", { requireAuth: true }).then(() => undefined, (e) => e);
+    assert(
+      (reauthError?.originalError ?? reauthError) instanceof UserVerificationRequiredError,
+      "an unverified re-authentication throws UserVerificationRequiredError"
+    );
+
     reset(UP | UV);
     try {
       await sdk.signMessage("hello", { mode: "PRIMARY", chainId: 1 });
