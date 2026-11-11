@@ -89,14 +89,14 @@ export class ZKProofVerifier {
   }
 
   /**
-   * Verify membership proof against the expected root and scope (default:
-   * the root). Store `publicSignals[0]`, the nullifier, to refuse a second
-   * proof from the same leaf in the same scope.
+   * Verify membership proof against the expected root and scope (default 0).
+   * Store `publicSignals[0]`, the nullifier, to refuse a second proof from
+   * the same leaf in the same scope.
    */
   async verifyMembershipProof(
     proof: ZKProof,
     expectedRoot: string,
-    expectedScope: bigint | string = expectedRoot
+    expectedScope: bigint | string = 0n
   ): Promise<boolean> {
     if (proof.type !== "membership") {
       throw new CryptoError("Invalid proof type for membership verification");

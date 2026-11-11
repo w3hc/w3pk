@@ -323,7 +323,7 @@ export interface NFTHolder {
   balance: bigint;
 }
 
-function toFieldElement(value: string | bigint, name: string): bigint {
+export function toFieldElement(value: string | bigint, name: string): bigint {
   let field: bigint;
   try {
     field = BigInt(value);

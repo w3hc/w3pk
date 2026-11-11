@@ -45,7 +45,7 @@ export class ZKProofModule {
   /**
    * Generate membership proof - prove you're in a set without revealing identity
    * Use case: Prove you're a verified user without revealing which one.
-   * The nullifier is Poseidon(scope, leaf); `scope` defaults to the root.
+   * The nullifier is Poseidon(scope, leaf); `scope` defaults to 0.
    */
   async proveMembership(input: MembershipProofInput): Promise<ZKProof> {
     try {
@@ -192,7 +192,7 @@ export class ZKProofModule {
   }
 
   /**
-   * Verify membership proof with expected root and scope (default: the root)
+   * Verify membership proof with expected root and scope (default 0)
    */
   async verifyMembership(
     proof: ZKProof,

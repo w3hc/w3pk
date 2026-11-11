@@ -74,7 +74,7 @@ export interface MembershipProofInput {
   pathElements: string[];
   // Public: merkle root of the set
   root: string;
-  // Public: external scope; one nullifier per leaf and scope (default: root)
+  // Public: external scope, a field element; one nullifier per leaf and scope (default 0)
   scope?: bigint | string;
 }
 
