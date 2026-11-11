@@ -55,6 +55,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Types that `primaryType` doesn't reach, which includes a `primaryType` nested under another root, now throw at the digest step, as ethers already refused them at signing; a domain that `types.EIP712Domain` doesn't declare as is, and typed data missing `domain`, `types`, `primaryType` or `message`, throw with or without `onBeforeSign`
   - Errors read `EIP-712: …` instead of `getSigningDigests: …`
   - No change for well-formed typed data: same digests, same signature, same prompt
+- **`sendTransaction()` honours its documented `onBeforeSign` option** ([#346](https://github.com/w3hc/w3pk/issues/346)), audit finding L-1. Before, `SendTransactionOptions` didn't declare it and it was silently ignored
+  - Awaited in every mode with the transaction's `getSigningDigests()` result and `method: 'eth_sendTransaction'`, a `TransactionBeforeSignDigests`, or an array of them for an array of transactions in `PRIMARY`
+  - In `STANDARD`, `STRICT` and `YOLO`, after the RPC endpoint is resolved and before the session's passkey prompt; in `PRIMARY`, once the UserOperation is built, right before the passkey signs it
+  - Throwing, rejecting or returning `false` throws `UserRejectedRequestError` (code `4001`), the hook's error as `cause`, unwrapped and not passed to `onError`; nothing is signed or sent
+  - The transactions are copied before the hook and the copy is sent, so changing them while the hook waits has no effect
+  - `UserRejectedRequestError` and `TransactionBeforeSignDigests` are exported from `w3pk`; the error reads `w3pk: onBeforeSign rejected the request`, from the provider too
+  - Unset, no digests are computed and behavior is unchanged
 
 ## [0.12.3] - 2026-11-10
 
