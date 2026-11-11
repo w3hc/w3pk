@@ -547,32 +547,39 @@ git push
 
 ### Publishing a New Release (WITH hash update)
 
-When ready to publish a new version to npm:
+Releases are published to npm only by [`.github/workflows/release.yml`](./.github/workflows/release.yml), when a maintainer pushes a signed `v*` tag. Don't run `pnpm publish` locally: `publishConfig.provenance` in `package.json` makes npm refuse to publish outside a supported CI. The one-time setup (npm token, signing key, environment, tag ruleset) is in [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md#publishing-the-npm-package).
 
 ```bash
-# 1. Bump version
-npm version patch  # or minor/major
-
-# 2. Build and compute hash
+# 1. On a branch: bump the version, compute the hash, update README.md and CHANGELOG.md
+pnpm version patch --no-git-tag-version  # or minor/major
 pnpm build
 pnpm build:hash
+# Edit the "Security & Verification" section of README.md with the new version and hash
+# Move the [Unreleased] entries of CHANGELOG.md under the new version
+# Open a PR and merge it once CI is green
 
-# 3. Update README.md
-# Edit the "Security & Verification" section with new version and hash
+# 2. Tag the merge commit on main with a signed, annotated tag, and push it
+git checkout main && git pull
+git tag -s v0.12.4 -m "v0.12.4"
+git verify-tag v0.12.4
+git push origin v0.12.4
 
-# 4. Commit changes
-git add package.json README.md
-git commit -m "chore: release v0.7.7"
-git push
+# 3. Approve the `npm` deployment of the Release workflow run
+#    It checks the tag, then publishes with provenance
 
-# 5. Create GitHub release
-# - Go to: https://github.com/w3hc/w3pk/releases/new
-# - Auto-generate release notes
-# - Append content from .github/release-notes-addon.md
-
-# 6. Publish to npm
-pnpm publish
+# 4. Create the GitHub release from the tag
+#    Auto-generate the release notes, then append the output of:
+node scripts/generate-release-notes.mjs
 ```
+
+The Release workflow refuses the tag unless it is annotated, signed by a key in the `RELEASE_SIGNING_KEYS` repository variable, on `main`, and equal to `v` + the `package.json` version. To sign every tag by default:
+
+```bash
+git config --global user.signingkey <key id>
+git config --global tag.gpgSign true
+```
+
+Once published, `getCurrentBuildHash()` must return the hash in README.md: it hashes the npm tarball that CI built.
 
 ## Common Tasks
 

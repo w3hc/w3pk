@@ -4,8 +4,16 @@
  */
 
 import assert from 'node:assert';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { getPackageVersion } from '../src/utils/build-hash';
+import { gzipSync } from 'node:zlib';
+import {
+  getCurrentBuildHash,
+  getPackageVersion,
+  getW3pkBuildHash,
+  readTarFiles,
+  verifyBuildHash,
+} from '../src/utils/build-hash';
 
 console.log('\n🧪 Testing Build Hash Utilities...\n');
 
@@ -123,6 +131,107 @@ function testPackageVersion() {
   }
 }
 
+function tarEntry(name: string, data: Uint8Array, type = '0'): Uint8Array {
+  const header = new Uint8Array(512);
+  const write = (offset: number, value: string) => header.set(new TextEncoder().encode(value), offset);
+  write(0, name);
+  write(100, '0000644\0');
+  write(124, data.length.toString(8).padStart(11, '0') + '\0');
+  write(156, type);
+  write(257, 'ustar\0');
+  write(263, '00');
+  const body = new Uint8Array(Math.ceil(data.length / 512) * 512);
+  body.set(data);
+  const entry = new Uint8Array(512 + body.length);
+  entry.set(header);
+  entry.set(body, 512);
+  return entry;
+}
+
+function tarArchive(entries: Uint8Array[]): Uint8Array {
+  return new Uint8Array(Buffer.concat([...entries, new Uint8Array(1024)]));
+}
+
+const buildFiles = {
+  'index.js': new TextEncoder().encode('module.exports = 1;\n'),
+  'index.mjs': new TextEncoder().encode('export default 1;\n'),
+  'index.d.ts': new TextEncoder().encode('declare const x: 1;\nexport default x;\n'),
+};
+
+function testReadTarFiles() {
+  console.log('\nTesting tar extraction...');
+
+  const tar = tarArchive([
+    tarEntry('package/dist', new Uint8Array(0), '5'),
+    tarEntry('package/dist/index.mjs', buildFiles['index.mjs']),
+    tarEntry('package/dist/index.js', buildFiles['index.js']),
+    tarEntry('package/README.md', new Uint8Array(700)),
+  ]);
+  const [js, mjs] = readTarFiles(tar, ['package/dist/index.js', 'package/dist/index.mjs']);
+  assert.deepStrictEqual(js, buildFiles['index.js']);
+  assert.deepStrictEqual(mjs, buildFiles['index.mjs']);
+  assert.throws(() => readTarFiles(tar, ['package/dist/index.d.ts']), /not found/);
+  assert.throws(() => readTarFiles(tar.subarray(0, 600), ['package/dist/index.mjs']), /Malformed/);
+  console.log('  ✓ Reads files in the requested order and rejects missing or truncated entries');
+}
+
+async function testNpmRegistrySource() {
+  console.log('\nTesting the npm registry source...');
+
+  const version = getPackageVersion();
+  const tarballUrl = `https://registry.npmjs.org/w3pk/-/w3pk-${version}.tgz`;
+  const tarball = gzipSync(
+    tarArchive(
+      Object.entries(buildFiles).map(([file, data]) => tarEntry(`package/dist/${file}`, data))
+    )
+  );
+  const integrity = `sha512-${createHash('sha512').update(tarball).digest('base64')}`;
+
+  const realFetch = globalThis.fetch;
+  const requested: string[] = [];
+  const serve = (dist: unknown, body: Uint8Array = tarball) => {
+    requested.length = 0;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      requested.push(url);
+      if (url === `https://registry.npmjs.org/w3pk/${version}`) {
+        return new Response(JSON.stringify({ dist }));
+      }
+      if (url === tarballUrl) return new Response(body);
+      if (url.startsWith('https://dist.example/')) {
+        return new Response(buildFiles[url.slice('https://dist.example/'.length) as keyof typeof buildFiles]);
+      }
+      return new Response(null, { status: 404, statusText: 'Not Found' });
+    }) as typeof fetch;
+  };
+
+  try {
+    serve({});
+    const expected = await getW3pkBuildHash('https://dist.example');
+
+    serve({ tarball: tarballUrl, integrity });
+    assert.strictEqual(await getCurrentBuildHash(), expected);
+    assert.ok(requested.every((url) => url.startsWith('https://registry.npmjs.org/')));
+    assert.strictEqual(await verifyBuildHash(expected), true);
+    assert.strictEqual(await verifyBuildHash('bafy-other'), false);
+    console.log('  ✓ Hashes dist/index.js, index.mjs and index.d.ts of the registry tarball');
+
+    const tampered = new Uint8Array(tarball);
+    tampered[tampered.length - 1] ^= 1;
+    serve({ tarball: tarballUrl, integrity }, tampered);
+    await assert.rejects(getCurrentBuildHash(), /does not match its npm registry integrity/);
+    console.log('  ✓ Rejects a tarball that does not match dist.integrity');
+
+    serve({ tarball: 'https://cdn.example/w3pk.tgz', integrity });
+    await assert.rejects(getCurrentBuildHash(), /Unexpected tarball URL/);
+    serve({ tarball: tarballUrl, integrity: 'sha1-abc' });
+    await assert.rejects(getCurrentBuildHash(), /Missing SHA-512 integrity/);
+    console.log('  ✓ Rejects a foreign tarball URL or a missing SHA-512 integrity');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 // Run all tests
 async function runTests() {
   try {
@@ -130,6 +239,8 @@ async function runTests() {
     await testIPFSHashFormat();
     await testHashConsistency();
     testPackageVersion();
+    testReadTarFiles();
+    await testNpmRegistrySource();
 
     console.log('\n✅ All build hash tests passed!\n');
     console.log('💡 To compute the actual build hash, run:');

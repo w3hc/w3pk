@@ -3290,7 +3290,7 @@ import {
 
 #### `getCurrentBuildHash(): Promise<string>`
 
-Compute IPFS CIDv1 hash for the currently installed w3pk version from unpkg CDN.
+Compute IPFS CIDv1 hash for the currently installed w3pk version from its npm registry tarball, checked against the registry's `dist.integrity`. It hashes the published package, not the running code: see [BUILD_VERIFICATION.md](./BUILD_VERIFICATION.md#what-the-hash-covers).
 
 ```typescript
 const hash = await getCurrentBuildHash()

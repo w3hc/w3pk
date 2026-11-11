@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the tag object
+        run: git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+
+      - name: Verify tag
+        env:
+          RELEASE_SIGNING_KEYS: ${{ vars.RELEASE_SIGNING_KEYS }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEYS" ]; then
+            echo "::error::Repository variable RELEASE_SIGNING_KEYS is not set"
+            exit 1
+          fi
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          printf '%s\n' "$RELEASE_SIGNING_KEYS" | gpg --batch --import
+          if [ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" != tag ]; then
+            echo "::error::$GITHUB_REF_NAME is not an annotated tag"
+            exit 1
+          fi
+          git verify-tag "refs/tags/$GITHUB_REF_NAME"
+          if ! git merge-base --is-ancestor "refs/tags/$GITHUB_REF_NAME^{commit}" origin/main; then
+            echo "::error::$GITHUB_REF_NAME is not on main"
+            exit 1
+          fi
+          version="v$(node -p 'require("./package.json").version')"
+          if [ "$GITHUB_REF_NAME" != "$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json $version"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Audit production deps
+        run: pnpm audit --prod --audit-level moderate
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+        run: pnpm publish --no-git-checks

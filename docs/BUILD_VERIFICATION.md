@@ -63,13 +63,34 @@ Host applications should query this registry to verify their W3PK installation.
 
 ## What the hash covers
 
-`getCurrentBuildHash()` and `verifyBuildHash()` fetch `index.js`, `index.mjs` and `index.d.ts` of this version **from unpkg** and hash them. They check the package published on npm, not the code actually running in the page: a bundler's output, a modified `node_modules` copy, or a script injected into the page is not hashed, and compromised running code can make these functions return whatever it likes. To check the code you ship, hash your own copy of the files with `getW3pkBuildHash()` (or `scripts/compute-build-hash.mjs`) at build time, outside the browser, and compare it with the registry.
+`getCurrentBuildHash()` and `verifyBuildHash()` fetch the tarball of this version **from the npm registry** (`registry.npmjs.org/w3pk/-/w3pk-<version>.tgz`), check it against the registry's `dist.integrity` (SHA-512), and hash its `dist/index.js`, `dist/index.mjs` and `dist/index.d.ts`. No third-party mirror is involved, so a CDN that serves your page or mirrors npm (unpkg, jsDelivr) can't change the result.
+
+Limits:
+
+- **Published package, not running code.** A bundler's output, a modified `node_modules` copy, or a script injected into the page is not hashed, and compromised running code can make these functions return whatever it likes. To check the code you ship, hash your own copy of the files with `getW3pkBuildHash()` (or `scripts/compute-build-hash.mjs`) at build time, outside the browser, and compare it with the registry.
+- **`dist.integrity` comes from the same registry as the tarball.** It catches a tarball altered after publishing or in transit, not a malicious publish. The trust anchors are the onchain registry and the package's [provenance](#release-provenance).
+- **Cost.** It downloads and decompresses the whole tarball (about 1.5 MB) on each call. Cache the result.
+- **Runtime.** It needs `fetch`, `DecompressionStream` (Safari 16.4+, Chrome 80+, Firefox 113+, Node.js 18+) and network access to `registry.npmjs.org`, which allows cross-origin requests.
+
+## Release provenance
+
+Releases are published from CI only, by [`.github/workflows/release.yml`](../.github/workflows/release.yml), on a `v*` tag that is signed by a maintainer key and points to a commit on `main`. Each version carries an [npm provenance](https://docs.npmjs.com/generating-provenance-statements) attestation that links it to that tag and workflow run. To check it:
+
+```bash
+# Registry signatures and provenance attestations of your installed dependencies
+npm audit signatures
+
+# The release tag's signature, in a clone of w3hc/w3pk
+git verify-tag v0.12.4
+```
+
+The npm page of each version shows the same provenance, with the source commit and the build log.
 
 ## API Reference
 
 ### `getCurrentBuildHash()`
 
-Computes the IPFS hash of the files published on unpkg for the installed w3pk version (not of the running code: see [What the hash covers](#what-the-hash-covers)).
+Computes the IPFS hash of the files published on the npm registry for the installed w3pk version (not of the running code: see [What the hash covers](#what-the-hash-covers)).
 
 ```typescript
 import { getCurrentBuildHash } from 'w3pk';
@@ -101,7 +122,7 @@ const hash = await getW3pkBuildHash('http://localhost:3000/dist');
 
 ### `verifyBuildHash(expectedHash)`
 
-Verifies that the files published on unpkg for the installed version match an expected hash. It does not hash the running code: see [What the hash covers](#what-the-hash-covers).
+Verifies that the files published on the npm registry for the installed version match an expected hash. It does not hash the running code: see [What the hash covers](#what-the-hash-covers).
 
 **Parameters:**
 - `expectedHash` (string): The IPFS hash to verify against
@@ -443,7 +464,7 @@ verifyAndStart();
 
 The build verification system:
 
-1. Fetches the three main build files: `index.js`, `index.mjs`, and `index.d.ts`
+1. Fetches the three main build files: `index.js`, `index.mjs`, and `index.d.ts` (from the npm registry tarball for `getCurrentBuildHash()`, from `distUrl` for `getW3pkBuildHash()`)
 2. Concatenates them in order
 3. Computes the IPFS CIDv1 of the result as `ipfs add --cid-version 1` does, with [ipfs-unixfs-importer](https://www.npmjs.com/package/ipfs-unixfs-importer):
    - UnixFS file, 256 KiB fixed-size chunks, balanced DAG with up to 174 links per node
@@ -491,7 +512,7 @@ If you get a hash mismatch:
 
 If fetching fails:
 
-1. **Check connectivity**: Ensure you can reach the CDN
+1. **Check connectivity**: Ensure you can reach `registry.npmjs.org`, or the CDN given to `getW3pkBuildHash()`
 2. **Check CORS**: Browser may block cross-origin requests
 3. **Use proxy**: Consider proxying requests through your backend
 4. **Local verification**: Use the CLI script for local builds

@@ -1,4 +1,6 @@
-# Deploying the contracts
+# Deployment
+
+This covers the contracts and [publishing the npm package](#publishing-the-npm-package).
 
 `PRIMARY` mode needs two contracts on each chain it runs on, both in [`contracts/`](../contracts):
 
@@ -119,3 +121,36 @@ It runs over public RPCs. For every chain with `deployed: true`, it checks:
 - that the implementation's clone init code hash is `W3PK_ACCOUNT_INIT_CODE_HASH`.
 
 Every row must read `ok`.
+
+## Publishing the npm package
+
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) publishes w3pk to npm when a `v*` tag is pushed. Before publishing, it checks that the tag:
+
+- is annotated and signed by a key in `RELEASE_SIGNING_KEYS`;
+- points to a commit on `main`;
+- equals `v` + the `version` of `package.json`.
+
+It then runs `pnpm audit --prod --audit-level moderate` and `pnpm publish` with [provenance](https://docs.npmjs.com/generating-provenance-statements) (`id-token: write`, npm 10 from Node.js 20). `publishConfig.provenance` makes npm refuse to publish from anywhere else.
+
+### One-time setup
+
+In the repository settings:
+
+1. **Environment `npm`** (Settings → Environments): add the maintainers as required reviewers, and limit deployment branches and tags to the tag pattern `v*`. The job runs the workflow file of the tagged commit, so this approval is what stops a tag pushed on an edited workflow from reaching the token.
+2. **Secret `NPM_TOKEN`**, in the `npm` environment: an npm [granular access token](https://docs.npmjs.com/creating-and-viewing-access-tokens) with read and write permission on the `w3pk` package only, and **Bypass two-factor authentication** checked so CI can publish. Renew it before it expires.
+3. **Variable `RELEASE_SIGNING_KEYS`** (Settings → Secrets and variables → Actions → Variables): the ASCII-armored public key of every key allowed to sign release tags, from `gpg --armor --export <key id>`. It lives in the settings, not in the repository, so a tag can't bring its own key.
+4. **Tag ruleset** (Settings → Rules → Rulesets): target tags matching `v*`, restrict creations, updates and deletions, and put only the maintainers in the bypass list.
+
+Add the same GPG key to your GitHub account (Settings → SSH and GPG keys) so the tags show as Verified.
+
+### Signing a release tag
+
+Tag the release commit on `main` with an annotated, signed tag, check it, and push it:
+
+```sh
+git tag -s v0.12.4 -m "v0.12.4"
+git verify-tag v0.12.4
+git push origin v0.12.4
+```
+
+`git tag -s` signs with `user.signingkey`, or the default key of the committer's email. Set `tag.gpgSign` to `true` to sign every annotated tag. Then approve the `npm` deployment in the Release run. The full release steps are in [CONTRIBUTING.md](../CONTRIBUTING.md#publishing-a-new-release-with-hash-update).

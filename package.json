@@ -104,6 +104,10 @@
     "html": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true && tsup && pnpm dlx serve . -l 3000 & sleep 5 && open http://localhost:3000/standalone/checker.html"
   },
   "packageManager": "pnpm@10.6.4",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "devDependencies": {
     "@types/node": "^25.9.2",
     "@types/qrcode": "^1.5.5",

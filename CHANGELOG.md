@@ -118,6 +118,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `verifyThreshold()` and `verifyRange()` read the public signals in snarkjs order, `[threshold, commitment]` and `[min, max, commitment]`, so honest proofs now verify
   - `pnpm compile:circuits` names its keys `<name>_test_only.zkey` and marks them `testOnly` in `artifacts.json`; the new `pnpm compile:circuits:release` creates no key and fails unless each `<name>_final.zkey` has a phase-2 contribution other than a beacon and passes `snarkjs zkey verify`. The default ptau is the Hermez 2^15 one, and the r1cs path is fixed
   - Recompile the membership, threshold, range and nft circuits and redo their setup
+- **Release supply-chain integrity** ([#355](https://github.com/w3hc/w3pk/issues/355)), audit finding L-9. Before, release tags were unsigned, npm releases had no provenance, actions were pinned by tag, CI ran no dependency audit, and `verifyBuildHash()` hashed files from unpkg
+  - `.github/workflows/release.yml` publishes to npm with provenance on a `v*` tag, only if the tag is annotated, signed by a key in the `RELEASE_SIGNING_KEYS` variable, on `main` and equal to `v` + the `package.json` version, behind the `npm` environment; `publishConfig.provenance` makes npm refuse to publish outside CI
+  - Every action in `.github/workflows/` is pinned by full commit SHA
+  - CI runs `pnpm audit --prod --audit-level moderate`
+  - `getCurrentBuildHash()` and `verifyBuildHash()` hash the npm registry tarball, checked against its `dist.integrity`, instead of files from unpkg; same signatures and results
+  - Signed tags and the release flow are documented in `CONTRIBUTING.md` and `docs/DEPLOYMENT.md`, and the limits of the build hash in `docs/BUILD_VERIFICATION.md`
 
 ## [0.12.3] - 2026-11-10
 
