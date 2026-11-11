@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `NFTOwnershipProofInput` drops `ownerAddress` and `holderIndex` and takes `balance` and `scope`; `verifyNFTOwnership(proof, contract, root, minBalance, scope)` checks the scope
   - `buildNFTHoldersMerkleTree()` and `generateNFTOwnershipProofInputs()` take `{ commitment, balance }` holders and produce the circuit's leaves and 20-level zero-padded path
   - Recompile `nft.circom` and redo its setup
+- **`eth_signTypedData_v4` signs the digest `onBeforeSign` saw** ([#345](https://github.com/w3hc/w3pk/issues/345)), audit findings M-1 and I-8. Before, in EOA modes, ethers signed the root type it inferred while the digest followed `primaryType`, so the hook could see Permit2's `PermitDetails` while `PermitSingle` was signed; and the typed data was read again after the hook, so the caller could change it during review
+  - The provider takes a deep copy of the typed data before the hook, computes the digests from it and signs it
+  - `getSigningDigests()`, the provider and `signMessage()` with `EIP712`, in every mode, sign `types` reduced to `primaryType` and the types it references, without `EIP712Domain`
+  - Types that `primaryType` doesn't reach, which includes a `primaryType` nested under another root, now throw at the digest step, as ethers already refused them at signing; a domain that `types.EIP712Domain` doesn't declare as is, and typed data missing `domain`, `types`, `primaryType` or `message`, throw with or without `onBeforeSign`
+  - Errors read `EIP-712: …` instead of `getSigningDigests: …`
+  - No change for well-formed typed data: same digests, same signature, same prompt
 
 ## [0.12.3] - 2026-11-10
 
