@@ -3,9 +3,11 @@
  * Enables privacy-preserving proofs
  */
 
-import { Web3PasskeyError } from "../core/errors";
+import { CryptoError, Web3PasskeyError } from "../core/errors";
 import { ZKProofGenerator } from "./proof-generator";
 import { ZKProofVerifier } from "./proof-verifier";
+import { loadSemaphoreCommitment, loadSemaphoreSecretScalar } from "./semaphore";
+import { isValidAddress } from "./utils";
 import type {
   ZKProofConfig,
   ProofType,
@@ -109,13 +111,41 @@ export class ZKProofModule {
   }
 
   /**
-   * Generate NFT ownership proof - prove you own an NFT from a collection
-   * Use case: Prove NFT/SBT ownership without revealing which NFT or exact address
+   * Get the commitment of your NFT holder identity for `contractAddress`, the
+   * value a holders tree records for you. Through `w3pk.zk`, the identity
+   * derives from the wallet in the session.
+   */
+  async getNFTHolderCommitment(contractAddress: string): Promise<string> {
+    try {
+      const holderKey = this.nftHolderKey();
+      if (!isValidAddress(contractAddress)) {
+        throw new CryptoError(`Invalid contract address: ${contractAddress}`);
+      }
+      const commit = await loadSemaphoreCommitment();
+      return commit(await holderKey(contractAddress)).toString();
+    } catch (error) {
+      throw new Web3PasskeyError(
+        "Failed to get NFT holder commitment",
+        "ZK_NFT_HOLDER_ERROR",
+        error
+      );
+    }
+  }
+
+  /**
+   * Generate NFT ownership proof - prove your holder identity is in the
+   * holders tree with at least `minBalance` tokens, without revealing which
+   * holder you are. The nullifier is Poseidon(scope, secret).
+   * Use case: token-gated access, one action per holder and scope
    */
   async proveNFTOwnership(input: NFTOwnershipProofInput): Promise<ZKProof> {
     try {
       this.assertProofEnabled("nft");
-      return await this.generator.generateNFTOwnershipProof(input);
+      const holderKey = this.nftHolderKey();
+      const toSecret = await loadSemaphoreSecretScalar();
+      return await this.generator.generateNFTOwnershipProof(input, async () =>
+        toSecret(await holderKey(input.contractAddress))
+      );
     } catch (error) {
       throw new Web3PasskeyError(
         "Failed to generate NFT ownership proof",
@@ -321,6 +351,16 @@ export class ZKProofModule {
   registerCircuit(type: ProofType, artifacts: CircuitArtifacts): void {
     this.generator.registerCircuit(type, artifacts);
     this.verifier.registerCircuit(type, artifacts);
+  }
+
+  private nftHolderKey(): (contractAddress: string) => Promise<Uint8Array> {
+    if (!this.config.nftHolderKey) {
+      throw new Web3PasskeyError(
+        "NFT holder identity unavailable: use w3pk.zk, or set nftHolderKey",
+        "ZK_NFT_HOLDER_KEY_MISSING"
+      );
+    }
+    return this.config.nftHolderKey;
   }
 
   /**
