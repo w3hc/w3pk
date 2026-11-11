@@ -278,7 +278,6 @@ export class SessionManager {
    * @returns User info if session restored, null otherwise
    */
   async attemptSilentRestore(): Promise<{
-    mnemonic: string;
     ethereumAddress: string;
     credentialId: string;
   } | null> {
@@ -333,7 +332,6 @@ export class SessionManager {
         this.cacheSession(mnemonic, credential.id);
 
         return {
-          mnemonic,
           ethereumAddress: credential.ethereumAddress,
           credentialId: credential.id,
         };
