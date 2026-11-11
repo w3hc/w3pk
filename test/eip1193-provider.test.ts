@@ -9,6 +9,9 @@
  * - eth_sendTransaction param mapping (hex → bigint)
  * - personal_sign / eth_sign (plain text, and hex signed as bytes)
  * - eth_signTypedData_v4 (EIP-712 typed data, bound to the active chain)
+ * - The account of eth_sendTransaction, personal_sign, eth_sign and
+ *   eth_signTypedData_v4: -32602 when missing or malformed, 4100 when another
+ *   than the signer's, in any letter case
  * - Unsupported method rejects with 4200 in every mode
  * - Read methods forwarded to the active chain's endpoint, JSON-RPC errors
  *   passed through, no request without an endpoint
@@ -68,11 +71,13 @@ async function sendHook(tx: any, options: any) {
   });
 }
 
+const ACCOUNT = "0x0000000000000000000000000000000000000001";
+
 function stubSdk() {
   const calls: { message: string | Uint8Array; options: any }[] = [];
   const txs: any[] = [];
   const sdk = {
-    getAddress: async () => "0x0000000000000000000000000000000000000001",
+    getAddress: async () => ACCOUNT,
     sendTransaction: async (tx: any, options?: any) => {
       await sendHook(tx, options);
       txs.push(tx);
@@ -292,6 +297,7 @@ async function runTests() {
       await provider.request({
         method: "eth_sendTransaction",
         params: [{
+          from: "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
           to: "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
           value: "0xde0b6b3a7640000", // 1 ETH
         }],
@@ -368,10 +374,10 @@ async function runTests() {
     const provider = createEIP1193Provider(sdk);
     const invalidUtf8 = "0xff00fe80";
 
-    await provider.request({ method: "personal_sign", params: [invalidUtf8, "0x0"] });
-    await provider.request({ method: "eth_sign", params: ["0x0", invalidUtf8] });
-    await provider.request({ method: "personal_sign", params: ["Hello", "0x0"] });
-    await provider.request({ method: "personal_sign", params: ["0xabc", "0x0"] });
+    await provider.request({ method: "personal_sign", params: [invalidUtf8, ACCOUNT] });
+    await provider.request({ method: "eth_sign", params: [ACCOUNT, invalidUtf8] });
+    await provider.request({ method: "personal_sign", params: ["Hello", ACCOUNT] });
+    await provider.request({ method: "personal_sign", params: ["0xabc", ACCOUNT] });
 
     assert(calls[0].message instanceof Uint8Array, "personal_sign hex should be bytes");
     assertEqual(hexlify(calls[0].message as Uint8Array), invalidUtf8, "personal_sign bytes");
@@ -395,22 +401,22 @@ async function runTests() {
     });
 
     await assertThrows(
-      () => provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(1)] }),
+      () => provider.request({ method: "eth_signTypedData_v4", params: [ACCOUNT, typedData(1)] }),
       "domain chainId 1 should be refused on chain 10"
     );
     const invalid = await provider
-      .request({ method: "eth_signTypedData_v4", params: ["0x0", typedData("abc")] })
+      .request({ method: "eth_signTypedData_v4", params: [ACCOUNT, typedData("abc")] })
       .catch((error) => error);
     assert(invalid instanceof WalletError, "a non-numeric domain chainId should throw a WalletError");
     assertEqual(calls.length, 0, "nothing should be signed");
 
-    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(10)] });
-    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData("0xa")] });
-    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData()] });
+    await provider.request({ method: "eth_signTypedData_v4", params: [ACCOUNT, typedData(10)] });
+    await provider.request({ method: "eth_signTypedData_v4", params: [ACCOUNT, typedData("0xa")] });
+    await provider.request({ method: "eth_signTypedData_v4", params: [ACCOUNT, typedData()] });
     assertEqual(calls.length, 3, "matching or absent chainId should be signed");
 
     await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
-    await provider.request({ method: "eth_signTypedData_v4", params: ["0x0", typedData(1)] });
+    await provider.request({ method: "eth_signTypedData_v4", params: [ACCOUNT, typedData(1)] });
     assertEqual(calls.length, 4, "chainId 1 should be signed after switching to chain 1");
     passTest("Typed data is bound to the active chain");
   });
@@ -424,13 +430,13 @@ async function runTests() {
     const to = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
 
     await assertThrows(
-      () => provider.request({ method: "eth_sendTransaction", params: [{ to, chainId: "0x1" }] }),
+      () => provider.request({ method: "eth_sendTransaction", params: [{ from: ACCOUNT, to, chainId: "0x1" }] }),
       "chainId 0x1 should be refused on chain 10"
     );
     assertEqual(txs.length, 0, "nothing should be sent");
 
-    await provider.request({ method: "eth_sendTransaction", params: [{ to, chainId: "0xa" }] });
-    await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+    await provider.request({ method: "eth_sendTransaction", params: [{ from: ACCOUNT, to, chainId: "0xa" }] });
+    await provider.request({ method: "eth_sendTransaction", params: [{ from: ACCOUNT, to }] });
     assertEqual(txs.length, 2, "matching or absent chainId should be sent");
     assert(txs.every((tx) => tx.chainId === 10), "transactions go to the active chain");
     passTest("Transactions are bound to the active chain");
@@ -661,7 +667,7 @@ Issued At: 2021-09-30T16:25:24Z`)
 
     const hash = await provider.request({
       method: "eth_sendTransaction",
-      params: [{ to, value: "0x5", gas: "0x5208", maxFeePerGas: "0x7", maxPriorityFeePerGas: "0x3", nonce: "0x9" }],
+      params: [{ from: to, to, value: "0x5", gas: "0x5208", maxFeePerGas: "0x7", maxPriorityFeePerGas: "0x3", nonce: "0x9" }],
     });
     assertEqual(hash, "0xhash", "returns the transaction hash");
     assertEqual(
@@ -671,15 +677,15 @@ Issued At: 2021-09-30T16:25:24Z`)
     );
     assertEqual(
       JSON.stringify(sendOptions[0]),
-      JSON.stringify({ rpcUrl: "https://rpc.example" }),
-      "options as in v0.11.2"
+      JSON.stringify({ from: to, rpcUrl: "https://rpc.example" }),
+      "options as in v0.11.2, with from"
     );
 
     await provider.request({ method: "personal_sign", params: ["hi", to] });
     await provider.request({ method: "eth_sign", params: [to, "hi"] });
     assertEqual(calls.length, 2, "eth_sign still signs");
     for (const call of calls) {
-      assertEqual(JSON.stringify(call.options), JSON.stringify({ signingMethod: "EIP191" }), "no chainId outside PRIMARY");
+      assertEqual(JSON.stringify(call.options), JSON.stringify({ from: to, signingMethod: "EIP191" }), "no chainId outside PRIMARY");
     }
     await assertThrows(
       () => provider.request({ method: "eth_signTransaction", params: [{ to }] }),
@@ -701,11 +707,12 @@ Issued At: 2021-09-30T16:25:24Z`)
       };
       const provider = createEIP1193Provider(sdk, { mode, chainId: 10, rpcUrl: "https://rpc.example" });
       const to = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
-      await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+      const send = { method: "eth_sendTransaction", params: [{ from: ACCOUNT, to }] };
+      await provider.request(send);
       await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
-      await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+      await provider.request(send);
       await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xa" }] });
-      await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+      await provider.request(send);
       assertEqual(sendOptions[0].rpcUrl, "https://rpc.example", `${mode}: initial chain`);
       assertEqual(sendOptions[1].rpcUrl, undefined, `${mode}: after the switch`);
       assertEqual(sendOptions[2].rpcUrl, "https://rpc.example", `${mode}: back on the initial chain`);
@@ -750,7 +757,7 @@ Issued At: 2021-09-30T16:25:24Z`)
   const signingRequests: SigningRequest[] = [
     {
       method: "eth_sendTransaction",
-      params: [{ to: signer.toLowerCase(), value: "0x5", data: "0xa9059cbb" }],
+      params: [{ from: signer, to: signer.toLowerCase(), value: "0x5", data: "0xa9059cbb" }],
     },
     {
       method: "eth_signTypedData_v4",
@@ -820,7 +827,7 @@ Issued At: 2021-09-30T16:25:24Z`)
   await runTest("Without onBeforeSign, no digests are computed", async () => {
     const log: string[] = [];
     const provider = createEIP1193Provider(hookedSdk(log), {});
-    const bad = { method: "eth_sendTransaction", params: [{ to: "not an address" }] };
+    const bad = { method: "eth_sendTransaction", params: [{ from: signer, to: "not an address" }] };
     assertEqual(await provider.request(bad), "0xhash", "the SDK gets the request as before");
     assertEqual(log.join(), "sdk", "SDK called");
 
@@ -900,7 +907,7 @@ Issued At: 2021-09-30T16:25:24Z`)
           }),
       });
       for (const request of [
-        { method: "eth_sendTransaction", params: [{ to: signer }] },
+        { method: "eth_sendTransaction", params: [{ from: signer, to: signer }] },
         { method: "personal_sign", params: ["hi", signer] },
       ]) {
         const hooked = new Promise<void>((resolve) => (entered = resolve));
@@ -943,7 +950,7 @@ Issued At: 2021-09-30T16:25:24Z`)
 
     const provider = createEIP1193Provider(sdk, { chainId: 1, onBeforeSign });
     await assertThrows(
-      () => provider.request({ method: "eth_sendTransaction", params: [{ to: signer, chainId: "0x2" }] }),
+      () => provider.request({ method: "eth_sendTransaction", params: [{ from: signer, to: signer, chainId: "0x2" }] }),
       "transaction for another chain"
     );
     const typedData = JSON.parse(signingRequests[1].params[1] as string);
@@ -955,6 +962,28 @@ Issued At: 2021-09-30T16:25:24Z`)
     assertEqual(calls, 0, "hook not called");
     passTest("Rejected requests never reach the hook");
   });
+
+  await runTest("A missing or malformed account rejects with -32602 before onBeforeSign", async () => {
+    let hooked = 0;
+    const log: string[] = [];
+    const provider = createEIP1193Provider(hookedSdk(log), { onBeforeSign: () => void hooked++ });
+    const typedData = signingRequests[1].params[1];
+    for (const account of [undefined, "0x0", "hi", signer.slice(0, 41), 1]) {
+      for (const request of [
+        { method: "eth_sendTransaction", params: [{ from: account, to: signer }] },
+        { method: "personal_sign", params: ["hi", account] },
+        { method: "eth_sign", params: [account, "hi"] },
+        { method: "eth_signTypedData_v4", params: [account, typedData] },
+      ]) {
+        const error = await provider.request(request).catch((e) => e);
+        assertEqual(error.code, -32602, `${request.method} ${account}: Invalid params`);
+      }
+    }
+    assertEqual(hooked, 0, "hook not called");
+    assertEqual(log.length, 0, "SDK not called");
+    passTest("The account parameter is required");
+  });
+
 
   const permitSingle = () => ({
     domain: { name: "Permit2", chainId: 1, verifyingContract: "0x000000000022D473030F116dDEE9F6B43aC78BA3" },
@@ -1056,6 +1085,42 @@ Issued At: 2021-09-30T16:25:24Z`)
     passTest("The snapshot taken before the hook is signed");
   });
 
+  /** Rejects another account with 4100 and signs for the signer's in any letter case */
+  const checksAccount = async (
+    provider: ReturnType<typeof createEIP1193Provider>,
+    account: string,
+    methods: string[]
+  ) => {
+    const typedData = { ...permitSingle(), domain: { ...permitSingle().domain, chainId: 1 } };
+    const requests = (from: string) => [
+      { method: "eth_sendTransaction", params: [{ from, to: signer }] },
+      { method: "personal_sign", params: ["hi", from] },
+      { method: "eth_sign", params: [from, "hi"] },
+      { method: "eth_signTypedData_v4", params: [from, typedData] },
+    ].filter((r) => methods.includes(r.method));
+    for (const request of requests(signer)) {
+      const error = await provider.request(request).catch((e) => e);
+      assertEqual(error.code, 4100, `${request.method}: Unauthorized, got ${error.message}`);
+    }
+    for (const from of [account.toLowerCase(), "0x" + account.slice(2).toUpperCase()]) {
+      for (const request of requests(from)) await provider.request(request);
+    }
+  };
+
+  await runTest("STANDARD: another account rejects with 4100, any letter case of the signer's passes", async () => {
+    const sdk = await standardSdk();
+    const provider = sdk.getEIP1193Provider();
+    const [account] = (await provider.request({ method: "eth_accounts" })) as string[];
+    await checksAccount(provider, account, ["personal_sign", "eth_sign", "eth_signTypedData_v4"]);
+
+    (sdk as any).config.rpcUrls = { 1: ["http://127.0.0.1:1"] };
+    const error = await provider
+      .request({ method: "eth_sendTransaction", params: [{ from: signer, to: signer }] })
+      .catch((e) => e);
+    assertEqual(error.code, 4100, "eth_sendTransaction: Unauthorized, before any RPC request");
+    passTest("The account is checked against the signer");
+  });
+
   // ------------------------------------------------------------------
   // 24. PRIMARY mode, against the mock bundler
   // ------------------------------------------------------------------
@@ -1106,7 +1171,7 @@ Issued At: 2021-09-30T16:25:24Z`)
       assertEqual(op.maxPriorityFeePerGas, "0x3", "maxPriorityFeePerGas");
       assertEqual(BigInt(op.callGasLimit), 200_000n, "gas above the estimate raises callGasLimit");
 
-      await provider.request({ method: "eth_sendTransaction", params: [{ to, gas: "0x1" }] });
+      await provider.request({ method: "eth_sendTransaction", params: [{ from: MAIN_ACCOUNT, to, gas: "0x1" }] });
       assertEqual(BigInt(bundler.included.at(-1)!.callGasLimit), GAS_ESTIMATE.callGasLimit, "gas below the estimate keeps it");
       passTest(`UserOperation included in ${hash.slice(0, 10)}…`);
     });
@@ -1116,7 +1181,7 @@ Issued At: 2021-09-30T16:25:24Z`)
         rpcUrls: { 1: [bundler.url] },
         bundlerUrls: { 1: bundler.url },
       });
-      const request = { to, value: "0x5", data: "0xdead", gas: "0x30d40", maxFeePerGas: "0x7", maxPriorityFeePerGas: "0x3" };
+      const request = { from: MAIN_ACCOUNT, to, value: "0x5", data: "0xdead", gas: "0x30d40", maxFeePerGas: "0x7", maxPriorityFeePerGas: "0x3" };
       const seen: BeforeSignDigests[] = [];
       passkeyCalls.length = 0;
       await sdk
@@ -1143,6 +1208,24 @@ Issued At: 2021-09-30T16:25:24Z`)
       passTest("Max fee reaches the provider's hook");
     });
 
+    await runTest("PRIMARY: another account rejects with 4100 before the passkey prompt", async () => {
+      const sdk = await primarySdk({ rpcUrls: { 1: [bundler.url] }, bundlerUrls: { 1: bundler.url } });
+      const provider = sdk.getEIP1193Provider({ mode: "PRIMARY", chainId: 1 });
+      passkeyCalls.length = 0;
+      const sent = bundler.included.length;
+      for (const request of [
+        { method: "eth_sendTransaction", params: [{ from: GAMING_ACCOUNT, to }] },
+        { method: "personal_sign", params: ["hi", GAMING_ACCOUNT] },
+      ]) {
+        const error = await provider.request(request).catch((e) => e);
+        assertEqual(error.code, 4100, `${request.method}: Unauthorized`);
+      }
+      assertEqual(passkeyCalls.length, 0, "no passkey prompt");
+      await checksAccount(provider, MAIN_ACCOUNT, ["eth_sendTransaction", "personal_sign", "eth_signTypedData_v4"]);
+      assertEqual(bundler.included.length, sent + 2, "the smart account's transactions are sent");
+      passTest("The account is checked against the smart account");
+    });
+
     await runTest("PRIMARY: options.bundlerUrl overrides bundlerUrls", async () => {
       const sdk = await primarySdk({
         rpcUrls: { 1: [bundler.url] },
@@ -1151,7 +1234,7 @@ Issued At: 2021-09-30T16:25:24Z`)
       const sent = bundler.included.length;
       await sdk
         .getEIP1193Provider({ mode: "PRIMARY", tag: "GAMING", bundlerUrl: bundler.url })
-        .request({ method: "eth_sendTransaction", params: [{ to }] });
+        .request({ method: "eth_sendTransaction", params: [{ from: GAMING_ACCOUNT, to }] });
       assertEqual(bundler.included.length, sent + 1, "sent through options.bundlerUrl");
       assertEqual(bundler.included.at(-1)!.sender, GAMING_ACCOUNT, "from the tag's account");
       passTest("Per-provider bundler endpoint");
@@ -1170,7 +1253,7 @@ Issued At: 2021-09-30T16:25:24Z`)
       });
       await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
       const sent = bundler.included.length;
-      await provider.request({ method: "eth_sendTransaction", params: [{ to }] });
+      await provider.request({ method: "eth_sendTransaction", params: [{ from: MAIN_ACCOUNT, to }] });
       assertEqual(bundler.included.length, sent + 1, "sent through bundlerUrls[1]");
       passTest("Chain 10 endpoints aren't used on chain 1");
     });

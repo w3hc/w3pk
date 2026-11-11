@@ -135,7 +135,7 @@ class UnsupportedMethodError extends Error implements ProviderRpcError {
   }
 }
 
-/** A JSON-RPC error from the chain's endpoint, with its code and data unchanged */
+/** A JSON-RPC error with its code: the chain endpoint's, unchanged, or the provider's own */
 class JsonRpcError extends Error implements ProviderRpcError {
   constructor(public code: number, message: string, public data?: unknown) {
     super(message);
@@ -180,6 +180,17 @@ async function forward(url: string, method: string, params: unknown[] | undefine
     throw new WalletError(`w3pk EIP-1193: ${method} failed: HTTP ${response.status} from ${url}`);
   }
   return body.result;
+}
+
+/** EIP-1474 error -32602: a malformed parameter */
+const invalidParams = (message: string) => new JsonRpcError(-32602, `w3pk EIP-1193: ${message}`);
+
+/** The request's account parameter, which must be a 20-byte hex address */
+function accountParam(method: string, value: unknown): string {
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
+    throw invalidParams(`${method} needs the account address, got ${String(value)}`);
+  }
+  return value;
 }
 
 function parseChainId(value: unknown): bigint {
@@ -251,6 +262,7 @@ export function createEIP1193Provider(
         // ── Transaction ────────────────────────────────────────────────
         case 'eth_sendTransaction': {
           const txParam = (params ?? [])[0] ?? {};
+          const from = accountParam('eth_sendTransaction', txParam.from);
           if (!txParam.chainId && !activeChainId) {
             throw new WalletError('eth_sendTransaction: chainId is required');
           }
@@ -283,6 +295,7 @@ export function createEIP1193Provider(
           const result = await sdk.sendTransaction(tx, {
             mode: options?.mode,
             tag: options?.tag,
+            from,
             ...endpoints(),
             onBeforeSign: hook && ((digests) => hook(digests as TransactionBeforeSignDigests)),
           });
@@ -292,10 +305,11 @@ export function createEIP1193Provider(
         // ── Message signing ────────────────────────────────────────────
         // personal_sign(data, address) — params are reversed vs eth_sign
         case 'personal_sign': {
-          const [data] = params ?? [];
+          const [data, address] = params ?? [];
           const signOptions = {
             mode: options?.mode,
             tag: options?.tag,
+            from: accountParam('personal_sign', address),
             signingMethod: 'EIP191' as const,
             ...primarySigning(),
           };
@@ -313,10 +327,12 @@ export function createEIP1193Provider(
             );
           }
           const [address, data] = params ?? [];
+          const from = accountParam('eth_sign', address);
           await beforeSign({ method: 'eth_sign', params: [address, data] });
           const result = await sdk.signMessage(erc191Message(data), {
             mode: options?.mode,
             tag: options?.tag,
+            from,
             signingMethod: 'EIP191',
           });
           return result.signature;
@@ -325,6 +341,7 @@ export function createEIP1193Provider(
         // EIP-712 typed data signing
         case 'eth_signTypedData_v4': {
           const [address, request] = params ?? [];
+          const from = accountParam('eth_signTypedData_v4', address);
           const typedData = signableTypedData(request);
           const { domain, types, primaryType, message } = typedData;
 
@@ -337,6 +354,7 @@ export function createEIP1193Provider(
           const signOptions = {
             mode: options?.mode,
             tag: options?.tag,
+            from,
             signingMethod: 'EIP712' as const,
             eip712Domain: domain,
             eip712Types: types,

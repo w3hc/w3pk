@@ -1658,6 +1658,12 @@ export class Web3Passkey {
    * neither is set. JSON-RPC errors pass through with their code and data.
    * Any other method rejects with error 4200.
    *
+   * The account a signing request names (eth_sendTransaction's `from`, the
+   * address of personal_sign, eth_sign and eth_signTypedData_v4) is required:
+   * a missing or malformed one rejects with error -32602 (Invalid params),
+   * another than eth_accounts' with error 4100 (Unauthorized) before signing,
+   * in any letter case.
+   *
    * In PRIMARY mode the passkey's P-256 smart account sends ERC-4337
    * UserOperations and signs ERC-7739 signatures bound to the active chain;
    * the EOA `nonce` is ignored, `gas` raises the UserOperation's
