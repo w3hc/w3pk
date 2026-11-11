@@ -3,6 +3,7 @@ import { WalletError } from "./errors";
 import {
   erc191Message,
   getSigningDigests,
+  signableTypedData,
   type SigningDigests,
   type SigningRequest,
 } from "./signing-digests";
@@ -286,12 +287,9 @@ export function createEIP1193Provider(
 
         // EIP-712 typed data signing
         case 'eth_signTypedData_v4': {
-          const [address, typedDataJson] = params ?? [];
-          const typedData = typeof typedDataJson === 'string'
-            ? JSON.parse(typedDataJson)
-            : typedDataJson;
-
-          const { domain, types, message: typedMessage, primaryType } = typedData;
+          const [address, request] = params ?? [];
+          const typedData = signableTypedData(request);
+          const { domain, types, primaryType, message } = typedData;
 
           if (domain?.chainId != null && parseChainId(domain.chainId) !== BigInt(activeChainId)) {
             throw new WalletError(
@@ -299,22 +297,19 @@ export function createEIP1193Provider(
             );
           }
 
-          // Remove EIP-712 meta-type if present (ethers doesn't want it)
-          const filteredTypes = { ...types };
-          delete filteredTypes['EIP712Domain'];
-
           const signOptions = {
             mode: options?.mode,
             tag: options?.tag,
             signingMethod: 'EIP712' as const,
             eip712Domain: domain,
-            eip712Types: filteredTypes,
+            eip712Types: types,
             eip712PrimaryType: primaryType,
             ...primarySigning(),
           };
+          const signedMessage = JSON.stringify(message);
           await beforeSign({ method: 'eth_signTypedData_v4', params: [address, typedData] });
 
-          const result = await sdk.signMessage(JSON.stringify(typedMessage), signOptions);
+          const result = await sdk.signMessage(signedMessage, signOptions);
           return result.signature;
         }
 

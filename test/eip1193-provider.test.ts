@@ -1074,7 +1074,15 @@ Issued At: 2021-09-30T16:25:24Z`)
         method: "eth_signTypedData_v4",
         params: [MAIN_ACCOUNT, JSON.stringify({
           domain,
-          types: { EIP712Domain: [{ name: "name", type: "string" }], ...types },
+          types: {
+            EIP712Domain: [
+              { name: "name", type: "string" },
+              { name: "version", type: "string" },
+              { name: "chainId", type: "uint256" },
+              { name: "verifyingContract", type: "address" },
+            ],
+            ...types,
+          },
           primaryType: "Mail",
           message,
         })],
