@@ -8,6 +8,7 @@
  * - wallet_switchEthereumChain + chainChanged event
  * - eth_sendTransaction param mapping (hex → bigint)
  * - eth_sendTransaction reads input as data, rejects them when they differ
+ * - eth_sendTransaction sends gasPrice, rejects it with EIP-1559 fees
  * - personal_sign / eth_sign (plain text, and hex signed as bytes)
  * - eth_signTypedData_v4 (EIP-712 typed data, bound to the active chain)
  * - The account of eth_sendTransaction, personal_sign, eth_sign and
@@ -465,6 +466,23 @@ async function runTests() {
     assertEqual(error.code, -32602, "differing data and input: Invalid params");
     assertEqual(txs.length, 4, "nothing sent");
     passTest("input is an alias of data");
+  });
+
+  await runTest("eth_sendTransaction sends gasPrice, and rejects it with EIP-1559 fees", async () => {
+    const { sdk, txs } = stubSdk();
+    const provider = createEIP1193Provider(sdk);
+    const send = (fields: object) =>
+      provider.request({ method: "eth_sendTransaction", params: [{ from: ACCOUNT, to: ACCOUNT, ...fields }] });
+    await send({ gasPrice: "0x7" });
+    await send({ gasPrice: null, maxFeePerGas: "0x9" });
+    assertEqual(txs[0].gasPrice, 7n, "gasPrice passed on");
+    assertEqual(txs[1].gasPrice, undefined, "null gasPrice is absent");
+    for (const fees of [{ maxFeePerGas: "0x9" }, { maxPriorityFeePerGas: "0x1" }]) {
+      const error = await send({ gasPrice: "0x7", ...fees }).catch((e) => e);
+      assertEqual(error.code, -32602, `gasPrice with ${Object.keys(fees)[0]}: Invalid params`);
+    }
+    assertEqual(txs.length, 2, "nothing sent");
+    passTest("gasPrice is honoured, and exclusive of EIP-1559 fees");
   });
 
   // ------------------------------------------------------------------

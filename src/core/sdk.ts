@@ -1201,6 +1201,8 @@ export class Web3Passkey {
    *   callGasLimit is the larger of the bundler's estimate and the sum of the gasLimits
    * @param tx.maxFeePerGas - EIP-1559 max fee per gas (optional)
    * @param tx.maxPriorityFeePerGas - EIP-1559 max priority fee per gas (optional)
+   * @param tx.gasPrice - Legacy gas price (optional), not with the EIP-1559 fees; on an
+   *   EIP-1559 chain, and in PRIMARY mode, it is both the max fee and the max priority fee
    * @param tx.nonce - Nonce override (optional, ignored in PRIMARY mode: the EntryPoint sets it)
    * @param options.mode - Security mode (default: STANDARD)
    * @param options.tag - Wallet tag (optional)
@@ -1240,9 +1242,15 @@ export class Web3Passkey {
       const snapshot = Array.isArray(tx) ? tx.map((t) => ({ ...t })) : { ...tx };
       const txs = Array.isArray(snapshot) ? snapshot : [snapshot];
       const confirm = (maxFee?: bigint) => this.confirmTransaction(snapshot, options?.onBeforeSign, maxFee);
+      if (txs.some((t) => t.gasPrice !== undefined && (t.maxFeePerGas !== undefined || t.maxPriorityFeePerGas !== undefined))) {
+        throw new WalletError("gasPrice can't be set with maxFeePerGas or maxPriorityFeePerGas");
+      }
 
       if (effectiveMode === 'PRIMARY') {
-        return await this.sendWithSmartAccount(txs, effectiveTag, origin, confirm, options);
+        const ops = txs.map(({ gasPrice, ...t }) =>
+          gasPrice === undefined ? t : { ...t, maxFeePerGas: gasPrice, maxPriorityFeePerGas: gasPrice }
+        );
+        return await this.sendWithSmartAccount(ops, effectiveTag, origin, confirm, options);
       }
       if (Array.isArray(tx)) {
         throw new WalletError("Only PRIMARY mode sends an array of transactions");
@@ -1285,6 +1293,7 @@ export class Web3Passkey {
         gasLimit: request.gasLimit,
         maxFeePerGas: request.maxFeePerGas,
         maxPriorityFeePerGas: request.maxPriorityFeePerGas,
+        gasPrice: request.gasPrice,
         nonce: request.nonce,
       });
 
@@ -1665,12 +1674,13 @@ export class Web3Passkey {
    * in any letter case.
    *
    * eth_sendTransaction reads `input` as `data`, and rejects both with error
-   * -32602 when they differ.
+   * -32602 when they differ. It sends a legacy `gasPrice`, and rejects it with
+   * error -32602 alongside `maxFeePerGas` or `maxPriorityFeePerGas`.
    *
    * In PRIMARY mode the passkey's P-256 smart account sends ERC-4337
    * UserOperations and signs ERC-7739 signatures bound to the active chain;
    * the EOA `nonce` is ignored, `gas` raises the UserOperation's
-   * callGasLimit, and eth_sign rejects with error 4200: through EIP-1271, a
+   * callGasLimit, `gasPrice` sets both its fees, and eth_sign rejects with error 4200: through EIP-1271, a
    * bare hash would skip ERC-7739's replay protection.
    *
    * With options.onBeforeSign, eth_sendTransaction, eth_signTypedData_v4,

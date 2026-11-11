@@ -132,6 +132,8 @@ export interface TransactionRequest {
   gasLimit?: bigint;
   maxFeePerGas?: bigint;
   maxPriorityFeePerGas?: bigint;
+  /** Legacy gas price, not with maxFeePerGas or maxPriorityFeePerGas; on an EIP-1559 chain, and in PRIMARY mode, it is both */
+  gasPrice?: bigint;
   /** Ignored in PRIMARY mode: the EntryPoint sets the UserOperation's nonce */
   nonce?: number;
 }

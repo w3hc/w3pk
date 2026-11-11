@@ -267,6 +267,9 @@ export function createEIP1193Provider(
           if (data != null && input != null && String(data).toLowerCase() !== String(input).toLowerCase()) {
             throw invalidParams('eth_sendTransaction: data and input differ');
           }
+          if (txParam.gasPrice != null && (txParam.maxFeePerGas != null || txParam.maxPriorityFeePerGas != null)) {
+            throw invalidParams('eth_sendTransaction: gasPrice can\'t be set with maxFeePerGas or maxPriorityFeePerGas');
+          }
           if (!txParam.chainId && !activeChainId) {
             throw new WalletError('eth_sendTransaction: chainId is required');
           }
@@ -291,6 +294,7 @@ export function createEIP1193Provider(
             maxPriorityFeePerGas: txParam.maxPriorityFeePerGas !== undefined
               ? BigInt(txParam.maxPriorityFeePerGas)
               : undefined,
+            gasPrice: txParam.gasPrice != null ? BigInt(txParam.gasPrice) : undefined,
             nonce: txParam.nonce !== undefined
               ? parseInt(txParam.nonce, 16)
               : undefined,

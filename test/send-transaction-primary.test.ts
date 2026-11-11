@@ -560,6 +560,28 @@ async function runTests() {
     console.log("✅ from checked against the smart account");
   });
 
+  console.log("\nTest 20: gasPrice sets both UserOperation fees, and is refused with EIP-1559 fees");
+  await withBundler({}, async (bundler) => {
+    const sdk = await primarySdk(config(bundler));
+    await sdk.sendTransaction([{ to: RECIPIENT, chainId: 1, gasPrice: 7n }, { to: TOKEN, chainId: 1, gasPrice: 7n }], { mode: "PRIMARY" });
+    const [op] = bundler.included;
+    assert.strictEqual(BigInt(op.maxFeePerGas), 7n);
+    assert.strictEqual(BigInt(op.maxPriorityFeePerGas), 7n);
+    assert(!bundler.calls.some((c) => c.method === "eth_gasPrice" || c.method === "eth_maxPriorityFeePerGas"), "no fee lookup");
+
+    const mixed = await rejection(
+      sdk.sendTransaction([{ to: RECIPIENT, chainId: 1, gasPrice: 7n }, { to: TOKEN, chainId: 1 }], { mode: "PRIMARY" })
+    );
+    assert(mixed.includes("maxFeePerGas"), mixed);
+    passkeyCalls.length = 0;
+    const both = await rejection(
+      sdk.sendTransaction({ to: RECIPIENT, chainId: 1, gasPrice: 7n, maxPriorityFeePerGas: 1n }, { mode: "PRIMARY" })
+    );
+    assert(both.includes("gasPrice"), both);
+    assert.strictEqual(passkeyCalls.length, 0, "no passkey prompt");
+    console.log("✅ gasPrice maps to both UserOperation fees");
+  });
+
   console.log("\n🎉 All PRIMARY mode sendTransaction tests passed!\n");
 }
 

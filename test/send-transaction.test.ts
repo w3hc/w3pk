@@ -280,6 +280,39 @@ async function runTests() {
     passTest("options.from is checked against the signer, in any letter case");
   });
 
+  await runTest("STRICT / STANDARD / YOLO send gasPrice, and refuse it with EIP-1559 fees before the passkey prompt", async () => {
+    const { Transaction } = await import("ethers");
+    const chain = await startMockBundler();
+    try {
+      for (const mode of ["STRICT", "STANDARD", "YOLO"] as const) {
+        const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [chain.url] } });
+        (sdk as any).currentUser = { username: "eoa", ethereumAddress: TEST_CONTRACT, credentialId: "eoa" };
+        let prompts = 0;
+        (sdk as any).getMnemonicFromSession = async () => {
+          prompts++;
+          return TEST_MNEMONIC;
+        };
+        chain.calls.length = 0;
+        await sdk.sendTransaction({ to: TEST_CONTRACT, chainId: 1, gasPrice: 7n }, { mode });
+        const sent = Transaction.from(chain.calls.find((c) => c.method === "eth_sendRawTransaction")!.params[0]);
+        const fees = sent.type === 0 ? [sent.gasPrice] : [sent.maxFeePerGas, sent.maxPriorityFeePerGas];
+        assert(fees.every((fee) => fee === 7n), `${mode}: gasPrice is the fee, got type ${sent.type} ${fees}`);
+
+        prompts = 0;
+        for (const fees of [{ maxFeePerGas: 9n }, { maxPriorityFeePerGas: 1n }]) {
+          const error = await sdk
+            .sendTransaction({ to: TEST_CONTRACT, chainId: 1, gasPrice: 7n, ...fees }, { mode })
+            .catch((e) => e);
+          assert(error.message.includes("gasPrice"), `${mode}: names gasPrice, got ${error.message}`);
+        }
+        assertEqual(prompts, 0, `${mode}: no passkey prompt`);
+      }
+    } finally {
+      await chain.close();
+    }
+    passTest("gasPrice is honoured, and exclusive of EIP-1559 fees");
+  });
+
   // ------------------------------------------------------------------
   // 5. Return type structure (requires a live provider mock)
   //    We test at the derivation layer to verify the shape contract.
