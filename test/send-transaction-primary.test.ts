@@ -20,6 +20,7 @@ import {
   startMockBundler,
 } from "./fixtures/mock-bundler";
 import { W3PK_ACCOUNT_FACTORY } from "../src/wallet/smart-account";
+import { UserRejectedRequestError, getSigningDigests, type TransactionRequest } from "../src/index";
 import {
   P256_PRECOMPILE_GAS,
   P256_SOLIDITY_GAS,
@@ -389,6 +390,78 @@ async function runTests() {
       assert.strictEqual(sentBeforeTimeout, 2, "GAMING was sent while MAIN was pending");
       console.log("✅ Queues are per tag and chain");
     });
+  });
+
+  console.log("\nTest 16: onBeforeSign is awaited with the digests before the passkey signs");
+  await withBundler({}, async (bundler) => {
+    const sdk = await primarySdk(config(bundler));
+    const approve = "0x095ea7b3" + "00".repeat(64);
+    const txs: TransactionRequest[] = [
+      { to: TOKEN, data: approve, chainId: 1 },
+      { to: RECIPIENT, value: 7n, chainId: 1 },
+    ];
+    const expected = txs.map((tx) => ({
+      method: "eth_sendTransaction",
+      ...getSigningDigests({ method: "eth_sendTransaction", params: [tx] }),
+    }));
+    passkeyCalls.length = 0;
+    let seen: unknown;
+    await sdk.sendTransaction(txs[1], {
+      mode: "PRIMARY",
+      onBeforeSign: (digests) => {
+        seen = digests;
+        assert.strictEqual(passkeyCalls.length, 0, "hook before the passkey prompt");
+      },
+    });
+    assert.deepStrictEqual(seen, expected[1], "one transaction, one digests object");
+    assert.strictEqual(passkeyCalls.length, 1);
+
+    await sdk.sendTransaction(txs, {
+      mode: "PRIMARY",
+      onBeforeSign: async (digests) => {
+        seen = digests;
+        txs[1].value = 9n;
+        txs.push({ to: TOKEN, data: "0x", chainId: 1 });
+      },
+    });
+    assert.deepStrictEqual(seen, expected, "an array of transactions, an array of digests");
+    const [, executionCalldata] = account.decodeFunctionData("execute", bundler.included[1].callData);
+    const [executions] = coder.decode(["tuple(address,uint256,bytes)[]"], executionCalldata);
+    assert.deepStrictEqual(
+      executions.map((e: any) => [e[0].toLowerCase(), e[1], e[2]]),
+      [
+        [TOKEN, 0n, approve],
+        [RECIPIENT, 7n, "0x"],
+      ],
+      "the copy taken before the hook is sent"
+    );
+    console.log("✅ onBeforeSign approves PRIMARY sends");
+  });
+
+  console.log("\nTest 17: onBeforeSign cancels a PRIMARY send before the passkey prompt");
+  await withBundler({}, async (bundler) => {
+    const sdk = await primarySdk(config(bundler));
+    const cancel = new Error("cancelled");
+    const cancels = [
+      { hook: () => false, cause: undefined },
+      { hook: () => { throw cancel; }, cause: cancel },
+      { hook: () => Promise.reject(cancel), cause: cancel },
+    ];
+    passkeyCalls.length = 0;
+    for (const { hook, cause } of cancels) {
+      const error = await sdk
+        .sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY", onBeforeSign: hook })
+        .catch((e) => e);
+      assert(error instanceof UserRejectedRequestError, `UserRejectedRequestError, got ${error}`);
+      assert.strictEqual(error.code, 4001);
+      assert.strictEqual(error.cause, cause, "the hook's error as cause");
+    }
+    assert.strictEqual(passkeyCalls.length, 0, "no passkey prompt");
+    assert(!bundler.calls.some((c) => c.method === "eth_sendUserOperation"), "nothing sent");
+
+    await sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" });
+    assert.strictEqual(bundler.included[0].nonce, "0x0", "a cancel doesn't block the queue");
+    console.log("✅ onBeforeSign cancels PRIMARY sends");
   });
 
   console.log("\n🎉 All PRIMARY mode sendTransaction tests passed!\n");
