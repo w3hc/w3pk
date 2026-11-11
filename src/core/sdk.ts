@@ -174,6 +174,7 @@ export class Web3Passkey {
   private config: InternalConfig;
   private walletStorage: LocalStorageWalletStorage;
   private currentUser: UserInfo | null = null;
+  /** A wallet waiting for register(); cleared once a session starts */
   private currentWallet: GeneratedWallet | null = null;
   private persisted: boolean | null = null;
   private sessionManager: SessionManager;
@@ -413,6 +414,7 @@ export class Web3Passkey {
         new Uint8Array(prfOutput).fill(0);
       }
 
+      this.currentWallet = null;
       await this.sessionManager.startSession(
         mnemonic,
         credentialId,
@@ -420,11 +422,6 @@ export class Web3Passkey {
         prfSessionKey,
         'STANDARD' // Default security mode for register
       );
-
-      this.currentWallet = {
-        address: ethereumAddress,
-        mnemonic,
-      };
 
       const { BackupManager } = await import("../backup/manager");
       const hasBackup = await new BackupManager().hasBackup(ethereumAddress);
@@ -484,6 +481,7 @@ export class Web3Passkey {
           ethereumAddress: silentRestore.ethereumAddress,
           credentialId: silentRestore.credentialId,
         };
+        this.currentWallet = null;
 
         void this.requestPersistentStorage();
         this.config.onAuthStateChanged?.(true, this.currentUser);
@@ -514,6 +512,7 @@ export class Web3Passkey {
         ethereumAddress: result.user.ethereumAddress,
         credentialId: result.user.credentialId,
       };
+      this.currentWallet = null;
 
       // Key derived from THIS assertion's PRF output: decrypts the existing
       // persistent session (deterministic PRF input → same key as when the
@@ -887,8 +886,6 @@ export class Web3Passkey {
       }
 
       await bootstrapCredential(this.ctx, credential, phrase, ethereumAddress, prfOutput, true);
-
-      this.currentWallet = { address: ethereumAddress, mnemonic: phrase };
     } catch (error) {
       this.config.onError?.(error as any);
       throw error;

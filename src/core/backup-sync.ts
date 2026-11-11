@@ -156,7 +156,6 @@ export async function applyRestoredWallet(
   );
 
   backupManager.markBackupVerified(ethereumAddress);
-  ctx.currentWallet = { address: ethereumAddress, mnemonic };
 
   return { ethereumAddress };
 }
@@ -380,6 +379,7 @@ export async function bootstrapCredential(
     ethereumAddress,
     credentialId: credential.id,
   };
+  ctx.currentWallet = null;
 
   await ctx.sessionManager.startSession(
     mnemonic,
