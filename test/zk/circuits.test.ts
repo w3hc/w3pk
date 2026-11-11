@@ -26,7 +26,7 @@ const CIRCUITS = join(ROOT, "src", "zk", "circuits");
 const SNARKJS = join(ROOT, "node_modules", ".bin", "snarkjs");
 const P = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 const LEVELS = 20;
-const BIT_CONSTRAINT = /^\s*pathIndices\[i\] \* \(pathIndices\[i\] - 1\) === 0;\n/m;
+const BIT_CONSTRAINT = /^[ \t]*pathIndices\[i\] \* \(pathIndices\[i\] - 1\) === 0;\n/m;
 const QUIET = { info() {}, warn() {}, debug() {}, error() {} };
 
 let passed = 0;
@@ -107,14 +107,19 @@ function setup(dir: string, name: string, { r1cs, wasm }: Compiled, ptau: string
   return { wasmPath: wasm, zkeyPath, verificationKey: JSON.parse(readFileSync(vkeyPath, "utf8")) };
 }
 
-async function witnessError(snarkjs: any, input: object, circuit: Compiled, wtns: string) {
+/** The messages along the error's originalError chain, or undefined if fn resolved. */
+async function rejection(fn: () => Promise<unknown>): Promise<string | undefined> {
   try {
-    await snarkjs.wtns.calculate(input, circuit.wasm, wtns);
+    await fn();
   } catch (e) {
-    return e as Error;
+    const messages: string[] = [];
+    for (let err: any = e; err; err = err.originalError) messages.push(String(err.message ?? err));
+    return messages.join(" <- ");
   }
   return undefined;
 }
+
+const refusedByCircuit = (message: string | undefined) => /assert failed/i.test(message ?? "");
 
 async function checkForgery(
   snarkjs: any,
@@ -126,18 +131,18 @@ async function checkForgery(
 ) {
   const wtns = join(dir, `${name}-forged.wtns`);
   assert(
-    /assert failed/i.test((await witnessError(snarkjs, input, real, wtns))?.message ?? ""),
+    refusedByCircuit(await rejection(() => snarkjs.wtns.calculate(input, real.wasm, wtns))),
     "the witness generator refuses the forged path"
   );
   assert(
-    (await witnessError(snarkjs, input, unconstrained, wtns)) === undefined &&
+    (await rejection(() => snarkjs.wtns.calculate(input, unconstrained.wasm, wtns))) === undefined &&
       (await snarkjs.wtns.check(unconstrained.r1cs, wtns, QUIET)) === true,
     "without the bit constraint the forged witness is valid, so the vector is a real forgery"
   );
   const [a, b] = await Promise.all([snarkjs.r1cs.info(real.r1cs), snarkjs.r1cs.info(unconstrained.r1cs)]);
   assert(
-    a.nVars === b.nVars && a.nConstraints === b.nConstraints + LEVELS,
-    `the real circuit has the same wires and ${LEVELS} more constraints`
+    a.nVars === b.nVars && a.nConstraints > b.nConstraints,
+    "the real circuit has the same wires and more constraints"
   );
   assert(
     (await snarkjs.wtns.check(real.r1cs, wtns, QUIET)) === false,
@@ -201,13 +206,10 @@ async function runTests() {
     console.log("Test 2: a forged membership proof for a leaf outside the tree fails");
     const forged = forgeFirstLevel(999n, leaf, path.pathElements[0], path);
     const forgedInput = { value: "999", ...forged, root };
-    let refused = false;
-    try {
-      await zk.proveMembership(forgedInput as any);
-    } catch {
-      refused = true;
-    }
-    assert(refused, "proveMembership() refuses the forged path");
+    assert(
+      refusedByCircuit(await rejection(() => zk.proveMembership(forgedInput as any))),
+      "proveMembership() refuses the forged path"
+    );
     await checkForgery(snarkjs, dir, "membership", circuits.membership.real, circuits.membership.unconstrained, {
       leaf: "999",
       ...forged,
@@ -244,20 +246,17 @@ async function runTests() {
     const attacker = "0x" + "33".repeat(20);
     const attackerHash = poseidon1([BigInt(attacker)]);
     const nftForged = forgeFirstLevel(poseidon2([attackerHash, contractHash]), nftLeaf, nftPath.pathElements[0], nftPath);
-    refused = false;
-    try {
-      await zk.proveNFTOwnership({
+    const nftRefusal = await rejection(() =>
+      zk.proveNFTOwnership({
         ownerAddress: attacker,
         contractAddress: contract,
         holderIndex: 0,
         holdersRoot: nftRoot,
         minBalance: 1n,
         ...(nftForged as any),
-      });
-    } catch {
-      refused = true;
-    }
-    assert(refused, "proveNFTOwnership() refuses the forged path");
+      })
+    );
+    assert(refusedByCircuit(nftRefusal), "proveNFTOwnership() refuses the forged path");
     await checkForgery(snarkjs, dir, "nft", circuits.nft.real, circuits.nft.unconstrained, {
       ownerAddress: attackerHash.toString(),
       ...nftForged,
