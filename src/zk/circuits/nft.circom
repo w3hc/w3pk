@@ -93,4 +93,4 @@ template NFTOwnership(levels) {
 }
 
 // Instantiate with 20 levels (supports ~1M holders)
-component main = NFTOwnership(20);
+component main {public [root, contractAddress, minBalance]} = NFTOwnership(20);

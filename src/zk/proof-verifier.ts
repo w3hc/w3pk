@@ -195,9 +195,9 @@ export class ZKProofVerifier {
     }
 
     const result = await this.verifyProof(proof);
-    const holdersRoot = proof.publicSignals[0];
-    const contractAddress = proof.publicSignals[1];
-    const minBalance = BigInt(proof.publicSignals[2]);
+    const holdersRoot = proof.publicSignals[1];
+    const contractAddress = proof.publicSignals[2];
+    const minBalance = BigInt(proof.publicSignals[3]);
 
     // Hash the expected contract address for comparison
     try {
@@ -256,10 +256,10 @@ export class ZKProofVerifier {
 
       case "nft":
         return {
-          holdersRoot: signals[0],
-          contractAddress: signals[1],
-          minBalance: signals[2],
-          nullifierHash: signals[3],
+          nullifierHash: signals[0],
+          holdersRoot: signals[1],
+          contractAddress: signals[2],
+          minBalance: signals[3],
         };
 
       default:
