@@ -377,7 +377,7 @@ const blockNumber = await provider.getBlockNumber()
 // Check network support
 const supported = await w3pk.supportsEIP7702(1)
 
-// Configure RPC testing
+// A chain off the built-in list is probed through its rpcUrls only
 await w3pk.supportsEIP7702(999, {
   maxEndpoints: 5,
   timeout: 5000

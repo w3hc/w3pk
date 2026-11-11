@@ -65,8 +65,8 @@ export interface Web3PasskeyConfig {
   /**
    * RPC endpoints per chain ID. `sendTransaction()` uses the first one and
    * throws for a chain with none (a per-call `rpcUrl` takes precedence);
-   * `getEndpoints()` and `supportsEIP7702()` list them before the
-   * chainid.network endpoints.
+   * `getEndpoints()` lists them before the chainid.network endpoints, and
+   * `supportsEIP7702()` probes only them for a chain off its static list.
    *
    * @example
    * rpcUrls: { 1: ['https://eth.example.com'], 10: ['https://op.example.com'] }

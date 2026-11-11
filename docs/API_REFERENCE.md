@@ -3149,14 +3149,14 @@ const blockNumber = await provider.getBlockNumber()
 
 ### `supportsEIP7702(chainId: number, options?: EIP7702Options): Promise<boolean>`
 
-Check if network supports EIP-7702 (set code for EOAs).
+Check if network supports EIP-7702 (set code for EOAs). A chain on the built-in list returns `true` without a request. Any other chain is probed through its `rpcUrls` endpoints only, never a public one, so the user's IP address isn't sent to a third party; without `rpcUrls` for the chain it returns `false`.
 
 **Parameters:**
 - `chainId: number` - Chain ID
 - `options?: EIP7702Options`
   ```typescript
   interface EIP7702Options {
-    maxEndpoints?: number;  // Max endpoints to test (default: 3)
+    maxEndpoints?: number;  // Max rpcUrls endpoints to test (default: 3)
     timeout?: number;       // Timeout in ms (default: 10000)
   }
   ```
@@ -3170,7 +3170,7 @@ Check if network supports EIP-7702 (set code for EOAs).
 const supported = await w3pk.supportsEIP7702(1)
 console.log('EIP-7702 supported:', supported)
 
-// Check with custom options
+// Probe a chain off the list through its rpcUrls endpoints
 const supportedQuick = await w3pk.supportsEIP7702(999, {
   maxEndpoints: 2,
   timeout: 5000

@@ -1641,11 +1641,16 @@ export class Web3Passkey {
     return [...new Set([...appEndpoints, ...chainlist])];
   }
 
+  /**
+   * Whether `chainId` supports EIP-7702: true for a chain on the static
+   * list, otherwise probes the chain's `rpcUrls` and never a public endpoint
+   * (false without any)
+   */
   async supportsEIP7702(
     chainId: number,
     options?: { maxEndpoints?: number; timeout?: number }
   ): Promise<boolean> {
-    return supportsEIP7702(chainId, this.getEndpoints.bind(this), options);
+    return supportsEIP7702(chainId, this.config.rpcUrls?.[chainId] ?? [], options);
   }
 
   /**
