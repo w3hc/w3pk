@@ -28,7 +28,7 @@ interface Overrides {
   clientDataJSON?: ArrayBuffer;
   attestationObject?: ArrayBuffer;
   /** Where the authenticator evaluates the PRF, or how the fallback assertion ends */
-  prf?: "create" | "get" | "none" | "cancel";
+  prf?: "create" | "short" | "get" | "none" | "cancel";
 }
 
 let next: Overrides = {};
@@ -108,7 +108,11 @@ async function setup() {
               ).buffer,
           },
           getClientExtensionResults: () =>
-            (next.prf ?? "create") === "create" ? prfResults : {},
+            (next.prf ?? "create") === "create"
+              ? prfResults
+              : next.prf === "short"
+                ? { prf: { results: { first: new Uint8Array(16).buffer } } }
+                : {},
         }),
         get: async () => {
           assertions++;
@@ -117,7 +121,8 @@ async function setup() {
           }
           return {
             id: createdId,
-            getClientExtensionResults: () => (next.prf === "get" ? prfResults : {}),
+            getClientExtensionResults: () =>
+              next.prf === "get" || next.prf === "short" ? prfResults : {},
           };
         },
       },
@@ -173,6 +178,15 @@ setup().then(() =>
         assert(assertions === 1, "one assertion should evaluate the PRF");
         assert(stored, "the credential should be stored");
         assert(signalled.length === 0, "a stored credential should not be signalled as unknown");
+      },
+    },
+    {
+      name: "PRF output at creation that isn't 32 bytes is evaluated again",
+      fn: async () => {
+        const { error, stored } = await attemptRegister({ prf: "short" });
+        assert(error === undefined, `registration should succeed: ${error?.message}`);
+        assert(assertions === 1, "one assertion should evaluate the PRF");
+        assert(stored, "the credential should be stored");
       },
     },
     {

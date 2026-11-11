@@ -10,7 +10,7 @@ import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
 import { verifyClientData, verifyRpIdHash } from "./authenticate";
 import { authDataFromAttestationObject, credentialPublicKeyFromAuthData } from "./attestation";
-import { evaluatePrf } from "./prf";
+import { copyPrfResult, evaluatePrf } from "./prf";
 
 /**
  * Asks the authenticator to drop a passkey that was created but not stored
@@ -105,7 +105,7 @@ export async function register(
     // any record exists, so the passkey can be dropped
     const prfOutput =
       (isUserVerified(authData)
-        ? credential.getClientExtensionResults?.().prf?.results?.first
+        ? copyPrfResult(credential.getClientExtensionResults?.().prf?.results?.first)
         : undefined) ?? (await evaluatePrf(PRF_INPUT, credential.id)).output;
 
     // Past this point a record may be on disk, so the passkey must stay
