@@ -382,13 +382,19 @@ export class Web3Passkey {
         credentialId,
       };
 
-      await this.storeWallet(ethereumAddress, mnemonic, credentialId, prfOutput);
+      let prfSessionKey: CryptoKey;
+      try {
+        await this.storeWallet(ethereumAddress, mnemonic, credentialId, prfOutput);
+        prfSessionKey = await derivePrfSessionKey(prfOutput, this.sessionManager.storesSessionKey);
+      } finally {
+        new Uint8Array(prfOutput).fill(0);
+      }
 
       await this.sessionManager.startSession(
         mnemonic,
         credentialId,
         ethereumAddress,
-        await derivePrfSessionKey(prfOutput, this.sessionManager.storesSessionKey),
+        prfSessionKey,
         'STANDARD' // Default security mode for register
       );
 
