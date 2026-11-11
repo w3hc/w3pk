@@ -7,8 +7,23 @@
 
 import { readFileSync } from "node:fs";
 import { Web3Passkey } from "../src/index";
-import { combineShares, gfMul, gfInv, bytesToHex, hexToBytes } from "../src/recovery/shamir";
-import { startTestSuite, endTestSuite, runTest, passTest, assert, assertEqual } from "./test-utils";
+import {
+  splitSecret,
+  combineShares,
+  gfMul,
+  gfInv,
+  bytesToHex,
+  hexToBytes,
+} from "../src/recovery/shamir";
+import {
+  startTestSuite,
+  endTestSuite,
+  runTest,
+  passTest,
+  assert,
+  assertEqual,
+  assertThrows,
+} from "./test-utils";
 
 class MemoryStorage {
   private items = new Map<string, string>();
@@ -101,6 +116,27 @@ async function runTests() {
       assertEqual(result.ethereumAddress, address, `address from ${subset.join(",")}`);
       assertEqual((sdk as any).currentWallet?.mnemonic, mnemonic, `mnemonic from ${subset.join(",")}`);
     }
+    passTest();
+  });
+
+  await runTest("zero, duplicate or misfit x-coordinates are rejected", async () => {
+    const shares = splitSecret(Uint8Array.of(1, 2, 3), 2, 3);
+    const zero = Uint8Array.from(shares[0]);
+    zero[0] = 0;
+    for (const [bad, label] of [
+      [[zero, shares[1]], "x-coordinate 0"],
+      [[shares[0], shares[0]], "the same share twice"],
+      [[shares[1], shares[2], Uint8Array.from(shares[1])], "a duplicate beyond the threshold"],
+      [[shares[0], shares[1].slice(0, 3)], "shares of different lengths"],
+      [[shares[0].slice(0, 1), shares[1].slice(0, 1)], "shares without data"],
+    ] as const) {
+      await assertThrows(() => {
+        combineShares(bad as unknown as Uint8Array[], 2);
+      }, label);
+    }
+    await assertThrows(() => {
+      combineShares(shares, 1);
+    }, "threshold below 2");
     passTest();
   });
 

@@ -111,41 +111,52 @@ export function splitSecret(
   return shares;
 }
 
-/**
- * Combine shares to recover secret
- */
-export function combineShares(
-  shares: Uint8Array[],
-  threshold: number
-): Uint8Array {
+function checkShares(shares: Uint8Array[], threshold: number): void {
+  if (!Number.isInteger(threshold) || threshold < 2 || threshold > 255) {
+    throw new Error('Threshold must be an integer from 2 to 255');
+  }
   if (shares.length < threshold) {
     throw new Error(
       `Need at least ${threshold} shares to recover secret, got ${shares.length}`
     );
   }
-
-  // Use only first 'threshold' shares
-  const usedShares = shares.slice(0, threshold);
-
-  // Verify all shares have same length
-  const shareLength = usedShares[0].length;
-  for (const share of usedShares) {
-    if (share.length !== shareLength) {
-      throw new Error('All shares must have the same length');
+  const seen = new Set<number>();
+  for (const share of shares) {
+    if (share.length !== shares[0].length || share.length < 2) {
+      throw new Error('All shares must have the same length, and hold at least one byte');
     }
+    if (share[0] === 0) {
+      throw new Error('Share x-coordinate 0 would reveal the secret');
+    }
+    if (seen.has(share[0])) {
+      throw new Error(`Two shares have the x-coordinate ${share[0]}`);
+    }
+    seen.add(share[0]);
   }
+}
 
-  const basis = lagrangeAtZero(usedShares.map((share) => share[0]));
-  const secret = new Uint8Array(shareLength - 1);
+function interpolate(shares: Uint8Array[]): Uint8Array {
+  const basis = lagrangeAtZero(shares.map((share) => share[0]));
+  const secret = new Uint8Array(shares[0].length - 1);
   for (let byteIndex = 0; byteIndex < secret.length; byteIndex++) {
     let byte = 0;
-    usedShares.forEach((share, i) => {
+    shares.forEach((share, i) => {
       byte ^= gfMul(basis[i], share[byteIndex + 1]);
     });
     secret[byteIndex] = byte;
   }
-
   return secret;
+}
+
+/**
+ * Combine the first `threshold` shares to recover the secret
+ *
+ * @throws for fewer than `threshold` shares, shares of different lengths,
+ * or an x-coordinate that is 0 or given twice
+ */
+export function combineShares(shares: Uint8Array[], threshold: number): Uint8Array {
+  checkShares(shares, threshold);
+  return interpolate(shares.slice(0, threshold));
 }
 
 /**
