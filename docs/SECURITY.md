@@ -105,7 +105,7 @@ What the credential and stored data are bound to — three *different* scopes, a
 | Bound to | Scope | Enforced by |
 |---|---|---|
 | Stored session / wallet / credentials | **Origin** = scheme + host + port | Browser storage partitioning |
-| WebAuthn passkey (RP ID) | **Hostname** (exact host) | Browser WebAuthn API, re-checked on every assertion |
+| WebAuthn passkey (RP ID) | **Hostname** and every subdomain of it ([RP ID scope](#subdomains-can-use-the-wallets-passkeys)) | Browser WebAuthn API; w3pk re-checks the exact origin on every assertion, the `PRIMARY` account doesn't |
 
 - **Path and query are irrelevant.** `https://app.example.com/wallet` and `https://app.example.com/x?y=1` are the same origin; a remembered session works on every page of the site, not one URL.
 - A different scheme (`http:`), port (`:3000`), or host (`other.example.com`) is a **different origin** with separate storage, and a passkey bound to one exact hostname won't work on another. This is the anti-phishing guarantee — see [Credential Scoping and Domain Isolation](#credential-scoping-and-domain-isolation).
@@ -450,7 +450,7 @@ console.assert(
 ### ✅ Protected Against
 
 1. **Cross-origin / cross-site access** - Another origin cannot read this origin's storage or use its passkey (browser-enforced)
-2. **Phishing** - Passkey is bound to the exact hostname; a look-alike domain cannot use it
+2. **Phishing** - Passkey is bound to the hostname; a look-alike domain cannot use it (subdomains of the hostname can: [host the wallet on a dedicated hostname](#subdomains-can-use-the-wallets-passkeys))
 3. **Browser-storage read access** - The stored wallet's key needs the passkey's PRF output; storage alone doesn't decrypt it (except a silent "Remember Me" session, whose key is stored)
 4. **Remote network attacks** - No secret is transmitted; decryption needs the authenticator
 5. **Signature replay** - Fresh WebAuthn challenge each time
@@ -2554,6 +2554,17 @@ await navigator.credentials.get({
 
 **Note:** The WebAuthn standard allows setting RP ID to a parent domain, but w3pk uses auto-detection which sets it to the exact hostname for maximum security.
 
+#### Subdomains can use the wallet's passkeys
+
+The rule runs the other way too. An RP ID may be [any registrable domain suffix of the page's host](https://www.w3.org/TR/webauthn-3/#rp-id), so a page on `anything.app.example.com` can call `navigator.credentials.get({ publicKey: { rpId: "app.example.com", … } })` itself, without w3pk, and the browser offers the passkeys registered on `app.example.com`. [Related Origin Requests](https://passkeys.dev/docs/advanced/related-origins/) extend this to every origin listed in `https://app.example.com/.well-known/webauthn`.
+
+Such a page can't read the wallet's storage, but with the user's approval it can:
+
+- get assertions over challenges it picks, including a `PRIMARY` UserOperation hash: `W3pkAccount` checks the challenge, the flags and the signature onchain, not the origin, which an onchain verifier can't know is legitimate
+- evaluate the PRF at w3pk's fixed input and others, and get the secrets `derivePrfSecret()`, Semaphore identities and `prf` backups derive from
+
+w3pk's own origin check (`clientDataJSON.origin` must equal `window.location.origin`) only guards the page running w3pk. **Host the wallet on a dedicated hostname with no user-controlled subdomains**, such as `wallet.example.com` rather than `example.com` when users can get `user.example.com`, and list in `/.well-known/webauthn` only origins you control. See [Integration Guidelines → Dedicated Hostname](./INTEGRATION_GUIDELINES.md#host-the-wallet-on-a-dedicated-hostname).
+
 ### Localhost and Development
 
 During development, credentials are scoped to `localhost`:
@@ -2657,7 +2668,7 @@ await w3pk.register({
 
 **Q: What if I want to share credentials across subdomains?**
 
-A: Currently not supported. Each subdomain requires separate registration. This is the most secure approach.
+A: Currently not supported. Each subdomain requires separate registration. This is the most secure approach. Note that the browser lets a subdomain use its parent's passkeys anyway, outside w3pk: [keep untrusted subdomains off the wallet's hostname](#subdomains-can-use-the-wallets-passkeys).
 
 **Q: Can I migrate credentials between domains?**
 
