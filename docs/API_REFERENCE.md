@@ -2614,7 +2614,7 @@ Combine guardian shares into the backup file, decrypt it and restore it as `rest
 - `password: string` - Password set in `setupSocialRecovery()`
 - `options.allowAddressChange?: boolean` - Allow the recovered wallet to replace the logged-in wallet with another address (default `false`)
 
-**Throws:** `AddressChangeError` as in `restoreFromBackupFile()`; `InvalidGuardianShareError` (`code: 'GUARDIAN_SHARE_INVALID'`, with `shareIndex` and `guardianName`) for a share that is corrupted or edited (checksum mismatch), from another setup, given twice, or in an older format (share files `version: 1`, made by 0.11.x: combine them with w3pk v0.11.1, or set up social recovery again); `CryptoError` for a wrong password
+**Throws:** `AddressChangeError` as in `restoreFromBackupFile()`; `InvalidGuardianShareError` (`code: 'GUARDIAN_SHARE_INVALID'`, with `shareIndex` and `guardianName`) for a share that is corrupted or edited (checksum mismatch, or an x-coordinate other than its `shareIndex`), from another setup, given twice, or in an older format (share files `version: 1`, made by 0.11.x: combine them with w3pk v0.11.1, or set up social recovery again); given more shares than the threshold, a share failing its checksum is left out while the others reach the threshold, and the backups that threshold-sized subsets rebuild are decrypted in turn (see [RECOVERY.md](RECOVERY.md)); `CryptoError` for a wrong password, or when none of the rebuilt backups decrypts
 
 **Example:**
 

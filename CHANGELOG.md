@@ -104,6 +104,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A rejected assertion's PRF outputs are zeroed, and accepted ones are copied out of the client extension results, which are zeroed
   - `evaluatePrf(input, { credential, second, mismatchError })` takes an options object; `verifyAssertion()` is replaced by `verifyPrfAssertion()` and `verifySignCount()`, and `PasskeySelectionResult` no longer carries `prfOutput`
   - No prompt changes: honest authenticators pass as before
+- **Shamir share validation and constant-time GF(256) arithmetic** ([#353](https://github.com/w3hc/w3pk/issues/353)), audit finding L-7
+  - Shares with an x-coordinate of 0 or one given twice are rejected, and `recoverFromGuardians()` throws `InvalidGuardianShareError` for a share whose x-coordinate isn't its `shareIndex`
+  - Given more shares than the threshold, a share failing its checksum is left out as long as the others reach the threshold, and recovery tries threshold-sized subsets (windows of consecutive shares first, at most 256): it decrypts the backups they rebuild, the one most subsets agree on first, at most 8, so a share edited with its checksum recomputed no longer blocks recovery
+  - `verifyRecovery()` fails when a share is left out or subsets rebuild different backups
+  - GF(256) multiply is masked shift-and-add and inverse is a^254 (FIPS-197 §4.2, §4.4), with no log/exp table lookups on secret bytes
+  - `combineShares()` is replaced by `combineShareSubsets()`
+  - No change for guardians: same share format, shares made before recover as before (`test/fixtures/shamir-shares.json`)
 
 ## [0.12.3] - 2026-11-10
 
