@@ -117,6 +117,7 @@ export class ZKProofModule {
    */
   async getNFTHolderCommitment(contractAddress: string): Promise<string> {
     try {
+      this.assertProofEnabled("nft");
       const holderKey = this.nftHolderKey();
       if (!isValidAddress(contractAddress)) {
         throw new CryptoError(`Invalid contract address: ${contractAddress}`);
