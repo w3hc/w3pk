@@ -55,9 +55,19 @@ export interface EIP1193ProviderInterface {
 
 type SigningMethod = SigningRequest["method"];
 
+/** What a transaction's digests carry besides them */
+interface TransactionCost {
+  /**
+   * PRIMARY mode: the UserOperation's required prefund in wei, the most it can cost, whoever
+   * pays (the account or a paymaster); the same for each transaction of an array
+   */
+  maxFee?: bigint;
+}
+
 /** ERC-8213 digests of a signing request, with its method: narrow on `method` */
 export type BeforeSignDigests = {
-  [M in SigningMethod]: { method: M } & SigningDigests<Extract<SigningRequest, { method: M }>>;
+  [M in SigningMethod]: { method: M } & SigningDigests<Extract<SigningRequest, { method: M }>> &
+    (M extends "eth_sendTransaction" ? TransactionCost : {});
 }[SigningMethod];
 
 /** ERC-8213 digests of a transaction, with its method */
