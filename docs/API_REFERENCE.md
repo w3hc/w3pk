@@ -711,7 +711,7 @@ You can specify a different mode, tag, and signing method to customize the signa
 - `options.rpcUrl?: string` - PRIMARY mode: RPC endpoint used to check whether the account is deployed (default: the first `rpcUrls` endpoint for the chain)
 - `options.eip712Domain?: TypedDataDomain` - EIP-712 domain separator (ethers' [`TypedDataDomain`](https://docs.ethers.org/v6/api/hashing/#TypedDataDomain)) (required for EIP712 method)
 - `options.eip712Types?: object` - EIP-712 type definitions (required for EIP712 method)
-- `options.eip712PrimaryType?: string` - Primary type name (required for EIP712 method)
+- `options.eip712PrimaryType?: string` - Primary type name (required for EIP712 method); every type in `eip712Types` other than `EIP712Domain` must be reachable from it, or the call throws
 
 **Returns:** `SignatureResult`
 
@@ -1589,6 +1589,7 @@ await provider.request({
 - `eth_sendTransaction` hex fields (`value`, `gas`, `maxFeePerGas`, `maxPriorityFeePerGas`, `nonce`) are automatically converted to `bigint` / `number` before passing to `sendTransaction()`.
 - `personal_sign` data that arrives as a `0x`-prefixed hex string is signed as the bytes it encodes, matching MetaMask's behaviour.
 - `eth_signTypedData_v4` throws a `WalletError` when the typed data's `domain.chainId` differs from the active chain, as [EIP-712](https://eips.ethereum.org/EIPS/eip-712) requires; switch chains first with `wallet_switchEthereumChain`.
+- `eth_signTypedData_v4` copies the typed data before `onBeforeSign` and signs that copy, so changing the request while the hook waits has no effect. It signs `primaryType` with the types it references, and throws on types `primaryType` doesn't reach, such as a `primaryType` nested under another root, and on a domain that `types.EIP712Domain` doesn't declare as is.
 
 ---
 
@@ -1639,7 +1640,7 @@ const { erc191Digest } = getSigningDigests({ method: 'personal_sign', params: ['
 - The Calldata Digest covers neither `to` nor `value`, as ERC-8213's security considerations warn: show and check them separately.
 - Missing or `0x` calldata still has a Calldata Digest: `0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563`, the hash of 32 zero bytes.
 - `personal_sign` and `eth_sign` messages that are `0x`-prefixed hex are hashed as the bytes they encode; any other string is UTF-8, as the provider signs them.
-- The Message Hash follows `primaryType`, and types it doesn't reference are ignored. A `types.EIP712Domain` that doesn't match the domain's fields throws a `WalletError`.
+- The Message Hash follows `primaryType`, which must be the root type: types it doesn't reach throw a `WalletError`, as ethers refuses to sign them. A `types.EIP712Domain` that doesn't match the domain's fields throws a `WalletError`.
 - The digests depend on the request only, never on the mode. In `PRIMARY`, they are the original EIP-712 or ERC-191 digest, not the ERC-7739 hash the passkey signs, and the transaction's own `data`, not the ERC-4337 `execute()` callData.
 - One request at a time: batched `PRIMARY` sends (`sendTransaction([...])`) are not covered.
 - Unsupported methods throw a `WalletError`.
