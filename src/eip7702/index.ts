@@ -71,14 +71,20 @@ const DELEGATED = estimateWithCode(
 );
 
 async function rpc(rpcUrl: string, body: object, timeout: number): Promise<{ result?: unknown }> {
-  const response = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(timeout),
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /**
@@ -89,8 +95,11 @@ async function rpc(rpcUrl: string, body: object, timeout: number): Promise<{ res
  */
 async function testRPCForEIP7702(rpcUrl: string, timeout: number = 10000): Promise<boolean> {
   try {
-    if ((await rpc(rpcUrl, REVERTING, timeout)).result !== undefined) return false;
-    return (await rpc(rpcUrl, DELEGATED, timeout)).result !== undefined;
+    const [reverting, delegated] = await Promise.all([
+      rpc(rpcUrl, REVERTING, timeout),
+      rpc(rpcUrl, DELEGATED, timeout),
+    ]);
+    return reverting.result === undefined && delegated.result !== undefined;
   } catch {
     return false;
   }
