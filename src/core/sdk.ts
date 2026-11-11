@@ -123,6 +123,7 @@ import {
   createEIP1193Provider,
   type EIP1193ProviderInterface,
   type EIP1193ProviderOptions,
+  type TransactionBeforeSignDigests,
 } from "./eip1193";
 import type { SdkContext } from "./context";
 import { bip39Seed, deriveMLKemPublicKey, mlkemDecrypt, mlkemEncrypt } from "./mlkem";
@@ -1223,8 +1224,9 @@ export class Web3Passkey {
       const effectiveMode = options?.mode || DEFAULT_MODE;
       const effectiveTag = options?.tag || DEFAULT_TAG;
       const origin = getCurrentOrigin();
-      const txs = (Array.isArray(tx) ? tx : [tx]).map((t) => ({ ...t }));
-      const confirm = this.beforeSendTransaction(txs, Array.isArray(tx), options?.onBeforeSign);
+      const snapshot = Array.isArray(tx) ? tx.map((t) => ({ ...t })) : { ...tx };
+      const txs = Array.isArray(snapshot) ? snapshot : [snapshot];
+      const confirm = () => this.confirmTransaction(snapshot, options?.onBeforeSign);
 
       if (effectiveMode === 'PRIMARY') {
         return await this.sendWithSmartAccount(txs, effectiveTag, origin, confirm, options);
@@ -1288,21 +1290,17 @@ export class Web3Passkey {
     }
   }
 
-  /**
-   * Computes the transactions' digests for onBeforeSign, and returns the step that awaits it,
-   * run right before the passkey prompt
-   */
-  private beforeSendTransaction(
-    txs: TransactionRequest[],
-    isArray: boolean,
+  /** Awaits onBeforeSign with the digests of a transaction, or of each of an array of transactions */
+  private async confirmTransaction(
+    tx: TransactionRequest | TransactionRequest[],
     onBeforeSign: SendTransactionOptions["onBeforeSign"]
-  ): () => Promise<void> {
-    if (!onBeforeSign) return async () => {};
-    const digests = txs.map(({ to, value, data }) => ({
-      method: "eth_sendTransaction" as const,
+  ): Promise<void> {
+    if (!onBeforeSign) return;
+    const digestsOf = ({ to, value, data }: TransactionRequest): TransactionBeforeSignDigests => ({
+      method: "eth_sendTransaction",
       ...getSigningDigests({ method: "eth_sendTransaction", params: [{ to, value, data }] }),
-    }));
-    return () => confirmBeforeSign(onBeforeSign, isArray ? digests : digests[0]);
+    });
+    await confirmBeforeSign(onBeforeSign, Array.isArray(tx) ? tx.map(digestsOf) : digestsOf(tx));
   }
 
   private primarySends = new Map<string, Promise<void>>();
