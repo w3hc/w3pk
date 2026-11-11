@@ -148,7 +148,7 @@ async function setupAuthenticator() {
             },
             getClientExtensionResults: () =>
               authenticator.prf && (publicKey.extensions as any)?.prf?.eval?.first
-                ? { prf: { results: { first: authenticator.prfOutput } } }
+                ? { prf: { results: { first: authenticator.prfOutput.slice(0) } } }
                 : {},
           };
         },

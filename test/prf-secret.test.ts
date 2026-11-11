@@ -16,7 +16,6 @@ import {
   SyncRequiredError,
   Web3PasskeyError,
 } from "../src/index";
-import { evaluatePrf } from "../src/auth/prf";
 import { CredentialStorage } from "../src/auth/storage";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 import { PrfAuthenticator, UP } from "./prf-authenticator";
@@ -273,6 +272,10 @@ async function runTests() {
           badSignature.message === "Signature verification failed",
         `${label}: a bad signature throws AuthenticationError`
       );
+      assert(
+        new Uint8Array(authenticator.lastResults.first!).every((b) => b === 0),
+        `${label}: the rejected PRF output is zeroed`
+      );
     }
 
     await reset();
@@ -285,18 +288,19 @@ async function runTests() {
     );
 
     await reset();
-    await new CredentialStorage(localStorage as unknown as Storage).updateCredential(CRED_A, {
-      publicKeyMac: arrayBufferToBase64Url(new Uint8Array(32).buffer),
-    });
-    const badMac = await capture(() => new Web3Passkey().derivePrfSecret("zk-identity"));
+    const credentials = new CredentialStorage(localStorage as unknown as Storage);
+    const stored = await credentials.getCredentialById(CRED_A);
+    await credentials.saveCredential({ ...stored!, publicKey: await authenticator.publicKey(CRED_B) });
+    const swappedStored = await capture(() => new Web3Passkey().derivePrfSecret("zk-identity"));
     assert(
-      badMac instanceof AuthenticationError &&
-        badMac.message === "The passkey's stored public key failed authentication",
-      "logged out: a stored public key failing its MAC throws AuthenticationError"
+      swappedStored instanceof AuthenticationError &&
+        swappedStored.message === "Signature verification failed",
+      "logged out: checked against the public key stored for the passkey"
     );
-    const second = (authenticator.calls[0].extensions as any).prf.eval.second;
-    assert(second !== undefined, "logged out: the same assertion evaluates the PRF for the MAC");
-    assert(authenticator.calls.length === 1, "logged out: one assertion");
+    assert(
+      !(authenticator.calls[0].extensions as any).prf.eval.second,
+      "logged out: no other PRF input is evaluated"
+    );
 
     await reset();
     localStorage.clear();
@@ -304,13 +308,6 @@ async function runTests() {
     assert(
       unknown instanceof SyncRequiredError,
       "logged out: a passkey without metadata on this device throws SyncRequiredError"
-    );
-
-    await reset();
-    const noCredential = await capture(() => evaluatePrf(new Uint8Array(32), { second: new Uint8Array(32) }));
-    assert(
-      noCredential instanceof CryptoError && authenticator.calls.length === 0,
-      "evaluatePrf(): a second input without a credential throws CryptoError before any prompt"
     );
   }
   console.log("");

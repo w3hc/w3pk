@@ -60,6 +60,8 @@ export class PrfAuthenticator {
   badSignature = false;
   reject: Error | null = null;
   calls: PublicKeyCredentialRequestOptions[] = [];
+  /** PRF outputs of the last assertion, as returned */
+  lastResults: { first?: ArrayBuffer; second?: ArrayBuffer } = {};
 
   private readonly secrets: Map<string, Uint8Array>;
   private readonly keys: Promise<Map<string, CryptoKeyPair>>;
@@ -137,6 +139,7 @@ export class PrfAuthenticator {
       results.first = await prf(this.secret(id), evaluate.first);
       if (evaluate.second) results.second = await prf(this.secret(id), evaluate.second);
     }
+    this.lastResults = results;
 
     this.signCount++;
     const authenticatorData = new Uint8Array(37);
