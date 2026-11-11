@@ -47,6 +47,8 @@ template NFTOwnership(levels) {
 
     // Below the Baby Jubjub subgroup order, so one commitment has one secret
     var l = 2736030358979909402780800718157159386076813972158567259200215660948447373041;
+    component secretBits = Num2Bits(251);
+    secretBits.in <== secret;
     component secretInRange = LessThan(251);
     secretInRange.in[0] <== secret;
     secretInRange.in[1] <== l;
