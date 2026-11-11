@@ -1,4 +1,4 @@
-import { mockLocalStorage } from "./setup";
+import "./setup";
 import { createWeb3Passkey } from "../src/index";
 import {
   startTestSuite,
@@ -16,7 +16,6 @@ async function runTests() {
   // Test 1: SDK Initialization
   await runTest("SDK Initialization", async () => {
     const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
       debug: false,
       onError: (error) => {
         logInfo(`SDK Error: ${error.message}`);
@@ -34,7 +33,6 @@ async function runTests() {
   // Test 2: Wallet Generation (Optional Pre-generation)
   await runTest("Wallet Generation (Optional)", async () => {
     const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
       debug: false,
     });
 
@@ -48,7 +46,6 @@ async function runTests() {
   await runTest("Registration Flow", async () => {
     // Create new SDK instance for clean test
     const sdk2 = createWeb3Passkey({
-      storage: mockLocalStorage,
       debug: false,
     });
 

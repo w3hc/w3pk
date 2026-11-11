@@ -16,7 +16,7 @@
  * - Different tags → different from addresses
  */
 
-import { mockLocalStorage } from "./setup";
+import "./setup";
 import { UnauthorizedError, UserRejectedRequestError, createWeb3Passkey, getSigningDigests } from "../src/index";
 import { startMockBundler } from "./fixtures/mock-bundler";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
@@ -112,7 +112,7 @@ async function runTests() {
   // 1. Method exists on SDK instance
   // ------------------------------------------------------------------
   await runTest("sendTransaction method exists on SDK", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     assert(
       typeof sdk.sendTransaction === "function",
       "sendTransaction should be a function on the SDK"
@@ -124,7 +124,7 @@ async function runTests() {
   // 2. Throws when not authenticated
   // ------------------------------------------------------------------
   await runTest("sendTransaction throws when not authenticated", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
 
     try {
       await sdk.sendTransaction({ to: TEST_CONTRACT, chainId: 1 });
@@ -150,7 +150,7 @@ async function runTests() {
     const chain = await startMockBundler();
     try {
       for (const mode of ["STRICT", "STANDARD", "YOLO"] as const) {
-        const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [chain.url] } });
+        const sdk = createWeb3Passkey({ debug: false, rpcUrls: { 1: [chain.url] } });
         (sdk as any).currentUser = { username: "eoa", ethereumAddress: TEST_CONTRACT, credentialId: "eoa" };
         let requireAuth: boolean | undefined;
         (sdk as any).getMnemonicFromSession = async (fresh: boolean) => {
@@ -194,7 +194,7 @@ async function runTests() {
     const chain = await startMockBundler();
     try {
       for (const mode of ["STRICT", "STANDARD", "YOLO"] as const) {
-        const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [chain.url] } });
+        const sdk = createWeb3Passkey({ debug: false, rpcUrls: { 1: [chain.url] } });
         (sdk as any).currentUser = { username: "eoa", ethereumAddress: TEST_CONTRACT, credentialId: "eoa" };
         const log: string[] = [];
         (sdk as any).getMnemonicFromSession = async () => {
@@ -254,7 +254,7 @@ async function runTests() {
     const chain = await startMockBundler();
     try {
       for (const mode of ["STRICT", "STANDARD", "YOLO"] as const) {
-        const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [chain.url] } });
+        const sdk = createWeb3Passkey({ debug: false, rpcUrls: { 1: [chain.url] } });
         (sdk as any).currentUser = { username: "eoa", ethereumAddress: TEST_CONTRACT, credentialId: "eoa" };
         (sdk as any).getMnemonicFromSession = async () => TEST_MNEMONIC;
         const signer = await expectedFrom(mode, "MAIN", window.location.origin);
@@ -285,7 +285,7 @@ async function runTests() {
     const chain = await startMockBundler();
     try {
       for (const mode of ["STRICT", "STANDARD", "YOLO"] as const) {
-        const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [chain.url] } });
+        const sdk = createWeb3Passkey({ debug: false, rpcUrls: { 1: [chain.url] } });
         (sdk as any).currentUser = { username: "eoa", ethereumAddress: TEST_CONTRACT, credentialId: "eoa" };
         let prompts = 0;
         (sdk as any).getMnemonicFromSession = async () => {
@@ -503,7 +503,7 @@ async function runTests() {
   // 12. SDK method is available and not undefined in exported surface
   // ------------------------------------------------------------------
   await runTest("sendTransaction is exported via createWeb3Passkey", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     assert("sendTransaction" in sdk, "sendTransaction should be in SDK");
     assert(sdk.sendTransaction !== undefined, "sendTransaction should not be undefined");
     passTest("sendTransaction is in the public SDK surface");
@@ -562,7 +562,7 @@ async function runTests() {
     clearCache();
 
     const send = async (config: object, rpcUrl?: string) => {
-      const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, ...config });
+      const sdk = createWeb3Passkey({ debug: false, ...config });
       (sdk as any).currentUser = { username: "rpc", ethereumAddress: TEST_CONTRACT, credentialId: "rpc" };
       (sdk as any).getMnemonicFromSession = async () => {
         prompts++;
@@ -589,7 +589,7 @@ async function runTests() {
         assertEqual(prompts, 0, "no passkey prompt");
       }
 
-      const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, ...appRpc });
+      const sdk = createWeb3Passkey({ debug: false, ...appRpc });
       assertEqual(
         JSON.stringify(await sdk.getEndpoints(1)),
         JSON.stringify(["https://app.example", "https://chainlist.example"]),

@@ -48,7 +48,7 @@ async function runTests() {
   });
 
   const newSdk = (config = {}) => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, ...config });
+    const sdk = createWeb3Passkey({ debug: false, ...config });
     (sdk as any).currentUser = {
       username: "smart-account",
       ethereumAddress: "0x0000000000000000000000000000000000000000",

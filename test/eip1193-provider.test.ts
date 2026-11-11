@@ -34,7 +34,7 @@
  *   eth_sign refused with 4200, bundlerUrl option
  */
 
-import { mockLocalStorage } from "./setup";
+import "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { confirmBeforeSign, createEIP1193Provider, type BeforeSignDigests } from "../src/core/eip1193";
@@ -101,7 +101,7 @@ async function runTests() {
   // 1. getEIP1193Provider method exists on SDK
   // ------------------------------------------------------------------
   await runTest("getEIP1193Provider method exists on SDK", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     assert(
       typeof sdk.getEIP1193Provider === "function",
       "getEIP1193Provider should be a function on the SDK"
@@ -113,7 +113,7 @@ async function runTests() {
   // 2. Returned object has the EIP-1193 shape
   // ------------------------------------------------------------------
   await runTest("Returned provider has EIP-1193 shape", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider();
 
     assert(typeof provider.request === "function", "provider.request must be a function");
@@ -126,7 +126,7 @@ async function runTests() {
   // 3. eth_chainId — default (1)
   // ------------------------------------------------------------------
   await runTest("eth_chainId returns 0x1 by default", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider();
 
     const chainId = await provider.request({ method: "eth_chainId" });
@@ -138,7 +138,7 @@ async function runTests() {
   // 4. eth_chainId — custom initial value
   // ------------------------------------------------------------------
   await runTest("eth_chainId respects options.chainId", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider({ chainId: 8453 }); // Base
 
     const chainId = await provider.request({ method: "eth_chainId" });
@@ -153,7 +153,7 @@ async function runTests() {
   const rpcUrlFor = (chainId: number) => (rpcUrls as Record<number, string[]>)[chainId]?.[0];
 
   await runTest("wallet_switchEthereumChain updates active chainId", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls });
+    const sdk = createWeb3Passkey({ debug: false, rpcUrls });
     const provider = sdk.getEIP1193Provider({ chainId: 1 });
 
     await provider.request({
@@ -170,7 +170,7 @@ async function runTests() {
   // 6. wallet_switchEthereumChain emits chainChanged event
   // ------------------------------------------------------------------
   await runTest("wallet_switchEthereumChain emits chainChanged event", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls });
+    const sdk = createWeb3Passkey({ debug: false, rpcUrls });
     const provider = sdk.getEIP1193Provider({ chainId: 1 });
 
     let emittedChainId: string | null = null;
@@ -218,7 +218,7 @@ async function runTests() {
   // 7. removeListener stops event delivery
   // ------------------------------------------------------------------
   await runTest("removeListener stops event delivery", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls });
+    const sdk = createWeb3Passkey({ debug: false, rpcUrls });
     const provider = sdk.getEIP1193Provider({ chainId: 1 });
 
     let callCount = 0;
@@ -260,7 +260,7 @@ async function runTests() {
   // 9. Two provider instances are independent (separate chainId state)
   // ------------------------------------------------------------------
   await runTest("Multiple provider instances have isolated chainId state", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls });
+    const sdk = createWeb3Passkey({ debug: false, rpcUrls });
     const providerA = sdk.getEIP1193Provider({ chainId: 1 });
     const providerB = sdk.getEIP1193Provider({ chainId: 10 });
 
@@ -282,7 +282,7 @@ async function runTests() {
   // 10. eth_accounts requires authentication → throws when not logged in
   // ------------------------------------------------------------------
   await runTest("eth_accounts throws when not authenticated", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider();
 
     try {
@@ -303,7 +303,7 @@ async function runTests() {
   // 11. eth_requestAccounts requires authentication → throws when not logged in
   // ------------------------------------------------------------------
   await runTest("eth_requestAccounts throws when not authenticated", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider();
 
     try {
@@ -323,7 +323,7 @@ async function runTests() {
   // 12. eth_sendTransaction requires authentication
   // ------------------------------------------------------------------
   await runTest("eth_sendTransaction throws when not authenticated", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider({ chainId: 1 });
 
     try {
@@ -350,7 +350,7 @@ async function runTests() {
   // 13. personal_sign requires authentication
   // ------------------------------------------------------------------
   await runTest("personal_sign throws when not authenticated", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider();
 
     try {
@@ -373,7 +373,7 @@ async function runTests() {
   // 14. eth_signTypedData_v4 requires authentication
   // ------------------------------------------------------------------
   await runTest("eth_signTypedData_v4 throws when not authenticated", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider();
 
     const typedData = JSON.stringify({
@@ -644,7 +644,7 @@ async function runTests() {
   // 20. Provider is usable as window.ethereum substitute (shape check)
   // ------------------------------------------------------------------
   await runTest("Provider satisfies EIP-1193 duck-type check", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider();
 
     // EIP-1193 consumers typically check for these
@@ -694,7 +694,7 @@ async function runTests() {
   // 22. Hex-encoded SIWE messages get the domain check
   // ------------------------------------------------------------------
   await runTest("personal_sign checks the domain of a hex SIWE message", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const provider = sdk.getEIP1193Provider();
     const host = new URL(window.location.origin).host;
     const siweHex = (domain: string) =>
@@ -811,7 +811,7 @@ Issued At: 2021-09-30T16:25:24Z`)
       throw new Error("no request expected");
     }) as typeof fetch;
     try {
-      const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: ["https://one.example"] } });
+      const sdk = createWeb3Passkey({ debug: false, rpcUrls: { 1: ["https://one.example"] } });
       const provider = sdk.getEIP1193Provider({ chainId: 10 });
       const error = await provider.request({ method: "eth_blockNumber" }).catch((e) => e);
       assert(error instanceof WalletError, "throws a WalletError");
@@ -1099,7 +1099,7 @@ Issued At: 2021-09-30T16:25:24Z`)
   };
   const standardSdk = async () => {
     const { Wallet } = await import("ethers");
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     (sdk as any).currentUser = {
       username: "typed-data",
       ethereumAddress: Wallet.createRandom().address,
@@ -1452,7 +1452,6 @@ Issued At: 2021-09-30T16:25:24Z`)
       const override = await startMockBundler({ chainId: 10 });
       try {
         const sdk = createWeb3Passkey({
-          storage: mockLocalStorage,
           debug: false,
           rpcUrls: { 1: [bundler.url], 10: [optimism.url, "http://127.0.0.1:1"] },
         });
@@ -1502,7 +1501,7 @@ Issued At: 2021-09-30T16:25:24Z`)
     });
 
     await runTest("JSON-RPC errors pass through with their code and data", async () => {
-      const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [bundler.url] } });
+      const sdk = createWeb3Passkey({ debug: false, rpcUrls: { 1: [bundler.url] } });
       const provider = sdk.getEIP1193Provider();
       for (const method of ["eth_call", "eth_estimateGas"]) {
         const error = await provider

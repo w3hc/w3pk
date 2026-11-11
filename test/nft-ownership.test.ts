@@ -188,7 +188,7 @@ async function runNFTOwnershipTests() {
       location: { hostname: 'localhost', origin: ORIGIN },
       localStorage: mockLocalStorage,
     };
-    const w3pk = new Web3Passkey({ storage: mockLocalStorage } as any);
+    const w3pk = new Web3Passkey();
     await (w3pk as any).sessionManager.startSession(MNEMONIC, 'cred-id');
 
     const seed = await bip39Seed(MNEMONIC);

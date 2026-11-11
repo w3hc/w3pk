@@ -45,7 +45,6 @@ interface Web3PasskeyConfig {
   debug?: boolean;                    // Enable debug mode (default: false)
   onError?: (error: Web3PasskeyError) => void;  // Global error handler
   onAuthStateChanged?: (isAuthenticated: boolean, user?: UserInfo) => void;  // Auth state callback
-  storage?: Storage;                  // Custom storage backend (default: localStorage)
   sessionDuration?: number;           // Session duration in hours (default: 1)
   persistentSession?: Partial<PersistentSessionConfig>;  // Enable "Remember Me" functionality
   stealthAddresses?: StealthAddressConfig;  // Enable stealth addresses

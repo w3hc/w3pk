@@ -2,7 +2,7 @@
  * EIP-7702 SDK method tests
  */
 
-import { mockLocalStorage } from "./setup";
+import "./setup";
 import { createWeb3Passkey } from "../src/index";
 import {
   startTestSuite,
@@ -18,7 +18,6 @@ async function runTests() {
 
   await runTest("w3pk.supportsEIP7702()", async () => {
     const w3pk = createWeb3Passkey({
-      storage: mockLocalStorage,
     });
 
     // Test supported networks (cached - instant)

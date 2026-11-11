@@ -13,8 +13,6 @@ export interface Web3PasskeyConfig {
   debug?: boolean;
   onError?: (error: Web3PasskeyError) => void;
   onAuthStateChanged?: (isAuthenticated: boolean, user?: UserInfo) => void;
-  storage?: Storage;
-
   /**
    * Session duration in hours (default: 1)
    * Set to 0 to require authentication for every operation
