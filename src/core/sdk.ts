@@ -257,9 +257,10 @@ export class Web3Passkey {
   /** The NFT holder identity's private key, from the wallet in the session */
   private async deriveNFTHolderKey(contractAddress: string): Promise<Uint8Array> {
     const { deriveNFTHolderKey } = await import("../zk/semaphore");
+    const origin = normalizeOrigin(getCurrentOrigin());
     const seed = await bip39Seed(await this.getMnemonicFromSession());
     try {
-      return deriveNFTHolderKey(seed, normalizeOrigin(getCurrentOrigin()), contractAddress);
+      return deriveNFTHolderKey(seed, origin, contractAddress);
     } finally {
       seed.fill(0);
     }
