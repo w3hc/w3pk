@@ -44,7 +44,8 @@ export class ZKProofModule {
 
   /**
    * Generate membership proof - prove you're in a set without revealing identity
-   * Use case: Prove you're a verified user without revealing which one
+   * Use case: Prove you're a verified user without revealing which one.
+   * The nullifier is Poseidon(scope, leaf); `scope` defaults to the root.
    */
   async proveMembership(input: MembershipProofInput): Promise<ZKProof> {
     try {
@@ -191,14 +192,15 @@ export class ZKProofModule {
   }
 
   /**
-   * Verify membership proof with expected root
+   * Verify membership proof with expected root and scope (default: the root)
    */
   async verifyMembership(
     proof: ZKProof,
-    expectedRoot: string
+    expectedRoot: string,
+    expectedScope?: bigint | string
   ): Promise<boolean> {
     try {
-      return await this.verifier.verifyMembershipProof(proof, expectedRoot);
+      return await this.verifier.verifyMembershipProof(proof, expectedRoot, expectedScope);
     } catch (error) {
       throw new Web3PasskeyError(
         "Failed to verify membership proof",

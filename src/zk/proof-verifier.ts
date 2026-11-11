@@ -89,20 +89,27 @@ export class ZKProofVerifier {
   }
 
   /**
-   * Verify membership proof
+   * Verify membership proof against the expected root and scope (default:
+   * the root). Store `publicSignals[0]`, the nullifier, to refuse a second
+   * proof from the same leaf in the same scope.
    */
   async verifyMembershipProof(
     proof: ZKProof,
-    expectedRoot: string
+    expectedRoot: string,
+    expectedScope: bigint | string = expectedRoot
   ): Promise<boolean> {
     if (proof.type !== "membership") {
       throw new CryptoError("Invalid proof type for membership verification");
     }
 
     const result = await this.verifyProof(proof);
+    const [, root, scope] = proof.publicSignals;
 
-    const publicRoot = proof.publicSignals[1];
-    return result.valid && publicRoot === expectedRoot;
+    return (
+      result.valid &&
+      root === expectedRoot &&
+      scope === BigInt(expectedScope).toString()
+    );
   }
 
   /**
@@ -221,6 +228,7 @@ export class ZKProofVerifier {
         return {
           nullifier: signals[0],
           root: signals[1],
+          scope: signals[2],
         };
 
       case "threshold":
