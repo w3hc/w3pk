@@ -3943,7 +3943,7 @@ import {
   - `SyncRequiredError` - `login()`, and `derivePrfSecret()`, `getSemaphoreIdentity()` and `zkProve()` when logged out: passkey authenticated, but this device has no credential metadata (`credentialId`)
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
-  - `UserVerificationRequiredError` - `login()` with `userVerification: 'preferred'`: the assertion isn't user-verified, so it carries no PRF output to unlock the wallet (`credentialId`)
+  - `UserVerificationRequiredError` - `login()`, and a re-authentication (`requireAuth`, `importMnemonic()`), with `userVerification: 'preferred'`: the assertion isn't user-verified, so it carries no PRF output to unlock the wallet (`credentialId`)
   - `PrfUnsupportedError` - `register()`, `login()`, `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
   - `AddressChangeError` - `restoreFromBackupFile()`, `recoverFromGuardians()`, `syncWalletWithPasskey()`, `importFromSync()`: the backup would replace the logged-in (or the passkey's stored) wallet with another address and `allowAddressChange` isn't set (`currentAddress`, `newAddress`)
   - `RemovedBackupMethodError` - `syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, `recoverFromGuardians()`: the backup uses the removed `passkey` or `hybrid` method (`method`); create a new `password` or `prf` backup
