@@ -69,6 +69,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - In `PRIMARY`, `onBeforeSign` digests carry it as `maxFee`, from `sendTransaction()` and from the EIP-1193 provider, whose `eth_sendTransaction` now passes its hook to `sendTransaction()` instead of running it before the call
   - The docs no longer say a bundler can't alter a UserOperation: it chooses the gas values the passkey signs
   - `DEFAULT_USER_OPERATION_CAPS`, `UserOperationCaps` and `getRequiredPrefund()` are exported from `w3pk`
+- **BREAKING: stealth addresses hash the compressed shared secret** ([#348](https://github.com/w3hc/w3pk/issues/348)), audit finding M-2. Before, the ECDH shared secret was hashed as a 65-byte uncompressed point, while ScopeLift's ERC-5564 SDK hashes the 33-byte compressed point, so payments from ScopeLift-based senders landed on addresses w3pk never scanned or signed for
+  - `generateStealthAddress()`, `checkStealthAddress()` and `computeStealthPrivateKey()` hash `keccak256` of the compressed point; there is no legacy path
+  - Stealth addresses, view tags and stealth private keys derived by earlier versions change: announcements made with them are no longer recognized, and funds sent to them can't be spent through w3pk
+  - The meta-address, viewing key and spending key don't change
+  - `test/erc5564.test.ts` checks two vectors generated with `@scopelift/stealth-address-sdk`
   - No change for legitimate operations: same gas values, same prompts
 
 ## [0.12.3] - 2026-11-10
