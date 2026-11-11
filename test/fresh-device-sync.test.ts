@@ -180,6 +180,7 @@ async function passwordBackupFromDeviceA(publicKey: string): Promise<string> {
     ethereumAddress: ADDRESS,
     credentialId: CREDENTIAL_ID,
   };
+  (sdk as any).currentPublicKey = publicKey;
   (sdk as any).getMnemonicFromSession = async () => MNEMONIC;
   const { blob } = await sdk.createBackupFile(PASSWORD);
   localStorage.clear();

@@ -71,12 +71,12 @@ export async function recordBackup(ctx: SdkContext, method: 'file' | 'prf'): Pro
   });
 }
 
-export async function backupCredential(ctx: Pick<SdkContext, 'currentUser'>): Promise<BackupCredential | undefined> {
-  const credential = await new CredentialStorage().getCredentialById(
-    ctx.currentUser!.credentialId
-  );
-  return credential
-    ? { id: credential.id, publicKey: credential.publicKey }
+/** The logged-in passkey, with the public key checked at login */
+export async function backupCredential(
+  ctx: Pick<SdkContext, 'currentUser' | 'currentPublicKey'>
+): Promise<BackupCredential | undefined> {
+  return ctx.currentUser && ctx.currentPublicKey
+    ? { id: ctx.currentUser.credentialId, publicKey: ctx.currentPublicKey }
     : undefined;
 }
 
@@ -483,8 +483,7 @@ export async function exportForSync(
     throw new WalletError("No wallet data found");
   }
 
-  const storage = new CredentialStorage();
-  const credential = await storage.getCredentialById(walletData.credentialId);
+  const credential = await backupCredential(ctx);
   if (!credential) {
     throw new WalletError("Credential not found");
   }
@@ -494,7 +493,7 @@ export async function exportForSync(
 
   const { backupFile, blob } = await syncManager.exportForSync(
     mnemonic,
-    { id: credential.id, publicKey: credential.publicKey },
+    credential,
     ctx.currentUser.username,
     password
   );

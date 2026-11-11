@@ -210,6 +210,7 @@ async function loggedInDeviceA(publicKey: string): Promise<Web3Passkey> {
     ethereumAddress: ADDRESS,
     credentialId: CREDENTIAL_ID,
   };
+  (sdk as any).currentPublicKey = publicKey;
   (sdk as any).getMnemonicFromSession = async () => MNEMONIC;
   return sdk;
 }

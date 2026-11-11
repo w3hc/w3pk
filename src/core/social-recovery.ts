@@ -3,7 +3,7 @@ import { applyRestoredWallet, backupCredential } from "./backup-sync";
 import type { SdkContext } from "./context";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
 
-type SocialRecoveryContext = Pick<SdkContext, 'currentUser' | 'getMnemonicFromSession'>;
+type SocialRecoveryContext = Pick<SdkContext, 'currentUser' | 'currentPublicKey' | 'getMnemonicFromSession'>;
 
 export async function setupSocialRecovery(
   ctx: SocialRecoveryContext,
