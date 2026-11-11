@@ -2,13 +2,20 @@
  * SIWE (Sign-In with Ethereum) Utilities
  * EIP-4361 compliant message construction and validation
  *
- * Reference: https://docs.login.xyz/general-information/siwe-overview/eip-4361
+ * Reference: https://eips.ethereum.org/EIPS/eip-4361
  */
+
+import { keccak_256 } from '@noble/hashes/sha3.js';
+
+export const SIWE_HEADER = ' wants you to sign in with your Ethereum account:';
 
 /**
  * SIWE message parameters (EIP-4361)
  */
 export interface SiweMessage {
+  /** RFC 3986 URI scheme of the requesting origin (optional, e.g. "https") */
+  scheme?: string;
+
   /** RFC 3986 authority (e.g., "example.com" or "localhost:3000") */
   domain: string;
 
@@ -70,10 +77,39 @@ export function generateSiweNonce(length: number = 11): string {
   return nonce;
 }
 
-export const SIWE_HEADER = ' wants you to sign in with your Ethereum account:';
 
 const LINE_BREAK = /[\r\n]/;
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+
+// EIP-4361 ABNF terms, with RFC 3986 character classes
+const UNRESERVED = "A-Za-z0-9\\-._~";
+const SUB_DELIMS = "!$&'()*+,;=";
+const PCT_ENCODED = "%[0-9A-Fa-f]{2}";
+const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*$/;
+const HEADER = new RegExp(
+  `^(?:([A-Za-z][A-Za-z0-9+.-]*)://)?((?:[${UNRESERVED}${SUB_DELIMS}:@[\\]]|${PCT_ENCODED})+)${SIWE_HEADER}$`
+);
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const STATEMENT = new RegExp(`^[${UNRESERVED}:/?#[\\]@${SUB_DELIMS} ]*$`);
+const URI = new RegExp(
+  `^[A-Za-z][A-Za-z0-9+.-]*:(?:[${UNRESERVED}:/?#[\\]@${SUB_DELIMS}]|${PCT_ENCODED})*$`
+);
+const CHAIN_ID = /^[0-9]+$/;
+const NONCE = /^[A-Za-z0-9]{8,}$/;
+const REQUEST_ID = new RegExp(`^(?:[${UNRESERVED}${SUB_DELIMS}:@]|${PCT_ENCODED})*$`);
+
+/** EIP-55: a mixed-case address must match its checksum */
+function hasValidChecksum(address: string): boolean {
+  const hex = address.slice(2);
+  if (hex === hex.toLowerCase() || hex === hex.toUpperCase()) return true;
+  const hash = keccak_256(new TextEncoder().encode(hex.toLowerCase()));
+  for (let i = 0; i < 40; i++) {
+    const nibble = (hash[i >> 1] >> (i % 2 === 0 ? 4 : 0)) & 0x0f;
+    const expected = nibble >= 8 ? hex[i].toUpperCase() : hex[i].toLowerCase();
+    if (hex[i] !== expected) return false;
+  }
+  return true;
+}
 
 function lineBreakFieldError(params: SiweMessage): string | undefined {
   if (params.statement && LINE_BREAK.test(params.statement)) {
@@ -140,8 +176,17 @@ export function createSiweMessage(params: SiweMessage): string {
     throw new Error(lineBreakError);
   }
 
+  if (params.statement && !STATEMENT.test(params.statement)) {
+    throw new Error('Statement must be ASCII letters, digits, spaces or RFC 3986 reserved characters');
+  }
+
+  if (params.scheme !== undefined && !SCHEME.test(params.scheme)) {
+    throw new Error('Scheme must be an RFC 3986 URI scheme');
+  }
+
   // Build message according to EIP-4361 ABNF spec
-  let message = `${params.domain} wants you to sign in with your Ethereum account:\n`;
+  const origin = params.scheme ? `${params.scheme}://${params.domain}` : params.domain;
+  let message = `${origin}${SIWE_HEADER}\n`;
   message += `${params.address}\n`;
   message += `\n`;
 
@@ -181,9 +226,14 @@ export function createSiweMessage(params: SiweMessage): string {
 /**
  * Parse a SIWE message string into structured data
  *
+ * The message must follow the EIP-4361 ABNF exactly: fields in order, each
+ * once, with no other lines and no trailing line break. Values must match
+ * their ABNF terms, dates are RFC 3339, and a mixed-case address must carry
+ * a valid EIP-55 checksum.
+ *
  * @param message - EIP-4361 formatted SIWE message
  * @returns Parsed SIWE message object
- * @throws Error if message format is invalid
+ * @throws Error if the message doesn't follow EIP-4361
  *
  * @example
  * const parsed = parseSiweMessage(signedMessage)
@@ -192,94 +242,67 @@ export function createSiweMessage(params: SiweMessage): string {
  * console.log('Nonce:', parsed.nonce)
  */
 export function parseSiweMessage(message: string): SiweMessage {
+  const fail = (reason: string): never => {
+    throw new Error(`Invalid SIWE message: ${reason}`);
+  };
   const lines = message.split('\n');
+  let i = 0;
+  const next = (): string | undefined => lines[i++];
+  const field = (prefix: string, pattern: RegExp, name: string): string => {
+    const line = next();
+    if (line === undefined || !line.startsWith(prefix)) fail(`expected "${prefix.trimEnd()}" on line ${i}`);
+    const value = line!.slice(prefix.length);
+    if (!pattern.test(value)) fail(`malformed ${name}`);
+    return value;
+  };
+  const optional = (prefix: string, pattern: RegExp, name: string): string | undefined =>
+    lines[i]?.startsWith(prefix) ? field(prefix, pattern, name) : undefined;
+  const date = (value: string | undefined, name: string): string | undefined => {
+    if (value !== undefined && !parseDate(value)) fail(`Invalid ${name} date: "${value}"`);
+    return value;
+  };
 
-  // Parse header (domain + address)
-  if (lines.length < 7) {
-    throw new Error('Invalid SIWE message: too few lines');
-  }
+  const header = HEADER.exec(next()!);
+  if (!header) fail('malformed domain line');
+  const [, scheme, domain] = header!;
 
-  const domainLine = lines[0];
-  const domainMatch = domainLine.match(/^(.+) wants you to sign in with your Ethereum account:$/);
-  if (!domainMatch) {
-    throw new Error('Invalid SIWE message: malformed domain line');
-  }
-  const domain = domainMatch[1];
+  const address = next();
+  if (address === undefined || !ADDRESS.test(address)) fail('malformed address');
+  if (!hasValidChecksum(address!)) fail('address fails its EIP-55 checksum');
 
-  const address = lines[1];
-  if (!address.match(/^0x[a-fA-F0-9]{40}$/)) {
-    throw new Error('Invalid SIWE message: malformed address');
-  }
+  if (next() !== '') fail('expected an empty line after the address');
 
-  // Line 2 should be empty
-  if (lines[2] !== '') {
-    throw new Error('Invalid SIWE message: expected empty line after address');
-  }
-
-  // Find required fields
   let statement: string | undefined;
-  let uri = '';
-  let version = '';
-  let chainId = 0;
-  let nonce = '';
-  let issuedAt = '';
-  let expirationTime: string | undefined;
-  let notBefore: string | undefined;
-  let requestId: string | undefined;
-  const resources: string[] = [];
+  if (lines[i] !== '' || lines[i + 1] === '') {
+    statement = next();
+    if (statement === undefined || !STATEMENT.test(statement)) fail('malformed statement');
+  }
+  if (next() !== '') fail('expected an empty line before the URI');
 
-  let i = 3;
+  const uri = field('URI: ', URI, 'URI');
+  const version = field('Version: ', /^1$/, 'version');
+  const chainIdText = field('Chain ID: ', CHAIN_ID, 'chain ID');
+  const chainId = Number(chainIdText);
+  if (!Number.isSafeInteger(chainId)) fail('chain ID out of range');
+  const nonce = field('Nonce: ', NONCE, 'nonce');
+  const issuedAt = date(field('Issued At: ', /^/, 'Issued At'), 'Issued At')!;
+  const expirationTime = date(optional('Expiration Time: ', /^/, 'Expiration Time'), 'Expiration Time');
+  const notBefore = date(optional('Not Before: ', /^/, 'Not Before'), 'Not Before');
+  const requestId = optional('Request ID: ', REQUEST_ID, 'request ID');
 
-  // Check for optional statement
-  if (lines[i] && !lines[i].startsWith('URI: ')) {
-    statement = lines[i];
-    i++;
-
-    // Skip empty line after statement
-    if (lines[i] === '') {
-      i++;
-    }
+  let resources: string[] | undefined;
+  if (lines[i] === 'Resources:') {
+    next();
+    resources = [];
+    while (i < lines.length) resources.push(field('- ', URI, 'resource'));
   }
 
-  // Parse required fields
-  for (; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (line.startsWith('URI: ')) {
-      uri = line.substring(5);
-    } else if (line.startsWith('Version: ')) {
-      version = line.substring(9);
-    } else if (line.startsWith('Chain ID: ')) {
-      chainId = parseInt(line.substring(10), 10);
-    } else if (line.startsWith('Nonce: ')) {
-      nonce = line.substring(7);
-    } else if (line.startsWith('Issued At: ')) {
-      issuedAt = line.substring(11);
-    } else if (line.startsWith('Expiration Time: ')) {
-      expirationTime = line.substring(17);
-    } else if (line.startsWith('Not Before: ')) {
-      notBefore = line.substring(12);
-    } else if (line.startsWith('Request ID: ')) {
-      requestId = line.substring(12);
-    } else if (line.startsWith('Resources:')) {
-      // Parse resources list
-      i++;
-      while (i < lines.length && lines[i].startsWith('- ')) {
-        resources.push(lines[i].substring(2));
-        i++;
-      }
-      break;
-    }
-  }
-
-  // Validate required fields
-  if (!uri || !version || !chainId || !nonce || !issuedAt) {
-    throw new Error('Invalid SIWE message: missing required fields');
-  }
+  if (i < lines.length) fail(`unexpected line ${i + 1}`);
 
   return {
+    ...(scheme !== undefined && { scheme }),
     domain,
-    address,
+    address: address!,
     statement,
     uri,
     version,
@@ -289,7 +312,7 @@ export function parseSiweMessage(message: string): SiweMessage {
     expirationTime,
     notBefore,
     requestId,
-    resources: resources.length > 0 ? resources : undefined,
+    resources: resources?.length ? resources : undefined,
   };
 }
 
@@ -404,11 +427,11 @@ export function validateSiweMessage(
  * @throws Error if the message doesn't parse or its domain doesn't match
  */
 export function assertSiweDomain(message: string, origin: string): void {
-  const { domain } = parseSiweMessage(message);
+  const { scheme, domain } = parseSiweMessage(message);
   const expected = new URL(origin);
   let actual: URL;
   try {
-    actual = new URL(domain.includes('://') ? domain : `${expected.protocol}//${domain}`);
+    actual = new URL(`${scheme ? `${scheme}:` : expected.protocol}//${domain}`);
   } catch {
     throw new Error(`Invalid SIWE message domain "${domain}"`);
   }

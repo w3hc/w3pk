@@ -702,6 +702,7 @@ async function runTests() {
         new TextEncoder().encode(`${domain} wants you to sign in with your Ethereum account:
 0x1234567890123456789012345678901234567890
 
+
 URI: https://${domain}
 Version: 1
 Chain ID: 1
