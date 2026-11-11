@@ -10,6 +10,9 @@ import { Web3Passkey } from "../src/index";
 import {
   splitSecret,
   combineShares,
+  combineShareSubsets,
+  subsetCount,
+  MAX_SHARE_SUBSETS,
   gfMul,
   gfInv,
   bytesToHex,
@@ -137,6 +140,23 @@ async function runTests() {
     await assertThrows(() => {
       combineShares(shares, 1);
     }, "threshold below 2");
+    passTest();
+  });
+
+  await runTest("combineShareSubsets tries every subset in order, up to the bound", async () => {
+    const secret = Uint8Array.of(7, 8, 9);
+    const shares = splitSecret(secret, 3, 5);
+    const bad = Uint8Array.from(shares[0]);
+    bad[1] ^= 1;
+    const results = [...combineShareSubsets([bad, ...shares.slice(1)], 3)].map(bytesToHex);
+    assertEqual(results.length, subsetCount(5, 3), "all 10 subsets");
+    assertEqual(results.filter((r) => r === bytesToHex(secret)).length, 4, "the 4 subsets without the bad share agree");
+    assert(results[0] !== bytesToHex(secret), "the first subset holds the bad share");
+    assertEqual(results[0], bytesToHex(combineShares([bad, ...shares.slice(1)], 3)), "the first subset is combineShares()");
+
+    const many = splitSecret(Uint8Array.of(1), 10, 20);
+    assert(subsetCount(20, 10) > MAX_SHARE_SUBSETS, "more subsets than the bound");
+    assertEqual([...combineShareSubsets(many, 10)].length, MAX_SHARE_SUBSETS, "stops at the bound");
     passTest();
   });
 
