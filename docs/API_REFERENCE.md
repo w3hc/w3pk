@@ -2093,56 +2093,58 @@ console.log('Ownership proven:', isOwner)
 
 ---
 
+### `zk.getNFTHolderCommitment(contractAddress: string): Promise<string>`
+
+Return the commitment of your holder identity for `contractAddress`, the value a holders tree records for you.
+
+The identity is a [Semaphore v4](https://docs.semaphore.pse.dev/guides/identities) identity whose private key is HKDF-SHA256 of the wallet's BIP-39 seed (salt `w3pk-nft-holder-v1`, info `origin:contract`). It comes from the wallet in the session, so there is no extra passkey prompt once logged in, and it survives a restore from the recovery phrase. One identity per origin and contract, so trees of different collections don't share a commitment. Needs `@semaphore-protocol/identity`.
+
+**Example:**
+
+```typescript
+const commitment = await w3pk.zk.getNFTHolderCommitment(contract)
+// Register it with the address that holds the tokens
+const { signature, address } = await w3pk.signMessage(`w3pk NFT holder ${contract} ${commitment}`)
+```
+
+---
+
 ### `zk.proveNFTOwnership(input: NFTOwnershipProofInput): Promise<ZKProof>`
 
-Prove NFT ownership without revealing which NFT or exact address.
+Prove that your holder identity is in a holders tree with at least `minBalance` tokens, without revealing which holder you are. The identity's secret is derived as in `getNFTHolderCommitment()` and never leaves w3pk.
 
-**Use case:** Prove you own a BAYC NFT without revealing which one or your address.
+**Use case:** token-gated access or voting, one action per holder and scope.
 
 **Parameters:**
 
 ```typescript
 interface NFTOwnershipProofInput {
-  ownerAddress: string;        // Private: your address
-  holderIndex: number;         // Private: position in holders tree
-  pathIndices: number[];       // Private: merkle proof indices
-  pathElements: string[];      // Private: merkle proof elements
-  holdersRoot: string;         // Public: merkle root of NFT holders
+  balance: bigint;             // Private: the balance recorded in your leaf
+  pathIndices: number[];       // Private: 20 path indices, 0 or 1
+  pathElements: string[];      // Private: 20 sibling hashes
+  holdersRoot: string;         // Public: holders tree root
   contractAddress: string;     // Public: NFT contract address
-  minBalance?: bigint;         // Public: min token balance (default: 1)
+  minBalance?: bigint;         // Public: minimum balance proven (default: 1)
+  scope: bigint | string;      // Public: one nullifier per holder and scope
 }
 ```
 
-**Returns:** `ZKProof` object
+The circuit checks the leaf `Poseidon(commitment, contract, balance)` against the root, `balance >= minBalance` with both under 2^64, and outputs the nullifier `Poseidon(scope, secret)`.
+
+**Returns:** `ZKProof`, public signals `[nullifier, root, contractAddress, minBalance, scope]`
 
 **Example:**
 
 ```typescript
 import { generateNFTOwnershipProofInputs } from 'w3pk/zk/utils'
 
-const nftContract = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D' // BAYC
-const allHolders = ['0x111...', '0x222...', '0x333...']
-const yourAddress = '0x222...'
+// Published by the registrar after checking each registration and balance
+const holders = [{ commitment: c1, balance: 3n }, { commitment, balance: 2n }]
 
-// Generate proof inputs
-const { nftProofInput } = await generateNFTOwnershipProofInputs(
-  yourAddress,
-  nftContract,
-  allHolders
-)
-
-// Generate proof
+const { nftProofInput } = await generateNFTOwnershipProofInputs(commitment, contract, holders, scope, 2n)
 const proof = await w3pk.zk.proveNFTOwnership(nftProofInput)
 
-// Verify
-const isOwner = await w3pk.zk.verifyNFTOwnership(
-  proof,
-  nftContract,
-  nftProofInput.holdersRoot,
-  1n
-)
-console.log('NFT ownership proven:', isOwner)
-// Proved NFT ownership without revealing which NFT or exact address!
+const ok = await w3pk.zk.verifyNFTOwnership(proof, contract, nftProofInput.holdersRoot, 2n, scope)
 ```
 
 ---
@@ -2241,14 +2243,15 @@ const isOwner = await w3pk.zk.verifyOwnership(proof, address, challenge)
 
 ---
 
-### `zk.verifyNFTOwnership(proof: ZKProof, expectedContract: string, expectedHoldersRoot: string, expectedMinBalance?: bigint): Promise<boolean>`
+### `zk.verifyNFTOwnership(proof: ZKProof, expectedContract: string, expectedHoldersRoot: string, expectedMinBalance: bigint, expectedScope: bigint | string): Promise<boolean>`
 
-Verify NFT ownership proof. The proof's public signals are `[nullifierHash, root, contractAddress, minBalance]`, with `contractAddress` as its Poseidon hash.
+Verify an NFT ownership proof against the contract, holders root, minimum balance and scope. The public signals are `[nullifier, root, contractAddress, minBalance, scope]`, with `contractAddress` as the address read as a number. Keep the nullifier and refuse a second proof with it in the same scope.
 
 **Example:**
 
 ```typescript
-const isOwner = await w3pk.zk.verifyNFTOwnership(proof, contract, root, 1n)
+const ok = await w3pk.zk.verifyNFTOwnership(proof, contract, root, 1n, scope)
+if (ok && !seen.has(proof.publicSignals[0])) seen.add(proof.publicSignals[0])
 ```
 
 ---

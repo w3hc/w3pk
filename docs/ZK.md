@@ -16,6 +16,7 @@ Comprehensive cryptographic utilities for zero-knowledge proofs, key derivation,
   - [Commitments](#commitments)
   - [Baby Jubjub and ElGamal](#baby-jubjub-and-elgamal)
   - [Semaphore Identities](#semaphore-identities)
+  - [NFT Ownership Proofs](#nft-ownership-proofs)
   - [Circuit Artifact Verification](#circuit-artifact-verification)
   - [Proving with a Passkey-Bound Secret](#proving-with-a-passkey-bound-secret)
 - [Use Cases](#use-cases)
@@ -237,7 +238,6 @@ async function buildMerkleTree(
 
 **Use Cases:**
 - Anonymous voting (prove you're eligible without revealing identity)
-- NFT holder verification
 - Allowlist management
 - Credential verification
 
@@ -380,6 +380,25 @@ group.addMember(commitment)
 - A new passkey gives a new commitment: keep `credentialId` with the commitment and update the group member when it changes
 
 See the [API reference](./API_REFERENCE.md#getsemaphoreidentitytag-string-promisesemaphoreidentity).
+
+---
+
+### NFT Ownership Proofs
+
+`w3pk.zk.proveNFTOwnership()` proves that a holder identity is in a holders tree with at least `minBalance` tokens, without revealing which holder. The identity is a Semaphore v4 identity derived from the wallet in the session, one per origin and contract, so there is no extra passkey prompt.
+
+1. **Holder:** `w3pk.zk.getNFTHolderCommitment(contract)`, then register the commitment with the address that holds the tokens, e.g. by signing it with `signMessage()`
+2. **Registrar:** check each registration's signature and the address's balance, then publish `[{ commitment, balance }]`. The proof trusts this list: anyone in it can prove, with the balance it records
+3. **Holder:** `generateNFTOwnershipProofInputs(commitment, contract, holders, scope, minBalance)`, then `w3pk.zk.proveNFTOwnership(input)`
+4. **Verifier:** `w3pk.zk.verifyNFTOwnership(proof, contract, root, minBalance, scope)`, and refuse a nullifier already seen in that scope
+
+`nft.circom`:
+
+- Leaf: `Poseidon(commitment, contract, balance)`, with `commitment = Poseidon(BabyPbk(secret))` as in Semaphore v4 and `secret` below the subgroup order `l`. Empty leaves are 0; the tree has 20 levels
+- `balance >= minBalance`, both range-checked to 64 bits
+- Nullifier: `Poseidon(scope, secret)`. The public signals are `[nullifier, root, contractAddress, minBalance, scope]`; none depends on which holder proved except the nullifier, which only links proofs in the same scope
+
+The holders list is public, so a commitment tied to an address at registration is known to be a holder; the proof hides which one. A unique balance narrows the anonymity set to the holders with at least `minBalance`.
 
 ---
 
@@ -1008,45 +1027,44 @@ Validates that all required proof inputs are present.
 
 ### NFT Ownership Utilities
 
-#### `buildNFTHoldersMerkleTree(holderAddresses, contractAddress)`
+All exported from `w3pk/zk/utils`; they need `poseidon-lite`. `NFT_TREE_DEPTH` is 20, the depth `nft.circom` takes.
 
-Builds a Merkle tree from NFT holder addresses for a specific contract.
+#### `buildNFTHoldersMerkleTree(holders, contractAddress)`
+
+Builds the holders tree `nft.circom` proves against.
 
 **Parameters:**
-- `holderAddresses` (string[]): Array of NFT holder addresses
+- `holders` (`NFTHolder[]`): `{ commitment: string | bigint, balance: bigint }` per holder, commitments unique, balances below 2^64
 - `contractAddress` (string): NFT contract address
 
 **Returns:** `Promise<{ root: string, tree: string[][], holderLeaves: string[] }>`
-- `root`: Merkle root hash
-- `tree`: All levels of the tree
-- `holderLeaves`: Computed leaf hashes
+- `holderLeaves`: `Poseidon(commitment, contract, balance)` per holder
+- `tree`: the non-empty nodes of each of the 21 levels, empty slots being the zero subtree hashes; `tree[20]` is `[root]`
 
-**Throws:** `CryptoError` if circomlibjs not installed or build fails
+**Throws:** `CryptoError` on an invalid address, an empty or oversized list, a duplicate commitment or a balance out of range
 
 ---
 
-#### `generateNFTOwnershipProofInputs(ownerAddress, contractAddress, allHolderAddresses, minBalance?)`
+#### `generateNFTOwnershipProofInputs(holderCommitment, contractAddress, holders, scope, minBalance?)`
 
-Generates all inputs needed for NFT ownership proof.
+Builds `proveNFTOwnership()`'s input for the holder with `holderCommitment`: its balance and its 20-level path.
 
 **Parameters:**
-- `ownerAddress` (string): Owner's Ethereum address
+- `holderCommitment` (string | bigint): from `getNFTHolderCommitment()`
 - `contractAddress` (string): NFT contract address
-- `allHolderAddresses` (string[]): All holder addresses
-- `minBalance` (bigint, optional): Minimum balance required (default: 1n)
+- `holders` (`NFTHolder[]`): the published holders list
+- `scope` (bigint | string): the verifier's scope
+- `minBalance` (bigint, optional): default 1n
 
-**Returns:** `Promise<{ nftProofInput: {...}, holderLeaves: string[] }>`
+**Returns:** `Promise<{ nftProofInput: NFTOwnershipProofInput, holderLeaves: string[] }>`
 
-**Throws:** `CryptoError` if owner not found in holders list
+**Throws:** `CryptoError` if the commitment isn't in the list or its balance is below `minBalance`
 
 ---
 
 #### `validateNFTOwnershipProofInputs(inputs)`
 
-Validates NFT ownership proof inputs.
-
-**Parameters:**
-- `inputs` (object): Proof inputs containing ownerAddress, contractAddress, etc.
+Checks an `NFTOwnershipProofInput`: contract address, 20 path levels with indices 0 or 1, field elements, balances below 2^64, `minBalance >= 1` and `balance >= minBalance`. `proveNFTOwnership()` runs it before deriving the secret.
 
 **Throws:** `CryptoError` if any input is invalid
 
