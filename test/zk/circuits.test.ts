@@ -2,7 +2,10 @@
  * membership.circom and nft.circom, compiled with circom.
  *
  * An honest 20-level path proves and verifies through proveMembership() and
- * proveNFTOwnership(). The forged leaf from audit H-2 sets pathIndices[0] to a
+ * proveNFTOwnership(), the NFT one built with the holder tree helpers. A
+ * non-holder, an inflated balance, a wrapped minimum balance and a second
+ * secret for the same commitment are refused, and the NFT proof's public
+ * signals don't reveal the holder. The forged leaf from audit H-2 sets pathIndices[0] to a
  * field element that is neither 0 nor 1, so that a leaf outside the tree
  * hashes to a real level-1 node. Each circuit is also compiled without its
  * bit constraint: the forged witness satisfies that copy, so the vector is a
@@ -18,13 +21,16 @@ import { spawnSync } from "child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join, resolve } from "path";
-import { poseidon1, poseidon2 } from "poseidon-lite";
+import { Identity } from "@semaphore-protocol/identity";
+import { poseidon2, poseidon3 } from "poseidon-lite";
 import { ZKProofModule } from "../../src/zk";
+import { generateNFTOwnershipProofInputs } from "../../src/zk/utils";
 
 const ROOT = resolve(__dirname, "../..");
 const CIRCUITS = join(ROOT, "src", "zk", "circuits");
 const SNARKJS = join(ROOT, "node_modules", ".bin", "snarkjs");
 const P = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+const L = 2736030358979909402780800718157159386076813972158567259200215660948447373041n;
 const LEVELS = 20;
 const BIT_CONSTRAINT = /^[ \t]*pathIndices\[i\] \* \(pathIndices\[i\] - 1\) === 0;\n/m;
 const QUIET = { info() {}, warn() {}, debug() {}, error() {} };
@@ -82,7 +88,12 @@ function honestPath(leaf: bigint) {
  * pair (a, b) for any cur, so `leaf` replaces the honest leaf `a` whose
  * sibling is `b`.
  */
-function forgeFirstLevel(leaf: bigint, a: bigint, b: bigint, path: ReturnType<typeof honestPath>) {
+function forgeFirstLevel(
+  leaf: bigint,
+  a: bigint,
+  b: bigint,
+  path: { pathElements: (bigint | string)[]; pathIndices: number[] }
+) {
   const sibling = mod(a + b - leaf);
   const selector = mod((a - leaf) * inv(a + b - 2n * leaf));
   return {
@@ -179,11 +190,12 @@ async function runTests() {
       };
     }
 
-    run(SNARKJS, ["powersoftau", "new", "bn128", "14", "pot0.ptau"], dir);
+    run(SNARKJS, ["powersoftau", "new", "bn128", "15", "pot0.ptau"], dir);
     run(SNARKJS, ["powersoftau", "prepare", "phase2", "pot0.ptau", "pot.ptau"], dir);
     const ptau = join(dir, "pot.ptau");
 
-    const zk = new ZKProofModule();
+    let holderKey = new Uint8Array(32);
+    const zk = new ZKProofModule({ nftHolderKey: async () => holderKey.slice() });
     zk.registerCircuit("membership", setup(dir, "membership", circuits.membership.real, ptau));
     zk.registerCircuit("nft", setup(dir, "nft", circuits.nft.real, ptau));
 
@@ -217,52 +229,130 @@ async function runTests() {
     });
     console.log("");
 
-    console.log("Test 3: an honest NFT ownership proof verifies");
-    const owner = "0x" + "11".repeat(20);
+    console.log("Test 3: an honest NFT ownership proof from the holder tree helpers verifies");
     const contract = "0x" + "22".repeat(20);
-    const ownerHash = poseidon1([BigInt(owner)]);
-    const contractHash = poseidon1([BigInt(contract)]);
-    const nftLeaf = poseidon2([ownerHash, contractHash]);
-    const nftPath = honestPath(nftLeaf);
-    const nftRoot = nftPath.root.toString();
-    const nftProof = await zk.proveNFTOwnership({
-      ownerAddress: owner,
-      contractAddress: contract,
-      holderIndex: 0,
-      pathElements: nftPath.pathElements.map(String),
-      pathIndices: nftPath.pathIndices,
-      holdersRoot: nftRoot,
-      minBalance: 1n,
-    });
+    const scope = 42n;
+    const keys = [1, 2, 3].map((i) => new Uint8Array(32).fill(i));
+    const identities = keys.map((key) => new Identity(key));
+    const balances = [2n, 3n, 1n];
+    const holders = identities.map((id, i) => ({ commitment: id.commitment, balance: balances[i] }));
+    holderKey = keys[0];
     assert(
-      nftProof.publicSignals[1] === nftRoot && nftProof.publicSignals[2] === contractHash.toString(),
-      "the root and contract are public signals"
+      (await zk.getNFTHolderCommitment(contract)) === identities[0].commitment.toString(),
+      "getNFTHolderCommitment() is the Semaphore commitment of the holder key"
     );
-    assert(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, 1n), "verifyNFTOwnership() accepts it");
-    assert(!(await zk.verifyNFTOwnership(nftProof, contract, "1", 1n)), "verifyNFTOwnership() refuses another root");
+    const { nftProofInput, holderLeaves } = await generateNFTOwnershipProofInputs(
+      identities[0].commitment,
+      contract,
+      holders,
+      scope,
+      2n
+    );
+    const nftRoot = nftProofInput.holdersRoot;
+    assert(
+      holderLeaves[0] === poseidon3([identities[0].commitment, BigInt(contract), 2n]).toString(),
+      "the leaf is Poseidon(commitment, contract, balance)"
+    );
+    assert(
+      nftProofInput.pathElements.length === LEVELS &&
+        (await zk.computeMerkleRoot(holderLeaves[0], nftProofInput.pathIndices, nftProofInput.pathElements)) === nftRoot,
+      "the helper's 20-level path leads to its root"
+    );
+    const nftProof = await zk.proveNFTOwnership(nftProofInput);
+    assert(
+      nftProof.publicSignals.slice(1).join() === [nftRoot, BigInt(contract), 2n, scope].join(),
+      "the root, contract, minimum balance and scope are public signals"
+    );
+    assert(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, scope, 2n), "verifyNFTOwnership() accepts it");
+    assert(!(await zk.verifyNFTOwnership(nftProof, contract, "1", scope, 2n)), "verifyNFTOwnership() refuses another root");
+    assert(!(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, 43n, 2n)), "verifyNFTOwnership() refuses another scope");
+    assert(
+      !(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, scope, 3n)),
+      "verifyNFTOwnership() refuses a higher minimum balance"
+    );
     console.log("");
 
-    console.log("Test 4: a forged NFT ownership proof for a holder outside the tree fails");
-    const attacker = "0x" + "33".repeat(20);
-    const attackerHash = poseidon1([BigInt(attacker)]);
-    const nftForged = forgeFirstLevel(poseidon2([attackerHash, contractHash]), nftLeaf, nftPath.pathElements[0], nftPath);
-    const nftRefusal = await rejection(() =>
-      zk.proveNFTOwnership({
-        ownerAddress: attacker,
-        contractAddress: contract,
-        holderIndex: 0,
-        holdersRoot: nftRoot,
-        minBalance: 1n,
-        ...(nftForged as any),
-      })
+    console.log("Test 4: the public signals don't reveal the holder");
+    const secrets = identities.map((id) => id.secretScalar);
+    const nullifier = BigInt(nftProof.publicSignals[0]);
+    assert(nullifier === poseidon2([scope, secrets[0]]), "the nullifier is Poseidon(scope, secret)");
+    const known = [
+      ...holders.map((h) => h.commitment),
+      ...holderLeaves.map(BigInt),
+      ...secrets,
+      ...holders.flatMap((h) => [poseidon2([scope, h.commitment]), poseidon2([h.commitment, scope])]),
+      ...holderLeaves.flatMap((leaf) => [poseidon2([scope, BigInt(leaf)]), poseidon2([BigInt(leaf), scope])]),
+    ].map(String);
+    assert(
+      nftProof.publicSignals.every((signal) => !known.includes(signal)),
+      "no public signal is a commitment, a leaf, a secret, or a hash of one with the scope"
     );
-    assert(refusedByCircuit(nftRefusal), "proveNFTOwnership() refuses the forged path");
-    await checkForgery(snarkjs, dir, "nft", circuits.nft.real, circuits.nft.unconstrained, {
-      ownerAddress: attackerHash.toString(),
-      ...nftForged,
+    holderKey = keys[1];
+    const { nftProofInput: otherInput } = await generateNFTOwnershipProofInputs(
+      identities[1].commitment,
+      contract,
+      holders,
+      scope,
+      2n
+    );
+    const otherProof = await zk.proveNFTOwnership(otherInput);
+    assert(
+      otherProof.publicSignals.slice(1).join() === nftProof.publicSignals.slice(1).join() &&
+        otherProof.publicSignals[0] !== nftProof.publicSignals[0],
+      "another holder's proof differs only in its nullifier"
+    );
+    holderKey = keys[0];
+    const rescoped = await zk.proveNFTOwnership({ ...nftProofInput, scope: 43n });
+    assert(rescoped.publicSignals[0] !== nftProof.publicSignals[0], "another scope gives another nullifier");
+    console.log("");
+
+    console.log("Test 5: dishonest NFT witnesses are refused by the circuit");
+    const nftWasm = circuits.nft.real.wasm;
+    const witness = {
+      secret: secrets[0].toString(),
+      balance: "2",
+      pathElements: nftProofInput.pathElements,
+      pathIndices: nftProofInput.pathIndices.map(String),
       root: nftRoot,
-      contractAddress: contractHash.toString(),
-      minBalance: "1",
+      contractAddress: BigInt(contract).toString(),
+      minBalance: "2",
+      scope: scope.toString(),
+    };
+    const wtns = join(dir, "nft-dishonest.wtns");
+    const refused = async (input: object) =>
+      refusedByCircuit(await rejection(() => snarkjs.wtns.calculate(input, nftWasm, wtns)));
+    assert(
+      (await rejection(() => snarkjs.wtns.calculate(witness, nftWasm, wtns))) === undefined,
+      "the honest witness is accepted"
+    );
+    const outsider = new Identity(new Uint8Array(32).fill(9));
+    holderKey = new Uint8Array(32).fill(9);
+    assert(
+      refusedByCircuit(await rejection(() => zk.proveNFTOwnership(nftProofInput))),
+      "proveNFTOwnership() refuses a non-holder using a holder's path"
+    );
+    assert(await refused({ ...witness, secret: outsider.secretScalar.toString() }), "a non-holder's secret is refused");
+    assert(await refused({ ...witness, balance: "3", minBalance: "3" }), "a balance above the leaf's is refused");
+    assert(await refused({ ...witness, minBalance: "3" }), "a minimum balance above the balance is refused");
+    assert(await refused({ ...witness, minBalance: (P - 1n).toString() }), "a minimum balance wrapping the field is refused");
+    assert(
+      await refused({ ...witness, secret: (secrets[0] + L).toString() }),
+      "secret + l, the same commitment with another nullifier, is refused"
+    );
+    console.log("");
+
+    console.log("Test 6: a forged NFT ownership proof for a holder outside the tree fails");
+    const attackerSecret = outsider.secretScalar;
+    const attackerLeaf = poseidon3([outsider.commitment, BigInt(contract), 2n]);
+    const nftForged = forgeFirstLevel(attackerLeaf, BigInt(holderLeaves[0]), BigInt(holderLeaves[1]), nftProofInput);
+    assert(
+      (await rejection(() => zk.proveNFTOwnership({ ...nftProofInput, ...(nftForged as any) }))) !== undefined,
+      "proveNFTOwnership() refuses the forged path"
+    );
+    await checkForgery(snarkjs, dir, "nft", circuits.nft.real, circuits.nft.unconstrained, {
+      ...witness,
+      secret: attackerSecret.toString(),
+      ...nftForged,
     });
     console.log("");
   } finally {
