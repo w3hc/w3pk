@@ -1,5 +1,5 @@
 /**
- * membership.circom and nft.circom, compiled with circom.
+ * The circuits, compiled with circom.
  *
  * An honest 20-level path proves and verifies through proveMembership() and
  * proveNFTOwnership(), the NFT one built with the holder tree helpers. A
@@ -11,6 +11,13 @@
  * bit constraint: the forged witness satisfies that copy, so the vector is a
  * real forgery, and fails the R1CS of the real circuit, so it is rejected by
  * the constraints and not only by the witness generator's asserts.
+ *
+ * The membership nullifier is bound to a scope, the root by default.
+ * threshold.circom and range.circom prove and verify honest values, and refuse
+ * comparator inputs of 2^128 or more, which their 252-bit comparators on
+ * unchecked inputs accepted: each is also compiled as it was, and the same
+ * witness satisfies that copy. The release check of compile-circuits.js
+ * refuses a zkey with no phase-2 contribution, or with only a beacon.
  *
  * The Groth16 setup uses a powers of tau with no contribution: test only.
  * Skipped when circom is missing, unless CI is set. CIRCOM overrides the
@@ -24,6 +31,7 @@ import { join, resolve } from "path";
 import { Identity } from "@semaphore-protocol/identity";
 import { poseidon2, poseidon3 } from "poseidon-lite";
 import { ZKProofModule } from "../../src/zk";
+import { checkReleaseZkey } from "../../scripts/compile-circuits.js";
 import { generateNFTOwnershipProofInputs } from "../../src/zk/utils";
 
 const ROOT = resolve(__dirname, "../..");
@@ -33,6 +41,7 @@ const P = 2188824287183927522224640574525727508854836440041603434369820418657580
 const L = 2736030358979909402780800718157159386076813972158567259200215660948447373041n;
 const LEVELS = 20;
 const BIT_CONSTRAINT = /^[ \t]*pathIndices\[i\] \* \(pathIndices\[i\] - 1\) === 0;\n/m;
+const RANGE_CHECK = /^[ \t]*component \w+ = Num2Bits\(128\);\n[ \t]*\w+\.in <== \w+;\n/gm;
 const QUIET = { info() {}, warn() {}, debug() {}, error() {} };
 
 let passed = 0;
@@ -163,7 +172,7 @@ async function checkForgery(
 
 async function runTests() {
   console.log("\n==================================================");
-  console.log("🌳 Merkle Circuits Test");
+  console.log("🌳 Circuits Test");
   console.log("==================================================\n");
 
   const circom = findCircom();
@@ -190,6 +199,19 @@ async function runTests() {
       };
     }
 
+    const comparators: Record<string, { real: Compiled; unchecked: Compiled }> = {};
+    for (const name of ["threshold", "range"]) {
+      const source = readFileSync(join(CIRCUITS, `${name}.circom`), "utf8");
+      const unchecked = source.replace(RANGE_CHECK, "").replace(/EqThan\(128\)/g, "EqThan(252)");
+      if (unchecked === source || unchecked.includes("Num2Bits")) {
+        throw new Error(`${name}.circom doesn't range-check its comparator inputs as expected`);
+      }
+      comparators[name] = {
+        real: compile(dir, name, source, circom),
+        unchecked: compile(dir, `${name}_unchecked`, unchecked, circom),
+      };
+    }
+
     run(SNARKJS, ["powersoftau", "new", "bn128", "15", "pot0.ptau"], dir);
     run(SNARKJS, ["powersoftau", "prepare", "phase2", "pot0.ptau", "pot.ptau"], dir);
     const ptau = join(dir, "pot.ptau");
@@ -198,8 +220,11 @@ async function runTests() {
     const zk = new ZKProofModule({ nftHolderKey: async () => holderKey.slice() });
     zk.registerCircuit("membership", setup(dir, "membership", circuits.membership.real, ptau));
     zk.registerCircuit("nft", setup(dir, "nft", circuits.nft.real, ptau));
+    const rangeArtifacts = setup(dir, "range", comparators.range.real, ptau);
+    zk.registerCircuit("threshold", setup(dir, "threshold", comparators.threshold.real, ptau));
+    zk.registerCircuit("range", rangeArtifacts);
 
-    console.log("Test 1: an honest membership proof verifies");
+    console.log("Test 1: an honest membership proof verifies, its nullifier bound to the scope");
     const leaf = 111n;
     const path = honestPath(leaf);
     const root = path.root.toString();
@@ -213,6 +238,21 @@ async function runTests() {
     assert(proof.publicSignals[1] === root, "the root is a public signal");
     assert(await zk.verifyMembership(proof, root), "verifyMembership() accepts the expected root");
     assert(!(await zk.verifyMembership(proof, "1")), "verifyMembership() refuses another root");
+    assert(
+      proof.publicSignals[2] === root && proof.publicSignals[0] === poseidon2([BigInt(root), leaf]).toString(),
+      "without a scope, the scope is the root and the nullifier Poseidon(root, leaf)"
+    );
+    const scoped = await zk.proveMembership({ ...membershipInput, scope: 7n });
+    assert(
+      scoped.publicSignals[2] === "7" && scoped.publicSignals[0] === poseidon2([7n, leaf]).toString(),
+      "the nullifier is Poseidon(scope, leaf), the scope a public signal"
+    );
+    assert(scoped.publicSignals[0] !== proof.publicSignals[0], "another scope gives another nullifier");
+    assert(await zk.verifyMembership(scoped, root, 7n), "verifyMembership() accepts the expected scope");
+    assert(
+      !(await zk.verifyMembership(scoped, root)) && !(await zk.verifyMembership(scoped, root, 8n)),
+      "verifyMembership() refuses another scope"
+    );
     console.log("");
 
     console.log("Test 2: a forged membership proof for a leaf outside the tree fails");
@@ -226,6 +266,7 @@ async function runTests() {
       leaf: "999",
       ...forged,
       root,
+      scope: root,
     });
     console.log("");
 
@@ -355,12 +396,106 @@ async function runTests() {
       ...nftForged,
     });
     console.log("");
+
+    const MAX = 2n ** 128n - 1n;
+    const wtnsPath = join(dir, "comparator.wtns");
+    const witnessAccepted = async (circuit: Compiled, input: object) =>
+      (await rejection(() => snarkjs.wtns.calculate(input, circuit.wasm, wtnsPath))) === undefined &&
+      (await snarkjs.wtns.check(circuit.r1cs, wtnsPath, QUIET)) === true;
+    const witnessRefused = async (circuit: Compiled, input: object) =>
+      refusedByCircuit(await rejection(() => snarkjs.wtns.calculate(input, circuit.wasm, wtnsPath)));
+    const committed = (value: bigint, blinding: bigint) => ({
+      value: value.toString(),
+      blinding: blinding.toString(),
+      commitment: poseidon2([value, blinding]).toString(),
+    });
+
+    console.log("Test 7: threshold proofs verify, and inputs of 2^128 or more are refused");
+    const balance = committed(5000n, 77n);
+    const thresholdProof = await zk.proveThreshold({
+      value: 5000n,
+      blinding: 77n,
+      threshold: 1000n,
+      commitment: balance.commitment,
+    });
+    assert(
+      thresholdProof.publicSignals.join() === ["1000", balance.commitment].join(),
+      "the public signals are [threshold, commitment]"
+    );
+    assert(await zk.verifyThreshold(thresholdProof, balance.commitment, 1000n), "verifyThreshold() accepts it");
+    assert(!(await zk.verifyThreshold(thresholdProof, balance.commitment, 999n)), "verifyThreshold() refuses another threshold");
+    assert(
+      await witnessAccepted(comparators.threshold.real, { ...committed(MAX, 1n), threshold: MAX.toString() }),
+      "value = threshold = 2^128 - 1 is accepted"
+    );
+    const lyingThreshold = { ...committed(0n, 1n), threshold: (P - 2n ** 252n + 1n).toString() };
+    assert(
+      await witnessAccepted(comparators.threshold.unchecked, lyingThreshold),
+      "the unchecked 252-bit circuit accepts 0 >= p - 2^252 + 1"
+    );
+    assert(await witnessRefused(comparators.threshold.real, lyingThreshold), "the real circuit refuses it");
+    assert(
+      await witnessRefused(comparators.threshold.real, { ...committed(MAX + 1n, 1n), threshold: "0" }),
+      "a value of 2^128 is refused"
+    );
+    console.log("");
+
+    console.log("Test 8: range proofs verify, and inputs of 2^128 or more are refused");
+    const age = committed(25n, 88n);
+    const rangeProof = await zk.proveRange({ value: 25n, blinding: 88n, min: 18n, max: 65n, commitment: age.commitment });
+    assert(
+      rangeProof.publicSignals.join() === ["18", "65", age.commitment].join(),
+      "the public signals are [min, max, commitment]"
+    );
+    assert(await zk.verifyRange(rangeProof, age.commitment, 18n, 65n), "verifyRange() accepts it");
+    assert(!(await zk.verifyRange(rangeProof, age.commitment, 18n, 64n)), "verifyRange() refuses another max");
+    assert(
+      await witnessAccepted(comparators.range.real, { ...committed(MAX, 1n), min: MAX.toString(), max: MAX.toString() }),
+      "value = min = max = 2^128 - 1 is accepted"
+    );
+    const lyingRange = { ...committed(P - 1n, 1n), min: (P - 2n ** 252n).toString(), max: "65" };
+    assert(
+      await witnessAccepted(comparators.range.unchecked, lyingRange),
+      "the unchecked 252-bit circuit accepts p - 2^252 <= p - 1 <= 65"
+    );
+    assert(await witnessRefused(comparators.range.real, lyingRange), "the real circuit refuses it");
+    assert(
+      await witnessRefused(comparators.range.real, { ...committed(25n, 1n), min: "18", max: (MAX + 1n).toString() }),
+      "a max of 2^128 is refused"
+    );
+    console.log("");
+
+    console.log("Test 9: the release check refuses a zkey with no phase-2 contribution");
+    const release = (zkey: string) => ({ r1cs: comparators.range.real.r1cs, ptau, zkey });
+    const contributed = join(dir, "range_0001.zkey");
+    const beaconOnly = join(dir, "range_beacon.zkey");
+    const BEACON_HASH = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
+    run(SNARKJS, ["zkey", "contribute", rangeArtifacts.zkeyPath, contributed, "--name=test", "-e=test entropy"], dir);
+    run(SNARKJS, ["zkey", "beacon", rangeArtifacts.zkeyPath, beaconOnly, BEACON_HASH, "10", "-n=beacon"], dir);
+    assert(
+      /no phase-2 contribution$/.test((await rejection(() => checkReleaseZkey(release(rangeArtifacts.zkeyPath)))) ?? ""),
+      "a zkey straight from groth16 setup is refused"
+    );
+    assert(
+      /no phase-2 contribution besides a beacon$/.test((await rejection(() => checkReleaseZkey(release(beaconOnly)))) ?? ""),
+      "a zkey with only a beacon is refused"
+    );
+    assert(
+      (await checkReleaseZkey(release(contributed))).map((c: { name?: string }) => c.name).join() === "test",
+      "a zkey with a contribution is accepted"
+    );
+    assert(
+      (await rejection(() => checkReleaseZkey({ ...release(contributed), r1cs: comparators.threshold.real.r1cs }))) !==
+        undefined,
+      "a contributed zkey for another circuit is refused"
+    );
+    console.log("");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 
   console.log("==================================================");
-  console.log(`${failed === 0 ? "✅" : "❌"} Merkle Circuits Tests: ${passed} passed, ${failed} failed`);
+  console.log(`${failed === 0 ? "✅" : "❌"} Circuits Tests: ${passed} passed, ${failed} failed`);
   console.log("==================================================\n");
   process.exit(failed > 0 ? 1 : 0);
 }
