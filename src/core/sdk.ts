@@ -174,7 +174,7 @@ export class Web3Passkey {
   private config: InternalConfig;
   private walletStorage: LocalStorageWalletStorage;
   private currentUser: UserInfo | null = null;
-  /** A wallet waiting for register(); cleared once a session starts */
+  /** A wallet waiting for register(); cleared once the user is logged in */
   private currentWallet: GeneratedWallet | null = null;
   private persisted: boolean | null = null;
   private sessionManager: SessionManager;
@@ -512,7 +512,6 @@ export class Web3Passkey {
         ethereumAddress: result.user.ethereumAddress,
         credentialId: result.user.credentialId,
       };
-      this.currentWallet = null;
 
       // Key derived from THIS assertion's PRF output: decrypts the existing
       // persistent session (deterministic PRF input → same key as when the
@@ -583,6 +582,7 @@ export class Web3Passkey {
         );
       }
 
+      this.currentWallet = null;
       void this.requestPersistentStorage();
       this.config.onAuthStateChanged?.(true, this.currentUser);
 
