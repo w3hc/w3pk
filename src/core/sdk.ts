@@ -6,7 +6,7 @@
  * - Applications access only origin-specific derived wallets
  * - Three security modes for origin-centric derivation:
  *   - STANDARD: Address only (no private key), persistent sessions allowed
- *   - STRICT: Address only (no private key), no persistent sessions
+ *   - STRICT: Address only (no private key), no session
  *   - YOLO: Full access (address + private key), persistent sessions allowed
  * - Each origin receives isolated address derivation
  *
@@ -701,7 +701,7 @@ export class Web3Passkey {
    *
    * SECURITY MODES:
    * - STANDARD (default): Address only (no private key), persistent sessions allowed
-   * - STRICT: Address only (no private key), no persistent sessions (requires auth each time)
+   * - STRICT: Address only (no private key), no session (requires auth each time)
    * - YOLO: Full access (address + private key), persistent sessions allowed
    * - PRIMARY: Address of the passkey's P-256 smart account for the tag, deployed or not (no private key)
    *
@@ -757,7 +757,7 @@ export class Web3Passkey {
         };
       }
 
-      // STRICT mode: always require authentication (no persistent sessions)
+      // STRICT mode: always require authentication (no session)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
       const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
@@ -833,7 +833,7 @@ export class Web3Passkey {
       }
 
       // For other modes, derive from mnemonic
-      // STRICT mode: always require authentication (no persistent sessions)
+      // STRICT mode: always require authentication (no session)
       const requireAuth = effectiveMode === 'STRICT' ? true : false;
 
       const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
@@ -986,7 +986,7 @@ export class Web3Passkey {
         };
       }
 
-      // STRICT mode: always require authentication (no persistent sessions)
+      // STRICT mode: always require authentication (no session)
       // rawHash: a bare hash may be an EIP-7702 authorization digest, which
       // can't be told apart, so it gets the same fresh assertion as signAuthorization
       const requireAuth =
@@ -1238,7 +1238,7 @@ export class Web3Passkey {
       const rpcUrl = this.getRpcUrl(request.chainId, options?.rpcUrl);
       await confirm();
 
-      // STRICT mode: always require authentication (no persistent sessions)
+      // STRICT mode: always require authentication (no session)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
 
       const mnemonic = await this.getMnemonicFromSession(requireAuth, effectiveMode);
