@@ -58,6 +58,7 @@ export {
   WalletMissingError,
   SyncBootstrapError,
   PrfUnsupportedError,
+  UserVerificationRequiredError,
   AddressChangeError,
   RemovedBackupMethodError,
   UnsupportedBackupVersionError,

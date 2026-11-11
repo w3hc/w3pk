@@ -111,6 +111,7 @@ import {
   AuthenticationError,
   CryptoError,
   PrfUnsupportedError,
+  UserVerificationRequiredError,
   WalletError,
   WalletMissingError,
 } from "./errors";
@@ -546,13 +547,18 @@ export class Web3Passkey {
         result.user.ethereumAddress
       );
 
-      // Without PRF the wallet can't be decrypted here: it has to be
-      // restored from a backup
-      if (!walletData || !result.prfOutput) {
+      if (!walletData) {
         throw new WalletMissingError(
           result.user.credentialId,
           result.user.ethereumAddress
         );
+      }
+      // An assertion without UV ('preferred') carries no PRF output
+      if (!result.userVerified) {
+        throw new UserVerificationRequiredError(result.user.credentialId);
+      }
+      if (!result.prfOutput) {
+        throw new PrfUnsupportedError(result.user.credentialId);
       }
 
       const { publicKey } = result.credential;

@@ -8,7 +8,7 @@
  */
 
 import { Wallet } from "ethers";
-import { Web3Passkey } from "../src/index";
+import { Web3Passkey, UserVerificationRequiredError, PrfUnsupportedError } from "../src/index";
 import { register } from "../src/auth/register";
 import { login } from "../src/auth/authenticate";
 import { isUserVerified } from "../src/auth/flags";
@@ -323,6 +323,7 @@ async function runTests() {
     const unverified = await login("preferred");
     assert(unverified.verified, "unverified login still succeeds");
     assert(unverified.prfOutput === undefined, "unverified login drops the PRF output");
+    assert(unverified.userVerified === false && verified.userVerified === true, "login reports the UV flag");
 
     reset(UP | UV);
     await login();
@@ -344,9 +345,35 @@ async function runTests() {
     const unverified = new Web3Passkey({ userVerification: "preferred" });
     const loginError = await unverified.login().then(() => undefined, (e) => e);
     assert(
-      loginError?.name === "WalletMissingError" && !unverified.isAuthenticated,
-      "unverified login can't open the stored wallet: no PRF output"
+      loginError instanceof UserVerificationRequiredError &&
+        loginError.code === "USER_VERIFICATION_REQUIRED" &&
+        loginError.credentialId === CREDENTIAL_ID &&
+        !unverified.isAuthenticated,
+      "unverified login can't open the stored wallet: UserVerificationRequiredError"
     );
+
+    reset(UP | UV);
+    const prfOutput = authenticator.prfOutput;
+    authenticator.prfOutput = new ArrayBuffer(16);
+    const noPrf = new Web3Passkey({ userVerification: "preferred" });
+    const noPrfError = await noPrf.login().then(() => undefined, (e) => e);
+    authenticator.prfOutput = prfOutput;
+    assert(
+      noPrfError instanceof PrfUnsupportedError && !noPrf.isAuthenticated,
+      "a verified login without a PRF output throws PrfUnsupportedError"
+    );
+
+    await storeWallet(publicKey);
+    reset(UP);
+    const missing = new Web3Passkey({ userVerification: "preferred" });
+    await new LocalStorageWalletStorage().delete(CREDENTIAL_ID);
+    const missingError = await missing.login().then(() => undefined, (e) => e);
+    assert(
+      missingError?.name === "WalletMissingError",
+      "a missing wallet record still throws WalletMissingError"
+    );
+
+    await storeWallet(publicKey);
     assert(
       authenticator.getCalls.every((c) => c.userVerification === "preferred"),
       "login() requests 'preferred'"

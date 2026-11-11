@@ -90,6 +90,22 @@ export class WalletMissingError extends Web3PasskeyError {
   }
 }
 
+/**
+ * The passkey authenticated without user verification (biometric or PIN),
+ * which `userVerification: 'preferred'` allows. The wallet's key comes from
+ * the PRF output, which only a user-verified assertion releases, so the app
+ * should ask the user to sign in again and complete the check.
+ */
+export class UserVerificationRequiredError extends Web3PasskeyError {
+  constructor(public credentialId: string) {
+    super(
+      "Passkey authenticated without a biometric or PIN check, which unlocking the wallet requires. Sign in again and complete the check.",
+      "USER_VERIFICATION_REQUIRED"
+    );
+    this.name = "UserVerificationRequiredError";
+  }
+}
+
 export type SyncBootstrapReason =
   | "NO_CREDENTIAL"
   | "CREDENTIAL_MISMATCH"
