@@ -138,6 +138,7 @@ function parseDate(value: string): Date | undefined {
  *
  * @param params - SIWE message parameters
  * @returns EIP-4361 compliant message string
+ * @throws Error if a field is missing, or the message wouldn't pass parseSiweMessage()
  *
  * @example
  * const message = createSiweMessage({
@@ -190,7 +191,7 @@ export function createSiweMessage(params: SiweMessage): string {
   message += `${params.address}\n`;
   message += `\n`;
 
-  if (params.statement) {
+  if (params.statement !== undefined) {
     message += `${params.statement}\n`;
   }
   message += `\n`;
@@ -220,6 +221,7 @@ export function createSiweMessage(params: SiweMessage): string {
     }
   }
 
+  parseSiweMessage(message);
   return message;
 }
 
@@ -343,6 +345,8 @@ export function validateSiweMessage(
   options?: {
     /** Expected domain (validates domain matches) */
     domain?: string;
+    /** Expected scheme; a message without one is https (EIP-4361) */
+    scheme?: string;
     /** Expected chain ID */
     chainId?: number;
   }
@@ -360,6 +364,11 @@ export function validateSiweMessage(
     // Validate domain if specified
     if (options?.domain && parsed.domain !== options.domain) {
       errors.push(`Domain mismatch: expected "${options.domain}", got "${parsed.domain}"`);
+    }
+
+    const scheme = parsed.scheme ?? 'https';
+    if (options?.scheme && scheme.toLowerCase() !== options.scheme.toLowerCase()) {
+      errors.push(`Scheme mismatch: expected "${options.scheme}", got "${scheme}"`);
     }
 
     // Validate chain ID if specified

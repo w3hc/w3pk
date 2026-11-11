@@ -408,7 +408,8 @@ async function runTests() {
       [{ notBefore: "Jan 1 2000" }, "Invalid Not Before"],
     ];
     for (const [fields, expected] of cases) {
-      const validation = validateSiweMessage(createSiweMessage({ ...base, ...fields }));
+      assert.throws(() => createSiweMessage({ ...base, ...fields }), `${expected} should not be built`);
+      const validation = validateSiweMessage({ ...base, ...fields });
       assert(validation.valid === false, `${expected} should fail validation`);
       assert(validation.errors.some(e => e.includes(expected)), `Should report ${expected}`);
     }
@@ -521,6 +522,27 @@ Resources:
       /Statement must be ASCII/,
       "createSiweMessage() rejects a statement the ABNF doesn't allow"
     );
+
+    for (const [field, value] of [
+      ["address", "0xAB5801a7D398351b8bE11C439e05C5B3259aeC9B"],
+      ["uri", "https://example.com/a b"],
+      ["domain", "example.com/app"],
+      ["resources", ["not a uri"]],
+    ] as const) {
+      assert.throws(
+        () => createSiweMessage({ ...parsed, [field]: value }),
+        /Invalid SIWE message/,
+        `createSiweMessage() refuses a ${field} the parser would reject`
+      );
+    }
+
+    const emptyStatement = valid.replace("Sign in to Example", "");
+    assert(createSiweMessage(parseSiweMessage(emptyStatement)) === emptyStatement, "An empty statement roundtrips");
+
+    const http = validateSiweMessage(parseSiweMessage(`http://${valid}`), { domain: "example.com", scheme: "https" });
+    assert(!http.valid && http.errors.some((e) => e.includes("Scheme mismatch")), "Another scheme fails validation");
+    const implicit = validateSiweMessage(parseSiweMessage(valid), { domain: "example.com", scheme: "https" });
+    assert(!implicit.errors.some((e) => e.includes("Scheme")), "No scheme counts as https");
 
     console.log("  ✓ Out-of-order, duplicate, unknown and malformed lines are rejected");
     console.log("  ✓ The optional scheme is parsed");
