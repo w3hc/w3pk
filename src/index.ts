@@ -128,10 +128,13 @@ export {
 export {
   ENTRY_POINT_V09,
   encodeExecute,
+  getRequiredPrefund,
   getUserOperationHash,
   type Call,
   type UserOperation,
 } from "./wallet/user-operation";
+
+export { DEFAULT_USER_OPERATION_CAPS, type UserOperationCaps } from "./wallet/bundler";
 
 export {
   RecoverySimulator,
