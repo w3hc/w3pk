@@ -37,7 +37,7 @@ A malicious browser extension, a one-shot XSS that exfiltrates storage, a disk i
 
 **No PRF support** (older authenticators, some browser/OS combinations): `register()` throws `PrfUnsupportedError` before any address is returned, and stores nothing, so no one can fund a wallet that only lives in memory. The new passkey is dropped where the browser supports [`signalUnknownCredential()`](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/signalUnknownCredential_static); elsewhere it stays on the authenticator, unused. When creation isn't user-verified, one user-verified assertion evaluates the PRF first. There is deliberately no weaker fallback.
 
-**Wallets stored before #179** are under the old key. `login()` re-encrypts one from a PRF persistent session when one exists; otherwise it throws `WalletMissingError` and the wallet is restored from a backup.
+**Records stored before [#350](https://github.com/w3hc/w3pk/issues/350)** aren't read: credential metadata now sits under the raw credential ID, and wallet and session records bind their metadata (see below). After upgrading, `login()` throws `SyncRequiredError` and the wallet is restored from a backup.
 
 ### "Remember Me" (persistent sessions): PRF-keyed, renewed at every real login
 
@@ -57,6 +57,18 @@ What "Remember Me" still changes is the **exposure window**, not the trust model
 - Keep the duration short for higher-value wallets. `sessionDuration: 0` keeps nothing in memory, so every operation prompts; the persistent session still follows `persistentSession`.
 - `requireReauth: true` (default) still prompts on page refresh and keeps the blob hardware-bound; `requireReauth: false` restores silently for the whole duration.
 - Do not enable it on shared or untrusted devices.
+
+### Stored metadata is authenticated
+
+Script that can write this origin's localStorage (XSS, an extension) can't read the wallet, but it could edit what sits next to it. Each record now detects that:
+
+- **The passkey's public key.** `PRIMARY` addresses are derived from it, so a swapped key would show another smart account as the deposit address. `register()` stores `publicKeyMac`, an HMAC-SHA256 of the credential ID and public key under `HKDF-SHA256(prfOutput, salt = 0^32, info = "w3pk-prf-public-key-mac-v1")`. `login()` checks it with the PRF output of its own assertion, so no extra prompt, and throws `AuthenticationError` if it doesn't match. The SDK then keeps the checked key in memory: `getAddress('PRIMARY')`, `deriveWallet('PRIMARY')`, `PRIMARY` signing and sending, and backups never read it from storage again.
+- **Wallet records.** `credentialId`, `ethereumAddress` and `createdAt` are AES-GCM additional data. An edited record fails to decrypt, and `login()` throws `WalletMissingError`.
+- **Persistent sessions.** `credentialId`, `ethereumAddress`, `expiresAt`, `securityMode`, `createdAt` and the passkey's public key are AES-GCM additional data. A session whose expiry was pushed back, or whose passkey's public key changed, fails to decrypt and is deleted; a silent restore falls back to a prompted login.
+
+Additional data and the MAC input use a length-prefixed encoding: a label, then each field as its UTF-8 length (4 bytes, big-endian) and its bytes.
+
+**Limit: silent "Remember Me".** A silent restore (`requireReauth: false`) gets no PRF output, so it can't check the MAC: the public key is checked through the session record it is bound to, and that record's key is stored next to it. Script that can read and write storage can reseal the session for a key of its choice, as it can already read the mnemonic. With `requireReauth: true` (the default) every login checks the MAC.
 
 ### Storage durability: what can still wipe the wallet
 
@@ -919,6 +931,16 @@ async function authorizeGovernanceContract() {
 
 This section tracks major security-related changes to w3pk's implementation.
 
+### Unreleased - Authenticated credential metadata ([#350](https://github.com/w3hc/w3pk/issues/350))
+
+**Impact:** Fixes a public key changed in localStorage changing the `PRIMARY` address shown (audit L-3), and binds the metadata of encrypted records (I-1)
+
+**What changed:**
+- `publicKeyMac`, an HMAC of the credential ID and public key under a key from the PRF output (info `w3pk-prf-public-key-mac-v1`), is stored at registration and checked at login; `PRIMARY` uses the key checked at login, held in memory
+- Wallet and persistent-session records bind their metadata as AES-GCM additional data
+- Credential records are stored under the raw credential ID (I-3)
+- No migration: records stored earlier aren't read, and the wallet is restored from a backup
+
 ### Unreleased - Capped bundler gas values in PRIMARY mode ([#347](https://github.com/w3hc/w3pk/issues/347))
 
 **Impact:** Fixes a dishonest bundler draining a `PRIMARY` account or its paymaster through inflated gas values (audit M-3)
@@ -1151,6 +1173,7 @@ const stolenEncryptedSeed = "..."   // from w3pk_wallet_<credentialId>
 {
   "id": "credential-abc123",
   "publicKey": "MFkw...EwYH...AQAB",  // PUBLIC key only
+  "publicKeyMac": "q3Zx...9Lw",       // HMAC under a PRF-derived key, checked at login
   "username": "alice",
   "ethereumAddress": "0x1234...5678",
   "createdAt": 1234567890
@@ -1176,12 +1199,13 @@ const stolenEncryptedSeed = "..."   // from w3pk_wallet_<credentialId>
 
 ### 3. Credential Metadata in LocalStorage
 
-Credential metadata is stored in plain text, under `w3pk_credential_<hash>`, where `<hash>` is the base64url SHA-256 of `"w3pk-cred-id:" + credentialId`, with the credential IDs listed in `w3pk_credential_index`:
+Credential metadata is stored in plain text, under `w3pk_credential_<credentialId>`, with the credential IDs listed in `w3pk_credential_index`:
 
 ```json
 {
   "id": "credential-abc123",
   "publicKey": "MFkw...AQAB",
+  "publicKeyMac": "q3Zx...9Lw",
   "username": "alice",
   "ethereumAddress": "0x1234...5678",
   "createdAt": "2026-11-03T10:00:00Z",
@@ -1192,7 +1216,9 @@ Credential metadata is stored in plain text, under `w3pk_credential_<hash>`, whe
 
 **Any script on the page can read the username and Ethereum address**, and so can extensions with access to the site and anyone who can read the browser profile. `login()` reads this list before any passkey prompt to build `allowCredentials`, so the metadata can't be encrypted under a key that isn't already on the device. None of it unlocks the wallet: the mnemonic is encrypted under a key from the passkey's PRF output (see above).
 
-From v0.7.4 to v0.11.0, the username and address were encrypted under a key derived from `SHA-256("w3pk-metadata-v1:" + credentialId)`, with the credential ID stored in clear in the index, so the encryption hid nothing. Entries stored by v0.11.0 and earlier are treated as absent: after upgrading, `login()` throws `SyncRequiredError` and the wallet is restored from a backup.
+Until [#350](https://github.com/w3hc/w3pk/issues/350) the key held the SHA-256 of `"w3pk-cred-id:" + credentialId`, while the index listed the raw IDs, so the hashing hid nothing; from v0.7.4 to v0.11.0 the username and address were also encrypted under a key derived from the credential ID, for the same reason to no effect. Entries in an earlier format are treated as absent: after upgrading, `login()` throws `SyncRequiredError` and the wallet is restored from a backup.
+
+`publicKeyMac` authenticates the public key (see [Stored metadata is authenticated](#stored-metadata-is-authenticated)). The username, address and counters aren't authenticated: the address a wallet opens to is bound to the wallet record, and the signature counter only detects clones.
 
 ### 4. Storage Architecture
 
@@ -1206,7 +1232,7 @@ Understanding where w3pk stores data and how browser security mechanisms protect
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │ localStorage (Origin-Scoped)                           │ │
-│  │ Key: w3pk_credential_<hashed credentialId>             │ │
+│  │ Key: w3pk_credential_<credentialId>                    │ │
 │  │                                                          │ │
 │  │ {                                                        │ │
 │  │   "id": "credential-abc123",          // PUBLIC        │ │
@@ -1559,7 +1585,7 @@ await navigator.credentials.get({
 - **Key Size:** 256 bits
 - **IV:** Random 12 bytes per encryption
 - **Authentication Tag:** 16 bytes (automatic with GCM)
-- **Additional Authenticated Data:** none — integrity comes from the GCM authentication tag above; no AAD is bound to the ciphertext
+- **Additional Authenticated Data:** label `w3pk-wallet-record-v1`, then the record's `credentialId`, `ethereumAddress` and `createdAt`, length-prefixed. Persistent sessions use label `w3pk-session-record-v1`, then `credentialId`, `ethereumAddress`, `expiresAt`, `securityMode`, `createdAt` and the passkey's public key
 
 **Entropy Analysis:**
 - The PRF output is HMAC-SHA256 under a credential secret: 256 bits, never exposed outside a user-verified assertion
@@ -1586,7 +1612,7 @@ await navigator.credentials.get({
 - **Key Size:** 256 bits
 - **IV:** Random 12 bytes per encryption, prepended to the ciphertext (`encryptedMnemonic` is `base64(iv || ciphertext)`)
 - **Authentication Tag:** 16 bytes (automatic with GCM)
-- **Additional Authenticated Data:** none — integrity comes from the GCM authentication tag above; no AAD is bound to the ciphertext
+- **Additional Authenticated Data:** label `w3pk-backup-v4`, then every other field of the file in a fixed order, length-prefixed
 
 **Password Requirements:**
 Enforced on every new password backup (`createBackupFile()`, `setupSocialRecovery()`, `exportForSync(password)`), which throws `WeakPasswordError` with the missing rules in `feedback`. `isStrongPassword()` checks the same rules:
@@ -2555,10 +2581,11 @@ const w3pk = createWeb3Passkey({
 
 ```typescript
 // localStorage (origin-scoped by browser)
-// Key: w3pk_credential_<base64url SHA-256 of "w3pk-cred-id:" + credentialId>
+// Key: w3pk_credential_<credentialId>
 {
   "id": "credential-abc123",
   "publicKey": "MFkw...",      // Public key only
+  "publicKeyMac": "q3Zx...",   // Checked at login with the PRF output
   "username": "alice",
   "ethereumAddress": "0x1234...",
   "createdAt": 1234567890

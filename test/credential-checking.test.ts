@@ -4,7 +4,6 @@
  */
 import "./setup"; // Import setup to initialize mocks
 import { CredentialStorage } from "../src/auth/storage";
-import { hashCredentialId } from "../src/wallet/crypto";
 import {
   startTestSuite,
   endTestSuite,
@@ -253,8 +252,8 @@ async function runTests() {
     });
   });
 
-  // Test 12: Metadata is stored in plain text
-  await runTest("Credential metadata is stored in plain text", async () => {
+  // Test 12: Metadata is stored in plain text, under the raw credential ID
+  await runTest("Credential metadata is stored in plain text under its ID", async () => {
     const storage = new CredentialStorage();
     await storage.clearAll();
     await storage.saveCredential({
@@ -268,7 +267,12 @@ async function runTests() {
 
     const localStorage = (global as any).window.localStorage;
     const raw = JSON.parse(
-      localStorage.getItem(`w3pk_credential_${await hashCredentialId("credential-plain")}`)
+      localStorage.getItem("w3pk_credential_credential-plain")
+    );
+    assertEqual(
+      JSON.parse(localStorage.getItem("w3pk_credential_index")).join(),
+      "credential-plain",
+      "The index lists the same raw ID"
     );
     assertEqual(raw.id, "credential-plain", "Stored id should be the credential id");
     assertEqual(raw.username, "dave@example.com", "Username should be in plain text");
@@ -281,8 +285,8 @@ async function runTests() {
     passTest("Plain-text metadata verified");
   });
 
-  // Test 13: Entries encrypted before v0.11.1 are treated as absent
-  await runTest("Old encrypted entries are ignored", async () => {
+  // Test 13: Entries in another format are treated as absent
+  await runTest("Entries in another format are ignored", async () => {
     const storage = new CredentialStorage();
     await storage.clearAll();
     await storage.saveCredential({
@@ -294,11 +298,10 @@ async function runTests() {
       lastUsed: "2024-01-04T00:00:00Z",
     });
     const localStorage = (global as any).window.localStorage;
-    const hashedId = await hashCredentialId("credential-old");
     localStorage.setItem(
-      `w3pk_credential_${hashedId}`,
+      "w3pk_credential_credential-old",
       JSON.stringify({
-        id: hashedId,
+        id: "credential-old",
         encryptedUsername: "gqq1C5H/UlCsjp35Ddmkc/Gq8bzXUeLZEvEr1Bye4Z+i",
         encryptedAddress: "RLYIjiYRjt++Tvhv+VUVwXtslpJ1QASWFJY61aAhZo26",
         publicKey: "public-key-old",
@@ -339,7 +342,7 @@ async function runTests() {
       "erin@example.com",
       "Saving again should replace the old entry"
     );
-    passTest("Old encrypted entries are ignored and can be replaced");
+    passTest("Entries in another format are ignored and can be replaced");
   });
 
   endTestSuite();

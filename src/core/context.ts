@@ -9,6 +9,8 @@ import type { SessionManager } from "./session";
  */
 export interface SdkContext {
   currentUser: UserInfo | null;
+  /** The logged-in passkey's public key, as checked at login */
+  currentPublicKey: string | null;
   currentWallet: GeneratedWallet | null;
   readonly config: InternalConfig;
   readonly walletStorage: LocalStorageWalletStorage;

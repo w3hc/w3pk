@@ -9,9 +9,9 @@
 
 import { Web3Passkey, WalletMissingError, PrfUnsupportedError } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
-import { LocalStorageWalletStorage } from "../src/wallet/storage";
+import { LocalStorageWalletStorage, openWalletRecord, sealWalletRecord } from "../src/wallet/storage";
 import type { SessionManager } from "../src/core/session";
-import { decryptData, deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
+import { deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
 console.log("\n==================================================");
@@ -219,7 +219,7 @@ async function decryptsWithWalletKey(address: string): Promise<boolean> {
   const stored = await wallets().retrieve(CREDENTIAL_ID);
   if (stored?.ethereumAddress !== address) return false;
   const key = await deriveWalletKey(authenticator.prfOutput);
-  return decryptData(stored.encryptedMnemonic, key).then(
+  return openWalletRecord(stored, key).then(
     (m) => m === MNEMONIC,
     () => false
   );
@@ -314,24 +314,9 @@ async function runTests() {
   }
   console.log("");
 
-  console.log("Test 5: a record under the old key is re-encrypted from a persistent session");
-  {
-    reset(true, true);
-    const config = { persistentSession: { enabled: true } };
-    const address = await registerWithMnemonic(new Web3Passkey(config));
-    await storeUnderOldKey(address);
-    assert(!(await decryptsWithWalletKey(address)), "the record is under the old key");
-
-    const next = new Web3Passkey(config);
-    await next.login();
-    assert(next.isAuthenticated, "login() opens the wallet from the session");
-    assert(await decryptsWithWalletKey(address), "the record is re-encrypted with the PRF wallet key");
-  }
-  console.log("");
-
   const session = (sdk: Web3Passkey) => (sdk as any).sessionManager as SessionManager;
 
-  console.log("Test 6: register() leaves the mnemonic to the session");
+  console.log("Test 5: register() leaves the mnemonic to the session");
   {
     reset(true, true);
     const sdk = new Web3Passkey();
@@ -343,7 +328,7 @@ async function runTests() {
   }
   console.log("");
 
-  console.log("Test 7: login() drops a wallet waiting for register()");
+  console.log("Test 6: login() drops a wallet waiting for register()");
   {
     reset(true, true);
     await registerWithMnemonic(new Web3Passkey());
@@ -355,7 +340,7 @@ async function runTests() {
   }
   console.log("");
 
-  console.log("Test 8: nothing holds the mnemonic once the session expires");
+  console.log("Test 7: nothing holds the mnemonic once the session expires");
   {
     reset(true, true);
     const sdk = new Web3Passkey();
@@ -370,7 +355,7 @@ async function runTests() {
   }
   console.log("");
 
-  console.log("Test 9: sessionDuration: 0 keeps nothing in memory");
+  console.log("Test 8: sessionDuration: 0 keeps nothing in memory");
   {
     reset(true, true);
     const sdk = new Web3Passkey({ sessionDuration: 0 });
@@ -384,7 +369,7 @@ async function runTests() {
   }
   console.log("");
 
-  console.log("Test 10: STRICT caches nothing");
+  console.log("Test 9: STRICT caches nothing");
   {
     reset(true, true);
     const sdk = new Web3Passkey({ persistentSession: { enabled: true } });

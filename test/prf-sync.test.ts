@@ -19,8 +19,8 @@ import {
   WeakPasswordError,
 } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
-import { LocalStorageWalletStorage } from "../src/wallet/storage";
-import { decryptData, deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
+import { LocalStorageWalletStorage, openWalletRecord, sealWalletRecord } from "../src/wallet/storage";
+import { deriveWalletKey, PRF_INPUT } from "../src/wallet/crypto";
 import { BackupFileManager, prfSyncInput } from "../src/backup/backup-file";
 import { DeviceSyncManager } from "../src/sync/backup-sync";
 import type { BackupFile } from "../src/backup/types";
@@ -196,12 +196,13 @@ async function loggedInDeviceA(publicKey: string): Promise<Web3Passkey> {
     lastUsed: now,
   });
   const key = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
-  await new LocalStorageWalletStorage(localStorage as unknown as Storage).store({
-    ethereumAddress: ADDRESS,
-    encryptedMnemonic: await encryptData(MNEMONIC, key),
-    credentialId: CREDENTIAL_ID,
-    createdAt: now,
-  });
+  await new LocalStorageWalletStorage(localStorage as unknown as Storage).store(
+    await sealWalletRecord(MNEMONIC, key, {
+      ethereumAddress: ADDRESS,
+      credentialId: CREDENTIAL_ID,
+      createdAt: now,
+    })
+  );
 
   const sdk = new Web3Passkey();
   (sdk as any).currentUser = {
@@ -209,6 +210,7 @@ async function loggedInDeviceA(publicKey: string): Promise<Web3Passkey> {
     ethereumAddress: ADDRESS,
     credentialId: CREDENTIAL_ID,
   };
+  (sdk as any).currentPublicKey = publicKey;
   (sdk as any).getMnemonicFromSession = async () => MNEMONIC;
   return sdk;
 }
@@ -354,12 +356,12 @@ async function runTests() {
     ).retrieve(CREDENTIAL_ID);
     const walletKey = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
     assert(
-      (await decryptData(stored!.encryptedMnemonic, walletKey)) === MNEMONIC,
+      (await openWalletRecord(stored!, walletKey)) === MNEMONIC,
       "the stored wallet decrypts with the passkey's PRF output"
     );
     const otherKey = await deriveWalletKey(crypto.getRandomValues(new Uint8Array(32)));
     assert(
-      (await capture(() => decryptData(stored!.encryptedMnemonic, otherKey))) instanceof Error,
+      (await capture(() => openWalletRecord(stored!, otherKey))) instanceof Error,
       "the stored wallet doesn't decrypt without it"
     );
     await assertSyncedAndLogsIn(sdk, authEvents, publicKey);

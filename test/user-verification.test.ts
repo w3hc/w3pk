@@ -12,8 +12,8 @@ import { register } from "../src/auth/register";
 import { login } from "../src/auth/authenticate";
 import { isUserVerified } from "../src/auth/flags";
 import { CredentialStorage } from "../src/auth/storage";
-import { LocalStorageWalletStorage } from "../src/wallet/storage";
-import { deriveWalletKey, encryptData } from "../src/wallet/crypto";
+import { LocalStorageWalletStorage, openWalletRecord, sealWalletRecord } from "../src/wallet/storage";
+import { deriveWalletKey, macPublicKey } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
 console.log("\n==================================================");
@@ -207,14 +207,16 @@ async function storeWallet(publicKey: string): Promise<void> {
     ethereumAddress: ADDRESS,
     createdAt: now,
     lastUsed: now,
+    publicKeyMac: await macPublicKey(authenticator.prfOutput, CREDENTIAL_ID, publicKey),
   });
   const key = await deriveWalletKey(authenticator.prfOutput);
-  await new LocalStorageWalletStorage(localStorage as unknown as Storage).store({
-    ethereumAddress: ADDRESS,
-    encryptedMnemonic: await encryptData(MNEMONIC, key),
-    credentialId: CREDENTIAL_ID,
-    createdAt: now,
-  });
+  await new LocalStorageWalletStorage(localStorage as unknown as Storage).store(
+    await sealWalletRecord(MNEMONIC, key, {
+      ethereumAddress: ADDRESS,
+      credentialId: CREDENTIAL_ID,
+      createdAt: now,
+    })
+  );
 }
 
 function reset(flags: number) {

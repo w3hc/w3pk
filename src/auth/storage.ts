@@ -1,5 +1,4 @@
 import { StorageError } from "../core/errors";
-import { hashCredentialId } from "../wallet/crypto";
 
 const STORAGE_KEY_PREFIX = "w3pk_credential_";
 const STORAGE_INDEX_KEY = "w3pk_credential_index";
@@ -12,6 +11,12 @@ export interface StoredCredential {
   createdAt: string;
   lastUsed: string;
   signCount?: number; // Signature counter for authenticator cloning detection
+  /**
+   * MAC of `id` and `publicKey` under a key derived from the passkey's PRF
+   * output (see macPublicKey), checked at login. Absent when the passkey's
+   * metadata was saved without a PRF output
+   */
+  publicKeyMac?: string;
 }
 
 export class CredentialStorage {
@@ -33,9 +38,7 @@ export class CredentialStorage {
    */
   async saveCredential(credential: StoredCredential): Promise<void> {
     try {
-      const hashedId = await hashCredentialId(credential.id);
-      const key = `${STORAGE_KEY_PREFIX}${hashedId}`;
-      this.storage.setItem(key, JSON.stringify(credential));
+      this.storage.setItem(STORAGE_KEY_PREFIX + credential.id, JSON.stringify(credential));
       await this.addToIndex(credential.id);
     } catch (error) {
       throw new StorageError("Failed to save credential", error);
@@ -43,14 +46,12 @@ export class CredentialStorage {
   }
 
   /**
-   * Retrieves a credential by original ID. Entries encrypted by v0.11.0 and
-   * earlier are treated as absent
+   * Retrieves a credential by ID. A record in another format is treated as
+   * absent
    */
   async getCredentialById(id: string): Promise<StoredCredential | null> {
     try {
-      const hashedId = await hashCredentialId(id);
-      const key = `${STORAGE_KEY_PREFIX}${hashedId}`;
-      const data = this.storage.getItem(key);
+      const data = this.storage.getItem(STORAGE_KEY_PREFIX + id);
       if (!data) return null;
       const credential = JSON.parse(data) as Partial<StoredCredential> | null;
       if (
@@ -155,30 +156,33 @@ export class CredentialStorage {
   }
 
   /**
-   * Updates the Ethereum address for a credential
-   * Used when restoring from backup to overwrite with new address
+   * Updates a credential's Ethereum address and public key MAC, e.g. when
+   * restoring from backup overwrites its address
    */
-  async updateCredentialAddress(id: string, newAddress: string): Promise<void> {
+  async updateCredential(
+    id: string,
+    changes: Partial<Pick<StoredCredential, "ethereumAddress" | "publicKeyMac">>
+  ): Promise<void> {
     try {
       const credential = await this.getCredentialById(id);
       if (credential) {
-        credential.ethereumAddress = newAddress;
-        credential.lastUsed = new Date().toISOString();
-        await this.saveCredential(credential);
+        await this.saveCredential({
+          ...credential,
+          ...changes,
+          lastUsed: new Date().toISOString(),
+        });
       }
     } catch (error) {
-      throw new StorageError("Failed to update credential address", error);
+      throw new StorageError("Failed to update credential", error);
     }
   }
 
   /**
-   * Deletes a credential by original ID
+   * Deletes a credential by ID
    */
   async deleteCredential(id: string): Promise<void> {
     try {
-      const hashedId = await hashCredentialId(id);
-      const key = `${STORAGE_KEY_PREFIX}${hashedId}`;
-      this.storage.removeItem(key);
+      this.storage.removeItem(STORAGE_KEY_PREFIX + id);
       await this.removeFromIndex(id);
     } catch (error) {
       throw new StorageError("Failed to delete credential", error);
@@ -190,14 +194,9 @@ export class CredentialStorage {
    */
   async clearAll(): Promise<void> {
     try {
-      const index = await this.getIndex();
-      const hashedIds = await Promise.all(
-        index.map(async (id) => await hashCredentialId(id))
-      );
-      hashedIds.forEach((hashedId) => {
-        const key = `${STORAGE_KEY_PREFIX}${hashedId}`;
-        this.storage.removeItem(key);
-      });
+      for (const id of await this.getIndex()) {
+        this.storage.removeItem(STORAGE_KEY_PREFIX + id);
+      }
       this.storage.removeItem(STORAGE_INDEX_KEY);
     } catch (error) {
       throw new StorageError("Failed to clear credentials", error);
@@ -205,7 +204,7 @@ export class CredentialStorage {
   }
 
   /**
-   * Gets the credential index (stores original IDs, not hashed)
+   * Gets the credential index, the IDs of the stored credentials
    */
   private async getIndex(): Promise<string[]> {
     try {

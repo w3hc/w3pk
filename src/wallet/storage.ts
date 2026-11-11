@@ -8,9 +8,52 @@
  */
 
 import { StorageError } from "../core/errors";
+import { encodeFields } from "../utils/crypto";
+import { decryptData, encryptData } from "./crypto";
 import type { EncryptedWalletData, WalletStorage } from "./types";
 
 const KEY_PREFIX = "w3pk_wallet_";
+
+const WALLET_AAD_LABEL = "w3pk-wallet-record-v1";
+
+type WalletMetadata = Omit<EncryptedWalletData, "encryptedMnemonic">;
+
+/**
+ * AES-GCM additional data of a wallet record: its credential ID, address and
+ * creation date, so a record edited in storage fails to decrypt
+ */
+function walletAdditionalData(record: WalletMetadata): Uint8Array<ArrayBuffer> {
+  return encodeFields(
+    WALLET_AAD_LABEL,
+    record.credentialId,
+    record.ethereumAddress,
+    record.createdAt
+  );
+}
+
+/** Encrypt `mnemonic` under `key` into a wallet record bound to `metadata` */
+export async function sealWalletRecord(
+  mnemonic: string,
+  key: CryptoKey,
+  metadata: WalletMetadata
+): Promise<EncryptedWalletData> {
+  const { credentialId, ethereumAddress, createdAt } = metadata;
+  return {
+    credentialId,
+    ethereumAddress,
+    createdAt,
+    encryptedMnemonic: await encryptData(mnemonic, key, walletAdditionalData(metadata)),
+  };
+}
+
+/**
+ * Decrypt a wallet record's mnemonic
+ *
+ * @throws CryptoError if `key` is wrong or the record's metadata was changed
+ */
+export function openWalletRecord(record: EncryptedWalletData, key: CryptoKey): Promise<string> {
+  return decryptData(record.encryptedMnemonic, key, walletAdditionalData(record));
+}
 
 export class LocalStorageWalletStorage implements WalletStorage {
   constructor(private readonly customStorage?: Storage) {}

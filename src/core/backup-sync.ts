@@ -6,7 +6,7 @@ import type { BackupCredential, BackupFile, BackupStatus } from "../backup/types
 import type { DeviceSyncInfo } from "../sync/backup-sync";
 import type { SyncCapabilities } from "../sync/types";
 import { validateUsername } from "../utils/validation";
-import { derivePrfSessionKey, PRF_INPUT } from "../wallet/crypto";
+import { derivePrfSessionKey, macPublicKey, PRF_INPUT } from "../wallet/crypto";
 import { AddressChangeError, AuthenticationError, PrfUnsupportedError, SyncBootstrapError, WalletError } from "./errors";
 import type { SdkContext } from "./context";
 
@@ -71,12 +71,12 @@ export async function recordBackup(ctx: SdkContext, method: 'file' | 'prf'): Pro
   });
 }
 
-export async function backupCredential(ctx: Pick<SdkContext, 'currentUser'>): Promise<BackupCredential | undefined> {
-  const credential = await new CredentialStorage().getCredentialById(
-    ctx.currentUser!.credentialId
-  );
-  return credential
-    ? { id: credential.id, publicKey: credential.publicKey }
+/** The logged-in passkey, with the public key checked at login */
+export async function backupCredential(
+  ctx: Pick<SdkContext, 'currentUser' | 'currentPublicKey'>
+): Promise<BackupCredential | undefined> {
+  return ctx.currentUser && ctx.currentPublicKey
+    ? { id: ctx.currentUser.credentialId, publicKey: ctx.currentPublicKey }
     : undefined;
 }
 
@@ -305,6 +305,10 @@ async function restorePrfBackup(
  * deleted before anything else is written. Without `prfOutput`, the wallet and the
  * session stay in memory only.
  *
+ * `credential.publicKey` must have been checked against an assertion's
+ * signature: it becomes the session's PRIMARY key, and is stored with its
+ * MAC under `prfOutput`.
+ *
  * @throws AddressChangeError if the passkey has another wallet on this device and `allowAddressChange` is false
  * @throws PrfUnsupportedError if it has another wallet and there is no `prfOutput` to store the new one with
  */
@@ -338,6 +342,10 @@ export async function bootstrapCredential(
     ? await ctx.walletStorage.retrieve(credential.id)
     : null;
 
+  const publicKeyMac = prfOutput
+    ? await macPublicKey(prfOutput, credential.id, credential.publicKey)
+    : undefined;
+
   if (prfOutput) {
     await ctx.storeWallet(ethereumAddress, mnemonic, credential.id, prfOutput);
   } else if (!stored) {
@@ -359,17 +367,20 @@ export async function bootstrapCredential(
       ethereumAddress,
       createdAt: now,
       lastUsed: now,
+      publicKeyMac,
     });
-  } else if (addressChanged) {
+  } else if (publicKeyMac && (addressChanged || publicKeyMac !== stored.publicKeyMac)) {
     try {
-      await storage.updateCredentialAddress(credential.id, ethereumAddress);
+      await storage.updateCredential(credential.id, { ethereumAddress, publicKeyMac });
     } catch (error) {
-      await (previousWallet
-        ? ctx.walletStorage.store(previousWallet)
-        : ctx.walletStorage.delete(credential.id)
-      ).catch((rollbackError) =>
-        console.warn('[w3pk] Failed to put back the previous wallet record:', rollbackError)
-      );
+      if (addressChanged) {
+        await (previousWallet
+          ? ctx.walletStorage.store(previousWallet)
+          : ctx.walletStorage.delete(credential.id)
+        ).catch((rollbackError) =>
+          console.warn('[w3pk] Failed to put back the previous wallet record:', rollbackError)
+        );
+      }
       throw error;
     }
   }
@@ -379,12 +390,13 @@ export async function bootstrapCredential(
     ethereumAddress,
     credentialId: credential.id,
   };
+  ctx.currentPublicKey = credential.publicKey;
   ctx.currentWallet = null;
 
   await ctx.sessionManager.startSession(
     mnemonic,
     credential.id,
-    ethereumAddress,
+    { ethereumAddress, publicKey: credential.publicKey },
     prfOutput
       ? await derivePrfSessionKey(prfOutput, ctx.sessionManager.storesSessionKey)
       : undefined,
@@ -471,8 +483,7 @@ export async function exportForSync(
     throw new WalletError("No wallet data found");
   }
 
-  const storage = new CredentialStorage();
-  const credential = await storage.getCredentialById(walletData.credentialId);
+  const credential = await backupCredential(ctx);
   if (!credential) {
     throw new WalletError("Credential not found");
   }
@@ -482,7 +493,7 @@ export async function exportForSync(
 
   const { backupFile, blob } = await syncManager.exportForSync(
     mnemonic,
-    { id: credential.id, publicKey: credential.publicKey },
+    credential,
     ctx.currentUser.username,
     password
   );

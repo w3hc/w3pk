@@ -13,8 +13,8 @@
 import { Wallet } from "ethers";
 import { Web3Passkey, AuthenticationError, PrfUnsupportedError, WalletError } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
-import { LocalStorageWalletStorage } from "../src/wallet/storage";
-import { decryptData, deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
+import { LocalStorageWalletStorage, openWalletRecord, sealWalletRecord } from "../src/wallet/storage";
+import { deriveWalletKey, PRF_INPUT } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
 console.log("\n==================================================");
@@ -207,12 +207,13 @@ async function loggedInWith(
     lastUsed: now,
   });
   const key = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
-  await wallets().store({
-    ethereumAddress: address,
-    encryptedMnemonic: await encryptData(mnemonic, key),
-    credentialId: CREDENTIAL_ID,
-    createdAt: now,
-  });
+  await wallets().store(
+    await sealWalletRecord(mnemonic, key, {
+      ethereumAddress: address,
+      credentialId: CREDENTIAL_ID,
+      createdAt: now,
+    })
+  );
 
   const sdk = new Web3Passkey(config);
   (sdk as any).currentUser = {
@@ -229,7 +230,7 @@ async function storedMnemonic(address: string): Promise<string | undefined> {
   const stored = await wallets().retrieve(CREDENTIAL_ID);
   if (stored?.ethereumAddress !== address) return undefined;
   const key = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
-  return decryptData(stored.encryptedMnemonic, key);
+  return openWalletRecord(stored, key);
 }
 
 async function capture(fn: () => Promise<unknown>): Promise<unknown> {
@@ -316,7 +317,7 @@ async function runTests() {
     const error = await capture(() => sdk.importMnemonic(MNEMONIC_B));
     Object.assign(failCredentialWriteAfterWallet, { enabled: false, armed: false });
     assert(
-      error instanceof Error && error.message === "Failed to update credential address",
+      error instanceof Error && error.message === "Failed to update credential",
       "throws the credential update's error"
     );
     assert((await wallets().retrieve(CREDENTIAL_ID)) === null, "wallet B's record is deleted");

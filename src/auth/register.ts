@@ -6,7 +6,7 @@ import {
   arrayBufferToBase64Url,
   base64UrlToArrayBuffer,
 } from "../utils/base64";
-import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
+import { generateChallenge, macPublicKey, PRF_INPUT } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
 import { verifyClientData, verifyRpIdHash } from "./authenticate";
 import { authDataFromAttestationObject, credentialPublicKeyFromAuthData } from "./attestation";
@@ -25,7 +25,12 @@ function signalUnknownCredential(rpId: string, credentialId: string): void {
 
 export async function register(
   options: RegisterOptions
-): Promise<{ credentialId: string; signature: ArrayBuffer; prfOutput: ArrayBuffer }> {
+): Promise<{
+  credentialId: string;
+  publicKey: string;
+  signature: ArrayBuffer;
+  prfOutput: ArrayBuffer;
+}> {
   let unstored: { rpId: string; credentialId: string } | null = null;
   try {
     const { username, ethereumAddress, userVerification = "required" } = options;
@@ -107,6 +112,7 @@ export async function register(
       (isUserVerified(authData)
         ? copyPrfResult(credential.getClientExtensionResults?.().prf?.results?.first)
         : undefined) ?? (await evaluatePrf(PRF_INPUT, credential.id)).output;
+    const publicKeyMac = await macPublicKey(prfOutput, credential.id, publicKey);
 
     // Past this point a record may be on disk, so the passkey must stay
     unstored = null;
@@ -118,9 +124,10 @@ export async function register(
       createdAt: new Date().toISOString(),
       lastUsed: new Date().toISOString(),
       signCount: 0, // Initialize signature counter
+      publicKeyMac,
     });
 
-    return { credentialId: credential.id, signature: attestationObject, prfOutput };
+    return { credentialId: credential.id, publicKey, signature: attestationObject, prfOutput };
   } catch (error) {
     if (unstored) signalUnknownCredential(unstored.rpId, unstored.credentialId);
     if (error instanceof PrfUnsupportedError) throw error;

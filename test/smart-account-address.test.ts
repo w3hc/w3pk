@@ -54,6 +54,7 @@ async function runTests() {
       ethereumAddress: "0x0000000000000000000000000000000000000000",
       credentialId: CREDENTIAL_ID,
     };
+    (sdk as any).currentPublicKey = PUBLIC_KEY_SPKI;
     (sdk as any).getMnemonicFromSession = async () => MNEMONIC;
     return sdk;
   };

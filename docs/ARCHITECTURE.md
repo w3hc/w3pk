@@ -247,12 +247,13 @@ STEP 4: Encrypt & Store
 │  localStorage              │  localStorage              │
 │  ─────────────             │  ─────────────             │
 │                            │                            │
-│  w3pk_credential_*:        │  w3pk_wallet_<id>:         │
+│  w3pk_credential_<id>:     │  w3pk_wallet_<id>:         │
 │  {                         │  {                         │
 │    id: "abc123",           │    ethereumAddress,        │
 │    publicKey,              │    encryptedMnemonic,      │
-│    username,               │    credentialId: "abc123"  │
-│    ethereumAddress         │  }                         │
+│    publicKeyMac,           │    credentialId: "abc123"  │
+│    username,               │  }                         │
+│    ethereumAddress         │                            │
 │  }                         │                            │
 │                            │                            │
 │  (WebAuthn metadata)       │  (Encrypted wallet)        │
@@ -385,22 +386,23 @@ User wants to send 1 ETH
 ### localStorage Structure
 
 **Location**: `window.localStorage`
-**Keys**: `w3pk_credential_*`
+**Keys**: `w3pk_credential_<credentialId>`, and `w3pk_credential_index` listing the credential IDs
 **Purpose**: WebAuthn credential metadata
 
 ```typescript
-// Example: localStorage.getItem('w3pk_credential_<hashed credential ID>')
+// Example: localStorage.getItem('w3pk_credential_credential-abc123')
 {
   id: "credential-abc123",
   username: "alice",                    // Plain text, readable by any script on the page
   ethereumAddress: "0x742d...",         // Plain text, readable by any script on the page
-  publicKey: "04A1B2C3D4E5F6...",
+  publicKey: "MFkwEwYHKoZIzj0CAQYI...", // SPKI, base64url
+  publicKeyMac: "q3Zx...9Lw",           // HMAC-SHA256 of id and publicKey under a PRF-derived key
   createdAt: "2024-11-25T12:00:00Z",
   lastUsed: "2024-11-25T15:30:00Z"
 }
 ```
 
-**Why publicKey is plaintext**: It's needed to derive the encryption key. It's the **public** part of the WebAuthn key pair—not sensitive.
+**Why publicKey is plaintext**: It's the **public** part of the WebAuthn key pair, not sensitive. `login()` checks assertions against it, and `PRIMARY` derives its smart account from it. `publicKeyMac` is keyed by `HKDF-SHA256(prfOutput, info = "w3pk-prf-public-key-mac-v1")`: `login()` checks it with its assertion's PRF output and keeps the checked key in memory, so a key changed in storage can't change the `PRIMARY` address ([SECURITY.md](./SECURITY.md#stored-metadata-is-authenticated)).
 
 ### Wallet Storage
 
@@ -408,7 +410,7 @@ User wants to send 1 ETH
 **Key**: `w3pk_wallet_<credentialId>`, one record per passkey: two passkeys of one wallet each keep the mnemonic encrypted under their own PRF output
 **Purpose**: Encrypted wallet storage
 
-Persistent sessions use `w3pk_session_<credentialId>` and backup metadata `w3pk_backups`, in the same localStorage.
+Persistent sessions use `w3pk_session_<credentialId>` and backup metadata `w3pk_backups`, in the same localStorage. Wallet and session records bind their metadata (credential ID, address, dates, and for sessions the expiry, security mode and the passkey's public key) as AES-GCM additional data, so an edited record fails to decrypt.
 
 ```typescript
 // Example record in localStorage
@@ -802,6 +804,8 @@ Scenarios:
   "createdAt": "2024-11-25T..."
 }
 ```
+
+`ethereumAddress`, `credentialId` and `createdAt` are the ciphertext's additional data, after the label `w3pk-wallet-record-v1`.
 
 ### Key Derivation Formula
 

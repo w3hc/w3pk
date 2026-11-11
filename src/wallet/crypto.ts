@@ -12,6 +12,7 @@ import {
   base64UrlToArrayBuffer,
   safeAtob,
 } from "../utils/base64";
+import { encodeFields } from "../utils/crypto";
 
 /**
  * Fixed input for the WebAuthn PRF extension.
@@ -29,10 +30,16 @@ const PRF_HKDF_INFO = new TextEncoder().encode("w3pk-prf-session-key-v1");
 
 const PRF_WALLET_HKDF_INFO = new TextEncoder().encode("w3pk-prf-wallet-key-v1");
 
-async function derivePrfAesKey(
+const PRF_PUBLIC_KEY_MAC_HKDF_INFO = new TextEncoder().encode("w3pk-prf-public-key-mac-v1");
+
+const PUBLIC_KEY_MAC_LABEL = "w3pk-public-key-mac-v1";
+
+async function derivePrfKey(
   prfOutput: BufferSource,
   info: Uint8Array<ArrayBuffer>,
-  extractable: boolean
+  algorithm: AesKeyGenParams | HmacKeyGenParams,
+  extractable: boolean,
+  usages: KeyUsage[]
 ): Promise<CryptoKey> {
   const byteLength = prfOutput.byteLength;
   if (byteLength !== 32) {
@@ -50,10 +57,21 @@ async function derivePrfAesKey(
   return crypto.subtle.deriveKey(
     { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
     keyMaterial,
-    { name: "AES-GCM", length: 256 },
+    algorithm,
     extractable,
-    ["encrypt", "decrypt"]
+    usages
   );
+}
+
+function derivePrfAesKey(
+  prfOutput: BufferSource,
+  info: Uint8Array<ArrayBuffer>,
+  extractable: boolean
+): Promise<CryptoKey> {
+  return derivePrfKey(prfOutput, info, { name: "AES-GCM", length: 256 }, extractable, [
+    "encrypt",
+    "decrypt",
+  ]);
 }
 
 /**
@@ -88,6 +106,61 @@ export async function deriveWalletKey(prfOutput: BufferSource): Promise<CryptoKe
     return await derivePrfAesKey(prfOutput, PRF_WALLET_HKDF_INFO, false);
   } catch (error: any) {
     throw new CryptoError("Failed to derive wallet key from PRF output", error);
+  }
+}
+
+function derivePublicKeyMacKey(prfOutput: BufferSource): Promise<CryptoKey> {
+  return derivePrfKey(
+    prfOutput,
+    PRF_PUBLIC_KEY_MAC_HKDF_INFO,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    false,
+    ["sign", "verify"]
+  );
+}
+
+/**
+ * HMAC-SHA256 of a passkey's ID and public key, keyed from the PRF output at
+ * `PRF_INPUT` (separate HKDF info), as base64url. Stored next to the public
+ * key, it lets login detect a public key changed in storage.
+ */
+export async function macPublicKey(
+  prfOutput: BufferSource,
+  credentialId: string,
+  publicKey: string
+): Promise<string> {
+  try {
+    const mac = await crypto.subtle.sign(
+      "HMAC",
+      await derivePublicKeyMacKey(prfOutput),
+      encodeFields(PUBLIC_KEY_MAC_LABEL, credentialId, publicKey)
+    );
+    return arrayBufferToBase64Url(mac);
+  } catch (error: any) {
+    throw new CryptoError("Failed to authenticate the public key", error);
+  }
+}
+
+/**
+ * Whether `mac` is the MAC of the passkey's ID and public key under the key
+ * derived from `prfOutput` (see macPublicKey)
+ */
+export async function verifyPublicKeyMac(
+  prfOutput: BufferSource,
+  credentialId: string,
+  publicKey: string,
+  mac: string | undefined
+): Promise<boolean> {
+  if (!mac) return false;
+  try {
+    return await crypto.subtle.verify(
+      "HMAC",
+      await derivePublicKeyMacKey(prfOutput),
+      base64UrlToArrayBuffer(mac),
+      encodeFields(PUBLIC_KEY_MAC_LABEL, credentialId, publicKey)
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -195,17 +268,5 @@ export async function decryptData(
       }`,
       error
     );
-  }
-}
-
-export async function hashCredentialId(credentialId: string): Promise<string> {
-  try {
-    const hash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(`w3pk-cred-id:${credentialId}`)
-    );
-    return arrayBufferToBase64Url(hash);
-  } catch (error) {
-    throw new CryptoError("Failed to hash credential ID", error);
   }
 }
