@@ -96,6 +96,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `TransactionRequest` takes `gasPrice`, which the provider passes on: ethers sends it as both EIP-1559 fees on an EIP-1559 chain, and `PRIMARY` sets both UserOperation fees to it. With `maxFeePerGas` or `maxPriorityFeePerGas` it throws, or rejects with `-32602`. A `null` field of `eth_sendTransaction` is treated as absent
   - `wallet_switchEthereumChain` takes a hex quantity chain ID or rejects with `-32602`, and switches only to the initial chain or one with `rpcUrls`, else rejects with `4902` (unrecognized chain, as MetaMask); `chainChanged` is emitted only when the chain changes
   - No change for well-formed requests that name the provider's account
+- **BREAKING: every PRF output comes from an assertion checked as `login()` checks it** ([#352](https://github.com/w3hc/w3pk/issues/352)), audit finding L-6. Before, `evaluatePrf()` and `register()`'s fallback assertion used the PRF output without checking the UV flag or the signature
+  - `verifyPrfAssertion()` checks client data (type, challenge, origin), RP ID hash, user presence, the credential the request allowed, the signature and the UV flag ([WebAuthn L3 §7.2](https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion)); `login()`, `evaluatePrf()` and password-backup syncs use it
+  - The signature is checked against the public key just attested in `register()`'s fallback, the key checked at login for `derivePrfSecret()`, `getSemaphoreIdentity()`, `zkProve()`, `exportForSync()` and restores while logged in, the stored or backup key for `importFromSync()` and `syncWalletWithPasskey()`. A restore while logged in throws `AuthenticationError` before the prompt when the stored public key changed since login
+  - Logged out, `derivePrfSecret()`, `getSemaphoreIdentity()` and `zkProve()` check the picked passkey against its stored public key, and throw `SyncRequiredError` when this device has no metadata for it
+  - A request that required user verification rejects an assertion without the UV flag with `AuthenticationError`: `login()` with `userVerification: 'required'` no longer returns a login without a PRF output, and password-backup syncs no longer keep the wallet in memory only for it. With `'preferred'`, `login()` still drops the PRF output
+  - A rejected assertion's PRF outputs are zeroed, and accepted ones are copied out of the client extension results, which are zeroed
+  - `evaluatePrf(input, { credential, second, mismatchError })` takes an options object; `verifyAssertion()` is replaced by `verifyPrfAssertion()` and `verifySignCount()`, and `PasskeySelectionResult` no longer carries `prfOutput`
+  - No prompt changes: honest authenticators pass as before
 
 ## [0.12.3] - 2026-11-10
 

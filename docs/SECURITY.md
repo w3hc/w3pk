@@ -70,6 +70,19 @@ Additional data and the MAC input use a length-prefixed encoding: a label, then 
 
 **Limit: silent "Remember Me".** A silent restore (`requireReauth: false`) gets no PRF output, so it can't check the MAC: the public key is checked through the session record it is bound to, and that record's key is stored next to it. Script that can read and write storage can reseal the session for a key of its choice, as it can already read the mnemonic. With `requireReauth: true` (the default) every login checks the MAC.
 
+### Every PRF output comes from a checked assertion
+
+A PRF output is only used once its assertion passes the checks `login()` applies ([WebAuthn L3 §7.2](https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion)), in one helper, `verifyPrfAssertion()`: client data type, challenge and origin, RP ID hash, user presence, the credential the request allowed, the signature, and the UV flag. Without UV, the authenticator answers with the credential's other PRF ([§10.1.4](https://www.w3.org/TR/webauthn-3/#prf-extension)), so a request that required user verification rejects an assertion without the flag, and one that didn't (`login()` with `userVerification: 'preferred'`) drops its PRF output.
+
+| Path | Public key the signature is checked against |
+|---|---|
+| `login()` | The stored one, then checked against its MAC |
+| `register()`'s fallback assertion | The one just attested |
+| `derivePrfSecret()`, `getSemaphoreIdentity()`, `zkProve()`, `exportForSync()`, restores while logged in | The one checked at login, held in memory; logged out, the one stored for the passkey picked, else `SyncRequiredError` |
+| `importFromSync()`, `syncWalletWithPasskey()` | The one stored for the passkey, else the backup's |
+
+The checks run before any output is used, and a rejected assertion's PRF outputs are zeroed. The signature counter is checked and saved by `login()`, syncs and restores, not by the other PRF calls.
+
 ### Storage durability: what can still wipe the wallet
 
 The encrypted wallet, persistent sessions and backup metadata live in localStorage, next to the credential metadata. Browsers evict or clear an origin's storage as a whole or by storage type, so they are either all there or all gone: a passkey is never left logging in to a missing wallet. Before v0.10.3 the wallet lived in IndexedDB, and Chrome's storage-pressure eviction could delete it while keeping the credential in localStorage, leaving a wallet that could not be rebuilt from the passkey.
@@ -931,6 +944,16 @@ async function authorizeGovernanceContract() {
 
 This section tracks major security-related changes to w3pk's implementation.
 
+### Unreleased - Checked assertions on every PRF path ([#352](https://github.com/w3hc/w3pk/issues/352))
+
+**Impact:** Fixes PRF outputs used without the checks `login()` applies (audit L-6): `evaluatePrf()` and `register()`'s fallback assertion checked neither the UV flag nor the signature
+
+**What changed:**
+- `verifyPrfAssertion()` checks client data, RP ID hash, user presence, the allowed credential, the signature and the UV flag before any PRF output is used, on every path (see [Every PRF output comes from a checked assertion](#every-prf-output-comes-from-a-checked-assertion))
+- `login()` with `userVerification: 'required'` and syncs reject an assertion without the UV flag instead of dropping its PRF output
+- Logged out, `derivePrfSecret()`, `getSemaphoreIdentity()` and `zkProve()` need the picked passkey's metadata on this device, else `SyncRequiredError`
+- No prompt changes
+
 ### Unreleased - Authenticated credential metadata ([#350](https://github.com/w3hc/w3pk/issues/350))
 
 **Impact:** Fixes a public key changed in localStorage changing the `PRIMARY` address shown (audit L-3), and binds the metadata of encrypted records (I-1)
@@ -1131,10 +1154,11 @@ const credential = await navigator.credentials.create({
   }
 })
 
-// Platforms that don't evaluate the PRF at creation get one assertion instead
+// Platforms that don't evaluate the PRF at creation get one assertion instead,
+// checked against the public key just attested
 const prfOutput =
   credential.getClientExtensionResults().prf?.results?.first ??
-  (await evaluatePrf(PRF_INPUT, credential.id)).output
+  (await evaluatePrf(PRF_INPUT, { credential: { id: credential.id, publicKey } })).output
 
 // HKDF-SHA256, info "w3pk-prf-wallet-key-v1" → non-extractable AES-256-GCM key
 const key = await deriveWalletKey(prfOutput)
