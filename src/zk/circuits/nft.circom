@@ -1,96 +1,105 @@
 pragma circom 2.0.0;
 
-include "circomlib/circuits/poseidon.circom";
+include "circomlib/circuits/babyjub.circom";
+include "circomlib/circuits/bitify.circom";
 include "circomlib/circuits/comparators.circom";
+include "circomlib/circuits/poseidon.circom";
 
 /**
  * NFT Ownership Proof Circuit
- * Proves ownership of an NFT from a collection without revealing:
- * - Which specific NFT you own
- * - Your exact wallet address
- * - How many NFTs you own (beyond minimum threshold)
- * 
- * This circuit proves membership in a merkle tree of NFT holders
- * while optionally proving minimum balance threshold
- * 
+ *
+ * Proves that a Semaphore v4 identity holds at least `minBalance` tokens of
+ * `contractAddress`, as recorded in a holders tree, without revealing which
+ * holder it is.
+ *
+ * Leaf: Poseidon(commitment, contractAddress, balance), where commitment is
+ * Poseidon(BabyPbk(secret)) as in Semaphore v4. Empty leaves are 0.
+ *
  * Private inputs:
- *   - ownerAddress: your address that owns the NFT(s) (hashed)
+ *   - secret: the identity's secret scalar
+ *   - balance: the holder's balance recorded in the leaf
  *   - pathElements[levels]: merkle proof sibling hashes
  *   - pathIndices[levels]: merkle proof path (0 = left, 1 = right)
- * 
+ *
  * Public inputs:
- *   - root: merkle root of all NFT holders
- *   - contractAddress: NFT contract address (hashed)
- *   - minBalance: minimum number of NFTs to prove ownership of
- * 
+ *   - root: merkle root of the holders tree
+ *   - contractAddress: NFT contract address as a field element
+ *   - minBalance: minimum balance proven
+ *   - scope: external scope the nullifier is bound to
+ *
  * Output:
- *   - nullifierHash: prevents double-proving with same credentials
+ *   - nullifier: Poseidon(scope, secret), one per identity and scope
  */
 template NFTOwnership(levels) {
-    // Ensure levels is reasonable (max 20 for ~1M holders)
     assert(levels < 21);
-    
-    // Private inputs
-    signal input ownerAddress;
+
+    signal input secret;
+    signal input balance;
     signal input pathElements[levels];
     signal input pathIndices[levels];
-    
-    // Public inputs
+
     signal input root;
     signal input contractAddress;
     signal input minBalance;
-    
-    // Output - nullifier to prevent reuse
-    signal output nullifierHash;
-    
-    // Create leaf hash from owner address and contract address
-    component leafHasher = Poseidon(2);
-    leafHasher.inputs[0] <== ownerAddress;
+    signal input scope;
+
+    signal output nullifier;
+
+    // Below the Baby Jubjub subgroup order, so one commitment has one secret
+    var l = 2736030358979909402780800718157159386076813972158567259200215660948447373041;
+    component secretInRange = LessThan(251);
+    secretInRange.in[0] <== secret;
+    secretInRange.in[1] <== l;
+    secretInRange.out === 1;
+
+    component publicKey = BabyPbk();
+    publicKey.in <== secret;
+
+    component commitment = Poseidon(2);
+    commitment.inputs[0] <== publicKey.Ax;
+    commitment.inputs[1] <== publicKey.Ay;
+
+    // Both under 2^64, or GreaterEqThan wraps around the field
+    component balanceBits = Num2Bits(64);
+    balanceBits.in <== balance;
+    component minBalanceBits = Num2Bits(64);
+    minBalanceBits.in <== minBalance;
+
+    component enough = GreaterEqThan(64);
+    enough.in[0] <== balance;
+    enough.in[1] <== minBalance;
+    enough.out === 1;
+
+    component leafHasher = Poseidon(3);
+    leafHasher.inputs[0] <== commitment.out;
     leafHasher.inputs[1] <== contractAddress;
-    
-    // Verify merkle proof
+    leafHasher.inputs[2] <== balance;
+
     component merkleProof[levels];
     signal computedHash[levels + 1];
     signal leftHash[levels];
     signal rightHash[levels];
-    
+
     computedHash[0] <== leafHasher.out;
-    
+
     for (var i = 0; i < levels; i++) {
-        // Create hash components for each level
         merkleProof[i] = Poseidon(2);
-        
-        // Use pathIndices[i] to determine order
-        // If pathIndices[i] == 0, current hash goes left
-        // If pathIndices[i] == 1, current hash goes right
+
         pathIndices[i] * (pathIndices[i] - 1) === 0;
         leftHash[i] <== computedHash[i] + pathIndices[i] * (pathElements[i] - computedHash[i]);
         rightHash[i] <== pathElements[i] + pathIndices[i] * (computedHash[i] - pathElements[i]);
-        
+
         merkleProof[i].inputs[0] <== leftHash[i];
         merkleProof[i].inputs[1] <== rightHash[i];
         computedHash[i + 1] <== merkleProof[i].out;
     }
-    
-    // Verify the computed root matches the expected root
+
     root === computedHash[levels];
-    
-    // Verify minimum balance requirement (should be >= minBalance)
-    // For basic ownership proof, minBalance = 1
-    // For threshold ownership, minBalance > 1
-    component balanceCheck = GreaterEqThan(64); // Support up to 2^64 NFTs
-    balanceCheck.in[0] <== 1; // We prove ownership (>=1) 
-    balanceCheck.in[1] <== minBalance;
-    balanceCheck.out === 1;
-    
-    // Generate nullifier hash to prevent double-proving
-    // Nullifier = Hash(ownerAddress, contractAddress, root)
-    component nullifierHasher = Poseidon(3);
-    nullifierHasher.inputs[0] <== ownerAddress;
-    nullifierHasher.inputs[1] <== contractAddress;
-    nullifierHasher.inputs[2] <== root;
-    nullifierHash <== nullifierHasher.out;
+
+    component nullifierHasher = Poseidon(2);
+    nullifierHasher.inputs[0] <== scope;
+    nullifierHasher.inputs[1] <== secret;
+    nullifier <== nullifierHasher.out;
 }
 
-// Instantiate with 20 levels (supports ~1M holders)
-component main {public [root, contractAddress, minBalance]} = NFTOwnership(20);
+component main {public [root, contractAddress, minBalance, scope]} = NFTOwnership(20);
