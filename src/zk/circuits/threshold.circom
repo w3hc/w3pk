@@ -1,7 +1,8 @@
 pragma circom 2.0.0;
 
-include "../../../node_modules/circomlib/circuits/poseidon.circom";
-include "../../../node_modules/circomlib/circuits/comparators.circom";
+include "circomlib/circuits/bitify.circom";
+include "circomlib/circuits/comparators.circom";
+include "circomlib/circuits/poseidon.circom";
 
 /**
  * Threshold Proof Circuit
@@ -15,7 +16,7 @@ include "../../../node_modules/circomlib/circuits/comparators.circom";
  *   - threshold: the minimum value to prove against
  *   - commitment: Poseidon(value, blinding) - commitment to the value
  * 
- * Proves: value >= threshold
+ * Proves: value >= threshold, both below 2^128
  */
 template ThresholdProof() {
     // Private inputs
@@ -32,8 +33,14 @@ template ThresholdProof() {
     hasher.inputs[1] <== blinding;
     commitment === hasher.out;
 
-    // 2. Prove value >= threshold
-    component greaterThan = GreaterEqThan(252);
+    // 2. Both under 2^128, or GreaterEqThan wraps around the field
+    component valueBits = Num2Bits(128);
+    valueBits.in <== value;
+    component thresholdBits = Num2Bits(128);
+    thresholdBits.in <== threshold;
+
+    // 3. Prove value >= threshold
+    component greaterThan = GreaterEqThan(128);
     greaterThan.in[0] <== value;
     greaterThan.in[1] <== threshold;
     greaterThan.out === 1;

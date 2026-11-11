@@ -5,17 +5,18 @@ include "circomlib/circuits/poseidon.circom";
 /**
  * Membership Proof Circuit
  * Proves that a leaf exists in a merkle tree without revealing which leaf
- * 
+ *
  * Private inputs:
  *   - leaf: the actual leaf value (your identity/credential)
  *   - pathElements: siblings in the merkle tree path
  *   - pathIndices: binary path from leaf to root
- * 
+ *
  * Public inputs:
  *   - root: the merkle tree root (publicly known)
- * 
+ *   - scope: external scope the nullifier is bound to
+ *
  * Output:
- *   - Proof that you know a leaf in the tree, without revealing which leaf
+ *   - nullifier: Poseidon(scope, leaf), one per leaf and scope
  */
 template MembershipProof(levels) {
     // Private inputs
@@ -25,14 +26,14 @@ template MembershipProof(levels) {
     
     // Public inputs
     signal input root;
-    
-    // Output
-    signal output nullifier; // Prevents double-spending
-    
-    // Hash the leaf to create a nullifier
-    component leafHasher = Poseidon(1);
-    leafHasher.inputs[0] <== leaf;
-    nullifier <== leafHasher.out;
+    signal input scope;
+
+    signal output nullifier;
+
+    component nullifierHasher = Poseidon(2);
+    nullifierHasher.inputs[0] <== scope;
+    nullifierHasher.inputs[1] <== leaf;
+    nullifier <== nullifierHasher.out;
     
     // Merkle tree verification
     component merkleProof[levels];
@@ -61,4 +62,4 @@ template MembershipProof(levels) {
 }
 
 // Instantiate the circuit with 20 levels (supports up to 1M users)
-component main {public [root]} = MembershipProof(20);
+component main {public [root, scope]} = MembershipProof(20);

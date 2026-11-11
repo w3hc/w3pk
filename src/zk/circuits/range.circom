@@ -1,7 +1,8 @@
 pragma circom 2.0.0;
 
-include "../../../node_modules/circomlib/circuits/poseidon.circom";
-include "../../../node_modules/circomlib/circuits/comparators.circom";
+include "circomlib/circuits/bitify.circom";
+include "circomlib/circuits/comparators.circom";
+include "circomlib/circuits/poseidon.circom";
 
 /**
  * Range Proof Circuit
@@ -16,7 +17,7 @@ include "../../../node_modules/circomlib/circuits/comparators.circom";
  *   - max: maximum value (inclusive)
  *   - commitment: Poseidon(value, blinding)
  * 
- * Proves: min <= value <= max
+ * Proves: min <= value <= max, all three below 2^128
  */
 template RangeProof() {
     // Private inputs
@@ -34,14 +35,22 @@ template RangeProof() {
     hasher.inputs[1] <== blinding;
     commitment === hasher.out;
 
-    // 2. Prove value >= min
-    component greaterThanMin = GreaterEqThan(252);
+    // 2. All under 2^128, or the comparators wrap around the field
+    component valueBits = Num2Bits(128);
+    valueBits.in <== value;
+    component minBits = Num2Bits(128);
+    minBits.in <== min;
+    component maxBits = Num2Bits(128);
+    maxBits.in <== max;
+
+    // 3. Prove value >= min
+    component greaterThanMin = GreaterEqThan(128);
     greaterThanMin.in[0] <== value;
     greaterThanMin.in[1] <== min;
     greaterThanMin.out === 1;
 
-    // 3. Prove value <= max
-    component lessThanMax = LessEqThan(252);
+    // 4. Prove value <= max
+    component lessThanMax = LessEqThan(128);
     lessThanMax.in[0] <== value;
     lessThanMax.in[1] <== max;
     lessThanMax.out === 1;

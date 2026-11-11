@@ -15,7 +15,7 @@ import type {
   OwnershipProofInput,
   NFTOwnershipProofInput,
 } from "./types";
-import { validateNFTOwnershipProofInputs } from "./utils";
+import { toFieldElement, validateNFTOwnershipProofInputs } from "./utils";
 
 export class ZKProofGenerator {
   private circuits: Map<ProofType, CircuitArtifacts> = new Map();
@@ -56,6 +56,7 @@ export class ZKProofGenerator {
       pathIndices: input.pathIndices,
       pathElements: input.pathElements,
       root: input.root,
+      scope: toFieldElement(input.scope ?? 0n, "Scope").toString(),
     };
 
     return this.generateProof("membership", circuit, circuitInputs);

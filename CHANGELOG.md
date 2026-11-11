@@ -111,6 +111,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - GF(256) multiply is masked shift-and-add and inverse is a^254 (FIPS-197 §4.2, §4.4), with no log/exp table lookups on secret bytes
   - `combineShares()` is replaced by `combineShareSubsets()`
   - No change for guardians: same share format, shares made before recover as before (`test/fixtures/shamir-shares.json`)
+- **BREAKING: circuit hardening** ([#354](https://github.com/w3hc/w3pk/issues/354)), audit finding L-8. Before, comparator inputs had no range check, the membership nullifier was `Poseidon(leaf)` with no scope, and `scripts/compile-circuits.js` produced a `.zkey` with no phase-2 contribution
+  - `threshold.circom` and `range.circom` range-check `value`, `threshold`, `min` and `max` to 128 bits with `Num2Bits(128)` and compare at 128 bits instead of 252, so the comparators no longer wrap around the field; values of 2^128 or more are refused
+  - `nft.circom` range-checks the secret to 251 bits before comparing it with `l`
+  - The membership nullifier is `Poseidon(scope, leaf)` with a public `scope`; public signals are `[nullifier, root, scope]`. `MembershipProofInput.scope` is optional (default 0), so `proveMembership(input)` keeps its shape, and `verifyMembership(proof, root, scope?)` checks it
+  - `verifyThreshold()` and `verifyRange()` read the public signals in snarkjs order, `[threshold, commitment]` and `[min, max, commitment]`, so honest proofs now verify
+  - `pnpm compile:circuits` names its keys `<name>_test_only.zkey` and marks them `testOnly` in `artifacts.json`; the new `pnpm compile:circuits:release` creates no key and fails unless each `<name>_final.zkey` has a phase-2 contribution other than a beacon and passes `snarkjs zkey verify`. The default ptau is the Hermez 2^15 one, and the r1cs path is fixed
+  - Recompile the membership, threshold, range and nft circuits and redo their setup
 
 ## [0.12.3] - 2026-11-10
 

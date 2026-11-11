@@ -2002,8 +2002,11 @@ interface MembershipProofInput {
   pathIndices: number[];      // Private: position in merkle tree
   pathElements: string[];     // Private: merkle proof siblings
   root: string;               // Public: merkle root of the set
+  scope?: bigint | string;    // Public: external scope, a field element (default 0)
 }
 ```
+
+The nullifier is `Poseidon(scope, value)`: one per member and scope, so a verifier refuses a second proof in the same scope, and proofs in different scopes don't share a nullifier. Give each app or action its own scope. Anyone who knows the leaves can compute every member's nullifier, so the proof hides the member only if the leaves are secret-derived values that the verifier can't enumerate.
 
 **Returns:** `ZKProof` object
 
@@ -2026,18 +2029,19 @@ const pathIndices = []
 const pathElements = []
 // ... compute merkle proof
 
-// Generate ZK proof
+// Generate ZK proof, its nullifier bound to this poll
+const scope = 2026n
 const proof = await w3pk.zk.proveMembership({
   value: leaves[myIndex],
   pathIndices,
   pathElements,
-  root
+  root,
+  scope
 })
 
-// Verify
-const isValid = await w3pk.zk.verifyMembership(proof, root)
+// Verify, then refuse proof.publicSignals[0] if already seen for this scope
+const isValid = await w3pk.zk.verifyMembership(proof, root, scope)
 console.log('Membership proven:', isValid)
-// You've proved you're in the set without revealing you're member #1!
 ```
 
 ---
@@ -2047,6 +2051,8 @@ console.log('Membership proven:', isValid)
 Prove value exceeds threshold without revealing the actual value.
 
 **Use case:** Prove balance > $1000 without revealing you have $5000.
+
+`value` and `threshold` must be below 2^128; the circuit refuses larger ones.
 
 **Parameters:**
 
@@ -2098,6 +2104,8 @@ console.log('Balance > $1000:', meetsThreshold)
 Prove value is within a range without revealing the exact value.
 
 **Use case:** Prove age is 18-65 without revealing you're 25.
+
+`value`, `min` and `max` must be below 2^128; the circuit refuses larger ones.
 
 **Parameters:**
 
@@ -2279,21 +2287,21 @@ console.log('All valid:', results.every(r => r.valid))
 
 ---
 
-### `zk.verifyMembership(proof: ZKProof, expectedRoot: string): Promise<boolean>`
+### `zk.verifyMembership(proof: ZKProof, expectedRoot: string, expectedScope?: bigint | string): Promise<boolean>`
 
-Verify membership proof with expected merkle root. The proof's public signals are `[nullifier, root]`.
+Verify membership proof with expected merkle root and scope (default 0). The proof's public signals are `[nullifier, root, scope]`; store the nullifier to refuse a second proof in the same scope.
 
 **Example:**
 
 ```typescript
-const isValid = await w3pk.zk.verifyMembership(proof, root)
+const isValid = await w3pk.zk.verifyMembership(proof, root, scope)
 ```
 
 ---
 
 ### `zk.verifyThreshold(proof: ZKProof, expectedCommitment: string, expectedThreshold: bigint): Promise<boolean>`
 
-Verify threshold proof.
+Verify threshold proof. The proof's public signals are `[threshold, commitment]`.
 
 **Example:**
 
@@ -2305,7 +2313,7 @@ const meetsThreshold = await w3pk.zk.verifyThreshold(proof, commitment, 1000n)
 
 ### `zk.verifyRange(proof: ZKProof, expectedCommitment: string, expectedMin: bigint, expectedMax: bigint): Promise<boolean>`
 
-Verify range proof.
+Verify range proof. The proof's public signals are `[min, max, commitment]`.
 
 **Example:**
 

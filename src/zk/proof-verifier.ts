@@ -89,20 +89,27 @@ export class ZKProofVerifier {
   }
 
   /**
-   * Verify membership proof
+   * Verify membership proof against the expected root and scope (default 0).
+   * Store `publicSignals[0]`, the nullifier, to refuse a second proof from
+   * the same leaf in the same scope.
    */
   async verifyMembershipProof(
     proof: ZKProof,
-    expectedRoot: string
+    expectedRoot: string,
+    expectedScope: bigint | string = 0n
   ): Promise<boolean> {
     if (proof.type !== "membership") {
       throw new CryptoError("Invalid proof type for membership verification");
     }
 
     const result = await this.verifyProof(proof);
+    const [, root, scope] = proof.publicSignals;
 
-    const publicRoot = proof.publicSignals[1];
-    return result.valid && publicRoot === expectedRoot;
+    return (
+      result.valid &&
+      root === expectedRoot &&
+      scope === BigInt(expectedScope).toString()
+    );
   }
 
   /**
@@ -119,14 +126,12 @@ export class ZKProofVerifier {
 
     const result = await this.verifyProof(proof);
 
-    // Check public inputs match
-    const publicCommitment = proof.publicSignals[0];
-    const publicThreshold = BigInt(proof.publicSignals[1]);
+    const [publicThreshold, publicCommitment] = proof.publicSignals;
 
     return (
       result.valid &&
       publicCommitment === expectedCommitment &&
-      publicThreshold === expectedThreshold
+      publicThreshold === expectedThreshold.toString()
     );
   }
 
@@ -145,15 +150,13 @@ export class ZKProofVerifier {
 
     const result = await this.verifyProof(proof);
 
-    const publicCommitment = proof.publicSignals[0];
-    const publicMin = BigInt(proof.publicSignals[1]);
-    const publicMax = BigInt(proof.publicSignals[2]);
+    const [publicMin, publicMax, publicCommitment] = proof.publicSignals;
 
     return (
       result.valid &&
       publicCommitment === expectedCommitment &&
-      publicMin === expectedMin &&
-      publicMax === expectedMax
+      publicMin === expectedMin.toString() &&
+      publicMax === expectedMax.toString()
     );
   }
 
@@ -221,19 +224,20 @@ export class ZKProofVerifier {
         return {
           nullifier: signals[0],
           root: signals[1],
+          scope: signals[2],
         };
 
       case "threshold":
         return {
-          commitment: signals[0],
-          threshold: signals[1],
+          threshold: signals[0],
+          commitment: signals[1],
         };
 
       case "range":
         return {
-          commitment: signals[0],
-          min: signals[1],
-          max: signals[2],
+          min: signals[0],
+          max: signals[1],
+          commitment: signals[2],
         };
 
       case "ownership":

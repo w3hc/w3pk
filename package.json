@@ -77,6 +77,7 @@
     "build": "tsup",
     "build:zk": "pnpm run build && pnpm run compile:circuits",
     "compile:circuits": "node scripts/compile-circuits.js",
+    "compile:circuits:release": "node scripts/compile-circuits.js --release",
     "dev": "tsup --watch",
     "test": "node scripts/run-tests.mjs",
     "test:basic": "node scripts/run-tests.mjs test/basic.test.ts",
