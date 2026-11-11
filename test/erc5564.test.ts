@@ -320,6 +320,89 @@ if (fullCheckCount !== 1) {
 const expectedFilterRate = (viewTagFiltered / announcements.length) * 100;
 console.log(`✓ Filter rate: ${expectedFilterRate.toFixed(2)}% (expected ~99%)`);
 
+// Test 10: Cross-implementation vectors
+// Generated with @scopelift/stealth-address-sdk 1.0.0-beta.5 (generateStealthAddress
+// with a fixed ephemeral private key, then computeStealthKey), which hashes the
+// shared secret as a 33-byte compressed point.
+console.log("\n10. Testing ScopeLift SDK Vectors");
+console.log("-".repeat(50));
+
+const scopeLiftVectors = [
+  {
+    mnemonic: testMnemonic,
+    ephemeralPrivateKey: "0x" + "11".repeat(32),
+    stealthMetaAddress:
+      "0x03f2e32f9a060b8fe18736f5c4da328265d9d29ac13d5fed45649700a9c5f2cdca03037f40766fbc839e1b69a19685ce42f967a74a87d597a52ef525810484908b33",
+    ephemeralPubKey:
+      "0x034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+    viewTag: "0x13",
+    stealthAddress: "0xB1A9e94E1f0B3C9940EFE3dFC3D5644eCB6b731d",
+    stealthPrivateKey:
+      "0x0b68fea69985b842b3f31c3e38a1ab03cb44abd441586f20d2e770beb874ee96",
+  },
+  {
+    mnemonic:
+      "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    ephemeralPrivateKey: "0x" + "22".repeat(32),
+    stealthMetaAddress:
+      "0x0226e593ae184aef22184e8d139b9189715020553c5a5f2f83aa8517fb9435fa2d038ccc8186e5933e845afd096cc6d3f2fdb25fbe4db4864b944619afa8e4e8bd5e",
+    ephemeralPubKey:
+      "0x02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+    viewTag: "0xdc",
+    stealthAddress: "0x20952ce8049CF0d33EAa974da5633E6123069dc5",
+    stealthPrivateKey:
+      "0xbd7830020c1fb8e2614286a5229d7a3d3350c6f7bb0db49e7cfe22f41dce020c",
+  },
+];
+
+for (const vector of scopeLiftVectors) {
+  const vectorKeys = deriveStealthKeys(vector.mnemonic);
+  if (vectorKeys.stealthMetaAddress !== vector.stealthMetaAddress) {
+    throw new Error(`Meta-address mismatch: ${vectorKeys.stealthMetaAddress}`);
+  }
+  if (
+    new ethers.Wallet(vector.ephemeralPrivateKey).signingKey.compressedPublicKey !==
+    vector.ephemeralPubKey
+  ) {
+    throw new Error("Ephemeral public key mismatch");
+  }
+
+  const vectorCheck = checkStealthAddress(
+    vectorKeys.viewingKey,
+    vectorKeys.spendingPubKey,
+    vector.ephemeralPubKey,
+    vector.stealthAddress,
+    vector.viewTag
+  );
+  if (!vectorCheck.isForUser || vectorCheck.stealthAddress !== vector.stealthAddress) {
+    throw new Error(`ScopeLift vector not recognized: ${vector.stealthAddress}`);
+  }
+
+  const vectorPrivKey = computeStealthPrivateKey(
+    vectorKeys.viewingKey,
+    vectorKeys.spendingKey,
+    vector.ephemeralPubKey
+  );
+  if (vectorPrivKey !== vector.stealthPrivateKey) {
+    throw new Error(`Stealth private key mismatch: ${vectorPrivKey}`);
+  }
+  if (new ethers.Wallet(vectorPrivKey).address !== vector.stealthAddress) {
+    throw new Error("Stealth private key does not control the stealth address");
+  }
+}
+console.log("✓ View tags, stealth addresses and keys match ScopeLift's SDK");
+
+const uncompressedVector = checkStealthAddress(
+  keys.viewingKey,
+  keys.spendingPubKey,
+  scopeLiftVectors[0].ephemeralPubKey,
+  "0xe313D64b394524d4f69388951B4E030d6f99b82c"
+);
+if (uncompressedVector.isForUser) {
+  throw new Error("The uncompressed shared-secret address must not be recognized");
+}
+console.log("✓ The uncompressed shared-secret address is not recognized");
+
 (async () => {
   // Test: getKeys() never returns the spending private key
   console.log("\nTesting StealthAddressModule.getKeys()");
