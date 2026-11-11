@@ -12,7 +12,7 @@
  * real forgery, and fails the R1CS of the real circuit, so it is rejected by
  * the constraints and not only by the witness generator's asserts.
  *
- * The membership nullifier is bound to a scope, the root by default.
+ * The membership nullifier is bound to a scope, 0 by default.
  * threshold.circom and range.circom prove and verify honest values, and refuse
  * comparator inputs of 2^128 or more, which their 252-bit comparators on
  * unchecked inputs accepted: each is also compiled as it was, and the same
@@ -239,8 +239,8 @@ async function runTests() {
     assert(await zk.verifyMembership(proof, root), "verifyMembership() accepts the expected root");
     assert(!(await zk.verifyMembership(proof, "1")), "verifyMembership() refuses another root");
     assert(
-      proof.publicSignals[2] === root && proof.publicSignals[0] === poseidon2([BigInt(root), leaf]).toString(),
-      "without a scope, the scope is the root and the nullifier Poseidon(root, leaf)"
+      proof.publicSignals[2] === "0" && proof.publicSignals[0] === poseidon2([0n, leaf]).toString(),
+      "without a scope, the scope is 0 and the nullifier Poseidon(0, leaf)"
     );
     const scoped = await zk.proveMembership({ ...membershipInput, scope: 7n });
     assert(
@@ -249,6 +249,10 @@ async function runTests() {
     );
     assert(scoped.publicSignals[0] !== proof.publicSignals[0], "another scope gives another nullifier");
     assert(await zk.verifyMembership(scoped, root, 7n), "verifyMembership() accepts the expected scope");
+    assert(
+      /not in the BN254 scalar field/.test((await rejection(() => zk.proveMembership({ ...membershipInput, scope: P }))) ?? ""),
+      "proveMembership() refuses a scope outside the field"
+    );
     assert(
       !(await zk.verifyMembership(scoped, root)) && !(await zk.verifyMembership(scoped, root, 8n)),
       "verifyMembership() refuses another scope"
@@ -266,7 +270,7 @@ async function runTests() {
       leaf: "999",
       ...forged,
       root,
-      scope: root,
+      scope: "0",
     });
     console.log("");
 
