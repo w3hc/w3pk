@@ -131,7 +131,7 @@ export function getPackageVersion(): string {
  *
  * The tarball is fetched from registry.npmjs.org, checked against the
  * registry's `dist.integrity`, and its `dist/index.js`, `dist/index.mjs` and
- * `dist/index.d.ts` are hashed. No CDN is involved.
+ * `dist/index.d.ts` are hashed. No third-party mirror is involved.
  *
  * @returns IPFS CIDv1 hash of the build
  *
