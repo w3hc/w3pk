@@ -56,6 +56,7 @@ export class ZKProofGenerator {
       pathIndices: input.pathIndices,
       pathElements: input.pathElements,
       root: input.root,
+      scope: BigInt(input.scope ?? input.root).toString(),
     };
 
     return this.generateProof("membership", circuit, circuitInputs);
