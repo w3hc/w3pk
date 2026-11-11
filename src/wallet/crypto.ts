@@ -34,10 +34,12 @@ const PRF_PUBLIC_KEY_MAC_HKDF_INFO = new TextEncoder().encode("w3pk-prf-public-k
 
 const PUBLIC_KEY_MAC_LABEL = "w3pk-public-key-mac-v1";
 
-async function derivePrfAesKey(
+async function derivePrfKey(
   prfOutput: BufferSource,
   info: Uint8Array<ArrayBuffer>,
-  extractable: boolean
+  algorithm: AesKeyGenParams | HmacKeyGenParams,
+  extractable: boolean,
+  usages: KeyUsage[]
 ): Promise<CryptoKey> {
   const byteLength = prfOutput.byteLength;
   if (byteLength !== 32) {
@@ -55,10 +57,21 @@ async function derivePrfAesKey(
   return crypto.subtle.deriveKey(
     { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
     keyMaterial,
-    { name: "AES-GCM", length: 256 },
+    algorithm,
     extractable,
-    ["encrypt", "decrypt"]
+    usages
   );
+}
+
+function derivePrfAesKey(
+  prfOutput: BufferSource,
+  info: Uint8Array<ArrayBuffer>,
+  extractable: boolean
+): Promise<CryptoKey> {
+  return derivePrfKey(prfOutput, info, { name: "AES-GCM", length: 256 }, extractable, [
+    "encrypt",
+    "decrypt",
+  ]);
 }
 
 /**
@@ -96,14 +109,10 @@ export async function deriveWalletKey(prfOutput: BufferSource): Promise<CryptoKe
   }
 }
 
-async function derivePublicKeyMacKey(prfOutput: BufferSource): Promise<CryptoKey> {
-  if (prfOutput.byteLength !== 32) {
-    throw new Error(`PRF output must be 32 bytes, got ${prfOutput.byteLength}`);
-  }
-  const keyMaterial = await crypto.subtle.importKey("raw", prfOutput, "HKDF", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: PRF_PUBLIC_KEY_MAC_HKDF_INFO },
-    keyMaterial,
+function derivePublicKeyMacKey(prfOutput: BufferSource): Promise<CryptoKey> {
+  return derivePrfKey(
+    prfOutput,
+    PRF_PUBLIC_KEY_MAC_HKDF_INFO,
     { name: "HMAC", hash: "SHA-256", length: 256 },
     false,
     ["sign", "verify"]
