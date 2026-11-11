@@ -182,12 +182,15 @@ export class ZKProofVerifier {
   }
 
   /**
-   * Verify NFT ownership proof with expected contract and holders root
+   * Verify NFT ownership proof against the expected contract, holders root
+   * and scope. Store `publicSignals[0]`, the nullifier, to refuse a second
+   * proof from the same holder in the same scope.
    */
   async verifyNFTOwnershipProof(
     proof: ZKProof,
     expectedContract: string,
     expectedHoldersRoot: string,
+    expectedScope: bigint | string,
     expectedMinBalance: bigint = 1n
   ): Promise<boolean> {
     if (proof.type !== "nft") {
@@ -195,30 +198,15 @@ export class ZKProofVerifier {
     }
 
     const result = await this.verifyProof(proof);
-    const holdersRoot = proof.publicSignals[1];
-    const contractAddress = proof.publicSignals[2];
-    const minBalance = BigInt(proof.publicSignals[3]);
+    const [, holdersRoot, contractAddress, minBalance, scope] = proof.publicSignals;
 
-    // Hash the expected contract address for comparison
-    try {
-      const circomlibjs = await import("circomlibjs");
-      const poseidon = await circomlibjs.buildPoseidon();
-      const cleanContract = expectedContract.startsWith('0x') ? expectedContract : '0x' + expectedContract;
-      const expectedContractHash = poseidon.F.toObject(poseidon([BigInt(cleanContract)]));
-
-      return (
-        result.valid &&
-        holdersRoot === expectedHoldersRoot &&
-        contractAddress === expectedContractHash.toString() &&
-        minBalance >= expectedMinBalance
-      );
-    } catch (error) {
-      throw new CryptoError(
-        "ZK proof verification requires circomlibjs. Install with: npm install circomlibjs\n" +
-        "For more info: https://github.com/w3hc/w3pk#zero-knowledge-proofs",
-        error
-      );
-    }
+    return (
+      result.valid &&
+      holdersRoot === expectedHoldersRoot &&
+      contractAddress === BigInt(expectedContract).toString() &&
+      scope === BigInt(expectedScope).toString() &&
+      BigInt(minBalance) >= expectedMinBalance
+    );
   }
 
   /**
@@ -256,10 +244,11 @@ export class ZKProofVerifier {
 
       case "nft":
         return {
-          nullifierHash: signals[0],
+          nullifier: signals[0],
           holdersRoot: signals[1],
           contractAddress: signals[2],
           minBalance: signals[3],
+          scope: signals[4],
         };
 
       default:

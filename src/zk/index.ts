@@ -279,12 +279,13 @@ export class ZKProofModule {
   }
 
   /**
-   * Verify NFT ownership proof
+   * Verify NFT ownership proof; `publicSignals[0]` is the nullifier
    */
   async verifyNFTOwnership(
     proof: ZKProof,
     expectedContract: string,
     expectedHoldersRoot: string,
+    expectedScope: bigint | string,
     expectedMinBalance: bigint = 1n
   ): Promise<boolean> {
     try {
@@ -292,6 +293,7 @@ export class ZKProofModule {
         proof,
         expectedContract,
         expectedHoldersRoot,
+        expectedScope,
         expectedMinBalance
       );
     } catch (error) {
