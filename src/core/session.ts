@@ -6,7 +6,7 @@
  * - Persistent sessions: Mnemonic encrypted under a WebAuthn-PRF-derived key
  *   in localStorage (survives page refresh). PRF-capable authenticators only —
  *   no PRF, no persistence, no weaker fallback.
- * - Persistent sessions ONLY for STANDARD and YOLO modes (STRICT mode excluded)
+ * - STRICT mode caches nothing, in memory or persistent
  * - Automatically cleared after session expires
  * - Can be manually revoked at any time
  *
@@ -68,7 +68,8 @@ export class SessionManager {
    * @param ethereumAddress - User's ethereum address
    * @param prfSessionKey - AES key derived from this
    *   assertion's PRF output (see derivePrfSessionKey)
-   * @param securityMode - Security mode (STRICT sessions are never persisted)
+   * @param securityMode - Security mode: STRICT starts no session, in memory
+   *   or persistent, and leaves the current one as it is
    */
   async startSession(
     mnemonic: string,
@@ -77,14 +78,11 @@ export class SessionManager {
     prfSessionKey?: CryptoKey,
     securityMode?: SecurityMode
   ): Promise<void> {
+    if (securityMode === 'STRICT') return;
+
     this.cacheSession(mnemonic, credentialId);
 
-    // Persist session if enabled and not STRICT mode
-    if (
-      this.persistentConfig.enabled &&
-      securityMode !== 'STRICT' &&
-      ethereumAddress
-    ) {
+    if (this.persistentConfig.enabled && ethereumAddress) {
       if (!prfSessionKey) {
         console.info(
           '[w3pk] Authenticator did not provide a PRF output — persistent ' +

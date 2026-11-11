@@ -67,6 +67,31 @@ async function runTests() {
     assert(manager.getMnemonic() === null, "getMnemonic() returns null");
   });
 
+  await runTest("STRICT caches nothing", async () => {
+    const address = "0x1234567890123456789012345678901234567890";
+    const storage = new PersistentSessionStorage();
+    await storage.clear();
+
+    const manager = new SessionManager(1, { enabled: true });
+    const prfKey = await derivePrfSessionKey(crypto.getRandomValues(new Uint8Array(32)));
+    await manager.startSession(MNEMONIC, "cred-id", address, prfKey, "STRICT");
+
+    assert(manager.getMnemonic() === null, "getMnemonic() returns null");
+    assert(!manager.isActive(), "isActive() is false");
+    assert((await storage.retrieve("cred-id")) === null, "nothing is persisted");
+  });
+
+  await runTest("STRICT leaves the live session as it is", async () => {
+    const manager = new SessionManager(1);
+    await manager.startSession(MNEMONIC, "cred-id", undefined, undefined, "STANDARD");
+    const remaining = manager.getRemainingTime();
+    await manager.startSession("other mnemonic", "other-id", undefined, undefined, "STRICT");
+
+    assert(manager.getMnemonic() === MNEMONIC, "the session keeps its mnemonic");
+    assert(manager.getCredentialId() === "cred-id", "the session keeps its credential");
+    assert(manager.getRemainingTime() <= remaining, "the session isn't extended");
+  });
+
   await runTest("SDK keeps sessionDuration: 0", async () => {
     const sdk = createWeb3Passkey({
       storage: mockLocalStorage,
