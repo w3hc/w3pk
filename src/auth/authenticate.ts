@@ -10,7 +10,7 @@ import {
   arrayBufferToBase64Url,
   base64UrlToArrayBuffer,
 } from "../utils/base64";
-import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
+import { generateChallenge, PRF_INPUT, verifyPublicKeyMac } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
 import { parseDerSignature } from "../utils/crypto";
 
@@ -105,19 +105,21 @@ export async function login(
       throw new SyncRequiredError(assertion.id);
     }
 
-    const isValid = await verifyAssertion(assertion, credential, storage, challenge);
-
-    if (!isValid) {
-      throw new Error("Signature verification failed");
-    }
-
     // Authenticator-held secret released by this assertion. Undefined on
-    // authenticators without PRF support, and dropped when the assertion
-    // wasn't user-verified (it would be a different secret) — persistent
-    // sessions are then disabled (in-memory sessions still work).
-    const prfOutput = isUserVerified(new Uint8Array(assertion.response.authenticatorData))
-      ? assertion.getClientExtensionResults?.().prf?.results?.first
-      : undefined;
+    // authenticators without PRF support, and dropped when an assertion that
+    // didn't require UV wasn't user-verified (it would be a different
+    // secret) — persistent sessions are then disabled (in-memory sessions
+    // still work).
+    const { first: prfOutput } = await verifyPrfAssertion(
+      assertion,
+      credential.publicKey,
+      challenge,
+      userVerification
+    );
+
+    if (!(await verifySignCount(assertion, credential, storage))) {
+      throw new Error("Signature counter did not increase");
+    }
 
     return {
       verified: true,
@@ -139,26 +141,66 @@ export async function login(
   }
 }
 
+export interface PrfResults {
+  first?: ArrayBuffer;
+  second?: ArrayBuffer;
+}
+
 /**
- * Check an assertion as login() does: verifyAssertionSignature() against the
- * stored credential's public key, then the signature counter, which must
- * increase unless the authenticator keeps none. Saves the new counter.
+ * Check an assertion that evaluated the PRF as login() does, and return its
+ * PRF outputs: verifyAssertionSignature() against `publicKey`, then the UV
+ * flag, which must be set when `userVerification` is "required" (WebAuthn L3
+ * §7.2). Without UV, hmac-secret evaluates the credential's other PRF
+ * (§10.1.4), so the outputs are dropped. Outputs that aren't 32 bytes are
+ * dropped too.
  *
+ * @param publicKey - Base64url SPKI the signature must verify against
  * @param challenge - The base64url challenge sent in the request options
+ * @param signatureError - Thrown when the signature doesn't verify
+ * @throws AuthenticationError when the signature doesn't verify, or UV is
+ *   required and not set
  */
-export async function verifyAssertion(
+export async function verifyPrfAssertion(
+  assertion: AuthenticationCredential,
+  publicKey: string,
+  challenge: string,
+  userVerification: UserVerificationRequirement,
+  signatureError: () => Error = () => new AuthenticationError("Signature verification failed")
+): Promise<PrfResults> {
+  if (!(await verifyAssertionSignature(assertion, publicKey, challenge))) {
+    throw signatureError();
+  }
+  if (!isUserVerified(new Uint8Array(assertion.response.authenticatorData))) {
+    if (userVerification === "required") {
+      throw new AuthenticationError("User verification flag not set");
+    }
+    return {};
+  }
+  const results = assertion.getClientExtensionResults?.().prf?.results;
+  return { first: copyPrfResult(results?.first), second: copyPrfResult(results?.second) };
+}
+
+/** A copy of a 32-byte PRF output, or undefined for any other length */
+export function copyPrfResult(result: BufferSource | undefined): ArrayBuffer | undefined {
+  if (!result) return undefined;
+  const copy = ArrayBuffer.isView(result)
+    ? new Uint8Array(result.buffer, result.byteOffset, result.byteLength).slice().buffer
+    : result.slice(0);
+  return copy.byteLength === 32 ? copy : undefined;
+}
+
+/**
+ * Check the signature counter as login() does: it detects cloned
+ * authenticators, so it must increase unless the authenticator keeps none.
+ * Saves the new counter.
+ */
+export async function verifySignCount(
   assertion: AuthenticationCredential,
   credential: StoredCredential,
-  storage: CredentialStorage,
-  challenge: string
+  storage: CredentialStorage
 ): Promise<boolean> {
   try {
-    if (!(await verifyAssertionSignature(assertion, credential.publicKey, challenge))) {
-      return false;
-    }
-
-    // Signature counter (bytes 33-36, big-endian) detects cloned authenticators:
-    // it should always increase, or stay 0 if the authenticator has no counter
+    // Bytes 33-36 of authenticator data, big-endian
     const signCount = new DataView(assertion.response.authenticatorData).getUint32(33, false);
     if (signCount > 0 || (credential.signCount && credential.signCount > 0)) {
       const storedCount = credential.signCount || 0;
@@ -174,8 +216,26 @@ export async function verifyAssertion(
 
     return true;
   } catch (error) {
-    console.error("Signature verification error:", error);
+    console.error("Signature counter error:", error);
     return false;
+  }
+}
+
+/**
+ * Check a stored passkey's public key against its MAC, keyed from the PRF
+ * output at `PRF_INPUT` (see macPublicKey)
+ *
+ * @throws AuthenticationError when there is no PRF output or the MAC doesn't match
+ */
+export async function assertPublicKeyMac(
+  prfOutput: BufferSource | undefined,
+  credential: StoredCredential
+): Promise<void> {
+  if (
+    !prfOutput ||
+    !(await verifyPublicKeyMac(prfOutput, credential.id, credential.publicKey, credential.publicKeyMac))
+  ) {
+    throw new AuthenticationError("The passkey's stored public key failed authentication");
   }
 }
 
@@ -183,7 +243,7 @@ export async function verifyAssertion(
  * Check an assertion against `publicKey` (base64url SPKI, P-256): its client
  * data (type `webauthn.get`, `challenge`, this page's origin), its RP ID hash,
  * the user-presence flag and its signature. The signature counter and the
- * user-verification flag are not checked.
+ * user-verification flag are not checked: see verifyPrfAssertion().
  *
  * @param challenge - The base64url challenge sent in the request options
  */

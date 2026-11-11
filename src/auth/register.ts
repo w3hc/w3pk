@@ -8,9 +8,9 @@ import {
 } from "../utils/base64";
 import { generateChallenge, macPublicKey, PRF_INPUT } from "../wallet/crypto";
 import { isUserPresent, isUserVerified } from "./flags";
-import { verifyClientData, verifyRpIdHash } from "./authenticate";
+import { copyPrfResult, verifyClientData, verifyRpIdHash } from "./authenticate";
 import { authDataFromAttestationObject, credentialPublicKeyFromAuthData } from "./attestation";
-import { copyPrfResult, evaluatePrf } from "./prf";
+import { evaluatePrf } from "./prf";
 
 /**
  * Asks the authenticator to drop a passkey that was created but not stored

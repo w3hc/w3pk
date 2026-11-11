@@ -11,19 +11,16 @@ import {
   base64UrlToArrayBuffer,
 } from "../utils/base64";
 import { generateChallenge, PRF_INPUT } from "../wallet/crypto";
-import { isUserVerified } from "./flags";
 import { validateUsername } from "../utils/validation";
 
 export interface PasskeySelectionResult {
   credentialId: string;
   /** From a pre-0.11.1 passkey's user handle */
   username?: string;
-  /** The selection assertion, unverified */
+  /** The selection assertion, unverified: its PRF output at `PRF_INPUT` comes from verifyPrfAssertion() */
   assertion: AuthenticationCredential;
   /** Base64url challenge the assertion answers */
   challenge: string;
-  /** PRF output at `PRF_INPUT`, the source of the wallet key; absent without PRF */
-  prfOutput?: ArrayBuffer;
 }
 
 /**
@@ -98,18 +95,11 @@ export async function promptPasskeySelection(): Promise<PasskeySelectionResult> 
       throw new AuthenticationError("No passkey selected. Please select a passkey to continue with sync.");
     }
 
-    const credentialId = credential.id;
-    const prfOutput = isUserVerified(new Uint8Array(credential.response.authenticatorData))
-      ? credential.getClientExtensionResults?.().prf?.results?.first
-      : undefined;
-    const username = usernameFromUserHandle(credential.response.userHandle);
-
     return {
-      credentialId,
-      username,
+      credentialId: credential.id,
+      username: usernameFromUserHandle(credential.response.userHandle),
       assertion: credential,
       challenge,
-      prfOutput,
     };
   } catch (error: any) {
     if (error?.name === "NotAllowedError") {

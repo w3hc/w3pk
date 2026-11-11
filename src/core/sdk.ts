@@ -19,7 +19,7 @@
  */
 
 import { register } from "../auth/register";
-import { login } from "../auth/authenticate";
+import { assertPublicKeyMac, login } from "../auth/authenticate";
 import {
   LocalStorageWalletStorage,
   openWalletRecord,
@@ -40,7 +40,6 @@ import {
 import {
   derivePrfSessionKey,
   deriveWalletKey,
-  verifyPublicKeyMac,
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
 import { SessionManager, type SessionAccount } from "./session";
@@ -552,10 +551,8 @@ export class Web3Passkey {
         );
       }
 
-      const { publicKey, publicKeyMac } = result.credential;
-      if (!(await verifyPublicKeyMac(result.prfOutput, result.user.credentialId, publicKey, publicKeyMac))) {
-        throw new AuthenticationError("The passkey's stored public key failed authentication");
-      }
+      const { publicKey } = result.credential;
+      await assertPublicKeyMac(result.prfOutput, result.credential);
 
       this.currentUser = {
         username: result.user.username,

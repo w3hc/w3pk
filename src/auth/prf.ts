@@ -13,6 +13,7 @@ import {
   PrfUnsupportedError,
 } from "../core/errors";
 import type { AuthenticationCredential } from "./types";
+import { copyPrfResult } from "./authenticate";
 import { base64UrlToArrayBuffer } from "../utils/base64";
 import { generateChallenge } from "../wallet/crypto";
 
@@ -96,14 +97,6 @@ export async function evaluatePrf(
   const secondOutput = second ? copyPrfResult(results?.second) : undefined;
 
   return { output, secondOutput, credentialId: assertion.id, assertion, challenge };
-}
-
-export function copyPrfResult(result: BufferSource | undefined): ArrayBuffer | undefined {
-  if (!result) return undefined;
-  const copy = ArrayBuffer.isView(result)
-    ? new Uint8Array(result.buffer, result.byteOffset, result.byteLength).slice().buffer
-    : result.slice(0);
-  return copy.byteLength === 32 ? copy : undefined;
 }
 
 export interface PrfSecret {
