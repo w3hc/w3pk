@@ -81,6 +81,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `STRICT` starts no session, in memory or persistent, and leaves a live session as it is: an operation in another mode after a `STRICT` one prompts unless a session was already live
   - `SessionManager.attemptSilentRestore()` no longer returns the mnemonic
   - No extra passkey prompt within a live session
+- **BREAKING: credential metadata in localStorage is authenticated** ([#350](https://github.com/w3hc/w3pk/issues/350)), audit findings L-3, I-1 and I-3. Before, the `PRIMARY` address was derived from whatever public key localStorage held, so script that could write it could change the deposit address shown; encrypted records bound none of their metadata; and credential records were stored under a hashed ID while the index listed the raw IDs
+  - `register()` stores `publicKeyMac`, an HMAC-SHA256 of the credential ID and public key under a key derived from the PRF output (HKDF info `w3pk-prf-public-key-mac-v1`); `login()` checks it with its assertion's PRF output and throws `AuthenticationError` on a mismatch. Restores and syncs that check the key against an assertion write it too
+  - `PRIMARY` addresses, signatures, UserOperations and backups use the public key checked at login, held in memory, never one read from storage afterwards
+  - Wallet records bind `credentialId`, `ethereumAddress` and `createdAt`, and persistent sessions bind `credentialId`, `ethereumAddress`, `expiresAt`, `securityMode`, `createdAt` and the passkey's public key, as AES-GCM additional data: an edited record fails to decrypt. A silent restore whose passkey's public key changed falls back to a prompted login
+  - Credential records are stored under `w3pk_credential_<credentialId>`, as listed in `w3pk_credential_index`
+  - Storage format change, with no migration: records stored by earlier versions aren't read, so `login()` throws `SyncRequiredError` and the wallet is restored from a backup. `login()` no longer re-encrypts a wallet record from a persistent session
+  - `SessionManager.startSession()` and `restoreFromPersistentStorage()` take the account (`ethereumAddress` and `publicKey`) instead of the address; `CredentialStorage.updateCredentialAddress()` is replaced by `updateCredential()`
+  - No extra passkey prompt
 
 ## [0.12.3] - 2026-11-10
 
