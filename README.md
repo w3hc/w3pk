@@ -561,7 +561,7 @@ Host applications should verify their installed W3PK build against this registry
 - [Build Verification](./docs/BUILD_VERIFICATION.md)
 - [EIP-7702](./docs/EIP_7702.md)
 - [EIP-7951](./docs/EIP-7951.md)
-- [Deploying the contracts](./docs/DEPLOYMENT.md) - `PRIMARY` account contracts on a new network
+- [Deployment](./docs/DEPLOYMENT.md) - `PRIMARY` account contracts on a new network, and npm releases
 - [Security Architecture](./docs/SECURITY.md)
 - [Post-Quantum Cryptography](./docs/POST_QUANTUM.md) - Quantum-safe migration roadmap
 - [Recovery & Backup System](./docs/RECOVERY.md)
