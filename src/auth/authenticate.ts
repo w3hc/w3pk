@@ -131,6 +131,7 @@ export async function login(
       credential,
       signature: assertion.response.signature,
       prfOutput,
+      userVerified: isUserVerified(new Uint8Array(assertion.response.authenticatorData)),
     };
   } catch (error) {
     if (error instanceof Web3PasskeyError) throw error;

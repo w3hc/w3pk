@@ -1,4 +1,4 @@
-import { mockLocalStorage } from "./setup";
+import "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { SessionManager } from "../src/core/session";
 import { PersistentSessionStorage } from "../src/core/persistent-session";
@@ -95,7 +95,6 @@ async function runTests() {
 
   await runTest("SDK keeps sessionDuration: 0", async () => {
     const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
       sessionDuration: 0,
     });
     const manager = (sdk as unknown as { sessionManager: SessionManager })
@@ -107,7 +106,7 @@ async function runTests() {
   });
 
   await runTest("default duration still caches", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage });
+    const sdk = createWeb3Passkey();
     const manager = (sdk as unknown as { sessionManager: SessionManager })
       .sessionManager;
     await manager.startSession(MNEMONIC, "cred-id");

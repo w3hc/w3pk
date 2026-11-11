@@ -122,7 +122,6 @@ async function runTests() {
   // Test 6: SDK Initialization
   await runTest("SDK Initialization", async () => {
     const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
       debug: false,
     });
 
@@ -133,7 +132,6 @@ async function runTests() {
   // Test 7: SDK with Stealth Addresses
   await runTest("SDK with Stealth Addresses", async () => {
     const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
       stealthAddresses: {},
     });
 
@@ -144,7 +142,6 @@ async function runTests() {
   // Test 8: SDK with ZK Proofs
   await runTest("SDK with ZK Proofs", async () => {
     const zkSdk = createWeb3Passkey({
-      storage: mockLocalStorage,
       zkProofs: {
         enabledProofs: ["membership", "threshold"],
       },

@@ -79,7 +79,7 @@ export async function primarySdk(config: Web3PasskeyConfig = {}) {
     createdAt: new Date().toISOString(),
     lastUsed: new Date().toISOString(),
   });
-  const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, ...config });
+  const sdk = createWeb3Passkey({ debug: false, ...config });
   (sdk as any).currentUser = {
     username: "primary-signer",
     ethereumAddress: MAIN_ACCOUNT,

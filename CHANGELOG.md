@@ -5,7 +5,7 @@ All notable changes to the w3pk SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.4] - 2026-11-11
 
 ### Added
 
@@ -124,6 +124,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CI runs `pnpm audit --prod --audit-level moderate`
   - `getCurrentBuildHash()` and `verifyBuildHash()` hash the npm registry tarball, checked against its `dist.integrity`, instead of files from unpkg; same signatures and results
   - Signed tags and the release flow are documented in `CONTRIBUTING.md` and `docs/DEPLOYMENT.md`, and the limits of the build hash in `docs/BUILD_VERIFICATION.md`
+- **Minor findings of the v0.12.3 audit** ([#356](https://github.com/w3hc/w3pk/issues/356)), audit findings I-2, I-4, I-5, I-6 and L-5
+  - BREAKING: `config.storage`, which nothing read, is removed. `debug` is read from the instance config, so `debug: true` logs errors to the console when no `onError` is set (I-2)
+  - `generateSiweNonce()` draws characters by rejection sampling, without modulo bias (I-4)
+  - BREAKING: `parseSiweMessage()` follows the [EIP-4361 ABNF](https://eips.ethereum.org/EIPS/eip-4361#abnf-message-format): fields in order, each once, no other lines, no trailing line break, values matching their terms, and a valid EIP-55 checksum on a mixed-case address. The optional scheme is parsed into the new `SiweMessage.scheme`. `createSiweMessage()` builds only messages the parser accepts, `validateSiweMessage()` takes a `scheme` option, and `signMessage()` refuses SIWE text that doesn't parse (I-4)
+  - Under `userVerification: 'preferred'`, `login()` and re-authentication throw the new `UserVerificationRequiredError` (`code: 'USER_VERIFICATION_REQUIRED'`, `credentialId`) for an assertion without UV, and `PrfUnsupportedError` for a verified one without a PRF output, instead of `WalletMissingError`. The docs no longer promise a one-click login under `'preferred'` (I-5)
+  - BREAKING: `supportsEIP7702()` probes only the chain's `rpcUrls`, never chainid.network endpoints, and returns `false` without them. The probe also requires the RPC to apply state overrides. The built-in list is rescanned: 315 chains on 2026-11-11 (I-6)
+  - The integration guide and `docs/SECURITY.md` recommend hosting the wallet on a dedicated hostname with no user-controlled subdomains: every subdomain, and every related origin, can use the passkeys of the wallet's RP ID (L-5)
 
 ## [0.12.3] - 2026-11-10
 

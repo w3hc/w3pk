@@ -13,8 +13,6 @@ export interface Web3PasskeyConfig {
   debug?: boolean;
   onError?: (error: Web3PasskeyError) => void;
   onAuthStateChanged?: (isAuthenticated: boolean, user?: UserInfo) => void;
-  storage?: Storage;
-
   /**
    * Session duration in hours (default: 1)
    * Set to 0 to require authentication for every operation
@@ -57,16 +55,18 @@ export interface Web3PasskeyConfig {
   /**
    * WebAuthn user verification for login, registration and signing
    * (default: 'required'). With 'preferred', authenticators that can skip
-   * the biometric/PIN check (security keys, unlocked password managers)
-   * sign in with one click. PRF-derived secrets always require it.
+   * the biometric/PIN check (security keys, unlocked password managers) may
+   * skip it, but such a login throws `UserVerificationRequiredError`: the
+   * wallet's key comes from the PRF output, which needs user verification.
+   * PRF-derived secrets always require it.
    */
   userVerification?: 'required' | 'preferred';
 
   /**
    * RPC endpoints per chain ID. `sendTransaction()` uses the first one and
    * throws for a chain with none (a per-call `rpcUrl` takes precedence);
-   * `getEndpoints()` and `supportsEIP7702()` list them before the
-   * chainid.network endpoints.
+   * `getEndpoints()` lists them before the chainid.network endpoints, and
+   * `supportsEIP7702()` probes only them for a chain off its static list.
    *
    * @example
    * rpcUrls: { 1: ['https://eth.example.com'], 10: ['https://op.example.com'] }
@@ -122,10 +122,5 @@ export const DEFAULT_CONFIG: Partial<InternalConfig> = {
     enabled: false,
     duration: 168, // 7 days in hours
     requireReauth: true,
-  },
-  onError: (error: Web3PasskeyError) => {
-    if (DEFAULT_CONFIG.debug) {
-      console.error("[w3pk]", error);
-    }
   },
 };

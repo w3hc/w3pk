@@ -20,6 +20,7 @@
 
 import { register } from "../auth/register";
 import { assertPublicKeyMac, login } from "../auth/authenticate";
+import type { AuthResult } from "../auth/types";
 import {
   LocalStorageWalletStorage,
   openWalletRecord,
@@ -111,6 +112,7 @@ import {
   AuthenticationError,
   CryptoError,
   PrfUnsupportedError,
+  UserVerificationRequiredError,
   WalletError,
   WalletMissingError,
 } from "./errors";
@@ -175,6 +177,19 @@ function siweText(message: string | Uint8Array): string | undefined {
   }
 }
 
+/**
+ * @throws UserVerificationRequiredError for an assertion without UV
+ *   ('preferred'), which carries no PRF output
+ * @throws PrfUnsupportedError for a verified one without a PRF output
+ */
+function assertPrfOutput(
+  result: AuthResult,
+  credentialId: string
+): asserts result is AuthResult & { prfOutput: ArrayBuffer } {
+  if (!result.userVerified) throw new UserVerificationRequiredError(credentialId);
+  if (!result.prfOutput) throw new PrfUnsupportedError(credentialId);
+}
+
 export class Web3Passkey {
   private config: InternalConfig;
   private walletStorage: LocalStorageWalletStorage;
@@ -192,6 +207,9 @@ export class Web3Passkey {
 
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
+    this.config.onError ??= (error) => {
+      if (this.config.debug) console.error("[w3pk]", error);
+    };
     this.walletStorage = new LocalStorageWalletStorage();
 
     // Initialize session manager with persistent session config
@@ -327,9 +345,7 @@ export class Web3Passkey {
     if (authResult.user.credentialId !== this.currentUser.credentialId) {
       throw new WalletError("Authenticate with the logged-in passkey");
     }
-    if (!authResult.prfOutput) {
-      throw new PrfUnsupportedError(authResult.user.credentialId);
-    }
+    assertPrfOutput(authResult, authResult.user.credentialId);
 
     const mnemonic = await this.decryptWallet(walletData, authResult.prfOutput);
 
@@ -543,14 +559,13 @@ export class Web3Passkey {
         result.user.ethereumAddress
       );
 
-      // Without PRF the wallet can't be decrypted here: it has to be
-      // restored from a backup
-      if (!walletData || !result.prfOutput) {
+      if (!walletData) {
         throw new WalletMissingError(
           result.user.credentialId,
           result.user.ethereumAddress
         );
       }
+      assertPrfOutput(result, result.user.credentialId);
 
       const { publicKey } = result.credential;
       await assertPublicKeyMac(result.prfOutput, result.credential);
@@ -883,9 +898,7 @@ export class Web3Passkey {
       if (authResult.credential?.id !== this.currentUser.credentialId) {
         throw new WalletError("Authenticate with the logged-in passkey to import a mnemonic");
       }
-      if (!authResult.prfOutput) {
-        throw new PrfUnsupportedError(this.currentUser.credentialId);
-      }
+      assertPrfOutput(authResult, this.currentUser.credentialId);
       await bootstrapCredential(
         this.ctx,
         authResult.credential,
@@ -1632,11 +1645,16 @@ export class Web3Passkey {
     return [...new Set([...appEndpoints, ...chainlist])];
   }
 
+  /**
+   * Whether `chainId` supports EIP-7702: true for a chain on the static
+   * list, otherwise probes the chain's `rpcUrls` and never a public endpoint
+   * (false without any)
+   */
   async supportsEIP7702(
     chainId: number,
     options?: { maxEndpoints?: number; timeout?: number }
   ): Promise<boolean> {
-    return supportsEIP7702(chainId, this.getEndpoints.bind(this), options);
+    return supportsEIP7702(chainId, this.config.rpcUrls?.[chainId] ?? [], options);
   }
 
   /**

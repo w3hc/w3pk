@@ -7,7 +7,7 @@ import assert from "node:assert";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { verifyMessage } from "ethers";
 import type { SecurityMode } from "../src/types";
-import { mockLocalStorage } from "./setup";
+import "./setup";
 import { createWeb3Passkey } from "../src/index";
 
 async function runTests() {
@@ -396,7 +396,7 @@ Issued At: 2021-09-30T16:25:24Z`;
   // Test 12: rawHash signing is rejected in PRIMARY mode
   console.log("\nTest 12: rawHash signing is rejected in PRIMARY mode");
   {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
 
     let cause = "";
     try {
@@ -416,9 +416,10 @@ Issued At: 2021-09-30T16:25:24Z`;
   // Test 13: SIWE signing rejects a message for another domain
   console.log("\nTest 13: SIWE signing checks the message's domain");
   {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     const siweFor = (domain: string) => `${domain} wants you to sign in with your Ethereum account:
 0x1234567890123456789012345678901234567890
+
 
 URI: https://${domain}
 Version: 1
@@ -503,7 +504,7 @@ Issued At: 2021-09-30T16:25:24Z`;
   {
     const { Wallet, recoverAddress } = await import("ethers");
     const { hashEIP7702AuthorizationMessage } = await import("../src/eip7702/utils");
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ debug: false });
     (sdk as any).currentUser = {
       username: "rawhash",
       ethereumAddress: Wallet.createRandom().address,

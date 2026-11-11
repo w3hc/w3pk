@@ -835,7 +835,7 @@ async function promptBackupOptions() {
 
 Registration accepts any authenticator: a built-in one (Touch ID, Windows Hello, Android), a phone through a QR code, a USB or NFC security key, or a password manager. Computers without a built-in authenticator, such as older Windows and Linux machines, can register through a phone or a security key.
 
-By default every prompt asks for a biometric or PIN. To let authenticators that can skip the check sign in with one click, set `userVerification: 'preferred'`:
+By default every prompt asks for a biometric or PIN. To let authenticators that can skip the check do so, set `userVerification: 'preferred'`:
 
 ```typescript
 const w3pk = createWeb3Passkey({
@@ -849,7 +849,7 @@ What changes with `'preferred'`:
 
 - `register()` and `login()` ask for `'preferred'`; PRIMARY `signMessage()` still requires verification, since the account checks it
 - `derivePrfSecret()` and PRF device sync still require verification, so their secrets don't change
-- A login that isn't user-verified gets an in-memory session only: no persistent session is stored or restored from it
+- A login that isn't user-verified throws `UserVerificationRequiredError`: the wallet's key comes from the PRF output, which only a user-verified assertion releases. Ask the user to sign in again and complete the biometric or PIN check
 
 Don't promise users a fingerprint check in your copy when you opt in: "biometric or PIN, when your device asks for it" stays accurate.
 
@@ -1092,6 +1092,19 @@ async function initializeApp() {
 }
 ```
 
+### Host the Wallet on a Dedicated Hostname
+
+w3pk uses the page's hostname as the WebAuthn [RP ID](https://www.w3.org/TR/webauthn-3/#rp-id), and the browser lets every subdomain of that hostname, and every origin [listed in its `/.well-known/webauthn`](https://passkeys.dev/docs/advanced/related-origins/), request assertions for the same passkeys. A page on `anything.app.example.com` doesn't need w3pk to do it: it calls `navigator.credentials.get()` with `rpId: "app.example.com"`.
+
+With the user's approval, such a page gets signatures over challenges it picks, including `PRIMARY` UserOperations, which the account verifies onchain without checking the origin, and the passkey's PRF outputs. w3pk's origin check doesn't run on that page.
+
+- ✅ Serve the wallet from a hostname whose subdomains only you control, such as `wallet.example.com`
+- ✅ List in `/.well-known/webauthn` only origins you control, or don't publish one
+- ❌ Don't host the wallet on a domain that hands out subdomains to users or third parties (`alice.example.com`, preview deployments, a hosted blog or docs platform under the wallet's hostname)
+- ❌ Don't serve it from the apex `example.com` if any subdomain of it runs code you don't control
+
+See [Security Architecture → Subdomains can use the wallet's passkeys](./SECURITY.md#subdomains-can-use-the-wallets-passkeys).
+
 ### Origin Isolation
 
 w3pk automatically provides origin isolation:
@@ -1219,6 +1232,7 @@ Use this checklist to ensure proper integration:
 - [ ] Use STRICT mode for high-security or compliance-focused applications
 - [ ] Prompt users to set up backup immediately after registration
 - [ ] Verify package integrity on app initialization
+- [ ] Host the wallet on a dedicated hostname with no user-controlled subdomains
 - [ ] Configure appropriate session duration for your use case
 - [ ] Require fresh authentication for high-value operations
 - [ ] Show backup reminders to users without sufficient backup coverage

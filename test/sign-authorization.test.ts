@@ -2,7 +2,7 @@
  * EIP-7702 signAuthorization method tests
  */
 
-import { mockLocalStorage } from "./setup";
+import "./setup";
 import { Signature, Wallet, recoverAddress } from "ethers";
 import { createWeb3Passkey } from "../src/index";
 import {
@@ -38,7 +38,7 @@ async function sessionSdk() {
 
 /** An SDK with a signed-in user, without going through WebAuthn */
 function authenticatedSdk() {
-  const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+  const sdk = createWeb3Passkey({ debug: false });
   (sdk as any).currentUser = {
     username: "eip7702",
     ethereumAddress: Wallet.createRandom().address,
@@ -68,7 +68,6 @@ async function runTests() {
 
   await runTest("signAuthorization method exists", async () => {
     const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
       debug: false,
     });
 
@@ -81,7 +80,6 @@ async function runTests() {
 
   await runTest("signAuthorization without authentication fails", async () => {
     const sdk = createWeb3Passkey({
-      storage: mockLocalStorage,
       debug: false,
     });
 

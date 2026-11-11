@@ -37,6 +37,37 @@ async function runTests() {
     console.log("✅ Nonce generation works");
   }
 
+  // Test 1b: Nonce bytes past the last multiple of 62 are dropped
+  console.log("\nTest 1b: Nonce has no modulo bias");
+  {
+    const original = crypto.getRandomValues;
+    const batches = [[248, 255, 0, 61], [62, 1]];
+    crypto.getRandomValues = (<T extends ArrayBufferView>(array: T): T => {
+      (array as unknown as Uint8Array).set(batches.shift()!);
+      return array;
+    }) as typeof crypto.getRandomValues;
+    let nonce: string;
+    try {
+      nonce = generateSiweNonce(4);
+    } finally {
+      crypto.getRandomValues = original;
+    }
+    assert(nonce === "A9AB", `Bytes 248 and 255 should be skipped, got ${nonce}`);
+
+    const counts = new Map<string, number>();
+    for (let i = 0; i < 2000; i++) {
+      for (const char of generateSiweNonce(62)) counts.set(char, (counts.get(char) ?? 0) + 1);
+    }
+    assert(counts.size === 62, "Every character should appear");
+    for (const [char, count] of counts) {
+      assert(count > 1700 && count < 2300, `"${char}" appears ${count} times out of an expected 2000`);
+    }
+
+    console.log("  ✓ Bytes >= 248 are rejected");
+    console.log("  ✓ Characters are uniformly distributed");
+    console.log("✅ Nonce rejection sampling works");
+  }
+
   // Test 2: Create basic SIWE message (required fields only)
   console.log("\nTest 2: Create basic SIWE message");
   {
@@ -377,7 +408,8 @@ async function runTests() {
       [{ notBefore: "Jan 1 2000" }, "Invalid Not Before"],
     ];
     for (const [fields, expected] of cases) {
-      const validation = validateSiweMessage(createSiweMessage({ ...base, ...fields }));
+      assert.throws(() => createSiweMessage({ ...base, ...fields }), `${expected} should not be built`);
+      const validation = validateSiweMessage({ ...base, ...fields });
       assert(validation.valid === false, `${expected} should fail validation`);
       assert(validation.errors.some(e => e.includes(expected)), `Should report ${expected}`);
     }
@@ -420,6 +452,101 @@ async function runTests() {
 
     console.log("  ✓ Line breaks are rejected");
     console.log("✅ Line break checks work");
+  }
+
+  // Test 15: The parser follows the EIP-4361 ABNF, as the siwe library does
+  console.log("\nTest 15: Strict EIP-4361 parsing");
+  {
+    const valid = `example.com wants you to sign in with your Ethereum account:
+0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B
+
+Sign in to Example
+
+URI: https://example.com
+Version: 1
+Chain ID: 1
+Nonce: 32891756abc
+Issued At: 2021-09-30T16:25:24Z
+Expiration Time: 2021-10-01T16:25:24Z
+Not Before: 2021-09-30T16:25:24Z
+Request ID: req-1
+Resources:
+- https://example.com/tos
+- ipfs://bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq`;
+    const swap = (a: string, b: string) => valid.replace(`${a}\n${b}`, `${b}\n${a}`);
+
+    const rejected: Array<[string, string]> = [
+      ["fields out of order", swap("Version: 1", "Chain ID: 1")],
+      ["optional fields out of order", valid.replace("Expiration Time: 2021-10-01T16:25:24Z\nNot Before: 2021-09-30T16:25:24Z", "Not Before: 2021-09-30T16:25:24Z\nExpiration Time: 2021-10-01T16:25:24Z")],
+      ["duplicate field", valid.replace("Nonce: 32891756abc", "Nonce: 32891756abc\nNonce: 32891756abd")],
+      ["unknown line", valid.replace("Request ID: req-1", "Request ID: req-1\nFoo: bar")],
+      ["trailing line break", `${valid}\n`],
+      ["missing empty line", valid.replace("Sign in to Example\n\n", "Sign in to Example\n")],
+      ["no statement, one empty line", valid.replace("\nSign in to Example\n", "")],
+      ["bad chain ID", valid.replace("Chain ID: 1", "Chain ID: 1abc")],
+      ["negative chain ID", valid.replace("Chain ID: 1", "Chain ID: -1")],
+      ["version 2", valid.replace("Version: 1", "Version: 2")],
+      ["short nonce", valid.replace("Nonce: 32891756abc", "Nonce: 1234567")],
+      ["bad checksum", valid.replace("0xAb5801", "0xAB5801")],
+      ["non-ASCII statement", valid.replace("Sign in to Example", "Connexion à Example")],
+      ["URI with a space", valid.replace("URI: https://example.com", "URI: https://example.com/a b")],
+      ["relative URI", valid.replace("URI: https://example.com", "URI: /login")],
+      ["bad resource", valid.replace("- https://example.com/tos", "* https://example.com/tos")],
+      ["bad issued at", valid.replace("Issued At: 2021-09-30T16:25:24Z", "Issued At: yesterday")],
+      ["domain with a path", `example.com/x${valid.slice("example.com".length)}`],
+      ["carriage return", valid.replace("Version: 1", "Version: 1\r")],
+    ];
+    for (const [name, message] of rejected) {
+      assert.throws(() => parseSiweMessage(message), /Invalid SIWE message/, `${name} should be rejected`);
+      assert.throws(() => new SiweLibMessage(message), `siwe should reject ${name} too`);
+    }
+
+    const parsed = parseSiweMessage(valid);
+    assert(parsed.requestId === "req-1" && parsed.resources?.length === 2, "Optional fields are parsed");
+    new SiweLibMessage(valid);
+
+    const withScheme = parseSiweMessage(`https://${valid}`);
+    assert(withScheme.scheme === "https" && withScheme.domain === "example.com", "Scheme is split from the domain");
+    assert(createSiweMessage(withScheme) === `https://${valid}`, "Scheme roundtrips");
+    new SiweLibMessage(`https://${valid}`);
+
+    const noStatement = valid.replace("Sign in to Example\n", "");
+    assert(parseSiweMessage(noStatement).statement === undefined, "A message without a statement parses");
+    new SiweLibMessage(noStatement);
+
+    const lowercase = valid.replace("0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B", "0xab5801a7d398351b8be11c439e05c5b3259aec9b");
+    assert(parseSiweMessage(lowercase).address === "0xab5801a7d398351b8be11c439e05c5b3259aec9b", "An all-lowercase address parses");
+
+    assert.throws(
+      () => createSiweMessage({ ...parsed, statement: "Connexion à Example" }),
+      /Statement must be ASCII/,
+      "createSiweMessage() rejects a statement the ABNF doesn't allow"
+    );
+
+    for (const [field, value] of [
+      ["address", "0xAB5801a7D398351b8bE11C439e05C5B3259aeC9B"],
+      ["uri", "https://example.com/a b"],
+      ["domain", "example.com/app"],
+      ["resources", ["not a uri"]],
+    ] as const) {
+      assert.throws(
+        () => createSiweMessage({ ...parsed, [field]: value }),
+        /Invalid SIWE message/,
+        `createSiweMessage() refuses a ${field} the parser would reject`
+      );
+    }
+
+    const emptyStatement = valid.replace("Sign in to Example", "");
+    assert(createSiweMessage(parseSiweMessage(emptyStatement)) === emptyStatement, "An empty statement roundtrips");
+
+    const http = validateSiweMessage(parseSiweMessage(`http://${valid}`), { domain: "example.com", scheme: "https" });
+    assert(!http.valid && http.errors.some((e) => e.includes("Scheme mismatch")), "Another scheme fails validation");
+    const implicit = validateSiweMessage(parseSiweMessage(valid), { domain: "example.com", scheme: "https" });
+    assert(!implicit.errors.some((e) => e.includes("Scheme")), "No scheme counts as https");
+
+    console.log("  ✓ Out-of-order, duplicate, unknown and malformed lines are rejected");
+    console.log("  ✓ The optional scheme is parsed");
+    console.log("✅ Strict parsing works");
   }
 
   console.log("\n✅ All SIWE Utility Tests Passed!\n");

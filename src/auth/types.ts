@@ -26,6 +26,8 @@ export interface AuthResult {
   // authenticator only during this user-verified assertion. Powers
   // persistent-session encryption; absent on non-PRF authenticators.
   prfOutput?: ArrayBuffer;
+  /** Whether the assertion's UV flag is set */
+  userVerified?: boolean;
 }
 
 /** Client extension results consumed by w3pk (subset of the WebAuthn spec) */

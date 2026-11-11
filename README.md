@@ -57,7 +57,7 @@ const endpoints = await w3pk.getEndpoints(1)
 - ZK primitives (zero-knowledge proof generation and verification, Baby Jubjub keys, exponential ElGamal and circuit artifact verification against onchain pins in `w3pk/zk`, passkey-bound Semaphore identities with `getSemaphoreIdentity()`, and proofs over a passkey-bound secret the app never sees with `zkProve()`)
 - Hybrid post-quantum encryption (HPKE over ML-KEM-1024 + X25519)
 - Chainlist support (every network on chainid.network, fetched live)
-- EIP-7702 network detection (329 known networks, RPC probing for the others)
+- EIP-7702 network detection (315 known networks, probing your `rpcUrls` for the others)
 - EIP-7951 PRIMARY mode: a P-256 passkey smart account (ERC-4337, EIP-1271) whose key the host app can never reach ([trust model](#trust-model))
 - Build verification (IPFS CID hashing + DAO-maintained onchain registry)
 - Three-layer backup & recovery (passkey sync, encrypted backups, social recovery)
@@ -377,7 +377,7 @@ const blockNumber = await provider.getBlockNumber()
 // Check network support
 const supported = await w3pk.supportsEIP7702(1)
 
-// Configure RPC testing
+// A chain off the built-in list is probed through its rpcUrls only
 await w3pk.supportsEIP7702(999, {
   maxEndpoints: 5,
   timeout: 5000

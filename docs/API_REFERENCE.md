@@ -45,7 +45,6 @@ interface Web3PasskeyConfig {
   debug?: boolean;                    // Enable debug mode (default: false)
   onError?: (error: Web3PasskeyError) => void;  // Global error handler
   onAuthStateChanged?: (isAuthenticated: boolean, user?: UserInfo) => void;  // Auth state callback
-  storage?: Storage;                  // Custom storage backend (default: localStorage)
   sessionDuration?: number;           // Session duration in hours (default: 1)
   persistentSession?: Partial<PersistentSessionConfig>;  // Enable "Remember Me" functionality
   stealthAddresses?: StealthAddressConfig;  // Enable stealth addresses
@@ -65,9 +64,9 @@ interface PersistentSessionConfig {
 }
 ```
 
-**PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. A login without a PRF output (an unverified assertion with `userVerification: 'preferred'`) stores no persistent session — the device falls back to an in-memory session only (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored next to the blob in localStorage to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
+**PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. A login without a PRF output (an unverified assertion with `userVerification: 'preferred'`) fails with `UserVerificationRequiredError` and stores nothing (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored next to the blob in localStorage to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
 
-**User verification:** `userVerification` sets the WebAuthn [user verification](https://www.w3.org/TR/webauthn-3/#user-verification) requirement for `register()` and `login()`; PRIMARY `signMessage()` always asks for `'required'`, since the account checks the UV flag. With `'required'` (the default), every prompt asks for a biometric or PIN. With `'preferred'`, authenticators that can skip the check, such as security keys and unlocked password managers, sign in with one click; the authenticator decides, not the app. Registration accepts any authenticator with PRF support either way: a built-in one, a phone through a QR code, a security key or a password manager. When creation isn't user-verified or returns no PRF output, one assertion with `'required'` evaluates the PRF before anything is stored. PRF calls (`derivePrfSecret()`, PRF device sync) always require user verification, since an unverified assertion would return a different PRF output. With `'preferred'`, a login whose assertion isn't user-verified gets an in-memory session only, never a persistent one; with `'required'`, an assertion without the UV flag is rejected with `AuthenticationError`.
+**User verification:** `userVerification` sets the WebAuthn [user verification](https://www.w3.org/TR/webauthn-3/#user-verification) requirement for `register()` and `login()`; PRIMARY `signMessage()` always asks for `'required'`, since the account checks the UV flag. With `'required'` (the default), every prompt asks for a biometric or PIN. With `'preferred'`, authenticators that can skip the check, such as security keys and unlocked password managers, may skip it; the authenticator decides, not the app. Registration accepts any authenticator with PRF support either way: a built-in one, a phone through a QR code, a security key or a password manager. When creation isn't user-verified or returns no PRF output, one assertion with `'required'` evaluates the PRF before anything is stored. PRF calls (`derivePrfSecret()`, PRF device sync) always require user verification, since an unverified assertion would return a different PRF output. With `'preferred'`, a login whose assertion isn't user-verified throws `UserVerificationRequiredError`, since the wallet's key comes from the PRF output; with `'required'`, an assertion without the UV flag is rejected with `AuthenticationError`.
 
 **Example:**
 
@@ -188,8 +187,10 @@ interface UserInfo {
 **Throws:**
 - `SyncRequiredError` if the passkey authenticated but this device has no credential metadata for it (carries `credentialId`); start a sync with `syncWalletWithPasskey()` and a password backup
 - `WalletMissingError` if the credential metadata is here but the wallet record is gone (carries `credentialId` and `ethereumAddress`); restore with `syncWalletWithPasskey()` or `importFromSync()`
+- `UserVerificationRequiredError` if, with `userVerification: 'preferred'`, the assertion isn't user-verified (carries `credentialId`): the wallet's key comes from the PRF output, which only a user-verified assertion releases, so ask the user to sign in again with a biometric or PIN
+- `PrfUnsupportedError` if the assertion returns no PRF output (carries `credentialId`)
 
-In both cases the user is not logged in and `onAuthStateChanged(true, …)` is not called.
+In each case the user is not logged in and `onAuthStateChanged(true, …)` is not called.
 
 **Example:**
 
@@ -964,7 +965,7 @@ EIP-7702 allows EOAs (Externally Owned Accounts) to **permanently delegate** cod
 - **Zero ETH required** - DAO treasury or sponsor pays all gas
 - **Gasless transactions** - Users don't need gas tokens
 - **One-time authorization** - Sign ONCE, use forever (until revoked)
-- **Native protocol support** - Works on 329+ EVM chains
+- **Native protocol support** - Works on 315+ EVM chains
 
 **What happens:**
 1. User signs authorization offline (free)
@@ -3148,14 +3149,14 @@ const blockNumber = await provider.getBlockNumber()
 
 ### `supportsEIP7702(chainId: number, options?: EIP7702Options): Promise<boolean>`
 
-Check if network supports EIP-7702 (set code for EOAs).
+Check if network supports EIP-7702 (set code for EOAs). A chain on the built-in list returns `true` without a request. Any other chain is probed through its `rpcUrls` endpoints only, never a public one, so the user's IP address isn't sent to a third party; without `rpcUrls` for the chain it returns `false`.
 
 **Parameters:**
 - `chainId: number` - Chain ID
 - `options?: EIP7702Options`
   ```typescript
   interface EIP7702Options {
-    maxEndpoints?: number;  // Max endpoints to test (default: 3)
+    maxEndpoints?: number;  // Max rpcUrls endpoints to test (default: 3)
     timeout?: number;       // Timeout in ms (default: 10000)
   }
   ```
@@ -3169,7 +3170,7 @@ Check if network supports EIP-7702 (set code for EOAs).
 const supported = await w3pk.supportsEIP7702(1)
 console.log('EIP-7702 supported:', supported)
 
-// Check with custom options
+// Probe a chain off the list through its rpcUrls endpoints
 const supportedQuick = await w3pk.supportsEIP7702(999, {
   maxEndpoints: 2,
   timeout: 5000
@@ -3922,6 +3923,7 @@ import {
   WalletMissingError,
   SyncBootstrapError,
   PrfUnsupportedError,
+  UserVerificationRequiredError,
   AddressChangeError,
   RemovedBackupMethodError,
   UnsupportedBackupVersionError,
@@ -3941,7 +3943,8 @@ import {
   - `SyncRequiredError` - `login()`, and `derivePrfSecret()`, `getSemaphoreIdentity()` and `zkProve()` when logged out: passkey authenticated, but this device has no credential metadata (`credentialId`)
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
-  - `PrfUnsupportedError` - `register()`, `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
+  - `UserVerificationRequiredError` - `login()`, and a re-authentication (`requireAuth`, `importMnemonic()`), with `userVerification: 'preferred'`: the assertion isn't user-verified, so it carries no PRF output to unlock the wallet (`credentialId`)
+  - `PrfUnsupportedError` - `register()`, `login()`, `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
   - `AddressChangeError` - `restoreFromBackupFile()`, `recoverFromGuardians()`, `syncWalletWithPasskey()`, `importFromSync()`: the backup would replace the logged-in (or the passkey's stored) wallet with another address and `allowAddressChange` isn't set (`currentAddress`, `newAddress`)
   - `RemovedBackupMethodError` - `syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, `recoverFromGuardians()`: the backup uses the removed `passkey` or `hybrid` method (`method`); create a new `password` or `prf` backup
   - `UnsupportedBackupVersionError` - the same methods and `registerWithBackupFile()`: the file isn't BackupFile v4 (`version`); decrypt a v3 password file with the extractor at commit `b14c32c`, a v2 one with the v0.10.6 offline tool
