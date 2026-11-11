@@ -165,7 +165,7 @@ async function deriveWalletKey(prfOutput: BufferSource): Promise<CryptoKey> {
 - **Deterministic**: the fixed `PRF_INPUT` gives the same PRF output, so the same key, at every assertion with the passkey
 - **Authenticator-held**: the PRF output can't be computed from anything stored on the device
 - **Separate**: the persistent-session key comes from the same PRF output under another HKDF info, so neither key reveals the other
-- **PRF only**: authenticators without the PRF extension keep no wallet on the device; the session stays in memory and the wallet comes back from a backup
+- **PRF only**: on authenticators without the PRF extension, `register()` throws `PrfUnsupportedError` before the credential is saved, and signals the new passkey as unknown so the platform can drop it
 
 ### 4. Source Layout
 
@@ -237,7 +237,8 @@ STEP 3: Derive Encryption Key
 │       ↓                              │
 │  AES-256-GCM Key (NOT STORED!)       │
 │                                      │
-│  No PRF → wallet kept in memory only │
+│  No PRF → PrfUnsupportedError,       │
+│  nothing stored, passkey signalled   │
 └──────────────────────────────────────┘
                  ↓
 

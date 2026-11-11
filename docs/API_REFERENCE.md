@@ -64,9 +64,9 @@ interface PersistentSessionConfig {
 }
 ```
 
-**PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. On authenticators without PRF support, no persistent session is stored — the device falls back to in-memory sessions only (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored next to the blob in localStorage to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
+**PRF requirement:** persistent sessions are encrypted under a key derived from the WebAuthn PRF extension, which the authenticator only releases during a user-verified assertion. A login without a PRF output (an unverified assertion with `userVerification: 'preferred'`) stores no persistent session — the device falls back to an in-memory session only (there is no weaker at-rest fallback). The session is re-keyed at every real (prompted) login; the configured `duration` is therefore also the renewal interval. With `requireReauth: true` the decryption key is never written to disk; with `requireReauth: false` it is stored next to the blob in localStorage to allow silent restore. See [SECURITY.md](./SECURITY.md#at-rest-encryption-what-it-protects-and-what-it-doesnt) for the full model.
 
-**User verification:** `userVerification` sets the WebAuthn [user verification](https://www.w3.org/TR/webauthn-3/#user-verification) requirement for `register()` and `login()`; PRIMARY `signMessage()` always asks for `'required'`, since the account checks the UV flag. With `'required'` (the default), every prompt asks for a biometric or PIN. With `'preferred'`, authenticators that can skip the check, such as security keys and unlocked password managers, sign in with one click; the authenticator decides, not the app. Registration accepts any authenticator either way: a built-in one, a phone through a QR code, a security key or a password manager. PRF calls (`derivePrfSecret()`, PRF device sync) always require user verification, since an unverified assertion would return a different PRF output. A login whose assertion isn't user-verified gets an in-memory session only, never a persistent one.
+**User verification:** `userVerification` sets the WebAuthn [user verification](https://www.w3.org/TR/webauthn-3/#user-verification) requirement for `register()` and `login()`; PRIMARY `signMessage()` always asks for `'required'`, since the account checks the UV flag. With `'required'` (the default), every prompt asks for a biometric or PIN. With `'preferred'`, authenticators that can skip the check, such as security keys and unlocked password managers, sign in with one click; the authenticator decides, not the app. Registration accepts any authenticator with PRF support either way: a built-in one, a phone through a QR code, a security key or a password manager. When creation isn't user-verified or returns no PRF output, one assertion with `'required'` evaluates the PRF before anything is stored. PRF calls (`derivePrfSecret()`, PRF device sync) always require user verification, since an unverified assertion would return a different PRF output. A login whose assertion isn't user-verified gets an in-memory session only, never a persistent one.
 
 **Example:**
 
@@ -141,6 +141,10 @@ interface RegisterResult {
 5. Stores encrypted wallet in localStorage, next to the credential metadata
 6. Starts 1-hour session with decrypted mnemonic in memory
 7. Returns Ethereum address, username, whether a backup exists and whether the browser may wipe the wallet
+
+**Throws:**
+- `PrfUnsupportedError` if the authenticator returns no PRF output, at creation or in the one assertion after it. No address is returned and nothing is stored; the new passkey is dropped where the browser supports [`signalUnknownCredential()`](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/signalUnknownCredential_static)
+- `RegistrationError` if creation fails, its attestation doesn't check out, or the PRF assertion is cancelled; the passkey is dropped the same way
 
 **Example:**
 
@@ -3842,7 +3846,7 @@ import {
   - `SyncRequiredError` - `login()`: passkey authenticated, but this device has no credential metadata (`credentialId`)
   - `WalletMissingError` - `login()`: credential metadata found, but the wallet record is gone (`credentialId`, `ethereumAddress`)
   - `SyncBootstrapError` - `syncWalletWithPasskey()`, `importFromSync()`: the backup can't set this device up for the passkey (`reason`, `credentialId`)
-  - `PrfUnsupportedError` - `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
+  - `PrfUnsupportedError` - `register()`, `derivePrfSecret()`, `getSemaphoreIdentity()`, `exportForSync()`, `importFromSync()`: the authenticator returned no WebAuthn PRF output (`credentialId`)
   - `AddressChangeError` - `restoreFromBackupFile()`, `recoverFromGuardians()`, `syncWalletWithPasskey()`, `importFromSync()`: the backup would replace the logged-in (or the passkey's stored) wallet with another address and `allowAddressChange` isn't set (`currentAddress`, `newAddress`)
   - `RemovedBackupMethodError` - `syncWalletWithPasskey()`, `restoreFromBackupFile()`, `importFromSync()`, `recoverFromGuardians()`: the backup uses the removed `passkey` or `hybrid` method (`method`); create a new `password` or `prf` backup
   - `UnsupportedBackupVersionError` - the same methods and `registerWithBackupFile()`: the file isn't BackupFile v4 (`version`); decrypt a v3 password file with the extractor at commit `b14c32c`, a v2 one with the v0.10.6 offline tool

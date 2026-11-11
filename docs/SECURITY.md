@@ -35,7 +35,7 @@ key       = HKDF-SHA256(prfOutput, salt = 0^32, info = "w3pk-prf-wallet-key-v1")
 
 A malicious browser extension, a one-shot XSS that exfiltrates storage, a disk image or a profile backup gets `credentialId`, `publicKey` and the ciphertext, none of which yields the key. Before [#179](https://github.com/w3hc/w3pk/issues/179) the key was derived from `credentialId` and `publicKey` alone, and such an attacker could decrypt the seed offline.
 
-**No PRF support** (older authenticators, some browser/OS combinations, unverified assertions with `userVerification: 'preferred'`): the wallet is **not stored on the device**. It lives in memory for the session and comes back from a backup on the next visit. There is deliberately no weaker fallback.
+**No PRF support** (older authenticators, some browser/OS combinations): `register()` throws `PrfUnsupportedError` before any address is returned, and stores nothing, so no one can fund a wallet that only lives in memory. The new passkey is dropped where the browser supports [`signalUnknownCredential()`](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/signalUnknownCredential_static); elsewhere it stays on the authenticator, unused. When creation isn't user-verified, one user-verified assertion evaluates the PRF first. There is deliberately no weaker fallback.
 
 **Wallets stored before #179** are under the old key. `login()` re-encrypts one from a PRF persistent session when one exists; otherwise it throws `WalletMissingError` and the wallet is restored from a backup.
 
@@ -486,7 +486,7 @@ Two things bound the damage:
 **How it works:**
 - Wallet encrypted with AES-256-GCM
 - Key derived (HKDF-SHA256) from the passkey's PRF output, released only on a user-verified assertion
-- Authenticators without PRF keep no wallet on the device
+- Authenticators without PRF can't register: `register()` throws `PrfUnsupportedError` and nothing is stored
 
 **Limitations:**
 - Doesn't protect the mnemonic while a session holds it in memory
@@ -1114,7 +1114,7 @@ At `login()`, the same assertion that authenticates evaluates the PRF at the sam
 - The key is **deterministic per passkey** - the fixed input gives the same PRF output at every assertion.
 - Its only input is the PRF output, which the authenticator releases **only during a user-verified assertion**. `credentialId` and `publicKey` in localStorage don't help derive it.
 - The prompt is now a **cryptographic** boundary for the wallet at rest, not only an SDK control-flow gate.
-- Without PRF support, the wallet is never stored on the device.
+- Without PRF support, registration fails and the wallet is never stored on the device.
 
 **What an attacker with storage read access can do:**
 

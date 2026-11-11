@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Unset, no digests are computed and behavior is unchanged
   - `EIP1193ProviderOptions` and `BeforeSignDigests` are exported from `w3pk`
 
+### Removed
+
+- `docs/JUNE_9_2026_AUDIT.md`, superseded by the [w3pk v0.12.3 security audit](https://julienberanger.com/w3pk-v0-12-3-security-audit) ([#342](https://github.com/w3hc/w3pk/issues/342))
+
+### Fixed
+
+- **BREAKING: `register()` throws `PrfUnsupportedError` without a PRF output** ([#342](https://github.com/w3hc/w3pk/issues/342)), audit finding H-1. Before, it returned an address whose wallet was kept in memory only, so a user could fund a wallet that backup, sync and the next login couldn't reach
+  - The PRF output comes from creation, or from one user-verified assertion right after it, before the credential is saved; nothing is stored without it
+  - The new passkey is signalled with `PublicKeyCredential.signalUnknownCredential()` where the browser supports it, so the platform can drop it. A cancelled PRF assertion fails registration with `RegistrationError` and drops the passkey the same way
+  - A PRF output at creation that isn't 32 bytes is evaluated again in that assertion, and `register()` zeroes the PRF output once its keys are derived
+  - No change on authenticators with PRF support: same prompts, same result
+
 ## [0.12.3] - 2026-11-10
 
 ### Changed
