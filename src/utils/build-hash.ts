@@ -4,22 +4,12 @@
  */
 
 import { sha512 } from '@noble/hashes/sha2.js';
+import { concatBytes } from '@noble/hashes/utils.js';
 import { version } from '../../package.json';
-import { arrayBufferToBase64Url } from './base64';
 import { computeIpfsCid } from './ipfs-cid';
 
 const NPM_REGISTRY = 'https://registry.npmjs.org';
 const BUILD_FILES = ['index.js', 'index.mjs', 'index.d.ts'];
-
-function concatBytes(chunks: Uint8Array[]): Uint8Array {
-  const result = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
-}
 
 async function fetchBytes(url: string, label: string): Promise<Uint8Array> {
   const response = await fetch(url);
@@ -34,11 +24,10 @@ async function fetchBytes(url: string, label: string): Promise<Uint8Array> {
  * This includes the core library files that users would verify
  */
 async function fetchBuildFiles(baseUrl: string): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = [];
-  for (const file of BUILD_FILES) {
-    chunks.push(await fetchBytes(`${baseUrl}/${file}`, file));
-  }
-  return concatBytes(chunks);
+  const chunks = await Promise.all(
+    BUILD_FILES.map((file) => fetchBytes(`${baseUrl}/${file}`, file))
+  );
+  return concatBytes(...chunks);
 }
 
 /**
@@ -64,8 +53,7 @@ async function fetchNpmTarball(version: string): Promise<Uint8Array> {
   }
 
   const tarball = await fetchBytes(tarballUrl, `w3pk-${version}.tgz`);
-  const expected = integrity[1].replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  if (arrayBufferToBase64Url(sha512(tarball)) !== expected) {
+  if (btoa(String.fromCharCode(...sha512(tarball))) !== integrity[1]) {
     throw new Error(`w3pk-${version}.tgz does not match its npm registry integrity`);
   }
   return tarball;
@@ -156,7 +144,7 @@ export function getPackageVersion(): string {
 export async function getCurrentBuildHash(): Promise<string> {
   const tar = await gunzip(await fetchNpmTarball(getPackageVersion()));
   const files = readTarFiles(tar, BUILD_FILES.map((file) => `package/dist/${file}`));
-  return computeIpfsCid(concatBytes(files));
+  return computeIpfsCid(concatBytes(...files));
 }
 
 /**
