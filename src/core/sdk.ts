@@ -1655,7 +1655,7 @@ export class Web3Passkey {
    * - eth_sendTransaction                  → delegates to sendTransaction()
    * - personal_sign / eth_sign            → delegates to signMessage() EIP-191
    * - eth_signTypedData_v4                → delegates to signMessage() EIP-712
-   * - wallet_switchEthereumChain          → updates the active chainId
+   * - wallet_switchEthereumChain          → switches to options.chainId or a chain set in rpcUrls
    * - eth_blockNumber, eth_call, eth_estimateGas, eth_getBalance, eth_getCode,
    *   eth_getStorageAt, eth_getTransactionCount, eth_getTransactionByHash,
    *   eth_getTransactionReceipt, eth_getBlockByNumber, eth_getBlockByHash,
@@ -1676,6 +1676,12 @@ export class Web3Passkey {
    * eth_sendTransaction reads `input` as `data`, and rejects both with error
    * -32602 when they differ. It sends a legacy `gasPrice`, and rejects it with
    * error -32602 alongside `maxFeePerGas` or `maxPriorityFeePerGas`.
+   *
+   * wallet_switchEthereumChain rejects a chainId that isn't a hex quantity
+   * with error -32602, and a chain other than options.chainId without
+   * `rpcUrls` with error 4902 (unrecognized chain, which wallet libraries read
+   * as a cue for wallet_addEthereumChain). chainChanged is emitted only when
+   * the chain changes.
    *
    * In PRIMARY mode the passkey's P-256 smart account sends ERC-4337
    * UserOperations and signs ERC-7739 signatures bound to the active chain;

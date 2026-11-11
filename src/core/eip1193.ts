@@ -220,8 +220,7 @@ export function createEIP1193Provider(
     if (!url) {
       throw new WalletError(
         `No RPC endpoint set for chainId ${activeChainId}. Set rpcUrls in the config ` +
-        `(rpcUrls: { ${activeChainId}: ['https://...'] })` +
-        (activeChainId === initialChainId ? ' or pass options.rpcUrl.' : '.')
+        `(rpcUrls: { ${activeChainId}: ['https://...'] }) or pass options.rpcUrl.`
       );
     }
     return url;
@@ -378,9 +377,22 @@ export function createEIP1193Provider(
 
         // ── Chain switching ────────────────────────────────────────────
         case 'wallet_switchEthereumChain': {
-          const newChainId = parseInt((params ?? [])[0]?.chainId ?? '0x1', 16);
-          activeChainId = newChainId;
-          emit('chainChanged', '0x' + newChainId.toString(16));
+          const chainId = (params ?? [])[0]?.chainId;
+          if (typeof chainId !== 'string' || !/^0x[1-9a-fA-F][0-9a-fA-F]*$/.test(chainId)) {
+            throw invalidParams(`wallet_switchEthereumChain needs a hex chainId, got ${String(chainId)}`);
+          }
+          const newChainId = Number(chainId);
+          if (newChainId !== initialChainId && !(Number.isSafeInteger(newChainId) && rpcUrlFor?.(newChainId))) {
+            throw new JsonRpcError(
+              4902,
+              `w3pk EIP-1193: unrecognized chain ${chainId}. Set rpcUrls in the config ` +
+              `(rpcUrls: { ${BigInt(chainId)}: ['https://...'] }).`
+            );
+          }
+          if (newChainId !== activeChainId) {
+            activeChainId = newChainId;
+            emit('chainChanged', chainId.toLowerCase());
+          }
           return null;
         }
 

@@ -5,7 +5,8 @@
  * - Provider shape (request / on / removeListener)
  * - eth_accounts / eth_requestAccounts
  * - eth_chainId (default and custom)
- * - wallet_switchEthereumChain + chainChanged event
+ * - wallet_switchEthereumChain + chainChanged event; -32602 for a chainId that
+ *   isn't a hex quantity, 4902 for a chain without an endpoint
  * - eth_sendTransaction param mapping (hex → bigint)
  * - eth_sendTransaction reads input as data, rejects them when they differ
  * - eth_sendTransaction sends gasPrice, rejects it with EIP-1559 fees
@@ -148,8 +149,11 @@ async function runTests() {
   // ------------------------------------------------------------------
   // 5. wallet_switchEthereumChain updates eth_chainId
   // ------------------------------------------------------------------
+  const rpcUrls = { 1: ["https://one.example"], 10: ["https://ten.example"], 8453: ["https://base.example"] };
+  const rpcUrlFor = (chainId: number) => (rpcUrls as Record<number, string[]>)[chainId]?.[0];
+
   await runTest("wallet_switchEthereumChain updates active chainId", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls });
     const provider = sdk.getEIP1193Provider({ chainId: 1 });
 
     await provider.request({
@@ -166,7 +170,7 @@ async function runTests() {
   // 6. wallet_switchEthereumChain emits chainChanged event
   // ------------------------------------------------------------------
   await runTest("wallet_switchEthereumChain emits chainChanged event", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls });
     const provider = sdk.getEIP1193Provider({ chainId: 1 });
 
     let emittedChainId: string | null = null;
@@ -183,11 +187,38 @@ async function runTests() {
     passTest(`chainChanged emitted: ${emittedChainId}`);
   });
 
+  await runTest("wallet_switchEthereumChain takes a hex chainId of a configured chain", async () => {
+    const { sdk } = stubSdk();
+    const provider = createEIP1193Provider(sdk, { chainId: 10 }, (chainId) => (chainId === 1 ? "https://one.example" : undefined));
+    const emitted: string[] = [];
+    provider.on("chainChanged", (id: string) => emitted.push(id));
+    const switchTo = (params?: unknown[]) =>
+      provider.request({ method: "wallet_switchEthereumChain", params }).catch((e) => e);
+
+    for (const params of [undefined, [], [{}], [{ chainId: 1 }], [{ chainId: "1" }], [{ chainId: "0x" }], [{ chainId: "0x0" }], [{ chainId: "0x01" }], [{ chainId: "0X1" }], [{ chainId: "0xg" }], [{ chainId: "0x1 " }], [{ chainId: NaN }]]) {
+      const error = await switchTo(params);
+      assertEqual(error?.code, -32602, `${JSON.stringify(params)}: Invalid params`);
+    }
+    for (const chainId of ["0x2105", "0x" + "f".repeat(20)]) {
+      const error = await switchTo([{ chainId }]);
+      assertEqual(error?.code, 4902, `${chainId}: unrecognized chain`);
+    }
+    assertEqual(await provider.request({ method: "eth_chainId" }), "0xa", "still on the initial chain");
+    assertEqual(emitted.length, 0, "no chainChanged on a rejected switch");
+
+    assertEqual(await switchTo([{ chainId: "0xA" }]), null, "the active chain returns null");
+    assertEqual(emitted.length, 0, "no chainChanged without a change");
+    assertEqual(await switchTo([{ chainId: "0x1" }]), null, "a chain with an endpoint returns null");
+    assertEqual(await switchTo([{ chainId: "0xA" }]), null, "back to the initial chain, in upper case");
+    assertEqual(emitted.join(), "0x1,0xa", "chainChanged in eth_chainId's format");
+    passTest("Malformed chainIds get -32602, unconfigured chains 4902");
+  });
+
   // ------------------------------------------------------------------
   // 7. removeListener stops event delivery
   // ------------------------------------------------------------------
   await runTest("removeListener stops event delivery", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls });
     const provider = sdk.getEIP1193Provider({ chainId: 1 });
 
     let callCount = 0;
@@ -229,7 +260,7 @@ async function runTests() {
   // 9. Two provider instances are independent (separate chainId state)
   // ------------------------------------------------------------------
   await runTest("Multiple provider instances have isolated chainId state", async () => {
-    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false });
+    const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls });
     const providerA = sdk.getEIP1193Provider({ chainId: 1 });
     const providerB = sdk.getEIP1193Provider({ chainId: 10 });
 
@@ -394,7 +425,7 @@ async function runTests() {
   // ------------------------------------------------------------------
   await runTest("eth_signTypedData_v4 refuses a domain chainId other than the active chain", async () => {
     const { sdk, calls } = stubSdk();
-    const provider = createEIP1193Provider(sdk, { chainId: 10 });
+    const provider = createEIP1193Provider(sdk, { chainId: 10 }, rpcUrlFor);
     const typedData = (chainId?: unknown) => JSON.stringify({
       domain: { name: "Test", version: "1", ...(chainId === undefined ? {} : { chainId }) },
       types: { Mail: [{ name: "contents", type: "string" }] },
@@ -748,7 +779,7 @@ Issued At: 2021-09-30T16:25:24Z`)
         sendOptions.push(options);
         return { hash: "0xhash" };
       };
-      const provider = createEIP1193Provider(sdk, { mode, chainId: 10, rpcUrl: "https://rpc.example" });
+      const provider = createEIP1193Provider(sdk, { mode, chainId: 10, rpcUrl: "https://rpc.example" }, rpcUrlFor);
       const to = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
       const send = { method: "eth_sendTransaction", params: [{ from: ACCOUNT, to }] };
       await provider.request(send);
@@ -782,10 +813,11 @@ Issued At: 2021-09-30T16:25:24Z`)
       assert(error.message.includes("options.rpcUrl"), "on the initial chain, names options.rpcUrl");
 
       const withRpcUrl = sdk.getEIP1193Provider({ chainId: 10, rpcUrl: "https://ten.example" });
-      await withRpcUrl.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
-      const switched = await withRpcUrl.request({ method: "eth_getBalance", params: [MAIN_ACCOUNT, "latest"] }).catch((e) => e);
+      const switched = await withRpcUrl
+        .request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] })
+        .catch((e) => e);
+      assertEqual(switched.code, 4902, "no switch to a chain without an endpoint");
       assert(switched.message.includes("rpcUrls: { 8453:"), `names rpcUrls: ${switched.message}`);
-      assert(!switched.message.includes("options.rpcUrl"), "after a switch, options.rpcUrl doesn't apply");
       assertEqual(fetches, 0, "no request");
     } finally {
       globalThis.fetch = realFetch;
@@ -948,7 +980,7 @@ Issued At: 2021-09-30T16:25:24Z`)
             release = resolve;
             entered();
           }),
-      });
+      }, rpcUrlFor);
       for (const request of [
         { method: "eth_sendTransaction", params: [{ from: signer, to: signer }] },
         { method: "personal_sign", params: ["hi", signer] },
@@ -1326,7 +1358,8 @@ Issued At: 2021-09-30T16:25:24Z`)
     });
 
     await runTest("PRIMARY: personal_sign and eth_signTypedData_v4 sign for the active chain", async () => {
-      const sdk = await primarySdk();
+      const sdk = await primarySdk({ rpcUrls: { 1: ["http://127.0.0.1:1"] } });
+      (sdk as any).isDeployed = async () => false;
       const provider = sdk.getEIP1193Provider({ mode: "PRIMARY", chainId: 10 });
       await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
       const account = { address: MAIN_ACCOUNT, chainId: 1 };
