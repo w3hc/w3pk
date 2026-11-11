@@ -1,7 +1,9 @@
-import { WalletError } from "./errors";
+import { CryptoError, WalletError } from "./errors";
 import { applyRestoredWallet, loggedInCredential } from "./backup-sync";
 import type { SdkContext } from "./context";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
+import type { BackupFile } from "../backup/types";
+import type { BackupFileManager } from "../backup/backup-file";
 
 type SocialRecoveryContext = Pick<SdkContext, 'currentUser' | 'currentPublicKey' | 'getMnemonicFromSession'>;
 
@@ -71,6 +73,25 @@ export async function generateGuardianInvite(
   };
 }
 
+/** Most backups rebuilt from subsets of the shares that recoverFromGuardians() decrypts */
+export const MAX_BACKUP_DECRYPTIONS = 8;
+
+async function decryptGuardianBackup(
+  backupFileManager: BackupFileManager,
+  backupFile: BackupFile,
+  password: string
+): Promise<{ mnemonic: string; ethereumAddress: string }> {
+  if (backupFile.encryptionMethod !== 'password') {
+    throw new WalletError(
+      'PRF backups are not supported for guardian recovery. Use password-protected backups.'
+    );
+  }
+  if (!password) {
+    throw new WalletError('Password required to decrypt password-protected backup');
+  }
+  return backupFileManager.restoreWithPassword(backupFile, password);
+}
+
 export async function recoverFromGuardians(
   ctx: SdkContext,
   shares: Array<string | GuardianShare>,
@@ -88,22 +109,27 @@ export async function recoverFromGuardians(
     typeof share === 'string' ? recovery.parseGuardianShare(share) : share
   );
 
-  // Combine shares to recover backup file
-  const backupFile = await recovery.recoverFromShares(parsedShares);
-
-  // Decrypt backup file
-  let result;
-  if (backupFile.encryptionMethod === 'password') {
-    if (!password) {
-      throw new WalletError('Password required to decrypt password-protected backup');
+  const rebuilt = await recovery.rebuildBackups(parsedShares);
+  const backups = rebuilt.backups.slice(0, MAX_BACKUP_DECRYPTIONS);
+  let result: { mnemonic: string; ethereumAddress: string } | undefined;
+  let firstError: unknown;
+  for (const backupFile of backups) {
+    try {
+      result = await decryptGuardianBackup(backupFileManager, backupFile, password);
+      break;
+    } catch (error) {
+      if (firstError === undefined) firstError = error;
     }
-    result = await backupFileManager.restoreWithPassword(backupFile, password);
-  } else {
-    throw new WalletError(
-      'PRF backups are not supported for guardian recovery. Use password-protected backups.'
-    );
   }
-  if (result.ethereumAddress.toLowerCase() !== parsedShares[0].walletAddress.toLowerCase()) {
+  if (!result) {
+    throw backups.length === 1 || !(firstError instanceof CryptoError)
+      ? firstError
+      : new CryptoError(
+          `None of the ${backups.length} backups rebuilt from subsets of the shares decrypts: the password is wrong, or a share was edited and its checksum recomputed`,
+          firstError
+        );
+  }
+  if (result.ethereumAddress.toLowerCase() !== rebuilt.walletAddress.toLowerCase()) {
     throw new WalletError("Recovered wallet doesn't match the guardian shares' address");
   }
 

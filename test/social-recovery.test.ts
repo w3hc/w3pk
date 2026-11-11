@@ -6,9 +6,10 @@
 
 import { Wallet } from "ethers";
 import { InvalidGuardianShareError, Web3Passkey, WeakPasswordError } from "../src/index";
+import { guardianShareChecksum, SocialRecovery } from "../src/recovery/backup-based-recovery";
 import {
   splitSecret,
-  combineShares,
+  combineShareSubsets,
   stringToBytes,
   bytesToString,
   bytesToHex,
@@ -79,6 +80,9 @@ async function shareFiles(sdk: Web3Passkey, guardianShares: any[]): Promise<stri
     })
   );
 }
+
+const combineShares = (shares: Uint8Array[], threshold: number) =>
+  combineShareSubsets(shares, threshold).next().value as Uint8Array;
 
 async function runTests() {
   startTestSuite("Social Recovery Tests");
@@ -331,6 +335,11 @@ async function runTests() {
     named(relabelled, 2, "Bob", "edited threshold");
     named(await rejection([files[0], JSON.stringify({ ...bob, guardianName: "Charlie" })]), 2, "Charlie", "renamed share");
 
+    const misfit = { ...bob, shareData: "03" + bob.shareData.slice(2) };
+    const wrongX = await rejection([files[0], JSON.stringify({ ...misfit, checksum: await guardianShareChecksum(misfit) })]);
+    named(wrongX, 2, "Bob", "x-coordinate other than the share index");
+    assert(/x-coordinate 3, not its share index/.test(wrongX.message), "wrong x: says so");
+
     const upper = { ...bob, shareData: bob.shareData.toUpperCase(), splitId: bob.splitId.toUpperCase() };
     const fromUpper = await new Web3Passkey().recoverFromGuardians([files[0], JSON.stringify(upper)], PASSWORD);
     assertEqual(fromUpper.ethereumAddress, ADDRESS, "uppercase hex is accepted");
@@ -357,6 +366,64 @@ async function runTests() {
 
     const restored = await new Web3Passkey().recoverFromGuardians([files[2], files[0]], PASSWORD);
     assertEqual(restored.ethereumAddress, ADDRESS, "the untouched shares still restore");
+    passTest();
+  });
+
+  await runTest("recoverFromGuardians tries other subsets past a bad share", async () => {
+    const sdk = loggedInSdk();
+    const { guardianShares } = await sdk.setupSocialRecovery(
+      Array.from({ length: 5 }, (_, i) => ({ name: `Guardian${i + 1}` })),
+      3,
+      PASSWORD
+    );
+    const files = await shareFiles(sdk, guardianShares);
+    const first = JSON.parse(files[0]);
+    const flip = (hex: string, at: number) =>
+      hex.slice(0, at) + (parseInt(hex[at], 16) ^ 1).toString(16) + hex.slice(at + 1);
+
+    const corrupted = JSON.stringify({ ...first, shareData: flip(first.shareData, 41) });
+    const fromCorrupted = await new Web3Passkey().recoverFromGuardians(
+      [corrupted, ...files.slice(1, 4)],
+      PASSWORD
+    );
+    assertEqual(fromCorrupted.ethereumAddress, ADDRESS, "a share failing its checksum is left out");
+
+    const backupJson = JSON.stringify(await new SocialRecovery().recoverFromShares(guardianShares.slice(0, 3)));
+    const inCiphertext = backupJson.indexOf('"encryptedMnemonic":"') + 30;
+    const edited = { ...first, shareData: flip(first.shareData, 2 + 2 * inCiphertext + 1) };
+    const forged = JSON.stringify({ ...edited, checksum: await guardianShareChecksum(edited) });
+    for (const count of [4, 5]) {
+      const result = await new Web3Passkey().recoverFromGuardians(
+        [forged, ...files.slice(1, count)],
+        PASSWORD
+      );
+      assertEqual(result.ethereumAddress, ADDRESS, `${count} shares, one forged with its checksum recomputed`);
+    }
+    const ranked = await new SocialRecovery().rebuildBackups([JSON.parse(forged), ...guardianShares.slice(1, 4)]);
+    assert(ranked.backups.length > 1, "the forged share rebuilds backups that parse, which only decryption refuses");
+
+    const recovery = new SocialRecovery();
+    const verify = (shares: string[]) => recovery.verifyRecovery(shares.map((f) => recovery.parseGuardianShare(f)));
+    assert((await verify(files.slice(0, 4))).canRecover, "verifyRecovery passes honest shares");
+    const skipped = await verify([corrupted, ...files.slice(1, 4)]);
+    assert(!skipped.canRecover && /checksum/.test(skipped.error ?? ""), "verifyRecovery names a share left out");
+    const disagree = await verify([forged, ...files.slice(1, 4)]);
+    assert(!disagree.canRecover && /different backups/.test(disagree.error ?? ""), "verifyRecovery flags subsets that disagree");
+    await assertThrows(
+      () => new Web3Passkey().recoverFromGuardians([forged, files[1], files[2]], PASSWORD).then(() => {}),
+      "a forged share in a threshold-sized set fails"
+    );
+
+    let wrongPassword: unknown;
+    try {
+      await new Web3Passkey().recoverFromGuardians(files, "WrongPass123!NotReal");
+    } catch (error) {
+      wrongPassword = error;
+    }
+    assert(
+      /^Wrong password/.test((wrongPassword as Error)?.message),
+      "honest shares agree on one backup: a wrong password is reported as such"
+    );
     passTest();
   });
 

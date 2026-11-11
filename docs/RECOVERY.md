@@ -374,7 +374,7 @@ await sdk.register({ username: 'username' });
 4. Each guardian gets one encrypted fragment, with its setup's `splitId` and a checksum
 5. Recovery requires: threshold shares + original password
 
-**Share checksums**: each share file (`version: 2`) holds `splitId` (16 random bytes, the same for every share of one setup) and `checksum`, the SHA-256 of the label `w3pk-guardian-share-v2`, `splitId`, `shareIndex`, `threshold`, the lowercased `walletAddress`, `guardianName`, `createdAt` and the share bytes (strings and bytes length-prefixed with 4 bytes big-endian, the index and threshold one byte each). Before the shares are combined, `recoverFromGuardians()` throws `InvalidGuardianShareError` naming the share (`shareIndex`, `guardianName`) that is corrupted or edited, comes from another setup, is given twice, or is a `version: 1` share from 0.11.x. The checksum is not a MAC: a guardian who edits a share on purpose and recomputes it isn't named, and the backup's AES-GCM tag refuses the rebuilt file. To use `version: 1` shares, combine them with w3pk v0.11.1 (`SocialRecovery.recoverFromShares()`) and decrypt the rebuilt v3 file with the tool that reads v3, or set up social recovery again.
+**Share checksums**: each share file (`version: 2`) holds `splitId` (16 random bytes, the same for every share of one setup) and `checksum`, the SHA-256 of the label `w3pk-guardian-share-v2`, `splitId`, `shareIndex`, `threshold`, the lowercased `walletAddress`, `guardianName`, `createdAt` and the share bytes (strings and bytes length-prefixed with 4 bytes big-endian, the index and threshold one byte each). Before the shares are combined, `recoverFromGuardians()` throws `InvalidGuardianShareError` naming the share (`shareIndex`, `guardianName`) that is corrupted or edited, comes from another setup, is given twice, or is a `version: 1` share from 0.11.x. Given more shares than the threshold, a share whose checksum fails is left out instead, as long as the others reach the threshold. A share whose x-coordinate (its first byte) isn't its `shareIndex` is refused the same way, and x-coordinates of 0 or given twice never reach the interpolation. The checksum is not a MAC: a guardian who edits a share on purpose and recomputes it isn't named, and the backup's AES-GCM tag refuses the rebuilt file. With more shares than the threshold, recovery then rebuilds the backup from each threshold-sized subset (windows of consecutive shares first, then the others, at most 256) and decrypts the distinct backups, the one most subsets agree on first, at most 8: honest shares all rebuild the same backup, so a wrong password costs one decryption. To use `version: 1` shares, combine them with w3pk v0.11.1 (`SocialRecovery.recoverFromShares()`) and decrypt the rebuilt v3 file with the tool that reads v3, or set up social recovery again.
 
 **Use Case**: Forgot password, lost all devices, ultimate safety net
 
@@ -455,13 +455,13 @@ Step 3: Distribute Shares
 
 Recovery Process:
 - Collect 3+ shares from guardians
-- Check each share's checksum and split id, naming a wrong one
-- Combine shares → reconstruct BackupFile JSON
-- Decrypt with password → extract mnemonic
+- Check each share's checksum, x-coordinate and split id, naming a wrong one
+- Combine each threshold-sized subset of shares → reconstruct BackupFile JSON
+- Decrypt with password, the backup most subsets agree on first → extract mnemonic
 - Register new passkey or import to existing
 
 Mathematical basis:
-- Polynomial interpolation over finite field GF(256)
+- Polynomial interpolation over finite field GF(256), the AES field (FIPS-197 §4.2), in constant time: masked shift-and-add multiply and a^254 inverse, no table lookups
 - Degree = threshold - 1 (e.g., degree-2 polynomial for 3-of-5)
 - Points on polynomial = shares
 - Any 3 points → reconstruct polynomial → recover secret
