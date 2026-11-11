@@ -38,7 +38,6 @@ import {
   deriveWalletKey,
   encryptData,
   decryptData,
-  PRF_INPUT,
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
 import { SessionManager } from "./session";
@@ -46,7 +45,6 @@ import { CredentialStorage } from "../auth/storage";
 import {
   assertPrfSecretTag,
   derivePrfSecret,
-  evaluatePrf,
   PRF_SECRET_LABEL,
   type PrfSecret,
 } from "../auth/prf";
@@ -376,7 +374,7 @@ export class Web3Passkey {
         userVerification: this.config.userVerification,
       });
 
-      const { credentialId } = registration;
+      const { credentialId, prfOutput } = registration;
 
       this.currentUser = {
         username: options.username,
@@ -384,33 +382,13 @@ export class Web3Passkey {
         credentialId,
       };
 
-      // Some platforms evaluate the PRF at creation; if this one didn't,
-      // one assertion does. Without PRF, the wallet stays in memory only.
-      let prfOutput = registration.prfOutput;
-      if (!prfOutput) {
-        try {
-          prfOutput = (await evaluatePrf(PRF_INPUT, credentialId)).output;
-        } catch (error) {
-          if (!(error instanceof PrfUnsupportedError)) throw error;
-        }
-      }
-
-      if (prfOutput) {
-        await this.storeWallet(ethereumAddress, mnemonic, credentialId, prfOutput);
-      }
-
-      const prfSessionKey = prfOutput
-        ? await derivePrfSessionKey(
-            prfOutput,
-            this.sessionManager.storesSessionKey
-          )
-        : undefined;
+      await this.storeWallet(ethereumAddress, mnemonic, credentialId, prfOutput);
 
       await this.sessionManager.startSession(
         mnemonic,
         credentialId,
         ethereumAddress,
-        prfSessionKey,
+        await derivePrfSessionKey(prfOutput, this.sessionManager.storesSessionKey),
         'STANDARD' // Default security mode for register
       );
 
