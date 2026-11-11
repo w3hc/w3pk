@@ -4,6 +4,7 @@
  */
 
 import { CryptoError } from "../core/errors";
+import type { NFTOwnershipProofInput } from "./types";
 
 /**
  * Generate a random blinding factor for commitments
@@ -308,106 +309,163 @@ export function isValidAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
 
+/** Depth of the NFT holders tree, fixed by nft.circom */
+export const NFT_TREE_DEPTH = 20;
+
+const SNARK_FIELD =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+const BALANCE_LIMIT = 1n << 64n;
+
+export interface NFTHolder {
+  /** The holder's identity commitment, from `getNFTHolderCommitment()` */
+  commitment: string | bigint;
+  /** The holder's balance at the snapshot, below 2^64 */
+  balance: bigint;
+}
+
+function toFieldElement(value: string | bigint, name: string): bigint {
+  let field: bigint;
+  try {
+    field = BigInt(value);
+  } catch {
+    throw new CryptoError(`${name} is not a field element`);
+  }
+  if (field < 0n || field >= SNARK_FIELD) {
+    throw new CryptoError(`${name} is not in the BN254 scalar field`);
+  }
+  return field;
+}
+
+function assertBalance(value: bigint, name: string): void {
+  if (typeof value !== "bigint" || value < 0n || value >= BALANCE_LIMIT) {
+    throw new CryptoError(`${name} must be a bigint in [0, 2^64)`);
+  }
+}
+
+async function loadPoseidon(): Promise<typeof import("poseidon-lite")> {
+  try {
+    return await import("poseidon-lite");
+  } catch (error) {
+    throw new CryptoError(
+      "NFT holder trees require poseidon-lite. Install with: pnpm add poseidon-lite",
+      error
+    );
+  }
+}
+
 /**
- * Build NFT holders merkle tree
- * Creates a merkle tree from a list of NFT holder addresses for a specific contract
+ * Build the NFT holders tree `nft.circom` proves against: leaf i is
+ * Poseidon(commitment, contract, balance) of holder i, empty leaves are 0,
+ * and the tree has `NFT_TREE_DEPTH` levels. `tree[d]` holds the non-empty
+ * nodes of level d; `tree[NFT_TREE_DEPTH]` is `[root]`.
+ *
+ * Check each holder's commitment registration and balance before adding it:
+ * the tree is what the proof trusts.
  */
 export async function buildNFTHoldersMerkleTree(
-  holderAddresses: string[],
+  holders: NFTHolder[],
   contractAddress: string
 ): Promise<{
   root: string;
   tree: string[][];
   holderLeaves: string[];
 }> {
-  try {
-    // @ts-ignore - Optional dependency, may not be installed
-    const circomlibjs = await import("circomlibjs");
-    const poseidon = await circomlibjs.buildPoseidon();
-
-    if (holderAddresses.length === 0) {
-      throw new Error("Cannot build NFT holders tree from empty holder list");
-    }
-
-    // Create leaf hashes: Hash(holderAddress, contractAddress)
-    // Convert hex addresses to BigInt (remove 0x prefix first)
-    const contractHash = BigInt(contractAddress.startsWith('0x') ? contractAddress : '0x' + contractAddress);
-    const holderLeaves = holderAddresses.map((address) => {
-      const cleanAddress = address.startsWith('0x') ? address : '0x' + address;
-      const addressHash = BigInt(cleanAddress);
-      return poseidon.F.toObject(poseidon([addressHash, contractHash])).toString();
-    });
-
-    // Build merkle tree from the leaves
-    const { root, tree } = await buildMerkleTree(holderLeaves);
-
-    return {
-      root,
-      tree,
-      holderLeaves,
-    };
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("Cannot resolve module")) {
-      throw new CryptoError(
-        "NFT holder merkle tree requires circomlibjs. Install with: npm install circomlibjs\n" +
-        "For more info: https://github.com/w3hc/w3pk#zero-knowledge-proofs",
-        error
-      );
-    }
-    throw new CryptoError("Failed to build NFT holders merkle tree", error);
+  if (!isValidAddress(contractAddress)) {
+    throw new CryptoError(`Invalid contract address: ${contractAddress}`);
   }
+  if (holders.length === 0) {
+    throw new CryptoError("Cannot build NFT holders tree from empty holder list");
+  }
+  if (holders.length > 2 ** NFT_TREE_DEPTH) {
+    throw new CryptoError(`NFT holders tree holds at most 2^${NFT_TREE_DEPTH} holders`);
+  }
+
+  const contract = BigInt(contractAddress);
+  const seen = new Set<bigint>();
+  const commitments = holders.map(({ commitment, balance }, i) => {
+    const field = toFieldElement(commitment, `Holder ${i} commitment`);
+    if (seen.has(field)) {
+      throw new CryptoError(`Holder ${i} commitment is in the list twice`);
+    }
+    seen.add(field);
+    assertBalance(balance, `Holder ${i} balance`);
+    return field;
+  });
+
+  const { poseidon2, poseidon3 } = await loadPoseidon();
+  let level = commitments.map((c, i) => poseidon3([c, contract, holders[i].balance]));
+  const tree: string[][] = [level.map(String)];
+  let zero = 0n;
+  for (let d = 0; d < NFT_TREE_DEPTH; d++) {
+    const next: bigint[] = [];
+    for (let i = 0; i < level.length; i += 2) {
+      next.push(poseidon2([level[i], i + 1 < level.length ? level[i + 1] : zero]));
+    }
+    tree.push(next.map(String));
+    level = next;
+    zero = poseidon2([zero, zero]);
+  }
+
+  return { root: tree[NFT_TREE_DEPTH][0], tree, holderLeaves: tree[0] };
 }
 
 /**
- * Generate NFT ownership proof inputs
- * Helper to prepare all inputs needed for NFT ownership proof
+ * Prepare `proveNFTOwnership()`'s input for the holder with
+ * `holderCommitment`: its balance and its `NFT_TREE_DEPTH`-level path in
+ * the tree of `holders`
  */
 export async function generateNFTOwnershipProofInputs(
-  ownerAddress: string,
+  holderCommitment: string | bigint,
   contractAddress: string,
-  allHolderAddresses: string[],
+  holders: NFTHolder[],
+  scope: bigint | string,
   minBalance: bigint = 1n
 ): Promise<{
-  nftProofInput: {
-    ownerAddress: string;
-    holderIndex: number;
-    pathIndices: number[];
-    pathElements: string[];
-    holdersRoot: string;
-    contractAddress: string;
-    minBalance: bigint;
-  };
+  nftProofInput: NFTOwnershipProofInput;
   holderLeaves: string[];
 }> {
-  // Find the owner's position in the holders list
-  const holderIndex = allHolderAddresses.findIndex(
-    (address) => address.toLowerCase() === ownerAddress.toLowerCase()
-  );
-
+  const commitment = toFieldElement(holderCommitment, "Holder commitment");
+  const holderIndex = holders.findIndex((holder) => {
+    try {
+      return BigInt(holder.commitment) === commitment;
+    } catch {
+      return false;
+    }
+  });
   if (holderIndex === -1) {
     throw new CryptoError(
-      `Owner address ${ownerAddress} not found in holders list for contract ${contractAddress}`
+      `Commitment ${commitment} not found in holders list for contract ${contractAddress}`
     );
   }
+  const { balance } = holders[holderIndex];
+  assertBalance(minBalance, "Minimum balance");
+  if (balance < minBalance) {
+    throw new CryptoError(`Holder balance ${balance} is below the minimum ${minBalance}`);
+  }
 
-  // Build the NFT holders merkle tree
-  const { root, tree, holderLeaves } = await buildNFTHoldersMerkleTree(
-    allHolderAddresses,
-    contractAddress
-  );
+  const { root, tree, holderLeaves } = await buildNFTHoldersMerkleTree(holders, contractAddress);
+  const { poseidon2 } = await loadPoseidon();
 
-  // Generate merkle proof for this owner
-  const { pathIndices, pathElements } = generateMerkleProof(tree, holderIndex);
+  const pathIndices: number[] = [];
+  const pathElements: string[] = [];
+  let index = holderIndex;
+  let zero = 0n;
+  for (let d = 0; d < NFT_TREE_DEPTH; d++) {
+    pathIndices.push(index & 1);
+    pathElements.push(tree[d][index ^ 1] ?? zero.toString());
+    index >>= 1;
+    zero = poseidon2([zero, zero]);
+  }
 
   return {
     nftProofInput: {
-      ownerAddress,
-      holderIndex,
+      balance,
       pathIndices,
       pathElements,
       holdersRoot: root,
       contractAddress,
       minBalance,
+      scope,
     },
     holderLeaves,
   };
@@ -416,42 +474,35 @@ export async function generateNFTOwnershipProofInputs(
 /**
  * Validate NFT ownership proof inputs
  */
-export function validateNFTOwnershipProofInputs(inputs: {
-  ownerAddress: string;
-  contractAddress: string;
-  holderIndex: number;
-  pathIndices: number[];
-  pathElements: string[];
-  holdersRoot: string;
-  minBalance?: bigint;
-}): void {
-  if (!isValidAddress(inputs.ownerAddress)) {
-    throw new CryptoError(`Invalid owner address: ${inputs.ownerAddress}`);
-  }
-
+export function validateNFTOwnershipProofInputs(inputs: NFTOwnershipProofInput): void {
   if (!isValidAddress(inputs.contractAddress)) {
     throw new CryptoError(`Invalid contract address: ${inputs.contractAddress}`);
   }
 
-  if (inputs.holderIndex < 0 || !Number.isInteger(inputs.holderIndex)) {
-    throw new CryptoError(`Invalid holder index: ${inputs.holderIndex}`);
-  }
-
-  if (inputs.pathIndices.length !== inputs.pathElements.length) {
+  if (
+    inputs.pathIndices.length !== NFT_TREE_DEPTH ||
+    inputs.pathElements.length !== NFT_TREE_DEPTH
+  ) {
     throw new CryptoError(
-      `Path indices and elements length mismatch: ${inputs.pathIndices.length} vs ${inputs.pathElements.length}`
+      `Merkle path must have ${NFT_TREE_DEPTH} levels, got ${inputs.pathIndices.length} indices and ${inputs.pathElements.length} elements`
     );
   }
 
-  if (inputs.pathIndices.length === 0) {
-    throw new CryptoError("Empty merkle proof path");
+  if (inputs.pathIndices.some((index) => index !== 0 && index !== 1)) {
+    throw new CryptoError("Path indices must be 0 or 1");
   }
 
-  if (!inputs.holdersRoot || inputs.holdersRoot.length === 0) {
-    throw new CryptoError("Invalid holders root");
-  }
+  inputs.pathElements.forEach((element, i) => toFieldElement(element, `Path element ${i}`));
+  toFieldElement(inputs.holdersRoot, "Holders root");
+  toFieldElement(inputs.scope, "Scope");
 
-  if (inputs.minBalance && inputs.minBalance < 1n) {
+  const minBalance = inputs.minBalance ?? 1n;
+  assertBalance(inputs.balance, "Balance");
+  assertBalance(minBalance, "Minimum balance");
+  if (minBalance < 1n) {
     throw new CryptoError("Minimum balance must be at least 1");
+  }
+  if (inputs.balance < minBalance) {
+    throw new CryptoError(`Balance ${inputs.balance} is below the minimum ${minBalance}`);
   }
 }
