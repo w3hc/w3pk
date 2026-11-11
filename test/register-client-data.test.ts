@@ -1,11 +1,12 @@
 /**
  * Registration checks the attestation per WebAuthn L3 §7.1: client data type,
- * challenge and origin, the RP ID hash and the user-presence flag, before
- * storing the credential.
+ * challenge and origin, the RP ID hash and the user-presence flag, and gets a
+ * PRF output, before storing the credential.
  */
 
 import { mockLocalStorage } from "./setup";
 import { register } from "../src/auth/register";
+import { PrfUnsupportedError } from "../src/core/errors";
 import { CredentialStorage } from "../src/auth/storage";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 import { runTestSuite, assert } from "./test-utils";
@@ -26,11 +27,14 @@ interface Overrides {
   flags?: number;
   clientDataJSON?: ArrayBuffer;
   attestationObject?: ArrayBuffer;
+  /** Where the authenticator evaluates the PRF, or how the fallback assertion ends */
+  prf?: "create" | "short" | "get" | "none" | "cancel";
 }
 
 let next: Overrides = {};
 let createdId: string | undefined;
 let signalled: { rpId: string; credentialId: string }[] = [];
+let assertions = 0;
 let publicKeyRaw: Uint8Array;
 
 async function attestationObject(rpId: string, flags: number): Promise<ArrayBuffer> {
@@ -58,6 +62,8 @@ async function attestationObject(rpId: string, flags: number): Promise<ArrayBuff
     ...authData,
   ]).buffer;
 }
+
+const prfResults = { prf: { results: { first: crypto.getRandomValues(new Uint8Array(32)).buffer } } };
 
 async function setup() {
   const keyPair = await crypto.subtle.generateKey(
@@ -101,8 +107,24 @@ async function setup() {
                 })
               ).buffer,
           },
-          getClientExtensionResults: () => ({}),
+          getClientExtensionResults: () =>
+            (next.prf ?? "create") === "create"
+              ? prfResults
+              : next.prf === "short"
+                ? { prf: { results: { first: new Uint8Array(16).buffer } } }
+                : {},
         }),
+        get: async () => {
+          assertions++;
+          if (next.prf === "cancel") {
+            throw new DOMException("The operation was aborted.", "NotAllowedError");
+          }
+          return {
+            id: createdId,
+            getClientExtensionResults: () =>
+              next.prf === "get" || next.prf === "short" ? prfResults : {},
+          };
+        },
       },
     },
   });
@@ -113,6 +135,7 @@ async function attemptRegister(overrides: Overrides) {
   next = overrides;
   createdId = undefined;
   signalled = [];
+  assertions = 0;
   let error: Error | undefined;
   try {
     await register({ username: USERNAME, ethereumAddress: ADDRESS });
@@ -144,6 +167,47 @@ setup().then(() =>
         assert(error === undefined, `registration should succeed: ${error?.message}`);
         assert(stored, "the credential should be stored");
         assert(signalled.length === 0, "a stored credential should not be signalled as unknown");
+        assert(assertions === 0, "a PRF output at creation needs no assertion");
+      },
+    },
+    {
+      name: "PRF from the fallback assertion is stored",
+      fn: async () => {
+        const { error, stored } = await attemptRegister({ prf: "get" });
+        assert(error === undefined, `registration should succeed: ${error?.message}`);
+        assert(assertions === 1, "one assertion should evaluate the PRF");
+        assert(stored, "the credential should be stored");
+        assert(signalled.length === 0, "a stored credential should not be signalled as unknown");
+      },
+    },
+    {
+      name: "PRF output at creation that isn't 32 bytes is evaluated again",
+      fn: async () => {
+        const { error, stored } = await attemptRegister({ prf: "short" });
+        assert(error === undefined, `registration should succeed: ${error?.message}`);
+        assert(assertions === 1, "one assertion should evaluate the PRF");
+        assert(stored, "the credential should be stored");
+      },
+    },
+    {
+      name: "no PRF output throws PrfUnsupportedError",
+      fn: async () => {
+        const { error, stored } = await attemptRegister({ prf: "none" });
+        assert(error instanceof PrfUnsupportedError, `registration should throw PrfUnsupportedError, got "${error?.name}"`);
+        assert(!stored, "no PRF output should not store the credential");
+        assert(
+          signalled.length === 1 && signalled[0].credentialId === createdId && signalled[0].rpId === RP_ID,
+          "no PRF output should signal the passkey as unknown"
+        );
+      },
+    },
+    {
+      name: "cancelled fallback assertion is rejected",
+      fn: async () => {
+        const { error, stored } = await attemptRegister({ prf: "cancel" });
+        assert(error?.name === "RegistrationError", `registration should throw RegistrationError, got "${error?.name}"`);
+        assert(!stored, "a cancelled assertion should not store the credential");
+        assert(signalled.length === 1, "a cancelled assertion should signal the passkey as unknown");
       },
     },
     {

@@ -6,7 +6,8 @@
  * NOTE: the mnemonic is the standard BIP39 test vector, not a real secret
  */
 
-import { Web3Passkey, WalletMissingError } from "../src/index";
+import { Web3Passkey, WalletMissingError, PrfUnsupportedError } from "../src/index";
+import { CredentialStorage } from "../src/auth/storage";
 import { LocalStorageWalletStorage } from "../src/wallet/storage";
 import { decryptData, deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
@@ -280,17 +281,18 @@ async function runTests() {
   }
   console.log("");
 
-  console.log("Test 3: register() without PRF keeps the wallet in memory only");
+  console.log("Test 3: register() without PRF throws PrfUnsupportedError");
   {
     reset(false, false);
     const sdk = new Web3Passkey();
-    const address = await registerWithMnemonic(sdk);
-    assert(sdk.isAuthenticated, "the user is logged in");
+    const error = await registerWithMnemonic(sdk).then(() => undefined, (e) => e);
+    assert(error instanceof PrfUnsupportedError, "register() throws PrfUnsupportedError");
+    assert(!sdk.isAuthenticated, "the user stays logged out");
     assert((await wallets().retrieve(CREDENTIAL_ID)) === null, "no wallet is stored on the device");
-
-    const next = new Web3Passkey();
-    const error = await next.login().then(() => undefined, (e) => e);
-    assert(error instanceof WalletMissingError, "a later login() throws WalletMissingError");
+    assert(
+      !(await new CredentialStorage(localStorage as unknown as Storage).userExists(USERNAME)),
+      "no credential is stored on the device"
+    );
   }
   console.log("");
 

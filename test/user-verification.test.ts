@@ -293,7 +293,11 @@ async function runTests() {
       authenticator.createCalls[0].authenticatorSelection!.userVerification === "preferred",
       "userVerification reaches the creation options"
     );
-    assert(result.prfOutput === undefined, "unverified registration drops the PRF output");
+    assert(
+      authenticator.getCalls.length === 1 && authenticator.getCalls[0].userVerification === "required",
+      "unverified registration drops the creation PRF output for a verified assertion"
+    );
+    assert(result.prfOutput !== undefined, "the assertion provides the PRF output");
   }
   console.log("");
 

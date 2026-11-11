@@ -352,7 +352,7 @@ await w3pk.clearSession()
 
 **Note:** STRICT mode never allows persistent sessions.
 
-**PRF-keyed storage:** the wallet stored on the device and persistent sessions are encrypted under keys derived from the WebAuthn PRF extension (an authenticator-held secret, released only during a biometric/PIN-verified assertion), so storage alone can't decrypt them. The exception is silent restore (`requireReauth: false`): the PRF-derived key is stored in `localStorage` next to the encrypted session, so any script on the origin can decrypt it until it expires. Authenticators without PRF support keep no wallet on the device and get in-memory sessions only: the wallet comes back from a backup on the next visit. There is no weaker at-rest fallback. See [Security Architecture](./docs/SECURITY.md) for details.
+**PRF-keyed storage:** the wallet stored on the device and persistent sessions are encrypted under keys derived from the WebAuthn PRF extension (an authenticator-held secret, released only during a biometric/PIN-verified assertion), so storage alone can't decrypt them. The exception is silent restore (`requireReauth: false`): the PRF-derived key is stored in `localStorage` next to the encrypted session, so any script on the origin can decrypt it until it expires. On authenticators without PRF support, `register()` throws `PrfUnsupportedError` before any address is returned and stores nothing, and the new passkey is dropped where the browser supports [`signalUnknownCredential()`](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/signalUnknownCredential_static). There is no weaker at-rest fallback. See [Security Architecture](./docs/SECURITY.md) for details.
 
 ### RPC Endpoints
 

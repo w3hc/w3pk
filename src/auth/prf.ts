@@ -98,7 +98,7 @@ export async function evaluatePrf(
   return { output, secondOutput, credentialId: assertion.id, assertion, challenge };
 }
 
-function copyPrfResult(result: BufferSource | undefined): ArrayBuffer | undefined {
+export function copyPrfResult(result: BufferSource | undefined): ArrayBuffer | undefined {
   if (!result) return undefined;
   const copy = ArrayBuffer.isView(result)
     ? new Uint8Array(result.buffer, result.byteOffset, result.byteLength).slice().buffer
