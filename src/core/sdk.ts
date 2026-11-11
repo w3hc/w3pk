@@ -91,6 +91,7 @@ import {
   waitForUserOperationReceipt,
 } from "../wallet/bundler";
 import { SIWE_HEADER, assertSiweDomain, parseSiweMessage } from "../siwe";
+import { signableTypedData } from "./signing-digests";
 import type {
   UserInfo,
   GeneratedWallet,
@@ -1034,12 +1035,13 @@ export class Web3Passkey {
             throw new WalletError("EIP712 message must be valid JSON or an object");
           }
 
-          // Sign typed data
-          signature = await wallet.signTypedData(
-            options.eip712Domain,
-            options.eip712Types,
-            typedDataMessage
-          );
+          const typedData = signableTypedData({
+            domain: options.eip712Domain,
+            types: options.eip712Types,
+            primaryType: options.eip712PrimaryType,
+            message: typedDataMessage,
+          });
+          signature = await wallet.signTypedData(typedData.domain, typedData.types, typedData.message);
           break;
 
         case 'rawHash':
@@ -1122,11 +1124,17 @@ export class Web3Passkey {
       } catch {
         throw new WalletError("EIP712 message must be valid JSON or an object");
       }
+      const typedData = signableTypedData({
+        domain: options.eip712Domain,
+        types: options.eip712Types,
+        primaryType: options.eip712PrimaryType,
+        message: typedDataMessage,
+      });
       const payload = typedDataSignPayload(
-        options.eip712Domain,
-        options.eip712Types,
-        options.eip712PrimaryType,
-        typedDataMessage,
+        typedData.domain,
+        typedData.types,
+        typedData.primaryType,
+        typedData.message,
         account
       );
       signature = encodeTypedDataSignature(
