@@ -111,12 +111,15 @@ function reachableTypes(types: SigningTypedData["types"], primaryType: string): 
  * A copy of typed data as it is signed: `types` without `EIP712Domain`, so that ethers, which
  * infers the primary type, hashes `primaryType`
  *
- * Throws on types `primaryType` doesn't reach, and on a domain that `types.EIP712Domain` doesn't
- * declare as is.
+ * Throws on types `primaryType` doesn't reach, which includes a root above `primaryType`, and on a
+ * domain that `types.EIP712Domain` doesn't declare as is.
  */
 export function signableTypedData(typedData: string | SigningTypedData): SigningTypedData {
   const { domain, types, primaryType, message }: SigningTypedData =
     typeof typedData === "string" ? JSON.parse(typedData) : structuredClone(typedData);
+  if (!domain || !types || typeof primaryType !== "string" || !message) {
+    throw new WalletError("EIP-712: typed data needs domain, types, primaryType and message");
+  }
   if (
     types.EIP712Domain &&
     TypedDataEncoder.hashStruct("EIP712Domain", { EIP712Domain: types.EIP712Domain }, domain) !==
@@ -128,10 +131,6 @@ export function signableTypedData(typedData: string | SigningTypedData): Signing
   const unused = Object.keys(types).filter((name) => name !== "EIP712Domain" && !reached[name]);
   if (unused.length > 0) {
     throw new WalletError(`EIP-712: types not reached from primaryType ${primaryType}: ${unused.join(", ")}`);
-  }
-  const root = TypedDataEncoder.getPrimaryType(reached);
-  if (root !== primaryType) {
-    throw new WalletError(`EIP-712: the root type is ${root}, not primaryType ${primaryType}`);
   }
   return { domain, types: reached, primaryType, message };
 }

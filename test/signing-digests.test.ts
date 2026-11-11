@@ -197,7 +197,12 @@ async function runTests() {
         }),
       /primaryType Letter is not in types/
     );
-    console.log("✅ Permit2's nested root is hashed, a nested primaryType, unused types and an unknown primaryType throw");
+    const { types: _types, ...untyped } = MAIL;
+    assert.throws(
+      () => getSigningDigests({ method: "eth_signTypedData_v4", params: [ADDRESS, untyped as never] }),
+      /typed data needs domain, types, primaryType and message/
+    );
+    console.log("✅ Permit2's nested root is hashed, a nested primaryType, unused types and an unknown primaryType or missing types throw");
   }
 
   console.log("\nTest 8: eth_signTypedData_v4 rejects a domain that types.EIP712Domain does not declare");
