@@ -41,20 +41,31 @@ const BEACON = 1;
  * first, as `{ type, name }`; type 1 is a beacon.
  */
 function phase2Contributions(zkeyPath) {
-  const buf = fs.readFileSync(zkeyPath);
-  if (buf.toString('latin1', 0, 4) !== 'zkey') throw new Error(`${zkeyPath} is not a zkey file`);
-
-  const sections = new Map();
-  let pos = 12;
-  for (let i = buf.readUInt32LE(8); i > 0; i--) {
-    const type = buf.readUInt32LE(pos);
-    const size = Number(buf.readBigUInt64LE(pos + 4));
-    sections.set(type, buf.subarray(pos + 12, pos + 12 + size));
-    pos += 12 + size;
+  const fd = fs.openSync(zkeyPath, 'r');
+  const read = (position, length) => {
+    const buf = Buffer.alloc(length);
+    if (fs.readSync(fd, buf, 0, length, position) !== length) throw new Error(`${zkeyPath} is truncated`);
+    return buf;
+  };
+  let header, groth16, mpc;
+  try {
+    const start = read(0, 12);
+    if (start.toString('latin1', 0, 4) !== 'zkey') throw new Error(`${zkeyPath} is not a zkey file`);
+    const sections = new Map();
+    let pos = 12;
+    for (let i = start.readUInt32LE(8); i > 0; i--) {
+      const section = read(pos, 12);
+      const size = Number(section.readBigUInt64LE(4));
+      sections.set(section.readUInt32LE(0), { pos: pos + 12, size });
+      pos += 12 + size;
+    }
+    const load = (type, length) => sections.has(type) && read(sections.get(type).pos, length ?? sections.get(type).size);
+    header = load(1, 4);
+    groth16 = load(2, 4);
+    mpc = load(10);
+  } finally {
+    fs.closeSync(fd);
   }
-  const header = sections.get(1);
-  const groth16 = sections.get(2);
-  const mpc = sections.get(10);
   if (!header || header.readUInt32LE(0) !== 1 || !groth16 || !mpc) {
     throw new Error(`${zkeyPath} is not a Groth16 zkey`);
   }
@@ -94,8 +105,8 @@ async function checkReleaseZkey({ r1cs, ptau, zkey }) {
 function parseArgs(argv) {
   const release = argv.includes('--release');
   const at = argv.indexOf('--ptau');
-  const ptau = at === -1 ? DEFAULT_PTAU : path.resolve(argv[at + 1] || '');
-  return { release, ptau };
+  if (at !== -1 && !argv[at + 1]) throw new Error('--ptau needs a file');
+  return { release, ptau: at === -1 ? DEFAULT_PTAU : path.resolve(argv[at + 1]) };
 }
 
 function findCircom() {
@@ -155,7 +166,13 @@ async function main() {
   const r1cs = Object.fromEntries(CIRCUITS.map((name) => [name, compileCircuit(name)]));
 
   if (missingPtau) {
-    console.log(`${missingPtau}; skipping the proving keys`);
+    for (const name of CIRCUITS) {
+      for (const file of [`${name}_test_only.zkey`, `${name}_verification_key.json`]) {
+        fs.rmSync(path.join(ZKEY_DIR, file), { force: true });
+      }
+    }
+    fs.rmSync(path.join(OUTPUT_DIR, 'artifacts.json'), { force: true });
+    console.log(`${missingPtau}; skipping the proving keys and removing the old test-only ones`);
     return;
   }
 
