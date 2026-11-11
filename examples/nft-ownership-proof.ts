@@ -77,8 +77,8 @@ async function nftOwnershipProofExample() {
     proof,
     COLLECTION,
     nftProofInput.holdersRoot,
-    SCOPE,
-    2n
+    2n,
+    SCOPE
   );
   const nullifier = proof.publicSignals[0];
   console.log(isValid ? "   ✅ Valid" : "   ❌ Invalid");

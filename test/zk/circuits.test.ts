@@ -263,11 +263,11 @@ async function runTests() {
       nftProof.publicSignals.slice(1).join() === [nftRoot, BigInt(contract), 2n, scope].join(),
       "the root, contract, minimum balance and scope are public signals"
     );
-    assert(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, scope, 2n), "verifyNFTOwnership() accepts it");
-    assert(!(await zk.verifyNFTOwnership(nftProof, contract, "1", scope, 2n)), "verifyNFTOwnership() refuses another root");
-    assert(!(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, 43n, 2n)), "verifyNFTOwnership() refuses another scope");
+    assert(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, 2n, scope), "verifyNFTOwnership() accepts it");
+    assert(!(await zk.verifyNFTOwnership(nftProof, contract, "1", 2n, scope)), "verifyNFTOwnership() refuses another root");
+    assert(!(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, 2n, 43n)), "verifyNFTOwnership() refuses another scope");
     assert(
-      !(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, scope, 3n)),
+      !(await zk.verifyNFTOwnership(nftProof, contract, nftRoot, 3n, scope)),
       "verifyNFTOwnership() refuses a higher minimum balance"
     );
     console.log("");

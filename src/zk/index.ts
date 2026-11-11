@@ -286,16 +286,16 @@ export class ZKProofModule {
     proof: ZKProof,
     expectedContract: string,
     expectedHoldersRoot: string,
-    expectedScope: bigint | string,
-    expectedMinBalance: bigint = 1n
+    expectedMinBalance: bigint,
+    expectedScope: bigint | string
   ): Promise<boolean> {
     try {
       return await this.verifier.verifyNFTOwnershipProof(
         proof,
         expectedContract,
         expectedHoldersRoot,
-        expectedScope,
-        expectedMinBalance
+        expectedMinBalance,
+        expectedScope
       );
     } catch (error) {
       throw new Web3PasskeyError(

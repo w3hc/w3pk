@@ -190,8 +190,8 @@ export class ZKProofVerifier {
     proof: ZKProof,
     expectedContract: string,
     expectedHoldersRoot: string,
-    expectedScope: bigint | string,
-    expectedMinBalance: bigint = 1n
+    expectedMinBalance: bigint,
+    expectedScope: bigint | string
   ): Promise<boolean> {
     if (proof.type !== "nft") {
       throw new CryptoError("Invalid proof type for NFT ownership verification");
