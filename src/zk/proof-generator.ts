@@ -15,6 +15,7 @@ import type {
   OwnershipProofInput,
   NFTOwnershipProofInput,
 } from "./types";
+import { validateNFTOwnershipProofInputs } from "./utils";
 
 export class ZKProofGenerator {
   private circuits: Map<ProofType, CircuitArtifacts> = new Map();
@@ -119,29 +120,28 @@ export class ZKProofGenerator {
   }
 
   /**
-   * Generate NFT ownership proof - prove you own an NFT from a collection
+   * Generate NFT ownership proof - prove a holder identity in the tree holds
+   * at least `minBalance` tokens. `deriveSecret` runs after every other check.
    */
-  async generateNFTOwnershipProof(input: NFTOwnershipProofInput): Promise<ZKProof> {
+  async generateNFTOwnershipProof(
+    input: NFTOwnershipProofInput,
+    deriveSecret: () => Promise<bigint>
+  ): Promise<ZKProof> {
     const circuit = this.circuits.get("nft");
     if (!circuit) {
       throw new CryptoError("NFT ownership circuit not registered");
     }
-
-    // Hash the owner address and contract address for privacy
-    const poseidon = await this.getPoseidonHash();
-    const cleanOwnerAddress = input.ownerAddress.startsWith('0x') ? input.ownerAddress : '0x' + input.ownerAddress;
-    const cleanContractAddress = input.contractAddress.startsWith('0x') ? input.contractAddress : '0x' + input.contractAddress;
-    
-    const ownerAddressHash = poseidon.F.toObject(poseidon([BigInt(cleanOwnerAddress)]));
-    const contractAddressHash = poseidon.F.toObject(poseidon([BigInt(cleanContractAddress)]));
+    validateNFTOwnershipProofInputs(input);
 
     const circuitInputs: CircomInputs = {
-      ownerAddress: ownerAddressHash.toString(),
-      pathElements: input.pathElements,
+      secret: (await deriveSecret()).toString(),
+      balance: input.balance.toString(),
+      pathElements: input.pathElements.map(String),
       pathIndices: input.pathIndices,
       root: input.holdersRoot,
-      contractAddress: contractAddressHash.toString(),
-      minBalance: (input.minBalance || 1n).toString(),
+      contractAddress: BigInt(input.contractAddress).toString(),
+      minBalance: (input.minBalance ?? 1n).toString(),
+      scope: BigInt(input.scope).toString(),
     };
 
     return this.generateProof("nft", circuit, circuitInputs);

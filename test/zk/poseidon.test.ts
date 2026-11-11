@@ -64,8 +64,14 @@ async function runTests() {
   console.log("");
 
   console.log("Test 4: buildNFTHoldersMerkleTree()");
-  const { holderLeaves } = await buildNFTHoldersMerkleTree(["0x1"], "0x2");
-  assert(holderLeaves[0] === POSEIDON_1_2, "holder leaf is poseidon([holder, contract])");
+  const contract = "0x" + "00".repeat(19) + "02";
+  const { holderLeaves } = await buildNFTHoldersMerkleTree([{ commitment: 1n, balance: 3n }], contract);
+  const circomlibjs: any = await import("circomlibjs");
+  const poseidon = await circomlibjs.buildPoseidon();
+  assert(
+    holderLeaves[0] === poseidon.F.toObject(poseidon([1n, 2n, 3n])).toString(),
+    "holder leaf is circomlibjs's poseidon([commitment, contract, balance])"
+  );
   console.log("");
 
   console.log("==================================================");

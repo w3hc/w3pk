@@ -41,6 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The Merkle root was a private input, so a proof was bound to no tree. `membership.circom` makes `root` public, `nft.circom` makes `root`, `contractAddress` and `minBalance` public; recompile both circuits and redo their setup
   - Public signals follow snarkjs order, outputs first: membership is `[nullifier, root]`, NFT ownership is `[nullifierHash, root, contractAddress, minBalance]`. `verifyMembership()` and `verifyNFTOwnership()` read them in that order, so honest proofs now verify
   - `test/zk/circuits.test.ts` (`pnpm test:circuits`) compiles both circuits with circom, proves and verifies an honest path, and rejects the forged leaf; CI installs a pinned, checksum-verified circom
+- **BREAKING: the NFT ownership proof hides the holder** ([#344](https://github.com/w3hc/w3pk/issues/344)), audit finding M-4. Before, anyone could compute each holder's nullifier, the only private input was a hashed address with no proof of control, and the balance check compared a constant
+  - Leaves are `Poseidon(commitment, contract, balance)`, with the commitment of a Semaphore v4 identity the prover holds; `nft.circom` derives it from the secret as Semaphore does and keeps the secret below the subgroup order
+  - The nullifier is `Poseidon(scope, secret)` with a new public `scope`; public signals are `[nullifier, root, contractAddress, minBalance, scope]`, `contractAddress` being the address itself
+  - The circuit checks `balance >= minBalance`, both range-checked to 64 bits, against the balance recorded in the leaf
+  - The identity derives from the wallet in the session (HKDF of the BIP-39 seed, salt `w3pk-nft-holder-v1`, per origin and contract), so `w3pk.zk.proveNFTOwnership(input)` needs no extra passkey prompt; `w3pk.zk.getNFTHolderCommitment(contract)` returns the commitment to register
+  - `NFTOwnershipProofInput` drops `ownerAddress` and `holderIndex` and takes `balance` and `scope`; `verifyNFTOwnership(proof, contract, root, minBalance, scope)` checks the scope
+  - `buildNFTHoldersMerkleTree()` and `generateNFTOwnershipProofInputs()` take `{ commitment, balance }` holders and produce the circuit's leaves and 20-level zero-padded path
+  - Recompile `nft.circom` and redo its setup
 
 ## [0.12.3] - 2026-11-10
 

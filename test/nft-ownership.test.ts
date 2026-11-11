@@ -1,11 +1,21 @@
 /**
  * NFT Ownership Proof Tests
- * Tests the NFT/SBT ownership proof functionality
+ * Holder tree helpers, input validation and the holder identity derivation.
+ * The proofs themselves run in test/zk/circuits.test.ts. The SDK test loads
+ * w3pk/zk, so run `pnpm build` first.
+ *
+ * NOTE: the mnemonic is the standard BIP39 test vector, not a real secret
  */
 
+import { Identity } from '@semaphore-protocol/identity';
+import { poseidon2, poseidon3 } from 'poseidon-lite';
 import { mockLocalStorage } from './setup';
-import { createWeb3Passkey } from '../src/index';
+import { Web3Passkey } from '../src/index';
+import { bip39Seed } from '../src/core/mlkem';
+import { ZKProofModule } from '../src/zk/index';
+import { deriveNFTHolderKey } from '../src/zk/semaphore';
 import {
+  NFT_TREE_DEPTH,
   buildNFTHoldersMerkleTree,
   generateNFTOwnershipProofInputs,
   validateNFTOwnershipProofInputs,
@@ -15,181 +25,182 @@ import {
   endTestSuite,
   runTest,
   passTest,
-  logDetail,
-  logInfo,
-  skipTest,
   assert,
   assertEqual,
 } from './test-utils';
 
+const CONTRACT = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
+const MNEMONIC =
+  'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+const ORIGIN = 'http://localhost';
+const identities = [1, 2, 3].map((i) => new Identity(new Uint8Array(32).fill(i)));
+const holders = identities.map((id, i) => ({ commitment: id.commitment, balance: BigInt(i + 1) }));
+
+async function rejects(fn: () => Promise<unknown> | unknown, pattern: RegExp): Promise<boolean> {
+  try {
+    await fn();
+  } catch (error) {
+    const messages: string[] = [];
+    for (let err: any = error; err; err = err.originalError) messages.push(String(err.message));
+    return pattern.test(messages.join(' <- '));
+  }
+  return false;
+}
+
 async function runNFTOwnershipTests() {
   startTestSuite('NFT Ownership Proof Tests');
 
-  // Test 1: NFT Holders Merkle Tree Building
-  await runTest('NFT Holders Merkle Tree Building', async () => {
-    try {
-      const holderAddresses = [
-        '0x1234567890123456789012345678901234567890',
-        '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
-        '0x9876543210987654321098765432109876543210',
-      ];
-      const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
-
-      const { root, tree, holderLeaves } = await buildNFTHoldersMerkleTree(
-        holderAddresses,
-        contractAddress
-      );
-
-      passTest('Merkle tree built successfully');
-      logDetail(`Root: ${root.substring(0, 20)}...`);
-      logDetail(`Tree levels: ${tree.length}`);
-      logDetail(`Holder leaves: ${holderLeaves.length}`);
-
-      assert(root && tree.length > 0 && holderLeaves.length === holderAddresses.length, 'Invalid tree structure');
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('circomlibjs')) {
-        skipTest('circomlibjs not available');
-      } else {
-        throw error;
-      }
+  await runTest('Holders tree matches the circuit', async () => {
+    const { root, tree, holderLeaves } = await buildNFTHoldersMerkleTree(holders, CONTRACT);
+    assertEqual(tree.length, NFT_TREE_DEPTH + 1, 'Tree should have 21 levels');
+    assertEqual(
+      holderLeaves[0],
+      poseidon3([holders[0].commitment, BigInt(CONTRACT), 1n]).toString(),
+      'Leaf should be Poseidon(commitment, contract, balance)'
+    );
+    const [l0, l1, l2] = holderLeaves.map(BigInt);
+    let node = poseidon2([poseidon2([l0, l1]), poseidon2([l2, 0n])]);
+    let zero = poseidon2([0n, 0n]);
+    for (let d = 2; d < NFT_TREE_DEPTH; d++) {
+      zero = poseidon2([zero, zero]);
+      node = poseidon2([node, zero]);
     }
+    assertEqual(root, node.toString(), 'Root should pad empty leaves with 0');
+    passTest('Holders tree built with 20 levels and zero padding');
   });
 
-  // Test 2: NFT Ownership Proof Inputs Generation
-  await runTest('NFT Ownership Proof Inputs Generation', async () => {
-    try {
-      const holderAddresses = [
-        '0x1111111111111111111111111111111111111111',
-        '0x2222222222222222222222222222222222222222',
-        '0x3333333333333333333333333333333333333333',
-      ];
-      const yourAddress = '0x2222222222222222222222222222222222222222';
-      const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
+  await runTest('Proof inputs give the holder a 20-level path', async () => {
+    const { nftProofInput, holderLeaves } = await generateNFTOwnershipProofInputs(
+      identities[1].commitment,
+      CONTRACT,
+      holders,
+      7n
+    );
+    assertEqual(nftProofInput.pathIndices.length, NFT_TREE_DEPTH, 'Path should have 20 indices');
+    assertEqual(nftProofInput.pathIndices.slice(0, 3).join(), '1,0,0', 'Index 1 is the right child');
+    assertEqual(nftProofInput.pathElements[0], holderLeaves[0], 'First sibling is leaf 0');
+    assertEqual(nftProofInput.balance, 2n, 'Balance comes from the holder list');
+    assertEqual(nftProofInput.scope, 7n, 'Scope is passed through');
 
-      const { nftProofInput } = await generateNFTOwnershipProofInputs(
-        yourAddress,
-        contractAddress,
-        holderAddresses,
-        1n
-      );
-
-      passTest('NFT proof inputs generated');
-      logDetail(`Holder index: ${nftProofInput.holderIndex}`);
-      logDetail(`Path depth: ${nftProofInput.pathIndices.length}`);
-      logDetail(`Root: ${nftProofInput.holdersRoot.substring(0, 20)}...`);
-
-      assertEqual(nftProofInput.holderIndex, 1, 'Holder index should be 1');
-      assert(nftProofInput.pathIndices.length > 0, 'Path indices should not be empty');
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('circomlibjs')) {
-        skipTest('circomlibjs not available');
-      } else {
-        throw error;
-      }
-    }
+    const zk = new ZKProofModule();
+    const root = await zk.computeMerkleRoot(
+      holderLeaves[1],
+      nftProofInput.pathIndices,
+      nftProofInput.pathElements
+    );
+    assertEqual(root, nftProofInput.holdersRoot, 'Path should lead to the root');
+    validateNFTOwnershipProofInputs(nftProofInput);
+    passTest('Inputs are valid and lead to the root');
   });
 
-  // Test 3: NFT Proof Input Validation
-  await runTest('NFT Proof Input Validation', async () => {
-    const validInputs = {
-      ownerAddress: '0x1234567890123456789012345678901234567890',
-      contractAddress: '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D',
-      holderIndex: 1,
-      pathIndices: [0, 1],
-      pathElements: ['123456789', '987654321'],
-      holdersRoot: 'valid_root_hash_123456789',
-      minBalance: 1n,
+  await runTest('Helpers refuse bad holder lists', async () => {
+    assert(
+      await rejects(
+        () => generateNFTOwnershipProofInputs(identities[0].commitment, CONTRACT, holders.slice(1), 1n),
+        /not found in holders list/
+      ),
+      'Missing holder should be refused'
+    );
+    assert(
+      await rejects(
+        () => generateNFTOwnershipProofInputs(identities[0].commitment, CONTRACT, holders, 1n, 2n),
+        /below the minimum/
+      ),
+      'Balance below the minimum should be refused'
+    );
+    assert(
+      await rejects(() => buildNFTHoldersMerkleTree([holders[0], holders[0]], CONTRACT), /twice/),
+      'Duplicate commitment should be refused'
+    );
+    assert(
+      await rejects(
+        () => buildNFTHoldersMerkleTree([{ commitment: 1n, balance: 1n << 64n }], CONTRACT),
+        /2\^64/
+      ),
+      'Balance of 2^64 should be refused'
+    );
+    passTest('Bad holder lists refused');
+  });
+
+  await runTest('Validation refuses bad inputs', async () => {
+    const { nftProofInput } = await generateNFTOwnershipProofInputs(
+      identities[0].commitment,
+      CONTRACT,
+      holders,
+      1n
+    );
+    const cases: [string, object, RegExp][] = [
+      ['bad contract', { contractAddress: 'invalid' }, /contract address/],
+      ['short path', { pathIndices: [0, 1], pathElements: ['1', '2'] }, /20 levels/],
+      ['index 2', { pathIndices: [2, ...nftProofInput.pathIndices.slice(1)] }, /0 or 1/],
+      ['balance below minimum', { minBalance: 2n }, /below the minimum/],
+      ['scope outside the field', { scope: -1n }, /field/],
+      ['minimum balance of 0', { minBalance: 0n }, /at least 1/],
+    ];
+    for (const [name, change, pattern] of cases) {
+      assert(
+        await rejects(() => validateNFTOwnershipProofInputs({ ...nftProofInput, ...change }), pattern),
+        `Validation should refuse ${name}`
+      );
+    }
+    passTest('Bad inputs refused');
+  });
+
+  await runTest('Holder key derivation', async () => {
+    const seed = await bip39Seed(MNEMONIC);
+    const key = deriveNFTHolderKey(seed, ORIGIN, CONTRACT);
+    assertEqual(key.length, 32, 'Key should be 32 bytes');
+    assertEqual(
+      Buffer.from(deriveNFTHolderKey(seed, ORIGIN, CONTRACT.toLowerCase())).toString('hex'),
+      Buffer.from(key).toString('hex'),
+      'Contract address case should not matter'
+    );
+    assert(
+      Buffer.from(deriveNFTHolderKey(seed, ORIGIN, '0x' + '11'.repeat(20))).toString('hex') !==
+        Buffer.from(key).toString('hex'),
+      'Another contract should give another key'
+    );
+    assert(
+      Buffer.from(deriveNFTHolderKey(seed, 'https://example.com', CONTRACT)).toString('hex') !==
+        Buffer.from(key).toString('hex'),
+      'Another origin should give another key'
+    );
+    passTest('One holder key per origin and contract');
+  });
+
+  await runTest('Proving without a holder key fails before proving', async () => {
+    const zk = new ZKProofModule();
+    const { nftProofInput } = await generateNFTOwnershipProofInputs(
+      identities[0].commitment,
+      CONTRACT,
+      holders,
+      1n
+    );
+    assert(
+      await rejects(() => zk.proveNFTOwnership(nftProofInput), /holder identity unavailable/),
+      'proveNFTOwnership() should need a holder key'
+    );
+    passTest('Missing holder key refused');
+  });
+
+  await runTest('w3pk.zk derives the holder identity from the session wallet', async () => {
+    (globalThis as any).window = {
+      location: { hostname: 'localhost', origin: ORIGIN },
+      localStorage: mockLocalStorage,
     };
+    const w3pk = new Web3Passkey({ storage: mockLocalStorage } as any);
+    await (w3pk as any).sessionManager.startSession(MNEMONIC, 'cred-id');
 
-    validateNFTOwnershipProofInputs(validInputs);
-    passTest('Valid inputs passed validation');
+    const seed = await bip39Seed(MNEMONIC);
+    const expected = new Identity(deriveNFTHolderKey(seed, ORIGIN, CONTRACT)).commitment.toString();
+    assertEqual(
+      await w3pk.zk.getNFTHolderCommitment(CONTRACT),
+      expected,
+      'Commitment should come from the session wallet'
+    );
+    passTest('Holder commitment derived from the session, no prompt');
   });
 
-  // Test 4: Invalid Input Validation
-  await runTest('Invalid Input Validation', async () => {
-    const invalidInputs = {
-      ownerAddress: 'invalid_address',
-      contractAddress: '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D',
-      holderIndex: 1,
-      pathIndices: [0, 1],
-      pathElements: ['123', '456', '789'], // Mismatched length
-      holdersRoot: 'valid_root',
-      minBalance: 1n,
-    };
-
-    let threw = false;
-    try {
-      validateNFTOwnershipProofInputs(invalidInputs);
-    } catch {
-      threw = true;
-    }
-
-    assert(threw, 'Should have failed validation');
-    passTest('Invalid inputs correctly rejected');
-  });
-
-  // Test 5: SDK Integration (New Pattern)
-  await runTest('SDK Integration', async () => {
-    // Step 1: Initialize main SDK (lightweight, no ZK dependencies)
-    const w3pk = createWeb3Passkey({
-      storage: mockLocalStorage
-    });
-
-    passTest('Main SDK initialized (no ZK dependencies)');
-
-    // Step 2: Initialize ZK module separately when needed
-    const { ZKProofModule } = await import('../src/zk/index');
-    const zkModule = new ZKProofModule({
-      enabledProofs: ['nft']
-    });
-
-    passTest('ZK module initialized separately');
-    passTest('NFT functionality available via separate ZK module');
-    logInfo('This pattern prevents bundling heavy ZK dependencies in apps that don\'t need ZK features');
-  });
-
-  // Test 6: Error Handling for Missing Owner
-  await runTest('Error Handling for Missing Owner', async () => {
-    try {
-      const holderAddresses = [
-        '0x1111111111111111111111111111111111111111',
-        '0x2222222222222222222222222222222222222222',
-      ];
-      const missingAddress = '0x3333333333333333333333333333333333333333';
-      const contractAddress = '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D';
-
-      await generateNFTOwnershipProofInputs(
-        missingAddress,
-        contractAddress,
-        holderAddresses,
-        1n
-      );
-
-      throw new Error('Should have failed for missing owner');
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('not found in holders list')) {
-        passTest('Correctly handled missing owner error');
-      } else if (error instanceof Error && error.message.includes('circomlibjs')) {
-        skipTest('circomlibjs not available');
-      } else {
-        throw error;
-      }
-    }
-  });
-
-  // Check ZK dependencies status
-  try {
-    await import('circomlibjs');
-    await import('snarkjs');
-    logInfo('ZK dependencies available and functional');
-    logInfo('Full NFT ownership proof generation supported');
-  } catch {
-    logInfo('ZK dependencies not installed (optional)');
-    logInfo('NFT proof setup and validation working correctly');
-    logInfo('Install with: npm install snarkjs circomlibjs');
-  }
-
-  logInfo('Circuit compilation: pnpm build:zk (when circuits are ready)');
   endTestSuite();
 }
 
@@ -197,7 +208,6 @@ async function main() {
   await runNFTOwnershipTests();
 }
 
-// Run tests if called directly
 if (require.main === module) {
   main().catch((error) => {
     console.error(error);

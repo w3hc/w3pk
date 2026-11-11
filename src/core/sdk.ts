@@ -122,7 +122,7 @@ import {
   type EIP1193ProviderOptions,
 } from "./eip1193";
 import type { SdkContext } from "./context";
-import { deriveMLKemPublicKey, mlkemDecrypt, mlkemEncrypt } from "./mlkem";
+import { bip39Seed, deriveMLKemPublicKey, mlkemDecrypt, mlkemEncrypt } from "./mlkem";
 import {
   generateGuardianInvite,
   recoverFromGuardians,
@@ -242,13 +242,27 @@ export class Web3Passkey {
 
     try {
       const { ZKProofModule } = await import("w3pk/zk");
-      const zkConfig = this.config.zkProofs || {};
-      this.zkModule = new ZKProofModule(zkConfig);
+      this.zkModule = new ZKProofModule({
+        ...this.config.zkProofs,
+        nftHolderKey: (contractAddress) => this.deriveNFTHolderKey(contractAddress),
+      });
       return this.zkModule;
     } catch (error) {
       throw new Error(
         "ZK module not available. Install the optional dependencies snarkjs and circomlibjs"
       );
+    }
+  }
+
+  /** The NFT holder identity's private key, from the wallet in the session */
+  private async deriveNFTHolderKey(contractAddress: string): Promise<Uint8Array> {
+    const { deriveNFTHolderKey } = await import("../zk/semaphore");
+    const origin = normalizeOrigin(getCurrentOrigin());
+    const seed = await bip39Seed(await this.getMnemonicFromSession());
+    try {
+      return deriveNFTHolderKey(seed, origin, contractAddress);
+    } finally {
+      seed.fill(0);
     }
   }
 

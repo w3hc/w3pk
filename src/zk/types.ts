@@ -13,6 +13,12 @@ export interface ZKProofConfig {
    * Custom circuit paths (optional)
    */
   customCircuits?: Record<string, CircuitArtifacts>;
+
+  /**
+   * 32-byte private key of the NFT holder identity for a contract.
+   * Web3Passkey sets it from the wallet in the session.
+   */
+  nftHolderKey?: (contractAddress: string) => Promise<Uint8Array>;
 }
 
 export type ProofType =
@@ -115,23 +121,25 @@ export interface OwnershipProofInput {
 }
 
 /**
- * NFT Ownership Proof - Prove you own an NFT from a collection without revealing which one
+ * NFT Ownership Proof - Prove a holder identity in a holders tree holds at
+ * least `minBalance` tokens, without revealing which holder. The identity's
+ * secret is never an input: the module derives it for `contractAddress`.
  */
 export interface NFTOwnershipProofInput {
-  // Private: your address (as owner of the NFT)
-  ownerAddress: string;
-  // Private: your position in the holders merkle tree
-  holderIndex: number;
-  // Private: merkle proof path indices
+  // Private: the balance recorded in your leaf
+  balance: bigint;
+  // Private: merkle proof path indices (20 levels)
   pathIndices: number[];
-  // Private: merkle proof path elements
+  // Private: merkle proof path elements (20 levels)
   pathElements: string[];
-  // Public: merkle root of all NFT holders for this collection
+  // Public: merkle root of the holders tree
   holdersRoot: string;
   // Public: NFT contract address
   contractAddress: string;
-  // Public: minimum token balance to prove (default 1 for ownership)
+  // Public: minimum balance to prove (default 1)
   minBalance?: bigint;
+  // Public: external scope; one nullifier per identity and scope
+  scope: bigint | string;
 }
 
 /**

@@ -51,7 +51,7 @@ export interface Web3PasskeyConfig {
    * Zero-knowledge proof configuration
    * Requires: snarkjs, circomlibjs
    */
-  zkProofs?: ZKProofConfig;
+  zkProofs?: Omit<ZKProofConfig, "nftHolderKey">;
 
   /**
    * WebAuthn user verification for login, registration and signing
