@@ -522,6 +522,7 @@ async function runTests() {
     );
     const postOp = await rejection(sponsored.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" }));
     assert(postOp.includes("paymasterPostOpGasLimit"), postOp);
+    assert(!bundler.calls.some((c) => c.method === "pm_getPaymasterData"), "no paymaster signature asked for");
 
     let maxFee = 0n;
     await sdk.sendTransaction(

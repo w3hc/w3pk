@@ -1400,6 +1400,7 @@ export class Web3Passkey {
       const { JsonRpcProvider } = await import("ethers");
       const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
       let op: UserOperation;
+      let maxFee: bigint;
       try {
         const [code, nonce, feeData, precompile] = await Promise.all([
           provider.getCode(sender),
@@ -1464,6 +1465,8 @@ export class Web3Passkey {
           op.paymasterPostOpGasLimit ||= gas.paymasterPostOpGasLimit ?? 0n;
         }
 
+        maxFee = checkUserOperationCaps(op, this.config.userOperationCaps?.[chainId]);
+
         if (paymasterUrl && !isFinal) {
           const data = await getPaymasterData(paymasterUrl, op, chainId, paymasterContext);
           op.paymaster = data.paymaster ?? op.paymaster;
@@ -1473,7 +1476,7 @@ export class Web3Passkey {
         provider.destroy();
       }
 
-      await confirm(checkUserOperationCaps(op, this.config.userOperationCaps?.[chainId]));
+      await confirm(maxFee);
       op.signature = await signWithPasskey(getUserOperationHash(op, chainId), credential.id);
       const userOpHash = await sendUserOperation(bundlerUrl, op);
       const receipt = await waitForUserOperationReceipt(bundlerUrl, userOpHash, { timeout: options?.timeout });
