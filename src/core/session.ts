@@ -21,13 +21,12 @@
 import type { SecurityMode } from "../types";
 import type { StoredCredential } from "../auth/storage";
 import type { PersistentSessionConfig, PersistentSessionData } from "./persistent-session";
-import { PersistentSessionStorage } from "./persistent-session";
 import {
-  encryptData,
-  decryptData,
-  exportSessionKey,
-  importSessionKey,
-} from "../wallet/crypto";
+  PersistentSessionStorage,
+  openSessionRecord,
+  sealSessionRecord,
+} from "./persistent-session";
+import { exportSessionKey, importSessionKey } from "../wallet/crypto";
 
 export interface SessionData {
   mnemonic: string;
@@ -92,23 +91,21 @@ export class SessionManager {
       }
 
       try {
-        const encryptedMnemonic = await encryptData(mnemonic, prfSessionKey);
-
-        const persistentExpiresAt =
-          Date.now() + this.persistentConfig.duration * 60 * 60 * 1000;
+        const record = await sealSessionRecord(mnemonic, prfSessionKey, {
+          expiresAt: Date.now() + this.persistentConfig.duration * 60 * 60 * 1000,
+          credentialId,
+          ethereumAddress,
+          securityMode: securityMode || 'STANDARD',
+          createdAt: Date.now(),
+        });
 
         await this.persistentStorage.store({
-          encryptedMnemonic,
+          ...record,
           // Key stored only for silent restore; with requireReauth the next
           // assertion re-derives it, keeping the blob hardware-bound at rest
           sessionKey: this.persistentConfig.requireReauth
             ? undefined
             : await exportSessionKey(prfSessionKey),
-          expiresAt: persistentExpiresAt,
-          credentialId,
-          ethereumAddress,
-          securityMode: securityMode || 'STANDARD',
-          createdAt: Date.now(),
         });
       } catch (error) {
         // Non-fatal: continue with in-memory session if persistence fails
@@ -252,10 +249,7 @@ export class SessionManager {
       }
 
       // Decrypt mnemonic with the assertion-derived key
-      const mnemonic = await decryptData(
-        persistentSession.encryptedMnemonic,
-        prfSessionKey
-      );
+      const mnemonic = await openSessionRecord(persistentSession, prfSessionKey);
 
       this.cacheSession(mnemonic, credentialId);
 
@@ -324,8 +318,8 @@ export class SessionManager {
 
       if (latest) {
         const { credential, session } = latest;
-        const mnemonic = await decryptData(
-          session.encryptedMnemonic,
+        const mnemonic = await openSessionRecord(
+          session,
           await importSessionKey(session.sessionKey!)
         );
 

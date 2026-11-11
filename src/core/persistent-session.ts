@@ -24,6 +24,8 @@
 
 import { StorageError } from "./errors";
 import type { SecurityMode } from "../types";
+import { encodeFields } from "../utils/crypto";
+import { decryptData, encryptData } from "../wallet/crypto";
 
 /**
  * Persistent session data stored in localStorage
@@ -62,6 +64,52 @@ export interface PersistentSessionConfig {
 }
 
 const KEY_PREFIX = "w3pk_session_";
+
+const SESSION_AAD_LABEL = "w3pk-session-record-v1";
+
+type SessionMetadata = Omit<PersistentSessionData, "encryptedMnemonic" | "sessionKey">;
+
+/**
+ * AES-GCM additional data of a session record: every field but the
+ * ciphertext and the key, so a record whose expiry, address or credential
+ * was edited in storage fails to decrypt
+ */
+function sessionAdditionalData(record: SessionMetadata): Uint8Array<ArrayBuffer> {
+  return encodeFields(
+    SESSION_AAD_LABEL,
+    record.credentialId,
+    record.ethereumAddress,
+    String(record.expiresAt),
+    record.securityMode,
+    String(record.createdAt)
+  );
+}
+
+/** Encrypt `mnemonic` under `key` into a session record bound to `metadata` */
+export async function sealSessionRecord(
+  mnemonic: string,
+  key: CryptoKey,
+  metadata: SessionMetadata
+): Promise<Omit<PersistentSessionData, "sessionKey">> {
+  const { credentialId, ethereumAddress, expiresAt, securityMode, createdAt } = metadata;
+  return {
+    credentialId,
+    ethereumAddress,
+    expiresAt,
+    securityMode,
+    createdAt,
+    encryptedMnemonic: await encryptData(mnemonic, key, sessionAdditionalData(metadata)),
+  };
+}
+
+/**
+ * Decrypt a session record's mnemonic
+ *
+ * @throws CryptoError if `key` is wrong or the record's metadata was changed
+ */
+export function openSessionRecord(record: PersistentSessionData, key: CryptoKey): Promise<string> {
+  return decryptData(record.encryptedMnemonic, key, sessionAdditionalData(record));
+}
 
 /**
  * Manages persistent sessions in localStorage, next to the credential
