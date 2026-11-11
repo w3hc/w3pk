@@ -2195,7 +2195,7 @@ console.log('All valid:', results.every(r => r.valid))
 
 ### `zk.verifyMembership(proof: ZKProof, expectedRoot: string): Promise<boolean>`
 
-Verify membership proof with expected merkle root.
+Verify membership proof with expected merkle root. The proof's public signals are `[nullifier, root]`.
 
 **Example:**
 
@@ -2243,7 +2243,7 @@ const isOwner = await w3pk.zk.verifyOwnership(proof, address, challenge)
 
 ### `zk.verifyNFTOwnership(proof: ZKProof, expectedContract: string, expectedHoldersRoot: string, expectedMinBalance?: bigint): Promise<boolean>`
 
-Verify NFT ownership proof.
+Verify NFT ownership proof. The proof's public signals are `[nullifierHash, root, contractAddress, minBalance]`, with `contractAddress` as its Poseidon hash.
 
 **Example:**
 
