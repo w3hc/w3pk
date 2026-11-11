@@ -192,6 +192,9 @@ export class Web3Passkey {
 
   constructor(config: Web3PasskeyConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config } as InternalConfig;
+    this.config.onError ??= (error) => {
+      if (this.config.debug) console.error("[w3pk]", error);
+    };
     this.walletStorage = new LocalStorageWalletStorage();
 
     // Initialize session manager with persistent session config

@@ -121,9 +121,4 @@ export const DEFAULT_CONFIG: Partial<InternalConfig> = {
     duration: 168, // 7 days in hours
     requireReauth: true,
   },
-  onError: (error: Web3PasskeyError) => {
-    if (DEFAULT_CONFIG.debug) {
-      console.error("[w3pk]", error);
-    }
-  },
 };
