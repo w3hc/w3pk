@@ -313,7 +313,8 @@ function computeSharedSecret(privateKey: string, publicKey: string): Uint8Array 
   try {
     return secp256k1.getSharedSecret(
       ethers.getBytes(privateKey),
-      ethers.getBytes(publicKey)
+      ethers.getBytes(publicKey),
+      true
     );
   } catch (error) {
     throw new CryptoError("Failed to compute shared secret", error);
