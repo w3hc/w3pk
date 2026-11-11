@@ -835,7 +835,7 @@ async function promptBackupOptions() {
 
 Registration accepts any authenticator: a built-in one (Touch ID, Windows Hello, Android), a phone through a QR code, a USB or NFC security key, or a password manager. Computers without a built-in authenticator, such as older Windows and Linux machines, can register through a phone or a security key.
 
-By default every prompt asks for a biometric or PIN. To let authenticators that can skip the check sign in with one click, set `userVerification: 'preferred'`:
+By default every prompt asks for a biometric or PIN. To let authenticators that can skip the check do so, set `userVerification: 'preferred'`:
 
 ```typescript
 const w3pk = createWeb3Passkey({
@@ -849,7 +849,7 @@ What changes with `'preferred'`:
 
 - `register()` and `login()` ask for `'preferred'`; PRIMARY `signMessage()` still requires verification, since the account checks it
 - `derivePrfSecret()` and PRF device sync still require verification, so their secrets don't change
-- A login that isn't user-verified gets an in-memory session only: no persistent session is stored or restored from it
+- A login that isn't user-verified throws `UserVerificationRequiredError`: the wallet's key comes from the PRF output, which only a user-verified assertion releases. Ask the user to sign in again and complete the biometric or PIN check
 
 Don't promise users a fingerprint check in your copy when you opt in: "biometric or PIN, when your device asks for it" stays accurate.
 

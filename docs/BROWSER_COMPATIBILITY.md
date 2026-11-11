@@ -131,7 +131,7 @@ Registration accepts any authenticator, so a computer without Touch ID, Windows 
 | **Security key** | USB or NFC | CTAP2 keys; see below |
 | **Password manager** | 1Password, Bitwarden, Google Password Manager | Browser extension or built-in support |
 
-macOS falls back to the login password and Windows Hello to a PIN when there's no fingerprint reader. With `userVerification: 'preferred'`, security keys and unlocked password managers can sign in with one click. See [Integration Guidelines → User Verification](./INTEGRATION_GUIDELINES.md#user-verification).
+macOS falls back to the login password and Windows Hello to a PIN when there's no fingerprint reader. With `userVerification: 'preferred'`, security keys and unlocked password managers may skip the check, but `login()` then throws `UserVerificationRequiredError`. See [Integration Guidelines → User Verification](./INTEGRATION_GUIDELINES.md#user-verification).
 
 ### Hardware Security Keys
 

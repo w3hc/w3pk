@@ -55,8 +55,10 @@ export interface Web3PasskeyConfig {
   /**
    * WebAuthn user verification for login, registration and signing
    * (default: 'required'). With 'preferred', authenticators that can skip
-   * the biometric/PIN check (security keys, unlocked password managers)
-   * sign in with one click. PRF-derived secrets always require it.
+   * the biometric/PIN check (security keys, unlocked password managers) may
+   * skip it, but such a login throws `UserVerificationRequiredError`: the
+   * wallet's key comes from the PRF output, which needs user verification.
+   * PRF-derived secrets always require it.
    */
   userVerification?: 'required' | 'preferred';
 
