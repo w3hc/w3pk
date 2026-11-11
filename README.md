@@ -262,13 +262,13 @@ const hash = await client.sendTransaction({ to: '0x...', value: parseEther('1') 
 |--------|--------|
 | `eth_accounts` / `eth_requestAccounts` | Returns the address for the provider's `mode` and `tag` options (STANDARD and MAIN by default) |
 | `eth_chainId` | Returns the active chain as hex (the `chainId` option, 1 by default) |
-| `eth_sendTransaction` | Delegates to `sendTransaction()` |
-| `personal_sign` / `eth_sign` | EIP-191 message signing (`eth_sign` rejects with code `4200` in `PRIMARY`) |
+| `eth_sendTransaction` | Delegates to `sendTransaction()`; `from` must be the account, `input` is read as `data`, `gasPrice` is sent |
+| `personal_sign` / `eth_sign` | EIP-191 message signing for the account (`eth_sign` rejects with code `4200` in `PRIMARY`) |
 | `eth_signTypedData_v4` | EIP-712 typed data signing, bound to the active chain |
-| `wallet_switchEthereumChain` | Updates active chainId, emits `chainChanged` |
+| `wallet_switchEthereumChain` | Switches to the initial chain or one set in `rpcUrls` (else `4902`), emits `chainChanged` |
 | `eth_blockNumber`, `eth_call`, `eth_estimateGas`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_getLogs`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `net_version` | Forwarded to the active chain's RPC endpoint; JSON-RPC errors pass through with `code` and `data` |
 
-Any other method rejects with code `4200` (Unsupported Method). Without an endpoint for the active chain, read methods throw before any request.
+Any other method rejects with code `4200` (Unsupported Method). A malformed parameter rejects with `-32602` (Invalid params), and another account than the signer's with `4100` (Unauthorized). Without an endpoint for the active chain, read methods throw before any request.
 
 **Show the digests before signing (`onBeforeSign`)**
 
