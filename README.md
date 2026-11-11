@@ -520,7 +520,7 @@ import { ethers } from 'ethers'
 // Installed w3pk version
 const installedVersion = getPackageVersion()
 
-// IPFS hash of the build published on unpkg for that version
+// IPFS hash of the build published on the npm registry for that version
 // (not the code actually running: hash the files you ship at build time to check those)
 const hash = await getCurrentBuildHash()
 console.log('Installed version:', installedVersion)
