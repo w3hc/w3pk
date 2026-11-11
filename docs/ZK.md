@@ -17,6 +17,8 @@ Comprehensive cryptographic utilities for zero-knowledge proofs, key derivation,
   - [Baby Jubjub and ElGamal](#baby-jubjub-and-elgamal)
   - [Semaphore Identities](#semaphore-identities)
   - [NFT Ownership Proofs](#nft-ownership-proofs)
+  - [Membership, Threshold and Range Circuits](#membership-threshold-and-range-circuits)
+  - [Trusted Setup](#trusted-setup)
   - [Circuit Artifact Verification](#circuit-artifact-verification)
   - [Proving with a Passkey-Bound Secret](#proving-with-a-passkey-bound-secret)
 - [Use Cases](#use-cases)
@@ -394,11 +396,31 @@ See the [API reference](./API_REFERENCE.md#getsemaphoreidentitytag-string-promis
 
 `nft.circom`:
 
-- Leaf: `Poseidon(commitment, contract, balance)`, with `commitment = Poseidon(BabyPbk(secret))` as in Semaphore v4 and `secret` below the subgroup order `l`. Empty leaves are 0; the tree has 20 levels
+- Leaf: `Poseidon(commitment, contract, balance)`, with `commitment = Poseidon(BabyPbk(secret))` as in Semaphore v4 and `secret` range-checked to 251 bits and below the subgroup order `l`. Empty leaves are 0; the tree has 20 levels
 - `balance >= minBalance`, both range-checked to 64 bits
 - Nullifier: `Poseidon(scope, secret)`. The public signals are `[nullifier, root, contractAddress, minBalance, scope]`; none depends on which holder proved except the nullifier, which only links proofs in the same scope
 
 The holders list is public, so a commitment tied to an address at registration is known to be a holder; the proof hides which one. A unique balance narrows the anonymity set to the holders with at least `minBalance`.
+
+---
+
+### Membership, Threshold and Range Circuits
+
+- `membership.circom`: the nullifier is `Poseidon(scope, leaf)`, with a public `scope` as in Semaphore. `proveMembership(input)` takes an optional `input.scope` (default 0) and `verifyMembership(proof, root, scope?)` checks it; public signals are `[nullifier, root, scope]`. Give each app or action its own scope, so that its nullifiers can't be matched with another's. The leaf itself is hashed, so anyone who knows the leaves, such as a public allowlist of addresses, can compute every member's nullifier and tell who proved. For anonymity, the leaves must be values derived from a secret, like the commitments of `nft.circom`
+- `threshold.circom` and `range.circom`: every comparator input (`value`, `threshold`, `min`, `max`) is range-checked to 128 bits with `Num2Bits(128)`, and the comparators are 128-bit. Without the check, circomlib's comparators wrap around the field: a 252-bit `GreaterEqThan` accepted `0 >= p - 2^252 + 1`. Public signals are `[threshold, commitment]` and `[min, max, commitment]`
+
+Recompile the circuits and redo their setup after upgrading.
+
+---
+
+### Trusted Setup
+
+A Groth16 key with no phase-2 contribution has known toxic waste: anyone can redo `groth16 setup` and forge proofs for that circuit. `scripts/compile-circuits.js` has two modes:
+
+- `pnpm compile:circuits [--ptau <file>]` compiles the circuits and writes `src/zk/templates/zkeys/<name>_test_only.zkey` straight from `groth16 setup`, with `testOnly: true` in `artifacts.json`. These keys are for tests only; never ship them
+- `pnpm compile:circuits:release [--ptau <file>]` creates no key. It takes `<name>_final.zkey` from a phase-2 ceremony and fails unless the key has at least one contribution that isn't a beacon and passes `snarkjs zkey verify` against the circuit and the ptau
+
+The ptau defaults to `scripts/powersOfTau28_hez_final_15.ptau`, from the [Hermez ceremony](https://github.com/iden3/snarkjs#7-prepare-phase-2) (`https://circom.info/powersOfTau28_hez_final_15.ptau`). Run phase 2 as in the [snarkjs README](https://github.com/iden3/snarkjs#groth16): `snarkjs groth16 setup` for `<name>_0000.zkey`, one `snarkjs zkey contribute` per participant, then `snarkjs zkey beacon` for `<name>_final.zkey`. A beacon alone doesn't count: its randomness is public.
 
 ---
 
