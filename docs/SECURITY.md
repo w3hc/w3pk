@@ -245,7 +245,9 @@ In `PRIMARY` mode the passkey owns `W3pkAccount`, an ERC-4337 account (EntryPoin
 
 **Not upgradeable.** The account has no proxy, no upgrade function and no admin. Nobody, w3hc included, can change the code that holds a `PRIMARY` account's funds: an upgrade key would be one key over every account, and an address would no longer tell what code runs behind it. A bug can't be patched in place: a fixed version is a new factory at new addresses, and users move their funds. ERC-7579 modules add behavior without new account code; only the account can install one, through a UserOperation the passkey signs, and an installed validator or executor can act for the account.
 
-**Two trust models.** In `STRICT`, `STANDARD` and `YOLO`, whoever holds the mnemonic spends: the SDK decrypts it in the page, a session caches it (except in `STRICT`), backups carry it, and `YOLO` exports keys. The account is an EOA, so no contract is trusted. In `PRIMARY`, whoever gets a user-verified assertion from the passkey spends: the key never leaves the authenticator or the passkey provider, and nothing in the page can sign without a prompt. In exchange, funds depend on `W3pkAccount`, OpenZeppelin's code, the EntryPoint and the P-256 verifier, a bundler can delay or drop a UserOperation (not alter it), and recovery is the passkey provider's sync: a lost, unsynced passkey loses the account unless a recovery module is installed. A synced passkey is as safe as the provider account it syncs through.
+**Two trust models.** In `STRICT`, `STANDARD` and `YOLO`, whoever holds the mnemonic spends: the SDK decrypts it in the page, a session caches it (except in `STRICT`), backups carry it, and `YOLO` exports keys. The account is an EOA, so no contract is trusted. In `PRIMARY`, whoever gets a user-verified assertion from the passkey spends: the key never leaves the authenticator or the passkey provider, and nothing in the page can sign without a prompt. In exchange, funds depend on `W3pkAccount`, OpenZeppelin's code, the EntryPoint and the P-256 verifier, the bundler and the RPC choose the gas values the passkey signs (see below) and the bundler can delay or drop a UserOperation, and recovery is the passkey provider's sync: a lost, unsynced passkey loses the account unless a recovery module is installed. A synced passkey is as safe as the provider account it syncs through.
+
+**Gas values are capped, not trusted.** A bundler can't change a UserOperation once it is signed, but it chooses what gets signed: its `eth_estimateUserOperationGas` answer sets the gas limits, and the chain RPC sets the fees. The EntryPoint charges `preVerificationGas` in full to the bundler's beneficiary, so a dishonest bundler could inflate it and take most of the account's balance, or the paymaster's deposit, in one operation. Before `onBeforeSign` and the passkey prompt, `sendTransaction()` checks each gas field and the max fee (the EntryPoint's required prefund, `getRequiredPrefund()`) against `userOperationCaps` for the chain, and throws on a value above its cap. The defaults (`DEFAULT_USER_OPERATION_CAPS`) apply to every chain, so they only stop absurd values; the max fee is in the chain's native token and has no default cap. Set `maxPrefund` per chain, and show `onBeforeSign`'s `maxFee`, to bound what one UserOperation can cost ([gas caps](./API_REFERENCE.md#gas-caps)).
 
 **STANDARD-only features.** Stealth addresses (ERC-5564), ML-KEM encryption and Semaphore/ZK proofs compute with a secret in the page's memory: stealth and ML-KEM keys come from the mnemonic, Semaphore and ZK secrets from the passkey's PRF output. An authenticator only signs WebAuthn challenges with its P-256 key, so it can't do secp256k1 stealth arithmetic, decapsulate ML-KEM or feed a Groth16 witness, and running them as `PRIMARY` would bring back a secret outside the authenticator. They stay on the `STANDARD` side; `rawHash` signing and EIP-7702 authorizations are refused in `PRIMARY` too. The full table is in [EIP-7951.md](./EIP-7951.md#standard-and-primary-features).
 
@@ -914,6 +916,14 @@ async function authorizeGovernanceContract() {
 ## Security Changelog
 
 This section tracks major security-related changes to w3pk's implementation.
+
+### Unreleased - Capped bundler gas values in PRIMARY mode ([#347](https://github.com/w3hc/w3pk/issues/347))
+
+**Impact:** Fixes a dishonest bundler draining a `PRIMARY` account or its paymaster through inflated gas values (audit M-3)
+
+**What changed:**
+- Each bundler- or RPC-supplied gas field and the max fee are checked against `userOperationCaps` (per chain, over `DEFAULT_USER_OPERATION_CAPS`) before signing
+- `onBeforeSign` receives the max fee as `maxFee`, from `sendTransaction()` and from the EIP-1193 provider's `eth_sendTransaction`
 
 ### Unreleased - PRF-keyed wallet storage ([#179](https://github.com/w3hc/w3pk/issues/179))
 

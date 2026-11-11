@@ -55,6 +55,7 @@ interface Web3PasskeyConfig {
   smartAccount?: { factoryAddress?: string; initCodeHash?: string };  // PRIMARY smart account factory (default: W3PK_ACCOUNT_FACTORY, W3PK_ACCOUNT_INIT_CODE_HASH)
   bundlerUrls?: Record<number, string>;  // ERC-4337 bundler (EntryPoint v0.9) per chain ID, for PRIMARY sendTransaction()
   paymasterUrl?: string;              // ERC-7677 paymaster service sponsoring PRIMARY sendTransaction() (default: none, the account pays)
+  userOperationCaps?: Record<number, Partial<UserOperationCaps>>;  // Caps on PRIMARY UserOperation gas values per chain ID (default: DEFAULT_USER_OPERATION_CAPS)
 }
 
 interface PersistentSessionConfig {
@@ -1256,7 +1257,7 @@ interface SendTransactionOptions {
 }
 
 // import type { TransactionBeforeSignDigests } from 'w3pk'
-type TransactionBeforeSignDigests = { method: 'eth_sendTransaction' } & TransactionDigests
+type TransactionBeforeSignDigests = { method: 'eth_sendTransaction'; maxFee?: bigint } & TransactionDigests
 ```
 
 **Returns:** `SendTransactionResult`
@@ -1288,7 +1289,9 @@ const w3pk = createWeb3Passkey({
 })
 ```
 
-**`onBeforeSign`:** awaited with the transaction's [`getSigningDigests()`](#getsigningdigestsrequest-signingrequest-signingdigests) result and `method: 'eth_sendTransaction'`, or, for an array of transactions, an array of them in the same order. In `STANDARD`, `STRICT` and `YOLO` it runs after the RPC endpoint is resolved and before the session's passkey prompt; in `PRIMARY`, once the UserOperation is built, right before the passkey signs it.
+**`onBeforeSign`:** awaited with the transaction's [`getSigningDigests()`](#getsigningdigestsrequest-signingrequest-signingdigests) result and `method: 'eth_sendTransaction'`, or, for an array of transactions, an array of them in the same order. In `STANDARD`, `STRICT` and `YOLO` it runs after the RPC endpoint is resolved and before the session's passkey prompt; in `PRIMARY`, once the UserOperation is built and its [gas caps](#gas-caps) checked, right before the passkey signs it.
+
+- In `PRIMARY`, each digests object also carries `maxFee`: the UserOperation's required prefund in wei (`getRequiredPrefund()`), the most it can cost, whether the account or a paymaster pays; the same for each transaction of an array. Show it next to the digests
 
 - If the hook throws, rejects or returns `false`, `sendTransaction()` throws `UserRejectedRequestError` (`code` `4001`), the hook's error as `cause`, not wrapped in `WalletError` and not passed to `onError`; nothing is signed or sent
 - The transactions are copied before the hook and the copy is sent, so changing them while the hook waits has no effect
@@ -1303,7 +1306,8 @@ try {
   await w3pk.sendTransaction(tx, {
     onBeforeSign: (digests) => {
       const list = Array.isArray(digests) ? digests : [digests]
-      return confirm(list.map((d) => `Calldata Digest ${d.calldataDigest}\nTo ${d.to}\nValue ${d.value} wei`).join('\n\n'))
+      const fee = list[0].maxFee === undefined ? '' : `\n\nMax fee ${list[0].maxFee} wei`
+      return confirm(list.map((d) => `Calldata Digest ${d.calldataDigest}\nTo ${d.to}\nValue ${d.value} wei`).join('\n\n') + fee)
     },
   })
 } catch (error) {
@@ -1400,6 +1404,8 @@ const priorityTx = await w3pk.sendTransaction({
 | Node rejection | `WalletError: Failed to send transaction: <reason>` (original error in `originalError`) |
 | PRIMARY: no `bundlerUrls` or `bundlerUrl` for chainId | `WalletError: Failed to send transaction: No bundler set for chainId <N>. Set bundlerUrls in the config ...` |
 | PRIMARY: bundler or paymaster rejects the UserOperation | `WalletError: Failed to send transaction: eth_sendUserOperation failed: <message> (code <code>)` |
+| PRIMARY: a gas value above its cap | `WalletError: Failed to send transaction: UserOperation <field> <value> is above its cap of <cap> (userOperationCaps)` |
+| PRIMARY: the max fee above `maxPrefund` | `WalletError: Failed to send transaction: UserOperation max fee <fee> wei is above its cap of <cap> wei (userOperationCaps.maxPrefund)` |
 | PRIMARY: the UserOperation reverts | `WalletError: Failed to send transaction: UserOperation <userOpHash> reverted in transaction <hash>: <reason>` |
 | PRIMARY: not included in time | `WalletError: Failed to send transaction: UserOperation <userOpHash> not included after <timeout> ms` |
 | Array outside PRIMARY mode | `WalletError: Failed to send transaction: Only PRIMARY mode sends an array of transactions` |
@@ -1413,8 +1419,10 @@ The passkey's `W3pkAccount` (the `getAddress('PRIMARY', tag)` address) sends the
 3. On the account's first transaction on the chain, sets `factory` and `factoryData` (`W3pkAccountFactory.createAccount(qx, qy, tag)`), so the UserOperation deploys it
 4. With a paymaster service, asks it for stub data (`pm_getPaymasterStubData`), then for the final data (`pm_getPaymasterData`) after gas estimation, unless the stub is final ([ERC-7677](https://eips.ethereum.org/EIPS/eip-7677))
 5. Estimates gas with `eth_estimateUserOperationGas` and a stub signature, and adds the P-256 verification the stub skips (15,000 gas with the EIP-7951 precompile, 300,000 without)
-6. Prompts the passkey once to sign the userOpHash, sends the UserOperation with `eth_sendUserOperation`, and polls `eth_getUserOperationReceipt` every second until it is included
-7. Returns the hash of the transaction that included it, so `provider.waitForTransaction(hash)` and viem's `waitForTransactionReceipt` work, along with `userOpHash`
+6. Checks each gas value and the max fee against the chain's [gas caps](#gas-caps), before asking for the final paymaster data
+7. Awaits `onBeforeSign` with the digests and the max fee, if set
+8. Prompts the passkey once to sign the userOpHash, sends the UserOperation with `eth_sendUserOperation`, and polls `eth_getUserOperationReceipt` every second until it is included
+9. Returns the hash of the transaction that included it, so `provider.waitForTransaction(hash)` and viem's `waitForTransactionReceipt` work, along with `userOpHash`
 
 Without a paymaster, the account pays its own gas: fund the `PRIMARY` address before its first transaction — with session funds, not savings, since the host is trusted with everything in this wallet ([SECURITY.md](./SECURITY.md#the-host-app-is-trusted-by-construction)). `nonce` is ignored; the UserOperation's `callGasLimit` is the larger of the bundler's estimate and the sum of the `gasLimit`s. In an array, every transaction must have the same `chainId` and fee overrides. Concurrent `PRIMARY` sends from one account (same passkey, tag and chain) on one SDK instance are sent one after another: each starts once the previous one is included or has failed, since the EntryPoint nonce only advances on inclusion and [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) lets a bundler refuse a second UserOperation from an unstaked account; `timeout` counts from each one's own submission. For now the account's factory is deployed only on Sepolia (11155111), so `PRIMARY` accounts work only there; the other chains will follow at the same addresses ([deploying the contracts](./DEPLOYMENT.md)).
 
@@ -1434,6 +1442,38 @@ const { hash, userOpHash, from } = await w3pk.sendTransaction(
   { mode: 'PRIMARY', paymasterContext: { policyId: 'my-policy' } }
 )
 ```
+
+##### Gas caps
+
+The passkey signs the UserOperation's gas values, and the bundler and the RPC choose them: gas limits come from `eth_estimateUserOperationGas`, fees from the chain RPC. The EntryPoint charges `preVerificationGas` in full, to the bundler's beneficiary, so an inflated estimate would be paid from the account, or the paymaster's deposit, once signed. Before `onBeforeSign` and the passkey prompt, each gas value and the max fee are checked against `userOperationCaps` for the chain; a value above its cap throws and nothing is signed. Unset fields use `DEFAULT_USER_OPERATION_CAPS`:
+
+```typescript
+// import { DEFAULT_USER_OPERATION_CAPS, type UserOperationCaps } from 'w3pk'
+interface UserOperationCaps {
+  callGasLimit: bigint;                   // default 30,000,000
+  verificationGasLimit: bigint;           // default 5,000,000
+  preVerificationGas: bigint;             // default 50,000,000
+  paymasterVerificationGasLimit: bigint;  // default 5,000,000
+  paymasterPostOpGasLimit: bigint;        // default 5,000,000
+  maxFeePerGas: bigint;                   // default 100,000 gwei
+  maxPriorityFeePerGas: bigint;           // default 100,000 gwei
+  maxPrefund?: bigint;                    // wei, against getRequiredPrefund(op); no default
+}
+```
+
+The defaults apply to every chain, so they sit above every legitimate value: gas limits at or above what mainstream bundlers accept (Alto: 16M gas per UserOperation; Rundler: 5M verification gas), `preVerificationGas` above Arbitrum's pre-EIP-4844 L1 data costs (up to 14.6M in March 2024), fees above Polygon's 7,000 gwei peak of November 2023. They stop an absurd estimate, not a merely inflated one. The max fee is in the chain's native token, so it has no default: set `maxPrefund` per chain to bound what one UserOperation can cost, and show `maxFee` in `onBeforeSign`.
+
+```typescript
+const w3pk = createWeb3Passkey({
+  bundlerUrls: { 1: 'https://bundler.example.com/mainnet', 137: 'https://bundler.example.com/polygon' },
+  userOperationCaps: {
+    1: { maxPrefund: 10n ** 16n },     // 0.01 ETH
+    137: { maxPrefund: 10n ** 19n },   // 10 POL
+  },
+})
+```
+
+`getRequiredPrefund(op)` computes the max fee as EntryPoint v0.9 does: `(verificationGasLimit + callGasLimit + paymasterVerificationGasLimit + paymasterPostOpGasLimit + preVerificationGas) × maxFeePerGas`.
 
 ---
 
@@ -1457,14 +1497,14 @@ options?: {
 
 // import type { BeforeSignDigests, EIP1193ProviderOptions } from 'w3pk'
 type BeforeSignDigests =
-  | { method: 'eth_sendTransaction' } & TransactionDigests
+  | { method: 'eth_sendTransaction'; maxFee?: bigint } & TransactionDigests  // maxFee: PRIMARY only
   | { method: 'eth_signTypedData_v4' } & TypedDataDigests
   | { method: 'personal_sign' | 'eth_sign' } & MessageDigests
 ```
 
 In every mode, `rpcUrl` and `bundlerUrl` serve the initial `chainId` only: after `wallet_switchEthereumChain`, the config's `rpcUrls` and `bundlerUrls` for the new chain are used.
 
-**`onBeforeSign`:** on `eth_sendTransaction`, `eth_signTypedData_v4`, `personal_sign` and `eth_sign`, the provider validates the request (the active chain, and `eth_sign` in `PRIMARY`, which rejects with `4200` before the hook), computes its [`getSigningDigests()`](#getsigningdigestsrequest-signingrequest-signingdigests) result and awaits `onBeforeSign` with it and the request's `method`, before the passkey prompt. The request stays bound to the chain it was validated on, even if `wallet_switchEthereumChain` runs while the hook waits.
+**`onBeforeSign`:** on `eth_sendTransaction`, `eth_signTypedData_v4`, `personal_sign` and `eth_sign`, the provider validates the request (the active chain, and `eth_sign` in `PRIMARY`, which rejects with `4200` before the hook), computes its [`getSigningDigests()`](#getsigningdigestsrequest-signingrequest-signingdigests) result and awaits `onBeforeSign` with it and the request's `method`, before the passkey prompt. `eth_sendTransaction` passes the hook to [`sendTransaction()`](#sendtransactiontx-options-promisesendtransactionresult), which awaits it at the same point as its own `onBeforeSign`: in `PRIMARY`, once the UserOperation is built, with its `maxFee`. The request stays bound to the chain it was validated on, even if `wallet_switchEthereumChain` runs while the hook waits.
 
 - If the hook throws, rejects or returns `false`, the request rejects with `code` `4001` (User Rejected Request), the hook's error as `cause`, and nothing is signed; ethers reports `ACTION_REJECTED`
 - If the digests can't be computed, for example a `to` that isn't an address, the request rejects with that error, before the hook

@@ -20,12 +20,14 @@ import {
   startMockBundler,
 } from "./fixtures/mock-bundler";
 import { W3PK_ACCOUNT_FACTORY } from "../src/wallet/smart-account";
+import { DEFAULT_USER_OPERATION_CAPS } from "../src/wallet/bundler";
 import { UserRejectedRequestError, getSigningDigests, type TransactionRequest } from "../src/index";
 import {
   P256_PRECOMPILE_GAS,
   P256_SOLIDITY_GAS,
   PAYMASTER_SIG_MAGIC,
   encodeExecute,
+  getRequiredPrefund,
   getUserOperationHash,
   paymasterAndDataHash,
   type UserOperation,
@@ -57,6 +59,20 @@ async function withBundler(
     await bundler.close();
   }
 }
+
+/** Required prefund of a UserOperation as the bundler got it */
+const prefundOf = (op: Record<string, string>) =>
+  getRequiredPrefund({
+    ...op,
+    nonce: BigInt(op.nonce),
+    callGasLimit: BigInt(op.callGasLimit),
+    verificationGasLimit: BigInt(op.verificationGasLimit),
+    preVerificationGas: BigInt(op.preVerificationGas),
+    maxFeePerGas: BigInt(op.maxFeePerGas),
+    maxPriorityFeePerGas: BigInt(op.maxPriorityFeePerGas),
+    paymasterVerificationGasLimit: op.paymasterVerificationGasLimit ? BigInt(op.paymasterVerificationGasLimit) : undefined,
+    paymasterPostOpGasLimit: op.paymasterPostOpGasLimit ? BigInt(op.paymasterPostOpGasLimit) : undefined,
+  } as UserOperation);
 
 const config = (bundler: MockBundler, extra: object = {}) => ({
   rpcUrls: { [bundler.chainId]: [bundler.url] },
@@ -319,6 +335,7 @@ async function runTests() {
       keccak256(concat([paymasterAndData, PAYMASTER_SIG_MAGIC]))
     );
     assert.notStrictEqual(getUserOperationHash(op, 1), getUserOperationHash(op, 10), "bound to the chain");
+    assert.strictEqual(getRequiredPrefund(op), (2n + 1n + 3n + 6n + 7n) * 4n, "gas limits times maxFeePerGas");
     console.log("✅ v0.9 paymaster signature hashing");
   }
 
@@ -413,7 +430,11 @@ async function runTests() {
         assert.strictEqual(passkeyCalls.length, 0, "hook before the passkey prompt");
       },
     });
-    assert.deepStrictEqual(seen, expected[1], "one transaction, one digests object");
+    assert.deepStrictEqual(
+      seen,
+      { ...expected[1], maxFee: prefundOf(bundler.included[0]) },
+      "one transaction, one digests object, with the max fee"
+    );
     assert.strictEqual(passkeyCalls.length, 1);
 
     await sdk.sendTransaction(txs, {
@@ -424,7 +445,11 @@ async function runTests() {
         txs.push({ to: TOKEN, data: "0x", chainId: 1 });
       },
     });
-    assert.deepStrictEqual(seen, expected, "an array of transactions, an array of digests");
+    assert.deepStrictEqual(
+      seen,
+      expected.map((digests) => ({ ...digests, maxFee: prefundOf(bundler.included[1]) })),
+      "an array of transactions, an array of digests, each with the max fee"
+    );
     const [, executionCalldata] = account.decodeFunctionData("execute", bundler.included[1].callData);
     const [executions] = coder.decode(["tuple(address,uint256,bytes)[]"], executionCalldata);
     assert.deepStrictEqual(
@@ -462,6 +487,55 @@ async function runTests() {
     await sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" });
     assert.strictEqual(bundler.included[0].nonce, "0x0", "a cancel doesn't block the queue");
     console.log("✅ onBeforeSign cancels PRIMARY sends");
+  });
+
+  console.log("\nTest 18: gas values above their caps throw before the hook and the passkey prompt");
+  await withBundler(
+    { gasEstimate: { ...GAS_ESTIMATE, preVerificationGas: DEFAULT_USER_OPERATION_CAPS.preVerificationGas + 1n } },
+    async (bundler) => {
+      const sdk = await primarySdk(config(bundler));
+      let hooked = false;
+      passkeyCalls.length = 0;
+      const message = await rejection(
+        sdk.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY", onBeforeSign: () => void (hooked = true) })
+      );
+      assert(message.includes("preVerificationGas") && message.includes("cap"), message);
+      assert(!hooked, "hook not called");
+      assert.strictEqual(passkeyCalls.length, 0, "no passkey prompt");
+      assert(!bundler.calls.some((c) => c.method === "eth_sendUserOperation"), "nothing sent");
+    }
+  );
+  await withBundler({}, async (bundler) => {
+    const fee = DEFAULT_USER_OPERATION_CAPS.maxFeePerGas + 1n;
+    const sdk = await primarySdk(config(bundler));
+    const fees = await rejection(
+      sdk.sendTransaction({ to: RECIPIENT, chainId: 1, maxFeePerGas: fee, maxPriorityFeePerGas: 1n }, { mode: "PRIMARY" })
+    );
+    assert(fees.includes("maxFeePerGas"), fees);
+    const gas = await rejection(
+      sdk.sendTransaction({ to: RECIPIENT, chainId: 1, gasLimit: DEFAULT_USER_OPERATION_CAPS.callGasLimit + 1n }, { mode: "PRIMARY" })
+    );
+    assert(gas.includes("callGasLimit"), gas);
+
+    const sponsored = await primarySdk(
+      config(bundler, { paymasterUrl: bundler.url, userOperationCaps: { 1: { paymasterPostOpGasLimit: 19_999n } } })
+    );
+    const postOp = await rejection(sponsored.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" }));
+    assert(postOp.includes("paymasterPostOpGasLimit"), postOp);
+    assert(!bundler.calls.some((c) => c.method === "pm_getPaymasterData"), "no paymaster signature asked for");
+
+    let maxFee = 0n;
+    await sdk.sendTransaction(
+      { to: RECIPIENT, chainId: 1 },
+      { mode: "PRIMARY", onBeforeSign: (d) => void (maxFee = (d as { maxFee: bigint }).maxFee) }
+    );
+    const capped = await primarySdk(config(bundler, { userOperationCaps: { 1: { maxPrefund: maxFee - 1n }, 10: { maxPrefund: 0n } } }));
+    const prefund = await rejection(capped.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" }));
+    assert(prefund.includes("maxPrefund"), prefund);
+    const exact = await primarySdk(config(bundler, { userOperationCaps: { 1: { maxPrefund: maxFee } } }));
+    await exact.sendTransaction({ to: RECIPIENT, chainId: 1 }, { mode: "PRIMARY" });
+    assert.strictEqual(bundler.included.length, 2, "a max fee at its cap is sent");
+    console.log("✅ Gas caps enforced before signing");
   });
 
   console.log("\n🎉 All PRIMARY mode sendTransaction tests passed!\n");

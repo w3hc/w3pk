@@ -3,6 +3,7 @@ import type { Web3PasskeyError } from "./errors";
 import type { PersistentSessionConfig } from "./persistent-session";
 import type { ZKProofConfig } from "../zk/types";
 import type { SmartAccountConfig } from "../wallet/smart-account";
+import type { UserOperationCaps } from "../wallet/bundler";
 
 export interface StealthAddressConfig {}
 
@@ -90,6 +91,16 @@ export interface Web3PasskeyConfig {
   paymasterUrl?: string;
 
   /**
+   * Caps on the gas values of `PRIMARY` mode UserOperations per chain ID,
+   * checked before the passkey signs; unset fields use
+   * `DEFAULT_USER_OPERATION_CAPS`, which has no `maxPrefund`
+   *
+   * @example
+   * userOperationCaps: { 1: { maxPrefund: 10n ** 16n } } // 0.01 ETH
+   */
+  userOperationCaps?: Record<number, Partial<UserOperationCaps>>;
+
+  /**
    * `PRIMARY` mode smart account factory (default: `W3PK_ACCOUNT_FACTORY`)
    * and clone init code hash (default: `W3PK_ACCOUNT_INIT_CODE_HASH`), for a
    * factory deployed elsewhere
@@ -105,6 +116,7 @@ export const DEFAULT_CONFIG: Partial<InternalConfig> = {
   userVerification: 'required',
   rpcUrls: {},
   bundlerUrls: {},
+  userOperationCaps: {},
   smartAccount: {},
   persistentSession: {
     enabled: false,

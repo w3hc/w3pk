@@ -122,6 +122,21 @@ export function getUserOperationHash(
   return keccak256(concat(["0x1901", domainSeparator, structHash]));
 }
 
+/**
+ * Required prefund, as EntryPoint v0.9 computes it: the sum of the gas
+ * limits times `maxFeePerGas`, the most the UserOperation can cost in wei
+ */
+export function getRequiredPrefund(op: UserOperation): bigint {
+  return (
+    (op.verificationGasLimit +
+      op.callGasLimit +
+      (op.paymasterVerificationGasLimit ?? 0n) +
+      (op.paymasterPostOpGasLimit ?? 0n) +
+      op.preVerificationGas) *
+    op.maxFeePerGas
+  );
+}
+
 const ACCOUNT_INTERFACE = new Interface([
   "function execute(bytes32 mode, bytes executionCalldata)",
 ]);

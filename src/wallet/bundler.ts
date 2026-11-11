@@ -1,6 +1,77 @@
 import { toUtf8String, isHexString, AbiCoder, dataSlice } from "ethers";
 import { WalletError } from "../core/errors";
-import { ENTRY_POINT_V09, type UserOperation, toRpcUserOperation } from "./user-operation";
+import { ENTRY_POINT_V09, type UserOperation, getRequiredPrefund, toRpcUserOperation } from "./user-operation";
+
+/**
+ * Upper bounds on the gas values of a `PRIMARY` mode UserOperation, checked
+ * before the passkey signs: gas limits come from the bundler, fees from the
+ * chain RPC, and the EntryPoint charges `preVerificationGas` in full
+ */
+export interface UserOperationCaps {
+  callGasLimit: bigint;
+  verificationGasLimit: bigint;
+  preVerificationGas: bigint;
+  paymasterVerificationGasLimit: bigint;
+  paymasterPostOpGasLimit: bigint;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+  /** Wei, against the required prefund (getRequiredPrefund()); unset, only the other caps bound it */
+  maxPrefund?: bigint;
+}
+
+const GWEI = 10n ** 9n;
+
+/**
+ * Chain-agnostic, so set above legitimate values on every chain: gas limits
+ * at or above what mainstream bundlers accept (Alto: 16M gas per
+ * UserOperation, Rundler: 5M verification gas), `preVerificationGas` above
+ * Arbitrum's pre-EIP-4844 L1 data costs (14.6M seen), fees above Polygon's
+ * 7,000 gwei peak. No default prefund cap: one in wei can't fit every
+ * chain's native token, set it per chain with `userOperationCaps`.
+ */
+export const DEFAULT_USER_OPERATION_CAPS: UserOperationCaps = {
+  callGasLimit: 30_000_000n,
+  verificationGasLimit: 5_000_000n,
+  preVerificationGas: 50_000_000n,
+  paymasterVerificationGasLimit: 5_000_000n,
+  paymasterPostOpGasLimit: 5_000_000n,
+  maxFeePerGas: 100_000n * GWEI,
+  maxPriorityFeePerGas: 100_000n * GWEI,
+};
+
+const CAPPED_FIELDS = [
+  "callGasLimit",
+  "verificationGasLimit",
+  "preVerificationGas",
+  "paymasterVerificationGasLimit",
+  "paymasterPostOpGasLimit",
+  "maxFeePerGas",
+  "maxPriorityFeePerGas",
+] as const;
+
+/**
+ * Checks each gas field and the required prefund against `caps`, unset caps
+ * falling back to DEFAULT_USER_OPERATION_CAPS
+ *
+ * @returns The required prefund, in wei
+ * @throws WalletError naming the first value above its cap
+ */
+export function checkUserOperationCaps(op: UserOperation, caps: Partial<UserOperationCaps> = {}): bigint {
+  for (const field of CAPPED_FIELDS) {
+    const cap = caps[field] ?? DEFAULT_USER_OPERATION_CAPS[field];
+    const value = op[field] ?? 0n;
+    if (value > cap) {
+      throw new WalletError(`UserOperation ${field} ${value} is above its cap of ${cap} (userOperationCaps)`);
+    }
+  }
+  const prefund = getRequiredPrefund(op);
+  if (caps.maxPrefund !== undefined && prefund > caps.maxPrefund) {
+    throw new WalletError(
+      `UserOperation max fee ${prefund} wei is above its cap of ${caps.maxPrefund} wei (userOperationCaps.maxPrefund)`
+    );
+  }
+  return prefund;
+}
 
 let requestId = 0;
 

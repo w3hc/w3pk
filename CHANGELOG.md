@@ -62,6 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The transactions are copied before the hook and the copy is sent, so changing them while the hook waits has no effect
   - `UserRejectedRequestError` and `TransactionBeforeSignDigests` are exported from `w3pk`; the error reads `w3pk: onBeforeSign rejected the request`, from the provider too
   - Unset, no digests are computed and behavior is unchanged
+- **`PRIMARY` mode caps the bundler's and the RPC's gas values before signing** ([#347](https://github.com/w3hc/w3pk/issues/347)), audit finding M-3. Before, the passkey signed whatever gas limits the bundler estimated and fees the RPC returned, and the EntryPoint charges `preVerificationGas` in full, so a dishonest bundler could drain most of the account's balance or the paymaster's deposit in one operation
+  - `callGasLimit`, `verificationGasLimit`, `preVerificationGas`, `paymasterVerificationGasLimit`, `paymasterPostOpGasLimit`, `maxFeePerGas`, `maxPriorityFeePerGas` and the max fee are checked against the new `userOperationCaps` config, per chain ID, before `onBeforeSign` and the passkey prompt; a value above its cap throws and nothing is signed
+  - Unset fields use `DEFAULT_USER_OPERATION_CAPS`, set above legitimate values on every chain from bundler limits and onchain UserOperations: 30M call gas, 5M verification and paymaster gas, 50M `preVerificationGas`, 100,000 gwei fees. The max fee, `maxPrefund` in wei, has no default cap, since one value can't fit every chain's native token
+  - The max fee is the EntryPoint's required prefund, `(sum of the gas limits) × maxFeePerGas`, computed by the new `getRequiredPrefund()`
+  - In `PRIMARY`, `onBeforeSign` digests carry it as `maxFee`, from `sendTransaction()` and from the EIP-1193 provider, whose `eth_sendTransaction` now passes its hook to `sendTransaction()` instead of running it before the call
+  - The docs no longer say a bundler can't alter a UserOperation: it chooses the gas values the passkey signs
+  - `DEFAULT_USER_OPERATION_CAPS`, `UserOperationCaps` and `getRequiredPrefund()` are exported from `w3pk`
+  - No change for legitimate operations: same gas values, same prompts
 
 ## [0.12.3] - 2026-11-10
 
