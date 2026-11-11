@@ -3,6 +3,7 @@
  */
 
 import type { TypedDataDomain } from "ethers";
+import type { BeforeSignHook, TransactionBeforeSignDigests } from "../core/eip1193";
 
 export interface UserInfo {
   username: string;
@@ -150,6 +151,11 @@ export interface SendTransactionOptions {
   paymasterContext?: Record<string, unknown>;
   /** PRIMARY mode: how long to wait for the UserOperation's inclusion, in ms (default: 60000) */
   timeout?: number;
+  /**
+   * Awaited before the passkey prompt with the transaction's ERC-8213 digests, an array of them
+   * for an array of transactions; throw, reject or return `false` to cancel with error 4001
+   */
+  onBeforeSign?: BeforeSignHook<TransactionBeforeSignDigests | TransactionBeforeSignDigests[]>;
 }
 
 /**

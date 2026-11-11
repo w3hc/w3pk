@@ -91,7 +91,7 @@ import {
   waitForUserOperationReceipt,
 } from "../wallet/bundler";
 import { SIWE_HEADER, assertSiweDomain, parseSiweMessage } from "../siwe";
-import { signableTypedData } from "./signing-digests";
+import { getSigningDigests, signableTypedData } from "./signing-digests";
 import type {
   UserInfo,
   GeneratedWallet,
@@ -118,6 +118,8 @@ import type { SyncCapabilities } from "../sync/types";
 import { supportsEIP7702 } from "../eip7702";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
 import {
+  UserRejectedRequestError,
+  confirmBeforeSign,
   createEIP1193Provider,
   type EIP1193ProviderInterface,
   type EIP1193ProviderOptions,
@@ -1195,7 +1197,10 @@ export class Web3Passkey {
    *   `rpcUrls` endpoint set for the chain is used. Throws if neither is set:
    *   chainid.network endpoints are never used to send
    * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
-   * @param options.onBeforeSign - Awaited with the request's ERC-8213 digests (getSigningDigests()) and its `method`, after the request is validated and before the passkey prompt; throw, reject or return `false` to cancel with error 4001
+   * @param options.onBeforeSign - Awaited with the transaction's ERC-8213 digests (getSigningDigests())
+   *   and `method: "eth_sendTransaction"`, an array of them for an array of transactions, before the
+   *   passkey prompt; throw, reject or return `false` to cancel with UserRejectedRequestError (code 4001).
+   *   The transactions are copied first, and the copy is sent
    * @param options.paymasterUrl - PRIMARY mode: ERC-7677 paymaster service (default: `paymasterUrl`)
    * @param options.paymasterContext - PRIMARY mode: ERC-7677 context (default: {})
    * @param options.timeout - PRIMARY mode: inclusion timeout in ms (default: 60000)
@@ -1218,15 +1223,19 @@ export class Web3Passkey {
       const effectiveMode = options?.mode || DEFAULT_MODE;
       const effectiveTag = options?.tag || DEFAULT_TAG;
       const origin = getCurrentOrigin();
+      const txs = (Array.isArray(tx) ? tx : [tx]).map((t) => ({ ...t }));
+      const confirm = this.beforeSendTransaction(txs, Array.isArray(tx), options?.onBeforeSign);
 
       if (effectiveMode === 'PRIMARY') {
-        return await this.sendWithSmartAccount(Array.isArray(tx) ? tx : [tx], effectiveTag, origin, options);
+        return await this.sendWithSmartAccount(txs, effectiveTag, origin, confirm, options);
       }
       if (Array.isArray(tx)) {
         throw new WalletError("Only PRIMARY mode sends an array of transactions");
       }
+      const [request] = txs;
 
-      const rpcUrl = this.getRpcUrl(tx.chainId, options?.rpcUrl);
+      const rpcUrl = this.getRpcUrl(request.chainId, options?.rpcUrl);
+      await confirm();
 
       // STRICT mode: always require authentication (no persistent sessions)
       const requireAuth = effectiveMode === 'STRICT' ? true : (options?.requireAuth || false);
@@ -1253,29 +1262,47 @@ export class Web3Passkey {
       const connected = wallet.connect(provider);
 
       const response = await connected.sendTransaction({
-        to: tx.to,
-        value: tx.value,
-        data: tx.data ?? "0x",
-        chainId: tx.chainId,
-        gasLimit: tx.gasLimit,
-        maxFeePerGas: tx.maxFeePerGas,
-        maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
-        nonce: tx.nonce,
+        to: request.to,
+        value: request.value,
+        data: request.data ?? "0x",
+        chainId: request.chainId,
+        gasLimit: request.gasLimit,
+        maxFeePerGas: request.maxFeePerGas,
+        maxPriorityFeePerGas: request.maxPriorityFeePerGas,
+        nonce: request.nonce,
       });
 
       return {
         hash: response.hash,
         from: derived.address,
-        chainId: tx.chainId,
+        chainId: request.chainId,
         mode: derived.mode,
         tag: derived.tag,
         origin: derived.origin,
       };
     } catch (error) {
+      if (error instanceof UserRejectedRequestError) throw error;
       this.config.onError?.(error as any);
       const reason = (error as any)?.shortMessage ?? (error instanceof Error ? error.message : String(error));
       throw new WalletError(`Failed to send transaction: ${reason}`, error);
     }
+  }
+
+  /**
+   * Computes the transactions' digests for onBeforeSign, and returns the step that awaits it,
+   * run right before the passkey prompt
+   */
+  private beforeSendTransaction(
+    txs: TransactionRequest[],
+    isArray: boolean,
+    onBeforeSign: SendTransactionOptions["onBeforeSign"]
+  ): () => Promise<void> {
+    if (!onBeforeSign) return async () => {};
+    const digests = txs.map(({ to, value, data }) => ({
+      method: "eth_sendTransaction" as const,
+      ...getSigningDigests({ method: "eth_sendTransaction", params: [{ to, value, data }] }),
+    }));
+    return () => confirmBeforeSign(onBeforeSign, isArray ? digests : digests[0]);
   }
 
   private primarySends = new Map<string, Promise<void>>();
@@ -1329,6 +1356,7 @@ export class Web3Passkey {
     txs: TransactionRequest[],
     tag: string,
     origin: string,
+    confirm: () => Promise<void>,
     options?: SendTransactionOptions
   ): Promise<SendTransactionResult> {
     if (txs.length === 0) {
@@ -1440,6 +1468,7 @@ export class Web3Passkey {
         provider.destroy();
       }
 
+      await confirm();
       op.signature = await signWithPasskey(getUserOperationHash(op, chainId), credential.id);
       const userOpHash = await sendUserOperation(bundlerUrl, op);
       const receipt = await waitForUserOperationReceipt(bundlerUrl, userOpHash, { timeout: options?.timeout });
