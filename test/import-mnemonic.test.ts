@@ -317,7 +317,7 @@ async function runTests() {
     const error = await capture(() => sdk.importMnemonic(MNEMONIC_B));
     Object.assign(failCredentialWriteAfterWallet, { enabled: false, armed: false });
     assert(
-      error instanceof Error && error.message === "Failed to update credential address",
+      error instanceof Error && error.message === "Failed to update credential",
       "throws the credential update's error"
     );
     assert((await wallets().retrieve(CREDENTIAL_ID)) === null, "wallet B's record is deleted");

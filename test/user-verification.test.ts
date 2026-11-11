@@ -13,7 +13,7 @@ import { login } from "../src/auth/authenticate";
 import { isUserVerified } from "../src/auth/flags";
 import { CredentialStorage } from "../src/auth/storage";
 import { LocalStorageWalletStorage, openWalletRecord, sealWalletRecord } from "../src/wallet/storage";
-import { deriveWalletKey } from "../src/wallet/crypto";
+import { deriveWalletKey, macPublicKey } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
 console.log("\n==================================================");
@@ -207,6 +207,7 @@ async function storeWallet(publicKey: string): Promise<void> {
     ethereumAddress: ADDRESS,
     createdAt: now,
     lastUsed: now,
+    publicKeyMac: await macPublicKey(authenticator.prfOutput, CREDENTIAL_ID, publicKey),
   });
   const key = await deriveWalletKey(authenticator.prfOutput);
   await new LocalStorageWalletStorage(localStorage as unknown as Storage).store(

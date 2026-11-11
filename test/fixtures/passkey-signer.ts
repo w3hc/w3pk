@@ -85,6 +85,7 @@ export async function primarySdk(config: Web3PasskeyConfig = {}) {
     ethereumAddress: MAIN_ACCOUNT,
     credentialId: CREDENTIAL_ID,
   };
+  (sdk as any).currentPublicKey = PUBLIC_KEY_SPKI;
   (sdk as any).getMnemonicFromSession = async () => MNEMONIC;
   return sdk;
 }

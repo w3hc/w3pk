@@ -126,6 +126,7 @@ export async function login(
         ethereumAddress: credential.ethereumAddress,
         credentialId: credential.id,
       },
+      credential,
       signature: assertion.response.signature,
       prfOutput,
     };

@@ -40,9 +40,10 @@ import {
 import {
   derivePrfSessionKey,
   deriveWalletKey,
+  verifyPublicKeyMac,
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
-import { SessionManager } from "./session";
+import { SessionManager, type SessionAccount } from "./session";
 import { CredentialStorage } from "../auth/storage";
 import {
   assertPrfSecretTag,
@@ -176,6 +177,8 @@ export class Web3Passkey {
   private config: InternalConfig;
   private walletStorage: LocalStorageWalletStorage;
   private currentUser: UserInfo | null = null;
+  /** The logged-in passkey's public key, as checked at login */
+  private currentPublicKey: string | null = null;
   /** A wallet waiting for register(); cleared once the user is logged in */
   private currentWallet: GeneratedWallet | null = null;
   private persisted: boolean | null = null;
@@ -216,6 +219,12 @@ export class Web3Passkey {
       },
       set currentUser(user) {
         sdk.currentUser = user;
+      },
+      get currentPublicKey() {
+        return sdk.currentPublicKey;
+      },
+      set currentPublicKey(publicKey) {
+        sdk.currentPublicKey = publicKey;
       },
       get currentWallet() {
         return sdk.currentWallet;
@@ -333,12 +342,30 @@ export class Web3Passkey {
     await this.sessionManager.startSession(
       mnemonic,
       walletData.credentialId,
-      this.currentUser.ethereumAddress,
+      this.sessionAccount(),
       prfSessionKey,
       effectiveMode
     );
 
     return mnemonic;
+  }
+
+  /** The logged-in account a persistent session is stored for */
+  private sessionAccount(): SessionAccount | undefined {
+    return this.currentUser && this.currentPublicKey
+      ? { ethereumAddress: this.currentUser.ethereumAddress, publicKey: this.currentPublicKey }
+      : undefined;
+  }
+
+  /**
+   * The logged-in passkey's public key for PRIMARY mode, as checked at login:
+   * never read again from storage, where it could have been changed since
+   */
+  private primaryPublicKey(): string {
+    if (!this.currentPublicKey) {
+      throw new WalletError("No WebAuthn credential found for PRIMARY mode");
+    }
+    return this.currentPublicKey;
   }
 
   /**
@@ -410,13 +437,14 @@ export class Web3Passkey {
         userVerification: this.config.userVerification,
       });
 
-      const { credentialId, prfOutput } = registration;
+      const { credentialId, publicKey, prfOutput } = registration;
 
       this.currentUser = {
         username: options.username,
         ethereumAddress,
         credentialId,
       };
+      this.currentPublicKey = publicKey;
 
       let prfSessionKey: CryptoKey;
       try {
@@ -430,7 +458,7 @@ export class Web3Passkey {
       await this.sessionManager.startSession(
         mnemonic,
         credentialId,
-        ethereumAddress,
+        { ethereumAddress, publicKey },
         prfSessionKey,
         'STANDARD' // Default security mode for register
       );
@@ -493,6 +521,7 @@ export class Web3Passkey {
           ethereumAddress: silentRestore.ethereumAddress,
           credentialId: silentRestore.credentialId,
         };
+        this.currentPublicKey = silentRestore.publicKey;
         this.currentWallet = null;
 
         void this.requestPersistentStorage();
@@ -512,11 +541,18 @@ export class Web3Passkey {
         result.user.ethereumAddress
       );
 
-      if (!walletData) {
+      // Without PRF the wallet can't be decrypted here: it has to be
+      // restored from a backup
+      if (!walletData || !result.prfOutput) {
         throw new WalletMissingError(
           result.user.credentialId,
           result.user.ethereumAddress
         );
+      }
+
+      const { publicKey, publicKeyMac } = result.credential!;
+      if (!(await verifyPublicKeyMac(result.prfOutput, result.user.credentialId, publicKey, publicKeyMac))) {
+        throw new AuthenticationError("The passkey's stored public key failed authentication");
       }
 
       this.currentUser = {
@@ -524,51 +560,45 @@ export class Web3Passkey {
         ethereumAddress: result.user.ethereumAddress,
         credentialId: result.user.credentialId,
       };
+      this.currentPublicKey = publicKey;
+      const account = { ethereumAddress: result.user.ethereumAddress, publicKey };
 
       // Key derived from THIS assertion's PRF output: decrypts the existing
       // persistent session (deterministic PRF input → same key as when the
       // blob was written) and re-keys the next one
-      const prfSessionKey = result.prfOutput
-        ? await derivePrfSessionKey(
-            result.prfOutput,
-            this.sessionManager.storesSessionKey
-          )
-        : undefined;
+      const prfSessionKey = await derivePrfSessionKey(
+        result.prfOutput,
+        this.sessionManager.storesSessionKey
+      );
 
       // Try to restore from persistent session first (if requireReauth is true)
       const restoredMnemonic = await this.sessionManager.restoreFromPersistentStorage(
-        this.currentUser.ethereumAddress,
+        account,
         walletData.credentialId,
         prfSessionKey
       );
 
       if (!restoredMnemonic) {
-        // Without PRF, or under another key, the wallet can't be decrypted
-        // here: it has to be restored from a backup
-        const walletMissing = () => {
-          this.currentUser = null;
-          return new WalletMissingError(
-            result.user!.credentialId,
-            result.user!.ethereumAddress
-          );
-        };
-        if (!result.prfOutput) {
-          throw walletMissing();
-        }
-
         let mnemonic: string;
         try {
           mnemonic = await this.decryptWallet(walletData, result.prfOutput);
         } catch (error) {
           if (!(error instanceof CryptoError)) throw error;
-          throw walletMissing();
+          // Under another key, or edited in storage: it has to be restored
+          // from a backup
+          this.currentUser = null;
+          this.currentPublicKey = null;
+          throw new WalletMissingError(
+            result.user.credentialId,
+            result.user.ethereumAddress
+          );
         }
 
         // Start new session with persistence
         await this.sessionManager.startSession(
           mnemonic,
           walletData.credentialId,
-          this.currentUser.ethereumAddress,
+          account,
           prfSessionKey,
           'STANDARD' // Default security mode
         );
@@ -596,6 +626,7 @@ export class Web3Passkey {
    */
   async logout(): Promise<void> {
     this.currentUser = null;
+    this.currentPublicKey = null;
     this.currentWallet = null;
     try {
       await this.sessionManager.clearSession();
@@ -727,15 +758,9 @@ export class Web3Passkey {
 
       // PRIMARY mode: the passkey's P-256 smart account
       if (effectiveMode === 'PRIMARY') {
-        const storage = new CredentialStorage();
-        const credential = await storage.getCredentialById(this.currentUser.credentialId);
-
-        if (!credential || !credential.publicKey) {
-          throw new WalletError("No WebAuthn credential found for PRIMARY mode");
-        }
-
+        const publicKey = this.primaryPublicKey();
         const address = await getSmartAccountAddress(
-          credential.publicKey,
+          publicKey,
           effectiveTag,
           this.config.smartAccount
         );
@@ -745,7 +770,7 @@ export class Web3Passkey {
           origin,
           mode: effectiveMode,
           tag: effectiveTag,
-          publicKey: credential.publicKey,
+          publicKey,
         };
       }
 
@@ -810,15 +835,8 @@ export class Web3Passkey {
 
       // PRIMARY mode: the passkey's P-256 smart account
       if (effectiveMode === 'PRIMARY') {
-        const storage = new CredentialStorage();
-        const credential = await storage.getCredentialById(this.currentUser.credentialId);
-
-        if (!credential || !credential.publicKey) {
-          throw new WalletError("No WebAuthn credential found for PRIMARY mode");
-        }
-
         return await getSmartAccountAddress(
-          credential.publicKey,
+          this.primaryPublicKey(),
           effectiveTag,
           this.config.smartAccount
         );
@@ -868,16 +886,14 @@ export class Web3Passkey {
       if (!authResult.prfOutput) {
         throw new PrfUnsupportedError(this.currentUser.credentialId);
       }
-      const prfOutput = authResult.prfOutput;
-
-      const credential = await new CredentialStorage().getCredentialById(
-        this.currentUser.credentialId
+      await bootstrapCredential(
+        this.ctx,
+        authResult.credential!,
+        phrase,
+        ethereumAddress,
+        authResult.prfOutput,
+        true
       );
-      if (!credential) {
-        throw new WalletError("Credential not found");
-      }
-
-      await bootstrapCredential(this.ctx, credential, phrase, ethereumAddress, prfOutput, true);
     } catch (error) {
       this.config.onError?.(error as any);
       throw error;
@@ -1083,11 +1099,8 @@ export class Web3Passkey {
     siweText: string | undefined,
     options?: SignMessageOptions
   ): Promise<{ signature: string; address: string; mode: SecurityMode; tag: string }> {
-    const storage = new CredentialStorage();
-    const credential = await storage.getCredentialById(this.currentUser!.credentialId);
-    if (!credential || !credential.publicKey) {
-      throw new WalletError("No WebAuthn credential found for PRIMARY mode");
-    }
+    const publicKey = this.primaryPublicKey();
+    const credentialId = this.currentUser!.credentialId;
 
     const domainChainId = options?.eip712Domain?.chainId;
     const siweChainId = siweText !== undefined ? parseSiweMessage(siweText).chainId : undefined;
@@ -1102,7 +1115,7 @@ export class Web3Passkey {
       throw new WalletError("PRIMARY mode signing requires options.chainId");
     }
 
-    const address = await getSmartAccountAddress(credential.publicKey, tag, this.config.smartAccount);
+    const address = await getSmartAccountAddress(publicKey, tag, this.config.smartAccount);
     const account = { address, chainId };
     const { hashMessage } = await import("ethers");
 
@@ -1131,17 +1144,17 @@ export class Web3Passkey {
         account
       );
       signature = encodeTypedDataSignature(
-        await signWithPasskey(payload.challenge, credential.id),
+        await signWithPasskey(payload.challenge, credentialId),
         payload
       );
     } else {
-      signature = await signWithPasskey(personalSignHash(hashMessage(message), account), credential.id);
+      signature = await signWithPasskey(personalSignHash(hashMessage(message), account), credentialId);
     }
 
     if (!(await this.isDeployed(address, chainId, options?.rpcUrl))) {
       signature = wrapErc6492Signature(
         this.config.smartAccount?.factoryAddress ?? W3PK_ACCOUNT_FACTORY,
-        await getCreateAccountCalldata(credential.publicKey, tag),
+        await getCreateAccountCalldata(publicKey, tag),
         signature
       );
     }
@@ -1379,12 +1392,8 @@ export class Web3Passkey {
 
     const credentialId = this.currentUser!.credentialId;
     return this.queuePrimarySend(`${credentialId}:${tag}:${chainId}`, async () => {
-      const storage = new CredentialStorage();
-      const credential = await storage.getCredentialById(credentialId);
-      if (!credential || !credential.publicKey) {
-        throw new WalletError("No WebAuthn credential found for PRIMARY mode");
-      }
-      const sender = await getSmartAccountAddress(credential.publicKey, tag, this.config.smartAccount);
+      const publicKey = this.primaryPublicKey();
+      const sender = await getSmartAccountAddress(publicKey, tag, this.config.smartAccount);
 
       const { JsonRpcProvider } = await import("ethers");
       const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
@@ -1424,7 +1433,7 @@ export class Web3Passkey {
         };
         if (code === "0x") {
           op.factory = this.config.smartAccount?.factoryAddress ?? W3PK_ACCOUNT_FACTORY;
-          op.factoryData = await getCreateAccountCalldata(credential.publicKey, tag);
+          op.factoryData = await getCreateAccountCalldata(publicKey, tag);
         }
 
         let isFinal = false;
@@ -1466,7 +1475,7 @@ export class Web3Passkey {
       }
 
       await confirm(maxFee);
-      op.signature = await signWithPasskey(getUserOperationHash(op, chainId), credential.id);
+      op.signature = await signWithPasskey(getUserOperationHash(op, chainId), credentialId);
       const userOpHash = await sendUserOperation(bundlerUrl, op);
       const receipt = await waitForUserOperationReceipt(bundlerUrl, userOpHash, { timeout: options?.timeout });
 

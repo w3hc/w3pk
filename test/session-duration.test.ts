@@ -46,13 +46,14 @@ async function runTests() {
 
     const manager = new SessionManager(0, { enabled: true });
     const prfKey = await derivePrfSessionKey(crypto.getRandomValues(new Uint8Array(32)));
-    await manager.startSession(MNEMONIC, "cred-id", address, prfKey, "STANDARD");
+    const account = { ethereumAddress: address, publicKey: "public-key" };
+    await manager.startSession(MNEMONIC, "cred-id", account, prfKey, "STANDARD");
 
     assert(manager.getMnemonic() === null, "getMnemonic() returns null");
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert((await storage.retrieve("cred-id")) !== null, "persistent session survives");
 
-    const restored = await manager.restoreFromPersistentStorage(address, "cred-id", prfKey);
+    const restored = await manager.restoreFromPersistentStorage(account, "cred-id", prfKey);
     assert(restored === MNEMONIC, "restore returns the mnemonic");
     assert(manager.getMnemonic() === null, "restore caches nothing");
 
@@ -74,7 +75,7 @@ async function runTests() {
 
     const manager = new SessionManager(1, { enabled: true });
     const prfKey = await derivePrfSessionKey(crypto.getRandomValues(new Uint8Array(32)));
-    await manager.startSession(MNEMONIC, "cred-id", address, prfKey, "STRICT");
+    await manager.startSession(MNEMONIC, "cred-id", { ethereumAddress: address, publicKey: "public-key" }, prfKey, "STRICT");
 
     assert(manager.getMnemonic() === null, "getMnemonic() returns null");
     assert(!manager.isActive(), "isActive() is false");

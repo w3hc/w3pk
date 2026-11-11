@@ -2,6 +2,8 @@
  * Authentication-related types
  */
 
+import type { StoredCredential } from "./storage";
+
 export interface RegisterOptions {
   username: string;
   ethereumAddress: string;
@@ -15,6 +17,8 @@ export interface AuthResult {
     ethereumAddress: string;
     credentialId: string;
   };
+  /** The stored metadata the assertion's signature was checked against */
+  credential?: StoredCredential;
   // SECURITY: Signature is needed to derive encryption keys
   // This ensures keys can only be derived after biometric/PIN authentication
   signature?: ArrayBuffer;

@@ -11,6 +11,12 @@ export interface StoredCredential {
   createdAt: string;
   lastUsed: string;
   signCount?: number; // Signature counter for authenticator cloning detection
+  /**
+   * MAC of `id` and `publicKey` under a key derived from the passkey's PRF
+   * output (see macPublicKey), checked at login. Absent when the passkey's
+   * metadata was saved without a PRF output
+   */
+  publicKeyMac?: string;
 }
 
 export class CredentialStorage {
@@ -150,19 +156,24 @@ export class CredentialStorage {
   }
 
   /**
-   * Updates the Ethereum address for a credential
-   * Used when restoring from backup to overwrite with new address
+   * Updates a credential's Ethereum address and public key MAC, e.g. when
+   * restoring from backup overwrites its address
    */
-  async updateCredentialAddress(id: string, newAddress: string): Promise<void> {
+  async updateCredential(
+    id: string,
+    changes: Partial<Pick<StoredCredential, "ethereumAddress" | "publicKeyMac">>
+  ): Promise<void> {
     try {
       const credential = await this.getCredentialById(id);
       if (credential) {
-        credential.ethereumAddress = newAddress;
-        credential.lastUsed = new Date().toISOString();
-        await this.saveCredential(credential);
+        await this.saveCredential({
+          ...credential,
+          ...changes,
+          lastUsed: new Date().toISOString(),
+        });
       }
     } catch (error) {
-      throw new StorageError("Failed to update credential address", error);
+      throw new StorageError("Failed to update credential", error);
     }
   }
 

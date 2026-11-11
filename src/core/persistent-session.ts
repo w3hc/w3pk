@@ -71,25 +71,34 @@ type SessionMetadata = Omit<PersistentSessionData, "encryptedMnemonic" | "sessio
 
 /**
  * AES-GCM additional data of a session record: every field but the
- * ciphertext and the key, so a record whose expiry, address or credential
- * was edited in storage fails to decrypt
+ * ciphertext and the key, then the passkey's public key (not stored in the
+ * record), so a record whose expiry, address or credential was edited in
+ * storage, or a public key changed since, fails to decrypt
  */
-function sessionAdditionalData(record: SessionMetadata): Uint8Array<ArrayBuffer> {
+function sessionAdditionalData(
+  record: SessionMetadata,
+  publicKey: string
+): Uint8Array<ArrayBuffer> {
   return encodeFields(
     SESSION_AAD_LABEL,
     record.credentialId,
     record.ethereumAddress,
     String(record.expiresAt),
     record.securityMode,
-    String(record.createdAt)
+    String(record.createdAt),
+    publicKey
   );
 }
 
-/** Encrypt `mnemonic` under `key` into a session record bound to `metadata` */
+/**
+ * Encrypt `mnemonic` under `key` into a session record bound to `metadata`
+ * and to the passkey's `publicKey`
+ */
 export async function sealSessionRecord(
   mnemonic: string,
   key: CryptoKey,
-  metadata: SessionMetadata
+  metadata: SessionMetadata,
+  publicKey: string
 ): Promise<Omit<PersistentSessionData, "sessionKey">> {
   const { credentialId, ethereumAddress, expiresAt, securityMode, createdAt } = metadata;
   return {
@@ -98,17 +107,26 @@ export async function sealSessionRecord(
     expiresAt,
     securityMode,
     createdAt,
-    encryptedMnemonic: await encryptData(mnemonic, key, sessionAdditionalData(metadata)),
+    encryptedMnemonic: await encryptData(
+      mnemonic,
+      key,
+      sessionAdditionalData(metadata, publicKey)
+    ),
   };
 }
 
 /**
  * Decrypt a session record's mnemonic
  *
- * @throws CryptoError if `key` is wrong or the record's metadata was changed
+ * @throws CryptoError if `key` is wrong, the record's metadata was changed or
+ *   `publicKey` isn't the one it was sealed with
  */
-export function openSessionRecord(record: PersistentSessionData, key: CryptoKey): Promise<string> {
-  return decryptData(record.encryptedMnemonic, key, sessionAdditionalData(record));
+export function openSessionRecord(
+  record: PersistentSessionData,
+  key: CryptoKey,
+  publicKey: string
+): Promise<string> {
+  return decryptData(record.encryptedMnemonic, key, sessionAdditionalData(record, publicKey));
 }
 
 /**

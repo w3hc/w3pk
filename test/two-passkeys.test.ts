@@ -14,6 +14,7 @@ import { Wallet } from "ethers";
 import { Web3Passkey } from "../src/index";
 import { BackupFileManager } from "../src/backup/backup-file";
 import { SessionManager } from "../src/core/session";
+import { CredentialStorage } from "../src/auth/storage";
 import { derivePrfSessionKey } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
@@ -324,7 +325,14 @@ async function runTests() {
     const remember = async (passkey: Passkey) => {
       await new Promise((resolve) => setTimeout(resolve, 5));
       const key = await derivePrfSessionKey(crypto.getRandomValues(new Uint8Array(32)), true);
-      await new SessionManager(1, config).startSession(MNEMONIC, passkey.id, ADDRESS, key, "STANDARD");
+      const { publicKey } = (await new CredentialStorage().getCredentialById(passkey.id))!;
+      await new SessionManager(1, config).startSession(
+        MNEMONIC,
+        passkey.id,
+        { ethereumAddress: ADDRESS, publicKey },
+        key,
+        "STANDARD"
+      );
     };
 
     await remember(a);

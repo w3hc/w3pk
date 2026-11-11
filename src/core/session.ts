@@ -28,6 +28,13 @@ import {
 } from "./persistent-session";
 import { exportSessionKey, importSessionKey } from "../wallet/crypto";
 
+/** The account a persistent session is stored for */
+export interface SessionAccount {
+  ethereumAddress: string;
+  /** The passkey's public key, as checked at login: the record is bound to it */
+  publicKey: string;
+}
+
 export interface SessionData {
   mnemonic: string;
   expiresAt: string;
@@ -64,7 +71,8 @@ export class SessionManager {
    *
    * @param mnemonic - The decrypted mnemonic
    * @param credentialId - WebAuthn credential ID
-   * @param ethereumAddress - User's ethereum address
+   * @param account - The address and public key to persist the session for;
+   *   without it the session is in memory only
    * @param prfSessionKey - AES key derived from this
    *   assertion's PRF output (see derivePrfSessionKey)
    * @param securityMode - Security mode: STRICT starts no session, in memory
@@ -73,7 +81,7 @@ export class SessionManager {
   async startSession(
     mnemonic: string,
     credentialId: string,
-    ethereumAddress?: string,
+    account?: SessionAccount,
     prfSessionKey?: CryptoKey,
     securityMode?: SecurityMode
   ): Promise<void> {
@@ -81,7 +89,7 @@ export class SessionManager {
 
     this.cacheSession(mnemonic, credentialId);
 
-    if (this.persistentConfig.enabled && ethereumAddress) {
+    if (this.persistentConfig.enabled && account) {
       if (!prfSessionKey) {
         console.info(
           '[w3pk] Authenticator did not provide a PRF output — persistent ' +
@@ -91,13 +99,18 @@ export class SessionManager {
       }
 
       try {
-        const record = await sealSessionRecord(mnemonic, prfSessionKey, {
-          expiresAt: Date.now() + this.persistentConfig.duration * 60 * 60 * 1000,
-          credentialId,
-          ethereumAddress,
-          securityMode: securityMode || 'STANDARD',
-          createdAt: Date.now(),
-        });
+        const record = await sealSessionRecord(
+          mnemonic,
+          prfSessionKey,
+          {
+            expiresAt: Date.now() + this.persistentConfig.duration * 60 * 60 * 1000,
+            credentialId,
+            ethereumAddress: account.ethereumAddress,
+            securityMode: securityMode || 'STANDARD',
+            createdAt: Date.now(),
+          },
+          account.publicKey
+        );
 
         await this.persistentStorage.store({
           ...record,
@@ -221,13 +234,13 @@ export class SessionManager {
    * secret it returned when the blob was encrypted — no key ever touches
    * disk on this path.
    *
-   * @param ethereumAddress - User's ethereum address
+   * @param account - The logged-in address and public key
    * @param credentialId - WebAuthn credential ID
    * @param prfSessionKey - Key derived from this assertion's PRF output
    * @returns Mnemonic if session restored, null otherwise
    */
   async restoreFromPersistentStorage(
-    ethereumAddress: string,
+    account: SessionAccount,
     credentialId: string,
     prfSessionKey?: CryptoKey
   ): Promise<string | null> {
@@ -242,14 +255,18 @@ export class SessionManager {
         return null;
       }
 
-      if (persistentSession.ethereumAddress.toLowerCase() !== ethereumAddress.toLowerCase()) {
+      if (persistentSession.ethereumAddress.toLowerCase() !== account.ethereumAddress.toLowerCase()) {
         console.warn('[w3pk] Address mismatch, clearing persistent session');
         await this.persistentStorage.delete(credentialId);
         return null;
       }
 
       // Decrypt mnemonic with the assertion-derived key
-      const mnemonic = await openSessionRecord(persistentSession, prfSessionKey);
+      const mnemonic = await openSessionRecord(
+        persistentSession,
+        prfSessionKey,
+        account.publicKey
+      );
 
       this.cacheSession(mnemonic, credentialId);
 
@@ -269,11 +286,16 @@ export class SessionManager {
    * Only works if requireReauth is false and a valid persistent session
    * exists with a stored session key
    *
+   * The record is bound to the public key it was sealed with, so the stored
+   * public key is returned only if it still is that one. No PRF output is
+   * available here: this is only as strong as the stored session key.
+   *
    * @returns User info if session restored, null otherwise
    */
   async attemptSilentRestore(): Promise<{
     ethereumAddress: string;
     credentialId: string;
+    publicKey: string;
   } | null> {
     // Only attempt silent restore if enabled and requireReauth is false
     if (!this.persistentConfig.enabled || this.persistentConfig.requireReauth) {
@@ -320,7 +342,8 @@ export class SessionManager {
         const { credential, session } = latest;
         const mnemonic = await openSessionRecord(
           session,
-          await importSessionKey(session.sessionKey!)
+          await importSessionKey(session.sessionKey!),
+          credential.publicKey
         );
 
         this.cacheSession(mnemonic, credential.id);
@@ -328,6 +351,7 @@ export class SessionManager {
         return {
           ethereumAddress: credential.ethereumAddress,
           credentialId: credential.id,
+          publicKey: credential.publicKey,
         };
       }
 
