@@ -26,6 +26,7 @@ import {
   P256_SOLIDITY_GAS,
   PAYMASTER_SIG_MAGIC,
   encodeExecute,
+  getRequiredPrefund,
   getUserOperationHash,
   paymasterAndDataHash,
   type UserOperation,
@@ -57,6 +58,20 @@ async function withBundler(
     await bundler.close();
   }
 }
+
+/** Required prefund of a UserOperation as the bundler got it */
+const prefundOf = (op: Record<string, string>) =>
+  getRequiredPrefund({
+    ...op,
+    nonce: BigInt(op.nonce),
+    callGasLimit: BigInt(op.callGasLimit),
+    verificationGasLimit: BigInt(op.verificationGasLimit),
+    preVerificationGas: BigInt(op.preVerificationGas),
+    maxFeePerGas: BigInt(op.maxFeePerGas),
+    maxPriorityFeePerGas: BigInt(op.maxPriorityFeePerGas),
+    paymasterVerificationGasLimit: op.paymasterVerificationGasLimit ? BigInt(op.paymasterVerificationGasLimit) : undefined,
+    paymasterPostOpGasLimit: op.paymasterPostOpGasLimit ? BigInt(op.paymasterPostOpGasLimit) : undefined,
+  } as UserOperation);
 
 const config = (bundler: MockBundler, extra: object = {}) => ({
   rpcUrls: { [bundler.chainId]: [bundler.url] },
@@ -413,7 +428,11 @@ async function runTests() {
         assert.strictEqual(passkeyCalls.length, 0, "hook before the passkey prompt");
       },
     });
-    assert.deepStrictEqual(seen, expected[1], "one transaction, one digests object");
+    assert.deepStrictEqual(
+      seen,
+      { ...expected[1], maxFee: prefundOf(bundler.included[0]) },
+      "one transaction, one digests object, with the max fee"
+    );
     assert.strictEqual(passkeyCalls.length, 1);
 
     await sdk.sendTransaction(txs, {
@@ -424,7 +443,11 @@ async function runTests() {
         txs.push({ to: TOKEN, data: "0x", chainId: 1 });
       },
     });
-    assert.deepStrictEqual(seen, expected, "an array of transactions, an array of digests");
+    assert.deepStrictEqual(
+      seen,
+      expected.map((digests) => ({ ...digests, maxFee: prefundOf(bundler.included[1]) })),
+      "an array of transactions, an array of digests, each with the max fee"
+    );
     const [, executionCalldata] = account.decodeFunctionData("execute", bundler.included[1].callData);
     const [executions] = coder.decode(["tuple(address,uint256,bytes)[]"], executionCalldata);
     assert.deepStrictEqual(

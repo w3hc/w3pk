@@ -84,6 +84,7 @@ import {
   P256_SOLIDITY_GAS,
 } from "../wallet/user-operation";
 import {
+  checkUserOperationCaps,
   estimateUserOperationGas,
   getPaymasterData,
   getPaymasterStubData,
@@ -1179,7 +1180,8 @@ export class Web3Passkey {
    * UserOperation (EntryPoint v0.9) through a bundler, deploying the account
    * with its first transaction on the chain. An array of transactions is
    * executed atomically, in one UserOperation. The account pays its own gas,
-   * unless an ERC-7677 paymaster service is set.
+   * unless an ERC-7677 paymaster service is set. Gas values or a max fee above
+   * the chain's `userOperationCaps` throw before the passkey prompt.
    *
    * @param tx - Transaction, or in PRIMARY mode an array of transactions on the same chain
    * @param tx.to - Recipient address
@@ -1200,7 +1202,7 @@ export class Web3Passkey {
    * @param options.bundlerUrl - PRIMARY mode: bundler endpoint (default: `bundlerUrls[chainId]`)
    * @param options.onBeforeSign - Awaited with the transaction's ERC-8213 digests (getSigningDigests())
    *   and `method: "eth_sendTransaction"`, an array of them for an array of transactions, before the
-   *   passkey prompt; throw, reject or return `false` to cancel with UserRejectedRequestError (code 4001).
+   *   passkey prompt; in PRIMARY mode each also carries the UserOperation's `maxFee` in wei; throw, reject or return `false` to cancel with UserRejectedRequestError (code 4001).
    *   The transactions are copied first, and the copy is sent
    * @param options.paymasterUrl - PRIMARY mode: ERC-7677 paymaster service (default: `paymasterUrl`)
    * @param options.paymasterContext - PRIMARY mode: ERC-7677 context (default: {})
@@ -1226,7 +1228,7 @@ export class Web3Passkey {
       const origin = getCurrentOrigin();
       const snapshot = Array.isArray(tx) ? tx.map((t) => ({ ...t })) : { ...tx };
       const txs = Array.isArray(snapshot) ? snapshot : [snapshot];
-      const confirm = () => this.confirmTransaction(snapshot, options?.onBeforeSign);
+      const confirm = (maxFee?: bigint) => this.confirmTransaction(snapshot, options?.onBeforeSign, maxFee);
 
       if (effectiveMode === 'PRIMARY') {
         return await this.sendWithSmartAccount(txs, effectiveTag, origin, confirm, options);
@@ -1290,15 +1292,20 @@ export class Web3Passkey {
     }
   }
 
-  /** Awaits onBeforeSign with the digests of a transaction, or of each of an array of transactions */
+  /**
+   * Awaits onBeforeSign with the digests of a transaction, or of each of an
+   * array of transactions, and in PRIMARY mode the UserOperation's max fee
+   */
   private async confirmTransaction(
     tx: TransactionRequest | TransactionRequest[],
-    onBeforeSign: SendTransactionOptions["onBeforeSign"]
+    onBeforeSign: SendTransactionOptions["onBeforeSign"],
+    maxFee?: bigint
   ): Promise<void> {
     if (!onBeforeSign) return;
     const digestsOf = ({ to, value, data }: TransactionRequest): TransactionBeforeSignDigests => ({
       method: "eth_sendTransaction",
       ...getSigningDigests({ method: "eth_sendTransaction", params: [{ to, value, data }] }),
+      ...(maxFee !== undefined && { maxFee }),
     });
     await confirmBeforeSign(onBeforeSign, Array.isArray(tx) ? tx.map(digestsOf) : digestsOf(tx));
   }
@@ -1354,7 +1361,7 @@ export class Web3Passkey {
     txs: TransactionRequest[],
     tag: string,
     origin: string,
-    confirm: () => Promise<void>,
+    confirm: (maxFee: bigint) => Promise<void>,
     options?: SendTransactionOptions
   ): Promise<SendTransactionResult> {
     if (txs.length === 0) {
@@ -1466,7 +1473,7 @@ export class Web3Passkey {
         provider.destroy();
       }
 
-      await confirm();
+      await confirm(checkUserOperationCaps(op, this.config.userOperationCaps?.[chainId]));
       op.signature = await signWithPasskey(getUserOperationHash(op, chainId), credential.id);
       const userOpHash = await sendUserOperation(bundlerUrl, op);
       const receipt = await waitForUserOperationReceipt(bundlerUrl, userOpHash, { timeout: options?.timeout });
