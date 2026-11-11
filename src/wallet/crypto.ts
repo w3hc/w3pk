@@ -197,15 +197,3 @@ export async function decryptData(
     );
   }
 }
-
-export async function hashCredentialId(credentialId: string): Promise<string> {
-  try {
-    const hash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(`w3pk-cred-id:${credentialId}`)
-    );
-    return arrayBufferToBase64Url(hash);
-  } catch (error) {
-    throw new CryptoError("Failed to hash credential ID", error);
-  }
-}
