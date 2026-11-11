@@ -542,24 +542,8 @@ export class Web3Passkey {
         prfSessionKey
       );
 
-      if (restoredMnemonic) {
-        // A record stored under the old key can't be decrypted with the
-        // wallet key: re-encrypt it from the session's mnemonic
-        if (result.prfOutput) {
-          const current = await this.decryptWallet(walletData, result.prfOutput)
-            .then(() => true, () => false);
-          if (!current) {
-            await this.storeWallet(
-              walletData.ethereumAddress,
-              restoredMnemonic,
-              walletData.credentialId,
-              result.prfOutput,
-              walletData.createdAt
-            );
-          }
-        }
-      } else {
-        // Without PRF, or under the old key, the wallet can't be decrypted
+      if (!restoredMnemonic) {
+        // Without PRF, or under another key, the wallet can't be decrypted
         // here: it has to be restored from a backup
         const walletMissing = () => {
           this.currentUser = null;
