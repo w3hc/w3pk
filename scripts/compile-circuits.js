@@ -1,251 +1,181 @@
 #!/usr/bin/env node
 
 /**
- * Circuit Compilation Script
- * Compiles Circom circuits to WASM and generates proving keys
+ * Compiles the Circom circuits and sets up their Groth16 keys.
+ *
+ *   node scripts/compile-circuits.js [--ptau <file>]             dev keys, test only
+ *   node scripts/compile-circuits.js --release [--ptau <file>]   checks ceremony keys
+ *
+ * Dev mode writes zkeys/<name>_test_only.zkey straight from `groth16 setup`,
+ * with no phase-2 contribution: anyone can redo that setup, learn its toxic
+ * waste and prove anything, so artifacts.json marks these keys `testOnly`.
+ * Without the ptau it compiles the circuits and skips the keys.
+ *
+ * Release mode creates no key. It takes zkeys/<name>_final.zkey from a phase-2
+ * ceremony, refuses it unless it has at least one contribution that is not a
+ * beacon, and checks it against the circuit and the ptau as `snarkjs zkey
+ * verify` does. Any failure exits non-zero.
+ *
+ * The default ptau is Hermez's powersOfTau28_hez_final_15.ptau, enough for
+ * 2^15 constraints, in this directory.
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const CIRCUITS_DIR = path.join(__dirname, '../src/zk/circuits');
 const OUTPUT_DIR = path.join(__dirname, '../src/zk/templates');
 const WASM_DIR = path.join(OUTPUT_DIR, 'wasm');
 const ZKEY_DIR = path.join(OUTPUT_DIR, 'zkeys');
+const DEFAULT_PTAU = path.join(__dirname, 'powersOfTau28_hez_final_15.ptau');
+const PTAU_URL = 'https://circom.info/powersOfTau28_hez_final_15.ptau';
 
-const CIRCUITS = [
-  'membership',
-  'threshold',
-  'range',
-  'ownership',
-  'nft'
-];
+const CIRCUITS = ['membership', 'threshold', 'range', 'ownership', 'nft'];
 
-// Colors for console output
-const colors = {
-  reset: '\x1b[0m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-  blue: '\x1b[34m'
-};
+const BEACON = 1;
 
-function log(message, color = 'reset') {
-  console.log(`${colors[color]}${message}${colors.reset}`);
-}
+/**
+ * The phase-2 contributions recorded in a Groth16 zkey (section 10), oldest
+ * first, as `{ type, name }`; type 1 is a beacon.
+ */
+function phase2Contributions(zkeyPath) {
+  const buf = fs.readFileSync(zkeyPath);
+  if (buf.toString('latin1', 0, 4) !== 'zkey') throw new Error(`${zkeyPath} is not a zkey file`);
 
-function ensureDirectories() {
-  [OUTPUT_DIR, WASM_DIR, ZKEY_DIR].forEach(dir => {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-      log(`✓ Created directory: ${dir}`, 'green');
-    }
-  });
-}
-
-function checkDependencies() {
-  try {
-    // Load Rust environment and update PATH
-    const homeDir = require('os').homedir();
-    const cargoPath = `${homeDir}/.cargo/bin`;
-    process.env.PATH = `${cargoPath}:${process.env.PATH}`;
-    
-    execSync('circom --version', { stdio: 'ignore' });
-    log('✓ circom found', 'green');
-  } catch (error) {
-    log('✗ circom not found. Install circom 2.x from: https://github.com/iden3/circom', 'red');
-    log('  Run: cargo install --git https://github.com/iden3/circom circom', 'yellow');
-    process.exit(1);
+  const sections = new Map();
+  let pos = 12;
+  for (let i = buf.readUInt32LE(8); i > 0; i--) {
+    const type = buf.readUInt32LE(pos);
+    const size = Number(buf.readBigUInt64LE(pos + 4));
+    sections.set(type, buf.subarray(pos + 12, pos + 12 + size));
+    pos += 12 + size;
+  }
+  const header = sections.get(1);
+  const groth16 = sections.get(2);
+  const mpc = sections.get(10);
+  if (!header || header.readUInt32LE(0) !== 1 || !groth16 || !mpc) {
+    throw new Error(`${zkeyPath} is not a Groth16 zkey`);
   }
 
+  // deltaAfter, g1_s and g1_sx in G1, g2_spx in G2, then a 64-byte transcript
+  const n8q = groth16.readUInt32LE(0);
+  const typeOffset = 3 * 2 * n8q + 4 * n8q + 64;
+  const contributions = [];
+  let at = 68;
+  for (let i = mpc.readUInt32LE(64); i > 0; i--) {
+    const type = mpc.readUInt32LE(at + typeOffset);
+    const paramsLength = mpc.readUInt32LE(at + typeOffset + 4);
+    const params = mpc.subarray(at + typeOffset + 8, at + typeOffset + 8 + paramsLength);
+    const name = params[0] === 1 ? params.subarray(2, 2 + params[1]).toString('utf8') : undefined;
+    contributions.push({ type, name });
+    at += typeOffset + 8 + paramsLength;
+  }
+  return contributions;
+}
+
+/**
+ * Refuses a zkey with no phase-2 contribution besides beacons, or one that
+ * `zkey verify` rejects for this circuit and ptau. Returns its contributions.
+ */
+async function checkReleaseZkey({ r1cs, ptau, zkey }) {
+  const contributions = phase2Contributions(zkey);
+  if (!contributions.some((c) => c.type !== BEACON)) {
+    throw new Error(`${zkey} has no phase-2 contribution${contributions.length ? ' besides a beacon' : ''}`);
+  }
+  const snarkjs = require('snarkjs');
+  if (!(await snarkjs.zKey.verifyFromR1cs(r1cs, ptau, zkey))) {
+    throw new Error(`${zkey} does not match ${r1cs} and ${ptau}`);
+  }
+  return contributions;
+}
+
+function parseArgs(argv) {
+  const release = argv.includes('--release');
+  const at = argv.indexOf('--ptau');
+  const ptau = at === -1 ? DEFAULT_PTAU : path.resolve(argv[at + 1] || '');
+  return { release, ptau };
+}
+
+function findCircom() {
+  process.env.PATH = `${path.join(os.homedir(), '.cargo', 'bin')}${path.delimiter}${process.env.PATH}`;
   try {
-    // Check which command exists
-    try {
-      execSync('which snarkjs', { stdio: 'ignore' });
-      log('✓ snarkjs found (global)', 'green');
-    } catch {
-      try {
-        // Check if local snarkjs exists
-        const fs = require('fs');
-        const path = require('path');
-        const localSnarkjs = path.join(process.cwd(), 'node_modules', '.bin', 'snarkjs');
-        if (fs.existsSync(localSnarkjs)) {
-          log('✓ snarkjs found (local)', 'green');
-        } else {
-          throw new Error('snarkjs not found');
-        }
-      } catch {
-        throw new Error('snarkjs not found');
-      }
-    }
-  } catch (error) {
-    log('✗ snarkjs not found. Install with: npm install -g snarkjs or npm install snarkjs', 'red');
-    process.exit(1);
+    execFileSync('circom', ['--version'], { stdio: 'ignore' });
+  } catch {
+    throw new Error('circom not found. Install circom 2.x: https://docs.circom.io/getting-started/installation/');
   }
 }
 
 function compileCircuit(name) {
-  log(`\nCompiling ${name} circuit...`, 'blue');
-  
-  const circuitPath = path.join(CIRCUITS_DIR, `${name}.circom`);
-  const outputPath = OUTPUT_DIR; // Use the templates directory as base
-
-  try {
-    // Compile circuit with library path (PATH already updated in checkDependencies)
-    execSync(
-      `circom ${circuitPath} --r1cs --wasm --sym -o ${outputPath} -l node_modules`,
-      { stdio: 'inherit' }
-    );
-    log(`✓ Compiled ${name}.circom`, 'green');
-
-    // Move files to correct locations
-    const r1csPath = path.join(outputPath, `${name}.r1cs`);
-    const symPath = path.join(outputPath, `${name}.sym`);
-    const wasmJsDir = path.join(outputPath, `${name}_js`);
-    const wasmSrcPath = path.join(wasmJsDir, `${name}.wasm`);
-    const wasmDstPath = path.join(WASM_DIR, `${name}.wasm`);
-    
-    if (fs.existsSync(wasmSrcPath)) {
-      fs.copyFileSync(wasmSrcPath, wasmDstPath);
-      log(`✓ Copied ${name}.wasm to wasm directory`, 'green');
-    }
-
-    return true;
-  } catch (error) {
-    log(`✗ Failed to compile ${name}:`, 'red');
-    console.error(error.message);
-    return false;
-  }
+  console.log(`Compiling ${name}.circom`);
+  execFileSync(
+    'circom',
+    [path.join(CIRCUITS_DIR, `${name}.circom`), '--r1cs', '--wasm', '--sym', '-o', OUTPUT_DIR, '-l', 'node_modules'],
+    { stdio: 'inherit', cwd: path.join(__dirname, '..') }
+  );
+  fs.copyFileSync(path.join(OUTPUT_DIR, `${name}_js`, `${name}.wasm`), path.join(WASM_DIR, `${name}.wasm`));
+  return path.join(OUTPUT_DIR, `${name}.r1cs`);
 }
 
-function generateProvingKey(name) {
-  log(`\nGenerating proving key for ${name}...`, 'blue');
-
-  const r1csPath = path.join(WASM_DIR, name, `${name}.r1cs`);
-  const zkeyPath = path.join(ZKEY_DIR, `${name}_final.zkey`);
-  const vkeyPath = path.join(ZKEY_DIR, `${name}_verification_key.json`);
-
-  // Check if powers of tau file exists
-  const ptauPath = path.join(__dirname, 'powersOfTau28_hez_final_12.ptau');
-  
-  if (!fs.existsSync(ptauPath)) {
-    log('Powers of Tau file not found. Downloading...', 'yellow');
-    log('This is a one-time operation and may take a few minutes.', 'yellow');
-    
-    try {
-      // Skip proving key generation for now - it's optional for development
-      log('⚠️ Skipping Powers of Tau download for now', 'yellow');
-      log('  For production, download from: https://github.com/iden3/snarkjs#7-prepare-phase-2', 'yellow');
-      return false; // Skip this step
-    } catch (error) {
-      return false;
-    }
+async function setupKey(name, r1cs, ptau, release) {
+  const snarkjs = require('snarkjs');
+  let zkey;
+  if (release) {
+    zkey = path.join(ZKEY_DIR, `${name}_final.zkey`);
+    if (!fs.existsSync(zkey)) throw new Error(`${zkey} not found: run the phase-2 ceremony first`);
+    const contributions = await checkReleaseZkey({ r1cs, ptau, zkey });
+    console.log(`  ${contributions.length} phase-2 contribution(s), zkey verified`);
+  } else {
+    zkey = path.join(ZKEY_DIR, `${name}_test_only.zkey`);
+    await snarkjs.zKey.newZKey(r1cs, ptau, zkey);
+    console.log(`  ${path.basename(zkey)}: no phase-2 contribution, test only`);
   }
-
-  try {
-    // Generate proving key
-    log('Running Groth16 setup (this may take a while)...', 'yellow');
-    
-    // Try global snarkjs first, then the local one
-    try {
-      execSync(
-        `snarkjs groth16 setup ${r1csPath} ${ptauPath} ${zkeyPath}`,
-        { stdio: 'inherit' }
-      );
-    } catch {
-      execSync(
-        `pnpm exec snarkjs groth16 setup ${r1csPath} ${ptauPath} ${zkeyPath}`,
-        { stdio: 'inherit' }
-      );
-    }
-    log(`✓ Generated ${name}_final.zkey`, 'green');
-
-    // Export verification key
-    try {
-      execSync(
-        `snarkjs zkey export verificationkey ${zkeyPath} ${vkeyPath}`,
-        { stdio: 'inherit' }
-      );
-    } catch {
-      execSync(
-        `pnpm exec snarkjs zkey export verificationkey ${zkeyPath} ${vkeyPath}`,
-        { stdio: 'inherit' }
-      );
-    }
-    log(`✓ Exported verification key`, 'green');
-
-    return true;
-  } catch (error) {
-    log(`✗ Failed to generate proving key for ${name}:`, 'red');
-    console.error(error.message);
-    return false;
-  }
+  const verificationKey = await snarkjs.zKey.exportVerificationKey(zkey);
+  fs.writeFileSync(path.join(ZKEY_DIR, `${name}_verification_key.json`), JSON.stringify(verificationKey, null, 2));
+  const relative = (p) => `./${path.relative(path.join(__dirname, '..'), p)}`;
+  return {
+    wasmPath: relative(path.join(WASM_DIR, `${name}.wasm`)),
+    zkeyPath: relative(zkey),
+    verificationKey,
+    ...(release ? {} : { testOnly: true }),
+  };
 }
 
-function createArtifactIndex() {
-  log('\nCreating artifact index...', 'blue');
+async function main() {
+  const { release, ptau } = parseArgs(process.argv.slice(2));
+  console.log(`=== w3pk circuits (${release ? 'release' : 'dev'}) ===`);
+
+  const missingPtau = !fs.existsSync(ptau) && `${ptau} not found. Download it from ${PTAU_URL} or pass --ptau <file>`;
+  if (missingPtau && release) throw new Error(missingPtau);
+
+  findCircom();
+  for (const dir of [OUTPUT_DIR, WASM_DIR, ZKEY_DIR]) fs.mkdirSync(dir, { recursive: true });
+
+  const r1cs = Object.fromEntries(CIRCUITS.map((name) => [name, compileCircuit(name)]));
+
+  if (missingPtau) {
+    console.log(`${missingPtau}; skipping the proving keys`);
+    return;
+  }
 
   const artifacts = {};
-  
-  CIRCUITS.forEach(name => {
-    const wasmPath = path.join(WASM_DIR, `${name}.wasm`);
-    const zkeyPath = path.join(ZKEY_DIR, `${name}_final.zkey`);
-    const vkeyPath = path.join(ZKEY_DIR, `${name}_verification_key.json`);
-
-    if (fs.existsSync(vkeyPath)) {
-      const vkey = JSON.parse(fs.readFileSync(vkeyPath, 'utf8'));
-      
-      artifacts[name] = {
-        wasmPath: wasmPath.replace(path.join(__dirname, '..'), '.'),
-        zkeyPath: zkeyPath.replace(path.join(__dirname, '..'), '.'),
-        verificationKey: vkey
-      };
-    }
-  });
-
-  const indexPath = path.join(OUTPUT_DIR, 'artifacts.json');
-  fs.writeFileSync(indexPath, JSON.stringify(artifacts, null, 2));
-  log(`✓ Created artifacts.json`, 'green');
-}
-
-function main() {
-  log('=== w3pk Circuit Compilation ===', 'blue');
-  
-  checkDependencies();
-  ensureDirectories();
-
-  let successCount = 0;
-
-  // Compile all circuits
-  CIRCUITS.forEach(name => {
-    if (compileCircuit(name)) {
-      successCount++;
-    }
-  });
-
-  if (successCount === 0) {
-    log('\n✗ No circuits compiled successfully', 'red');
-    process.exit(1);
+  for (const name of CIRCUITS) {
+    console.log(`Setting up ${name}`);
+    artifacts[name] = await setupKey(name, r1cs[name], ptau, release);
   }
-
-  // Generate proving keys
-  log('\n=== Generating Proving Keys ===', 'blue');
-  log('NOTE: This step is optional for development.', 'yellow');
-  log('For production, you should run a trusted setup ceremony.', 'yellow');
-  log('Press Ctrl+C to skip, or wait to continue...', 'yellow');
-
-  setTimeout(() => {
-    CIRCUITS.forEach(name => {
-      generateProvingKey(name);
-    });
-
-    createArtifactIndex();
-
-    log('\n=== Compilation Complete ===', 'green');
-    log(`✓ Compiled ${successCount}/${CIRCUITS.length} circuits`, 'green');
-    log('\nCircuit artifacts are ready in src/zk/templates/', 'blue');
-  }, 3000);
+  fs.writeFileSync(path.join(OUTPUT_DIR, 'artifacts.json'), JSON.stringify(artifacts, null, 2));
+  console.log(`Wrote artifacts.json${release ? '' : ' with test-only keys: never ship them'}`);
 }
 
-main();
+if (require.main === module) {
+  main().then(
+    () => process.exit(0),
+    (error) => {
+      console.error(`✗ ${error.message}`);
+      process.exit(1);
+    }
+  );
+}
+
+module.exports = { phase2Contributions, checkReleaseZkey };
