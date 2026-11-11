@@ -126,14 +126,12 @@ export class ZKProofVerifier {
 
     const result = await this.verifyProof(proof);
 
-    // Check public inputs match
-    const publicCommitment = proof.publicSignals[0];
-    const publicThreshold = BigInt(proof.publicSignals[1]);
+    const [publicThreshold, publicCommitment] = proof.publicSignals;
 
     return (
       result.valid &&
       publicCommitment === expectedCommitment &&
-      publicThreshold === expectedThreshold
+      publicThreshold === expectedThreshold.toString()
     );
   }
 
@@ -152,15 +150,13 @@ export class ZKProofVerifier {
 
     const result = await this.verifyProof(proof);
 
-    const publicCommitment = proof.publicSignals[0];
-    const publicMin = BigInt(proof.publicSignals[1]);
-    const publicMax = BigInt(proof.publicSignals[2]);
+    const [publicMin, publicMax, publicCommitment] = proof.publicSignals;
 
     return (
       result.valid &&
       publicCommitment === expectedCommitment &&
-      publicMin === expectedMin &&
-      publicMax === expectedMax
+      publicMin === expectedMin.toString() &&
+      publicMax === expectedMax.toString()
     );
   }
 
@@ -233,15 +229,15 @@ export class ZKProofVerifier {
 
       case "threshold":
         return {
-          commitment: signals[0],
-          threshold: signals[1],
+          threshold: signals[0],
+          commitment: signals[1],
         };
 
       case "range":
         return {
-          commitment: signals[0],
-          min: signals[1],
-          max: signals[2],
+          min: signals[0],
+          max: signals[1],
+          commitment: signals[2],
         };
 
       case "ownership":
