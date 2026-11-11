@@ -97,7 +97,7 @@ export function deriveStealthKeys(mnemonic: string): StealthKeys {
  * 1. Generate random ephemeral private key
  * 2. Parse spending and viewing public keys from stealth meta-address
  * 3. Compute shared secret: s = ephemeral_privkey × viewing_pubkey (ECDH)
- * 4. Hash shared secret: s_h = keccak256(s)
+ * 4. Hash shared secret: s_h = keccak256(s), s as a 33-byte compressed point
  * 5. Extract view tag: viewTag = s_h[0]
  * 6. Compute stealth pubkey: P_stealth = spending_pubkey + (s_h × G)
  * 7. Derive stealth address from P_stealth
@@ -154,7 +154,7 @@ export function generateStealthAddress(
  *
  * Algorithm:
  * 1. Compute shared secret: s = viewing_privkey × ephemeral_pubkey (ECDH)
- * 2. Hash shared secret: s_h = keccak256(s)
+ * 2. Hash shared secret: s_h = keccak256(s), s as a 33-byte compressed point
  * 3. Check view tag first (255/256 probability to skip remaining computation)
  * 4. If view tag matches, compute stealth pubkey: P_stealth = spending_pubkey + (s_h × G)
  * 5. Derive address and compare with target
@@ -304,19 +304,17 @@ export function canControlStealthAddress(
 // ========================================
 
 /**
- * Compute ECDH shared secret using SECP256k1
- * s = privkey × pubkey
+ * Compute the ECDH shared secret s = privkey × pubkey on secp256k1
+ *
+ * Returns the 33-byte compressed point, the encoding ScopeLift's ERC-5564
+ * SDK hashes, so both derive the same view tags and stealth addresses.
  */
-function computeSharedSecret(privateKey: string, publicKey: string): string {
+function computeSharedSecret(privateKey: string, publicKey: string): Uint8Array {
   try {
-    const wallet = new ethers.Wallet(privateKey);
-    const signingKey = wallet.signingKey;
-
-    // Perform ECDH: multiply the public key by our private key
-    // The result is a point on the curve, we take its x-coordinate
-    const sharedPoint = signingKey.computeSharedSecret(publicKey);
-
-    return sharedPoint;
+    return secp256k1.getSharedSecret(
+      ethers.getBytes(privateKey),
+      ethers.getBytes(publicKey)
+    );
   } catch (error) {
     throw new CryptoError("Failed to compute shared secret", error);
   }

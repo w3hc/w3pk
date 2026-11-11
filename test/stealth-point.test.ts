@@ -21,10 +21,10 @@ const keys = deriveStealthKeys(
 // Ephemeral private key 0x11…11
 const ephemeralPubKey =
   "0x034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa";
-const viewTag = "0xe6";
+const viewTag = "0x13";
 const expectedPrivKey =
-  "0xde6d45d0c672bc16ab6e025a2087ab5aa98b9e5d1d40d43df41250657b8dd041";
-const expectedAddress = "0xe313D64b394524d4f69388951B4E030d6f99b82c";
+  "0x0b68fea69985b842b3f31c3e38a1ab03cb44abd441586f20d2e770beb874ee96";
+const expectedAddress = "0xB1A9e94E1f0B3C9940EFE3dFC3D5644eCB6b731d";
 
 const privKey = computeStealthPrivateKey(
   keys.viewingKey,
