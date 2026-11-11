@@ -11,7 +11,7 @@ w3pk provides **multiple layers of security** to protect user wallets:
 3. **Origin-specific derivation** - Each website gets unique isolated addresses
 4. **Mode-based access control** - STANDARD/STRICT modes are view-only, YOLO mode provides full access
 5. **Encrypted storage** - AES-256-GCM at rest, under a key derived from the passkey's WebAuthn PRF output, which the authenticator releases only on a user-verified assertion
-6. **Secure sessions** - In-memory and optional persistent sessions (disabled in STRICT mode)
+6. **Secure sessions** - In-memory and optional persistent sessions; STRICT caches nothing
 
 > **Before you rely on any of this for a threat model, read [At-Rest Encryption: What It Protects, and What It Doesn't](#at-rest-encryption-what-it-protects-and-what-it-doesnt) immediately below.** Since [#179](https://github.com/w3hc/w3pk/issues/179), the wallet on disk can't be decrypted from storage alone: the key needs the passkey. What is still exposed is the live session, and a silent "Remember Me" session whose key is stored.
 
@@ -116,7 +116,7 @@ w3pk now uses **origin-centric security modes** for wallet derivation. `STANDARD
 
 **STRICT mode:**
 - ✅ Address only (no private key)
-- ❌ Persistent sessions NOT allowed
+- ❌ No session: the mnemonic isn't cached, in memory or persistent
 - ✅ Requires biometric/PIN authentication every time
 - ✅ Best for high-security applications
 
@@ -168,7 +168,7 @@ const wallet = await w3pk.deriveWallet()
 // ❌ No privateKey in response
 // ✅ Uses cached session (no repeated auth)
 
-// STRICT mode - Address only, NO persistent sessions
+// STRICT mode - Address only, no session (in memory or persistent)
 const strictWallet = await w3pk.deriveWallet('STRICT')
 // Returns: { address, path, origin, mode: 'STRICT', tag: 'MAIN' }
 // ✅ Safe for display
@@ -521,6 +521,8 @@ await w3pk.login()  // ⚠️ Prompts the user, who may accept
 - Decrypted mnemonic cached in memory only
 - Expires after configured duration (default: 1 hour)
 - Never written to disk
+- Once a session starts, it is the only place the SDK keeps the mnemonic: after it expires or is cleared, and with `sessionDuration: 0`, the SDK holds none. JS strings can't be wiped, so the dropped string stays in the heap until the garbage collector reclaims it
+- `STRICT` operations start no session and leave a live one as it is
 
 **Limitations:**
 - **Active session = mnemonic in memory**
@@ -1693,9 +1695,9 @@ const w3pkNoSessions = createWeb3Passkey({
   persistentSession: { enabled: false }
 })
 
-// Use STRICT mode to disable persistent sessions
+// Use STRICT mode to cache nothing
 const strictWallet = await w3pk.deriveWallet('STRICT')
-// STRICT mode ALWAYS bypasses persistent sessions
+// STRICT mode starts no session, in memory or persistent
 ```
 
 ### Force Authentication Option

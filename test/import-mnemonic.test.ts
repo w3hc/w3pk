@@ -284,8 +284,7 @@ async function runTests() {
       "the assertion's signature counter is saved"
     );
     assert(sdk.user?.ethereumAddress === ADDRESS_B, "the user has wallet B's address");
-    assert((sdk as any).currentWallet?.address === ADDRESS_B, "the wallet in memory has B's address");
-    assert((sdk as any).currentWallet?.mnemonic === MNEMONIC_B, "the wallet in memory holds B's phrase");
+    assert((sdk as any).currentWallet === null, "no wallet is kept in memory");
     assert((await sdk.deriveWallet()).address !== undefined, "the session works");
 
     const storeB = log.indexOf(`set w3pk_wallet_${CREDENTIAL_ID}`);

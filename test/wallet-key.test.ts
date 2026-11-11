@@ -1,7 +1,8 @@
 /**
  * The wallet stored on the device is encrypted under a key derived from the
  * passkey's PRF output: register() and login() with and without PRF, and
- * records stored under the old key built from stored data
+ * records stored under the old key built from stored data. Once a session
+ * starts, only the session holds the mnemonic in memory, for its lifetime.
  *
  * NOTE: the mnemonic is the standard BIP39 test vector, not a real secret
  */
@@ -9,6 +10,7 @@
 import { Web3Passkey, WalletMissingError, PrfUnsupportedError } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
 import { LocalStorageWalletStorage } from "../src/wallet/storage";
+import type { SessionManager } from "../src/core/session";
 import { decryptData, deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
@@ -303,9 +305,12 @@ async function runTests() {
     await storeUnderOldKey(address);
 
     const next = new Web3Passkey();
+    const pending = { address: "0x0", mnemonic: "pending" };
+    (next as any).currentWallet = pending;
     const error = await next.login().then(() => undefined, (e) => e);
     assert(error instanceof WalletMissingError, "login() throws WalletMissingError");
     assert(!next.isAuthenticated, "the user stays logged out");
+    assert((next as any).currentWallet === pending, "a wallet waiting for register() is kept");
   }
   console.log("");
 
@@ -321,6 +326,75 @@ async function runTests() {
     await next.login();
     assert(next.isAuthenticated, "login() opens the wallet from the session");
     assert(await decryptsWithWalletKey(address), "the record is re-encrypted with the PRF wallet key");
+  }
+  console.log("");
+
+  const session = (sdk: Web3Passkey) => (sdk as any).sessionManager as SessionManager;
+
+  console.log("Test 6: register() leaves the mnemonic to the session");
+  {
+    reset(true, true);
+    const sdk = new Web3Passkey();
+    await registerWithMnemonic(sdk);
+    assert((sdk as any).currentWallet === null, "no wallet is kept in memory");
+    assert(session(sdk).getMnemonic() === MNEMONIC, "the session holds the mnemonic");
+    await sdk.deriveWallet();
+    assert(authenticator.getCalls.length === 0, "no passkey prompt within the session");
+  }
+  console.log("");
+
+  console.log("Test 7: login() drops a wallet waiting for register()");
+  {
+    reset(true, true);
+    await registerWithMnemonic(new Web3Passkey());
+    const sdk = new Web3Passkey();
+    (sdk as any).currentWallet = { address: "0x0", mnemonic: "pending" };
+    await sdk.login();
+    assert((sdk as any).currentWallet === null, "no wallet is kept in memory");
+    assert(session(sdk).getMnemonic() === MNEMONIC, "the session holds the mnemonic");
+  }
+  console.log("");
+
+  console.log("Test 8: nothing holds the mnemonic once the session expires");
+  {
+    reset(true, true);
+    const sdk = new Web3Passkey();
+    await registerWithMnemonic(sdk);
+    assert(sdk.hasActiveSession(), "the session is live");
+    (session(sdk) as any).session.expiresAt = new Date(Date.now() - 1).toISOString();
+    assert(!sdk.hasActiveSession(), "the session has expired");
+    assert((sdk as any).currentWallet === null, "no wallet is kept in memory");
+    assert(session(sdk).getMnemonic() === null, "the session holds no mnemonic");
+    await sdk.deriveWallet();
+    assert(authenticator.getCalls.length === 1, "the next operation prompts");
+  }
+  console.log("");
+
+  console.log("Test 9: sessionDuration: 0 keeps nothing in memory");
+  {
+    reset(true, true);
+    const sdk = new Web3Passkey({ sessionDuration: 0 });
+    await registerWithMnemonic(sdk);
+    assert((sdk as any).currentWallet === null, "no wallet is kept in memory");
+    assert(session(sdk).getMnemonic() === null, "the session holds no mnemonic");
+    await sdk.deriveWallet();
+    await sdk.deriveWallet();
+    assert(authenticator.getCalls.length === 2, "every operation prompts");
+    assert(session(sdk).getMnemonic() === null, "still nothing after an operation");
+  }
+  console.log("");
+
+  console.log("Test 10: STRICT caches nothing");
+  {
+    reset(true, true);
+    const sdk = new Web3Passkey({ persistentSession: { enabled: true } });
+    await registerWithMnemonic(sdk);
+    await session(sdk).clearSession();
+    await sdk.deriveWallet("STRICT");
+    assert(authenticator.getCalls.length === 1, "STRICT prompts");
+    assert(session(sdk).getMnemonic() === null, "no session is started");
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+    assert(!keys.some((k) => k?.startsWith("w3pk_session_")), "nothing is persisted");
   }
   console.log("");
 

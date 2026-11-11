@@ -103,7 +103,7 @@ export interface GeneratedWallet {
  * SECURITY GUARANTEES:
  * - `privateKey` is conditionally included based on security mode:
  *   - STANDARD mode: Address only (no private key), persistent sessions allowed
- *   - STRICT mode: Address only (no private key), no persistent sessions
+ *   - STRICT mode: Address only (no private key), no session
  *   - YOLO mode: Full access (address + private key), persistent sessions allowed
  * - Applications CANNOT access the master mnemonic
  * - This ensures apps can only access keys based on the security mode

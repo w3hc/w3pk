@@ -75,6 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The meta-address, viewing key and spending key don't change
   - `test/erc5564.test.ts` checks two vectors generated with `@scopelift/stealth-address-sdk`
   - No change for legitimate operations: same gas values, same prompts
+- **The mnemonic no longer stays in memory after the session ends** ([#349](https://github.com/w3hc/w3pk/issues/349)), audit finding L-2. Before, `currentWallet` kept the mnemonic after `register()`, `importMnemonic()` and logged-in restores until `logout()`, past session expiry and with `sessionDuration: 0`, and `STRICT` operations cached it in a session
+  - Once the user is logged in, the session is the only place the SDK keeps the mnemonic: after it expires or is cleared, and with `sessionDuration: 0`, the SDK holds none
+  - `currentWallet` only holds a wallet waiting for `register()`, generated, restored or recovered while logged out; `register()`, a successful `login()`, `importMnemonic()` and restores or syncs while logged in clear it, and a failed `login()` keeps it
+  - `STRICT` starts no session, in memory or persistent, and leaves a live session as it is: an operation in another mode after a `STRICT` one prompts unless a session was already live
+  - `SessionManager.attemptSilentRestore()` no longer returns the mnemonic
+  - No extra passkey prompt within a live session
 
 ## [0.12.3] - 2026-11-10
 
