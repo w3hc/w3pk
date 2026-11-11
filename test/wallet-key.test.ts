@@ -9,9 +9,9 @@
 
 import { Web3Passkey, WalletMissingError, PrfUnsupportedError } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
-import { LocalStorageWalletStorage } from "../src/wallet/storage";
+import { LocalStorageWalletStorage, openWalletRecord, sealWalletRecord } from "../src/wallet/storage";
 import type { SessionManager } from "../src/core/session";
-import { decryptData, deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
+import { deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
 console.log("\n==================================================");
@@ -219,7 +219,7 @@ async function decryptsWithWalletKey(address: string): Promise<boolean> {
   const stored = await wallets().retrieve(CREDENTIAL_ID);
   if (stored?.ethereumAddress !== address) return false;
   const key = await deriveWalletKey(authenticator.prfOutput);
-  return decryptData(stored.encryptedMnemonic, key).then(
+  return openWalletRecord(stored, key).then(
     (m) => m === MNEMONIC,
     () => false
   );

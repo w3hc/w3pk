@@ -20,7 +20,11 @@
 
 import { register } from "../auth/register";
 import { login } from "../auth/authenticate";
-import { LocalStorageWalletStorage } from "../wallet/storage";
+import {
+  LocalStorageWalletStorage,
+  openWalletRecord,
+  sealWalletRecord,
+} from "../wallet/storage";
 import type { EncryptedWalletData } from "../wallet/types";
 import {
   createWalletFromMnemonic,
@@ -36,8 +40,6 @@ import {
 import {
   derivePrfSessionKey,
   deriveWalletKey,
-  encryptData,
-  decryptData,
 } from "../wallet/crypto";
 import { StealthAddressModule } from "../stealth";
 import { SessionManager } from "./session";
@@ -318,10 +320,7 @@ export class Web3Passkey {
       throw new PrfUnsupportedError(authResult.user.credentialId);
     }
 
-    const mnemonic = await decryptData(
-      walletData.encryptedMnemonic,
-      await deriveWalletKey(authResult.prfOutput)
-    );
+    const mnemonic = await this.decryptWallet(walletData, authResult.prfOutput);
 
     // This assertion's PRF output (re-)keys the persistent session
     const prfSessionKey = authResult.prfOutput
@@ -367,12 +366,25 @@ export class Web3Passkey {
     prfOutput: BufferSource,
     createdAt = new Date().toISOString()
   ): Promise<void> {
-    await this.walletStorage.store({
-      ethereumAddress,
-      encryptedMnemonic: await encryptData(mnemonic, await deriveWalletKey(prfOutput)),
-      credentialId,
-      createdAt,
-    });
+    await this.walletStorage.store(
+      await sealWalletRecord(mnemonic, await deriveWalletKey(prfOutput), {
+        ethereumAddress,
+        credentialId,
+        createdAt,
+      })
+    );
+  }
+
+  /**
+   * Decrypt a wallet record with the key derived from `prfOutput`
+   *
+   * @throws CryptoError if the key is wrong or the record's metadata was changed
+   */
+  private async decryptWallet(
+    walletData: EncryptedWalletData,
+    prfOutput: BufferSource
+  ): Promise<string> {
+    return openWalletRecord(walletData, await deriveWalletKey(prfOutput));
   }
 
   /**
@@ -534,8 +546,7 @@ export class Web3Passkey {
         // A record stored under the old key can't be decrypted with the
         // wallet key: re-encrypt it from the session's mnemonic
         if (result.prfOutput) {
-          const walletKey = await deriveWalletKey(result.prfOutput);
-          const current = await decryptData(walletData.encryptedMnemonic, walletKey)
+          const current = await this.decryptWallet(walletData, result.prfOutput)
             .then(() => true, () => false);
           if (!current) {
             await this.storeWallet(
@@ -563,10 +574,7 @@ export class Web3Passkey {
 
         let mnemonic: string;
         try {
-          mnemonic = await decryptData(
-            walletData.encryptedMnemonic,
-            await deriveWalletKey(result.prfOutput)
-          );
+          mnemonic = await this.decryptWallet(walletData, result.prfOutput);
         } catch (error) {
           if (!(error instanceof CryptoError)) throw error;
           throw walletMissing();

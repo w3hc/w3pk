@@ -19,8 +19,8 @@ import {
   PrfUnsupportedError,
 } from "../src/index";
 import { CredentialStorage } from "../src/auth/storage";
-import { LocalStorageWalletStorage } from "../src/wallet/storage";
-import { decryptData, deriveWalletKey, encryptData, PRF_INPUT } from "../src/wallet/crypto";
+import { LocalStorageWalletStorage, openWalletRecord, sealWalletRecord } from "../src/wallet/storage";
+import { deriveWalletKey, PRF_INPUT } from "../src/wallet/crypto";
 import { BackupFileManager, generatePrfSalt, prfSyncInput } from "../src/backup/backup-file";
 import { arrayBufferToBase64Url } from "../src/utils/base64";
 
@@ -201,12 +201,13 @@ async function loggedInWith(publicKey: string, mnemonic: string): Promise<Web3Pa
     lastUsed: now,
   });
   const key = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
-  await wallets().store({
-    ethereumAddress: address,
-    encryptedMnemonic: await encryptData(mnemonic, key),
-    credentialId: CREDENTIAL_ID,
-    createdAt: now,
-  });
+  await wallets().store(
+    await sealWalletRecord(mnemonic, key, {
+      ethereumAddress: address,
+      credentialId: CREDENTIAL_ID,
+      createdAt: now,
+    })
+  );
 
   const sdk = new Web3Passkey();
   (sdk as any).currentUser = {
@@ -222,7 +223,7 @@ async function storedMnemonic(address: string): Promise<string | undefined> {
   const stored = await wallets().retrieve(CREDENTIAL_ID);
   if (stored?.ethereumAddress !== address) return undefined;
   const key = await deriveWalletKey(await prf(authenticator.secret, PRF_INPUT));
-  return decryptData(stored.encryptedMnemonic, key);
+  return openWalletRecord(stored, key);
 }
 
 async function capture(fn: () => Promise<unknown>): Promise<unknown> {

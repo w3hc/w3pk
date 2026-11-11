@@ -75,3 +75,21 @@ export function extractRS(derSignature: Uint8Array): { r: string; s: string } {
     s: '0x' + sBigInt.toString(16).padStart(64, '0'),
   };
 }
+
+/**
+ * Unambiguous encoding of `label` then `fields`, for AES-GCM additional data
+ * and MACs: each string is its UTF-8 length as 4 bytes big-endian, then its
+ * bytes
+ */
+export function encodeFields(label: string, ...fields: string[]): Uint8Array<ArrayBuffer> {
+  const encoded = [label, ...fields].map((field) => new TextEncoder().encode(field));
+  const out = new Uint8Array(encoded.reduce((length, bytes) => length + 4 + bytes.length, 0));
+  const view = new DataView(out.buffer);
+  let offset = 0;
+  for (const bytes of encoded) {
+    view.setUint32(offset, bytes.length);
+    out.set(bytes, offset + 4);
+    offset += 4 + bytes.length;
+  }
+  return out;
+}
