@@ -84,12 +84,12 @@ async function runTests() {
   await runTest("STRICT leaves the live session as it is", async () => {
     const manager = new SessionManager(1);
     await manager.startSession(MNEMONIC, "cred-id", undefined, undefined, "STANDARD");
-    const remaining = manager.getRemainingTime();
+    manager.setSessionDuration(2);
     await manager.startSession("other mnemonic", "other-id", undefined, undefined, "STRICT");
 
     assert(manager.getMnemonic() === MNEMONIC, "the session keeps its mnemonic");
     assert(manager.getCredentialId() === "cred-id", "the session keeps its credential");
-    assert(manager.getRemainingTime() <= remaining, "the session isn't extended");
+    assert(manager.getRemainingTime() <= 3600, "the session isn't extended");
   });
 
   await runTest("SDK keeps sessionDuration: 0", async () => {

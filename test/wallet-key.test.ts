@@ -305,9 +305,12 @@ async function runTests() {
     await storeUnderOldKey(address);
 
     const next = new Web3Passkey();
+    const pending = { address: "0x0", mnemonic: "pending" };
+    (next as any).currentWallet = pending;
     const error = await next.login().then(() => undefined, (e) => e);
     assert(error instanceof WalletMissingError, "login() throws WalletMissingError");
     assert(!next.isAuthenticated, "the user stays logged out");
+    assert((next as any).currentWallet === pending, "a wallet waiting for register() is kept");
   }
   console.log("");
 
@@ -355,9 +358,10 @@ async function runTests() {
   console.log("Test 8: nothing holds the mnemonic once the session expires");
   {
     reset(true, true);
-    const sdk = new Web3Passkey({ sessionDuration: 0.01 / 3600 });
+    const sdk = new Web3Passkey();
     await registerWithMnemonic(sdk);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert(sdk.hasActiveSession(), "the session is live");
+    (session(sdk) as any).session.expiresAt = new Date(Date.now() - 1).toISOString();
     assert(!sdk.hasActiveSession(), "the session has expired");
     assert((sdk as any).currentWallet === null, "no wallet is kept in memory");
     assert(session(sdk).getMnemonic() === null, "the session holds no mnemonic");
