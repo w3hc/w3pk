@@ -201,14 +201,15 @@ export class SocialRecovery {
    * (up to MAX_SHARE_SUBSETS subsets), the one most subsets agree on first.
    * When more shares than the threshold are given, a share whose checksum
    * fails is left out as long as the others reach the threshold.
-   * `walletAddress` is the address the shares left in carry.
+   * `walletAddress` is the address the shares left in carry, `skipped` the
+   * errors of the shares left out.
    *
    * @throws InvalidGuardianShareError naming a corrupted or edited share, one
    * from another split, a duplicate, or a share in an old format
    */
   async rebuildBackups(
     shares: GuardianShare[]
-  ): Promise<{ backups: BackupFile[]; walletAddress: string }> {
+  ): Promise<{ backups: BackupFile[]; walletAddress: string; skipped: unknown[] }> {
     if (shares.length < 2) {
       throw new Error('At least 2 shares required for recovery');
     }
@@ -218,7 +219,7 @@ export class SocialRecovery {
     );
     const valid = shares.filter((_, i) => failures[i] === undefined);
     const failure = failures.find((error) => error !== undefined);
-    if (failure !== undefined && (valid.length < 2 || valid.length < valid[0].threshold)) {
+    if (failure !== undefined && (valid.length < 2 || valid.length < Math.max(...valid.map((s) => s.threshold)))) {
       throw failure;
     }
     shares = valid;
@@ -300,6 +301,7 @@ export class SocialRecovery {
     return {
       backups: [...votes.values()].sort((a, b) => b.count - a.count).map(({ backup }) => backup),
       walletAddress: firstAddress,
+      skipped: failures.filter((error) => error !== undefined),
     };
   }
 
@@ -427,8 +429,8 @@ ${share.shareData}
   }
 
   /**
-   * Verify that a set of shares can successfully recover wallet data
-   * This is useful for testing the recovery process
+   * Verify that a set of shares can successfully recover wallet data: every
+   * share passes its checks and every subset rebuilds the same backup
    */
   async verifyRecovery(shares: GuardianShare[]): Promise<{
     canRecover: boolean;
@@ -436,11 +438,17 @@ ${share.shareData}
     error?: string;
   }> {
     try {
-      await this.recoverFromShares(shares);
+      const { backups, walletAddress, skipped } = await this.rebuildBackups(shares);
+      if (skipped.length > 0) throw skipped[0];
+      if (backups.length > 1) {
+        throw new Error(
+          `Subsets of the shares rebuild ${backups.length} different backups: a share was edited and its checksum recomputed`
+        );
+      }
 
       return {
         canRecover: true,
-        recoveredAddress: shares[0].walletAddress,
+        recoveredAddress: walletAddress,
       };
     } catch (error) {
       return {

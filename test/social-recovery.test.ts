@@ -401,6 +401,14 @@ async function runTests() {
     }
     const ranked = await new SocialRecovery().rebuildBackups([JSON.parse(forged), ...guardianShares.slice(1, 4)]);
     assert(ranked.backups.length > 1, "the forged share rebuilds backups that parse, which only decryption refuses");
+
+    const recovery = new SocialRecovery();
+    const verify = (shares: string[]) => recovery.verifyRecovery(shares.map((f) => recovery.parseGuardianShare(f)));
+    assert((await verify(files.slice(0, 4))).canRecover, "verifyRecovery passes honest shares");
+    const skipped = await verify([corrupted, ...files.slice(1, 4)]);
+    assert(!skipped.canRecover && /checksum/.test(skipped.error ?? ""), "verifyRecovery names a share left out");
+    const disagree = await verify([forged, ...files.slice(1, 4)]);
+    assert(!disagree.canRecover && /different backups/.test(disagree.error ?? ""), "verifyRecovery flags subsets that disagree");
     await assertThrows(
       () => new Web3Passkey().recoverFromGuardians([forged, files[1], files[2]], PASSWORD).then(() => {}),
       "a forged share in a threshold-sized set fails"
