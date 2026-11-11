@@ -9,7 +9,7 @@ import { InvalidGuardianShareError, Web3Passkey, WeakPasswordError } from "../sr
 import { guardianShareChecksum, SocialRecovery } from "../src/recovery/backup-based-recovery";
 import {
   splitSecret,
-  combineShares,
+  combineShareSubsets,
   stringToBytes,
   bytesToString,
   bytesToHex,
@@ -80,6 +80,9 @@ async function shareFiles(sdk: Web3Passkey, guardianShares: any[]): Promise<stri
     })
   );
 }
+
+const combineShares = (shares: Uint8Array[], threshold: number) =>
+  combineShareSubsets(shares, threshold).next().value as Uint8Array;
 
 async function runTests() {
   startTestSuite("Social Recovery Tests");

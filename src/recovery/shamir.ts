@@ -152,46 +152,52 @@ function interpolate(shares: Uint8Array[]): Uint8Array {
 }
 
 /**
- * Combine the first `threshold` shares to recover the secret
- *
- * @throws for fewer than `threshold` shares, shares of different lengths,
- * or an x-coordinate that is 0 or given twice
+ * Threshold-sized subsets of share positions, each once: first the windows
+ * of consecutive positions (wrapping around), so every share is left out
+ * early when more than the threshold are given, then the rest in
+ * lexicographic order
  */
-export function combineShares(shares: Uint8Array[], threshold: number): Uint8Array {
-  checkShares(shares, threshold);
-  return interpolate(shares.slice(0, threshold));
-}
-
-/**
- * The secret rebuilt from each threshold-sized subset of `shares`, the
- * subsets in lexicographic order of share positions, the first one being
- * the first `threshold` shares. Stops after MAX_SHARE_SUBSETS subsets.
- *
- * @throws as combineShares()
- */
-export function* combineShareSubsets(
-  shares: Uint8Array[],
-  threshold: number
-): Generator<Uint8Array> {
-  checkShares(shares, threshold);
+function* subsets(count: number, threshold: number): Generator<number[]> {
+  const seen = new Set<string>();
+  const fresh = (picked: number[]) => {
+    const key = picked.join();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  };
+  for (let start = 0; start < count; start++) {
+    const window = Array.from({ length: threshold }, (_, i) => (start + i) % count).sort((a, b) => a - b);
+    if (fresh(window)) yield window;
+  }
   const picked = Array.from({ length: threshold }, (_, i) => i);
-  for (let tried = 0; tried < MAX_SHARE_SUBSETS; tried++) {
-    yield interpolate(picked.map((i) => shares[i]));
+  for (;;) {
+    if (fresh(picked)) yield [...picked];
     let k = threshold - 1;
-    while (k >= 0 && picked[k] === shares.length - threshold + k) k--;
+    while (k >= 0 && picked[k] === count - threshold + k) k--;
     if (k < 0) return;
     picked[k]++;
     for (let j = k + 1; j < threshold; j++) picked[j] = picked[j - 1] + 1;
   }
 }
 
-/** Number of threshold-sized subsets of `count` shares */
-export function subsetCount(count: number, threshold: number): number {
-  let result = 1;
-  for (let i = 0; i < threshold; i++) {
-    result = (result * (count - i)) / (i + 1);
+/**
+ * The secret rebuilt from each threshold-sized subset of `shares`, up to
+ * MAX_SHARE_SUBSETS subsets: the first is the first `threshold` shares, then
+ * the windows of consecutive shares, then the other subsets
+ *
+ * @throws for fewer than `threshold` shares, shares of different lengths,
+ * or an x-coordinate that is 0 or given twice
+ */
+export function* combineShareSubsets(
+  shares: Uint8Array[],
+  threshold: number
+): Generator<Uint8Array> {
+  checkShares(shares, threshold);
+  let tried = 0;
+  for (const picked of subsets(shares.length, threshold)) {
+    if (tried++ === MAX_SHARE_SUBSETS) return;
+    yield interpolate(picked.map((i) => shares[i]));
   }
-  return Math.round(result);
 }
 
 /**

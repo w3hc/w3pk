@@ -9,9 +9,7 @@ import { readFileSync } from "node:fs";
 import { Web3Passkey } from "../src/index";
 import {
   splitSecret,
-  combineShares,
   combineShareSubsets,
-  subsetCount,
   MAX_SHARE_SUBSETS,
   gfMul,
   gfInv,
@@ -69,6 +67,9 @@ const SUBSETS = [
   [2, 3, 4],
 ];
 
+const combine = (shares: Uint8Array[], threshold: number) =>
+  combineShareSubsets(shares, threshold).next().value as Uint8Array;
+
 async function runTests() {
   startTestSuite("Shamir Secret Sharing Tests");
 
@@ -102,7 +103,7 @@ async function runTests() {
   await runTest("pinned shares recover every byte value", async () => {
     const { threshold, secret, shares } = fixtures.shamir;
     for (const subset of SUBSETS) {
-      const recovered = combineShares(subset.map((i) => hexToBytes(shares[i])), threshold);
+      const recovered = combine(subset.map((i) => hexToBytes(shares[i])), threshold);
       assertEqual(bytesToHex(recovered), secret, `subset ${subset.join(",")}`);
     }
     passTest();
@@ -134,29 +135,31 @@ async function runTests() {
       [[shares[0].slice(0, 1), shares[1].slice(0, 1)], "shares without data"],
     ] as const) {
       await assertThrows(() => {
-        combineShares(bad as unknown as Uint8Array[], 2);
+        combine(bad as unknown as Uint8Array[], 2);
       }, label);
     }
     await assertThrows(() => {
-      combineShares(shares, 1);
+      combine(shares, 1);
     }, "threshold below 2");
     passTest();
   });
 
-  await runTest("combineShareSubsets tries every subset in order, up to the bound", async () => {
+  await runTest("combineShareSubsets tries every subset once, up to the bound", async () => {
     const secret = Uint8Array.of(7, 8, 9);
     const shares = splitSecret(secret, 3, 5);
     const bad = Uint8Array.from(shares[0]);
     bad[1] ^= 1;
     const results = [...combineShareSubsets([bad, ...shares.slice(1)], 3)].map(bytesToHex);
-    assertEqual(results.length, subsetCount(5, 3), "all 10 subsets");
+    assertEqual(results.length, 10, "all 10 subsets");
     assertEqual(results.filter((r) => r === bytesToHex(secret)).length, 4, "the 4 subsets without the bad share agree");
     assert(results[0] !== bytesToHex(secret), "the first subset holds the bad share");
-    assertEqual(results[0], bytesToHex(combineShares([bad, ...shares.slice(1)], 3)), "the first subset is combineShares()");
 
-    const many = splitSecret(Uint8Array.of(1), 10, 20);
-    assert(subsetCount(20, 10) > MAX_SHARE_SUBSETS, "more subsets than the bound");
-    assertEqual([...combineShareSubsets(many, 10)].length, MAX_SHARE_SUBSETS, "stops at the bound");
+    const many = splitSecret(Uint8Array.of(42), 10, 20);
+    const forged = Uint8Array.from(many[0]);
+    forged[1] ^= 1;
+    const fromMany = [...combineShareSubsets([forged, ...many.slice(1)], 10)].map(bytesToHex);
+    assertEqual(fromMany.length, MAX_SHARE_SUBSETS, "184756 subsets: stops at the bound");
+    assert(fromMany.includes("2a"), "a subset without the first share comes before the bound");
     passTest();
   });
 

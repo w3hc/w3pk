@@ -11,8 +11,6 @@ import { InvalidGuardianShareError } from '../core/errors';
 import {
   splitSecret,
   combineShareSubsets,
-  subsetCount,
-  MAX_SHARE_SUBSETS,
   stringToBytes,
   bytesToString,
   bytesToHex,
@@ -270,7 +268,9 @@ export class SocialRecovery {
     const shareBytes = shares.map(share => hexToBytes(share.shareData));
     const votes = new Map<string, { backup: BackupFile; count: number }>();
     let firstError: unknown;
+    let tried = 0;
     for (const secret of combineShareSubsets(shareBytes, threshold)) {
+      tried++;
       const json = bytesToString(secret);
       const known = votes.get(json);
       if (known) {
@@ -291,7 +291,6 @@ export class SocialRecovery {
     }
 
     if (votes.size === 0) {
-      const tried = Math.min(subsetCount(shares.length, threshold), MAX_SHARE_SUBSETS);
       throw tried === 1
         ? firstError
         : new Error(
