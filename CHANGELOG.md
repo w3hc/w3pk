@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The new passkey is signalled with `PublicKeyCredential.signalUnknownCredential()` where the browser supports it, so the platform can drop it. A cancelled PRF assertion fails registration with `RegistrationError` and drops the passkey the same way
   - A PRF output at creation that isn't 32 bytes is evaluated again in that assertion, and `register()` zeroes the PRF output once its keys are derived
   - No change on authenticators with PRF support: same prompts, same result
+- **BREAKING: the Merkle circuits refuse forged membership proofs** ([#343](https://github.com/w3hc/w3pk/issues/343)), audit finding H-2. Before, `pathIndices[i]` was never constrained to a bit, so a prover who knew two siblings could prove membership of any leaf
+  - `membership.circom` and `nft.circom` constrain `pathIndices[i] * (pathIndices[i] - 1) === 0` at every level
+  - The Merkle root was a private input, so a proof was bound to no tree. `membership.circom` makes `root` public, `nft.circom` makes `root`, `contractAddress` and `minBalance` public; recompile both circuits and redo their setup
+  - Public signals follow snarkjs order, outputs first: membership is `[nullifier, root]`, NFT ownership is `[nullifierHash, root, contractAddress, minBalance]`. `verifyMembership()` and `verifyNFTOwnership()` read them in that order, so honest proofs now verify
+  - `test/zk/circuits.test.ts` (`pnpm test:circuits`) compiles both circuits with circom, proves and verifies an honest path, and rejects the forged leaf; CI installs a pinned, checksum-verified circom
 
 ## [0.12.3] - 2026-11-10
 

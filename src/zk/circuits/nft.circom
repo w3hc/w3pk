@@ -63,6 +63,7 @@ template NFTOwnership(levels) {
         // Use pathIndices[i] to determine order
         // If pathIndices[i] == 0, current hash goes left
         // If pathIndices[i] == 1, current hash goes right
+        pathIndices[i] * (pathIndices[i] - 1) === 0;
         leftHash[i] <== computedHash[i] + pathIndices[i] * (pathElements[i] - computedHash[i]);
         rightHash[i] <== pathElements[i] + pathIndices[i] * (computedHash[i] - pathElements[i]);
         
@@ -92,4 +93,4 @@ template NFTOwnership(levels) {
 }
 
 // Instantiate with 20 levels (supports ~1M holders)
-component main = NFTOwnership(20);
+component main {public [root, contractAddress, minBalance]} = NFTOwnership(20);

@@ -101,8 +101,7 @@ export class ZKProofVerifier {
 
     const result = await this.verifyProof(proof);
 
-    // Check that the public root matches expected
-    const publicRoot = proof.publicSignals[0];
+    const publicRoot = proof.publicSignals[1];
     return result.valid && publicRoot === expectedRoot;
   }
 
@@ -196,9 +195,9 @@ export class ZKProofVerifier {
     }
 
     const result = await this.verifyProof(proof);
-    const holdersRoot = proof.publicSignals[0];
-    const contractAddress = proof.publicSignals[1];
-    const minBalance = BigInt(proof.publicSignals[2]);
+    const holdersRoot = proof.publicSignals[1];
+    const contractAddress = proof.publicSignals[2];
+    const minBalance = BigInt(proof.publicSignals[3]);
 
     // Hash the expected contract address for comparison
     try {
@@ -231,7 +230,10 @@ export class ZKProofVerifier {
   ): Record<string, string> {
     switch (type) {
       case "membership":
-        return { root: signals[0] };
+        return {
+          nullifier: signals[0],
+          root: signals[1],
+        };
 
       case "threshold":
         return {
@@ -254,10 +256,10 @@ export class ZKProofVerifier {
 
       case "nft":
         return {
-          holdersRoot: signals[0],
-          contractAddress: signals[1],
-          minBalance: signals[2],
-          nullifierHash: signals[3],
+          nullifierHash: signals[0],
+          holdersRoot: signals[1],
+          contractAddress: signals[2],
+          minBalance: signals[3],
         };
 
       default:

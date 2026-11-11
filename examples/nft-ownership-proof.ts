@@ -155,7 +155,7 @@ async function nftOwnershipProofExample() {
     console.log(`      • Holders root: ${root.substring(0, 20)}...`);
     console.log(`      • Minimum balance: 1 NFT`);
     console.log(
-      `      • Nullifier: ${nftOwnershipProof.publicSignals[3]?.substring(
+      `      • Nullifier: ${nftOwnershipProof.publicSignals[0]?.substring(
         0,
         20
       )}...`

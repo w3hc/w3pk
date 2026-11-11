@@ -879,6 +879,8 @@ Generates a Merkle proof for a specific leaf.
 - `pathIndices`: Binary path (0=left, 1=right)
 - `pathElements`: Sibling hashes along path
 
+`membership.circom` and `nft.circom` take exactly 20 levels and constrain every `pathIndices[i]` to 0 or 1, so a path index outside `{0, 1}` fails the proof.
+
 ---
 
 ### Other Utilities

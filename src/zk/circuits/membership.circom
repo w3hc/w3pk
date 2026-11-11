@@ -45,8 +45,8 @@ template MembershipProof(levels) {
     for (var i = 0; i < levels; i++) {
         merkleProof[i] = Poseidon(2);
         
-        // Simple conditional logic to avoid non-quadratic constraints
-        // pathIndices[i] is 0 or 1, so we can use it as a selector
+        pathIndices[i] * (pathIndices[i] - 1) === 0;
+
         left[i] <== currentHash[i] + pathIndices[i] * (pathElements[i] - currentHash[i]);
         right[i] <== pathElements[i] + pathIndices[i] * (currentHash[i] - pathElements[i]);
         
@@ -61,4 +61,4 @@ template MembershipProof(levels) {
 }
 
 // Instantiate the circuit with 20 levels (supports up to 1M users)
-component main = MembershipProof(20);
+component main {public [root]} = MembershipProof(20);
