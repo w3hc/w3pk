@@ -965,7 +965,7 @@ EIP-7702 allows EOAs (Externally Owned Accounts) to **permanently delegate** cod
 - **Zero ETH required** - DAO treasury or sponsor pays all gas
 - **Gasless transactions** - Users don't need gas tokens
 - **One-time authorization** - Sign ONCE, use forever (until revoked)
-- **Native protocol support** - Works on 329+ EVM chains
+- **Native protocol support** - Works on 315+ EVM chains
 
 **What happens:**
 1. User signs authorization offline (free)
