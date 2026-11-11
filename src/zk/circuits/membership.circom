@@ -61,4 +61,4 @@ template MembershipProof(levels) {
 }
 
 // Instantiate the circuit with 20 levels (supports up to 1M users)
-component main = MembershipProof(20);
+component main {public [root]} = MembershipProof(20);

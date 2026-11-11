@@ -101,8 +101,7 @@ export class ZKProofVerifier {
 
     const result = await this.verifyProof(proof);
 
-    // Check that the public root matches expected
-    const publicRoot = proof.publicSignals[0];
+    const publicRoot = proof.publicSignals[1];
     return result.valid && publicRoot === expectedRoot;
   }
 
@@ -231,7 +230,10 @@ export class ZKProofVerifier {
   ): Record<string, string> {
     switch (type) {
       case "membership":
-        return { root: signals[0] };
+        return {
+          nullifier: signals[0],
+          root: signals[1],
+        };
 
       case "threshold":
         return {
