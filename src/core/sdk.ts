@@ -1656,8 +1656,9 @@ export class Web3Passkey {
    * personal_sign and eth_sign compute their ERC-8213 digests and await the
    * hook before the passkey prompt. If it throws, rejects or returns false,
    * the request rejects with error 4001 (User Rejected Request), the hook's
-   * error as `cause`, and nothing is signed. The host app controls both the request and the
-   * hook, so the digests are only worth checking on a second, independent tool.
+   * error as `cause`, and nothing is signed. In PRIMARY mode, eth_sendTransaction's
+   * digests also carry the UserOperation's `maxFee` in wei. The host app controls both the
+   * request and the hook, so the digests are only worth checking on a second, independent tool.
    *
    * @param options.mode       - Security mode for signing/sending (default: 'STANDARD')
    * @param options.tag        - Wallet tag (default: 'MAIN')

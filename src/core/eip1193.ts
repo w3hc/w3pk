@@ -262,14 +262,13 @@ export function createEIP1193Provider(
               ? parseInt(txParam.nonce, 16)
               : undefined,
           };
-          const sendOptions = {
+          const hook = options?.onBeforeSign;
+          const result = await sdk.sendTransaction(tx, {
             mode: options?.mode,
             tag: options?.tag,
             ...endpoints(),
-          };
-          await beforeSign({ method: 'eth_sendTransaction', params: [txParam] });
-
-          const result = await sdk.sendTransaction(tx, sendOptions);
+            onBeforeSign: hook && ((digests) => hook(digests as TransactionBeforeSignDigests)),
+          });
           return result.hash;
         }
 

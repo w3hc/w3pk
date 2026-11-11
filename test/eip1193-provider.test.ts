@@ -20,18 +20,18 @@
  * - Typed event handlers compile (type-level, via the TypeScript compiler)
  * - Without mode, the options passed to the SDK are those of v0.11.2
  * - onBeforeSign: awaited with each signing method's digests before the SDK
- *   call, skipped when unset, a throwing hook rejects with 4001; typed data is
+ *   call (eth_sendTransaction passes it to sendTransaction()), skipped when unset, a throwing hook rejects with 4001; typed data is
  *   signed as hashed for the hook (Permit2's nested root), mutations during the
  *   hook have no effect
  * - PRIMARY mode against the mock bundler of test/fixtures/mock-bundler.ts:
- *   accounts, eth_sendTransaction, signing bound to the active chain,
+ *   accounts, eth_sendTransaction and its max fee, signing bound to the active chain,
  *   eth_sign refused with 4200, bundlerUrl option
  */
 
 import { mockLocalStorage } from "./setup";
 import { createWeb3Passkey } from "../src/index";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
-import { createEIP1193Provider, type BeforeSignDigests } from "../src/core/eip1193";
+import { confirmBeforeSign, createEIP1193Provider, type BeforeSignDigests } from "../src/core/eip1193";
 import { getSigningDigests, type SigningRequest } from "../src/core/signing-digests";
 import { WalletError } from "../src/core/errors";
 import { verifyMessage, recoverAddress, TypedDataEncoder, hexlify, hashMessage, dataSlice, isError, BrowserProvider, JsonRpcProvider, Transaction } from "ethers";
@@ -58,12 +58,23 @@ const TEST_MNEMONIC =
   "test test test test test test test test test test test junk";
 const TEST_ORIGIN = "https://example.com";
 
+/** Awaits options.onBeforeSign as sendTransaction() does */
+async function sendHook(tx: any, options: any) {
+  if (!options?.onBeforeSign) return;
+  const { to, value, data } = tx;
+  await confirmBeforeSign(options.onBeforeSign, {
+    method: "eth_sendTransaction",
+    ...getSigningDigests({ method: "eth_sendTransaction", params: [{ to, value, data }] }),
+  });
+}
+
 function stubSdk() {
   const calls: { message: string | Uint8Array; options: any }[] = [];
   const txs: any[] = [];
   const sdk = {
     getAddress: async () => "0x0000000000000000000000000000000000000001",
-    sendTransaction: async (tx: any) => {
+    sendTransaction: async (tx: any, options?: any) => {
+      await sendHook(tx, options);
       txs.push(tx);
       return { hash: "0x" };
     },
@@ -767,7 +778,8 @@ Issued At: 2021-09-30T16:25:24Z`)
     JSON.stringify(value, (_, v) => (typeof v === "bigint" ? v.toString() : v));
   const hookedSdk = (log: string[]) => {
     const { sdk } = stubSdk();
-    sdk.sendTransaction = async () => {
+    sdk.sendTransaction = async (tx: any, options: any) => {
+      await sendHook(tx, options);
       log.push("sdk");
       return { hash: "0xhash" };
     };
@@ -870,6 +882,7 @@ Issued At: 2021-09-30T16:25:24Z`)
       const { sdk, calls, txs } = stubSdk();
       const sendOptions: any[] = [];
       sdk.sendTransaction = async (tx: any, options: any) => {
+        await sendHook(tx, options);
         txs.push(tx);
         sendOptions.push(options);
         return { hash: "0xhash" };
@@ -1096,6 +1109,38 @@ Issued At: 2021-09-30T16:25:24Z`)
       await provider.request({ method: "eth_sendTransaction", params: [{ to, gas: "0x1" }] });
       assertEqual(BigInt(bundler.included.at(-1)!.callGasLimit), GAS_ESTIMATE.callGasLimit, "gas below the estimate keeps it");
       passTest(`UserOperation included in ${hash.slice(0, 10)}…`);
+    });
+
+    await runTest("PRIMARY: eth_sendTransaction's onBeforeSign gets the max fee, before the passkey prompt", async () => {
+      const sdk = await primarySdk({
+        rpcUrls: { 1: [bundler.url] },
+        bundlerUrls: { 1: bundler.url },
+      });
+      const request = { to, value: "0x5", data: "0xdead", gas: "0x30d40", maxFeePerGas: "0x7", maxPriorityFeePerGas: "0x3" };
+      const seen: BeforeSignDigests[] = [];
+      passkeyCalls.length = 0;
+      await sdk
+        .getEIP1193Provider({
+          mode: "PRIMARY",
+          onBeforeSign: (digests) => {
+            assertEqual(passkeyCalls.length, 0, "hook before the passkey prompt");
+            seen.push(digests);
+          },
+        })
+        .request({ method: "eth_sendTransaction", params: [request] });
+      const op = bundler.included.at(-1)!;
+      const gas = ["verificationGasLimit", "callGasLimit", "preVerificationGas"].reduce((sum, k) => sum + BigInt(op[k]), 0n);
+      assertEqual(seen.length, 1, "hook called once");
+      assertEqual(
+        json(seen[0]),
+        json({
+          method: "eth_sendTransaction",
+          ...getSigningDigests({ method: "eth_sendTransaction", params: [request] }),
+          maxFee: gas * 7n,
+        }),
+        "digests and the UserOperation's required prefund"
+      );
+      passTest("Max fee reaches the provider's hook");
     });
 
     await runTest("PRIMARY: options.bundlerUrl overrides bundlerUrls", async () => {
