@@ -28,5 +28,16 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Install circom
+        env:
+          CIRCOM_VERSION: v2.2.3
+          CIRCOM_SHA256: 85342c7ff332d948df7c0c50ecf201e6129349aef550ce873f3c811b79fe53a3
+        run: |
+          mkdir -p "$RUNNER_TEMP/circom"
+          curl -fsSL -o "$RUNNER_TEMP/circom/circom" "https://github.com/iden3/circom/releases/download/$CIRCOM_VERSION/circom-linux-amd64"
+          echo "$CIRCOM_SHA256  $RUNNER_TEMP/circom/circom" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/circom/circom"
+          echo "$RUNNER_TEMP/circom" >> "$GITHUB_PATH"
+
       - name: Run all tests
         run: pnpm test
