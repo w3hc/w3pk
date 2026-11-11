@@ -1,14 +1,14 @@
 /**
- * Shamir's secret sharing over GF(256): shares made before the constant-time
- * arithmetic (pinned in fixtures/shamir-shares.json) still recover
+ * Shamir's secret sharing over GF(256): constant-time field arithmetic, and
+ * shares made before it (pinned in fixtures/shamir-shares.json) still recover
  *
  * NOTE: the mnemonic and password are test values, not real secrets
  */
 
 import { readFileSync } from "node:fs";
 import { Web3Passkey } from "../src/index";
-import { combineShares, bytesToHex, hexToBytes } from "../src/recovery/shamir";
-import { startTestSuite, endTestSuite, runTest, passTest, assertEqual } from "./test-utils";
+import { combineShares, gfMul, gfInv, bytesToHex, hexToBytes } from "../src/recovery/shamir";
+import { startTestSuite, endTestSuite, runTest, passTest, assert, assertEqual } from "./test-utils";
 
 class MemoryStorage {
   private items = new Map<string, string>();
@@ -53,6 +53,33 @@ const SUBSETS = [
 
 async function runTests() {
   startTestSuite("Shamir Secret Sharing Tests");
+
+  await runTest("GF(256) multiply matches FIPS-197 and a log/exp table", async () => {
+    assertEqual(gfMul(0x57, 0x13), 0xfe, "{57} • {13} = {fe} (FIPS-197 §4.2)");
+    assertEqual(gfMul(0x57, 0x83), 0xc1, "{57} • {83} = {c1}");
+    const exp: number[] = [];
+    const log: number[] = [];
+    for (let i = 0, x = 1; i < 255; i++) {
+      exp[i] = x;
+      log[x] = i;
+      x ^= (x << 1) ^ (x & 0x80 ? 0x11b : 0);
+    }
+    for (let a = 0; a < 256; a++) {
+      for (let b = 0; b < 256; b++) {
+        const expected = a && b ? exp[(log[a] + log[b]) % 255] : 0;
+        if (gfMul(a, b) !== expected) throw new Error(`${a} • ${b}: ${gfMul(a, b)} != ${expected}`);
+      }
+    }
+    passTest();
+  });
+
+  await runTest("GF(256) inverse is a^254", async () => {
+    assertEqual(gfInv(0), 0, "0 maps to 0");
+    for (let a = 1; a < 256; a++) {
+      assert(gfMul(a, gfInv(a)) === 1, `${a} • ${a}^-1 = 1`);
+    }
+    passTest();
+  });
 
   await runTest("pinned shares recover every byte value", async () => {
     const { threshold, secret, shares } = fixtures.shamir;

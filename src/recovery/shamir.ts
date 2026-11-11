@@ -15,103 +15,51 @@ function randomByte(): number {
 }
 
 /**
- * Galois Field (256) operations for Shamir's Secret Sharing
+ * GF(2^8) with the AES polynomial x^8 + x^4 + x^3 + x + 1 (FIPS-197 §4.2),
+ * in constant time: no branch or table lookup depends on the operands
+ * (shift-and-add with masks, as HashiCorp Vault's `shamir` package does).
  */
-class GF256 {
-  // Precomputed logarithm and exponential tables for GF(256)
-  private static LOG_TABLE: number[] = [];
-  private static EXP_TABLE: number[] = [];
+export function gfMul(a: number, b: number): number {
+  let r = 0;
+  for (let i = 7; i >= 0; i--) {
+    r = (-((b >> i) & 1) & a) ^ (-(r >> 7) & 0x1b) ^ ((r << 1) & 0xff);
+  }
+  return r;
+}
 
-  static {
-    // Initialize tables using primitive polynomial x^8 + x^4 + x^3 + x + 1 (0x11b)
-    // Generator is 3 (primitive element for this polynomial)
+/** a^254, the inverse of a (FIPS-197 §4.4), and 0 for 0 */
+export function gfInv(a: number): number {
+  let r = a;
+  for (let i = 0; i < 6; i++) {
+    r = gfMul(gfMul(r, r), a);
+  }
+  return gfMul(r, r);
+}
 
-    // Helper function for GF(256) multiplication during initialization
-    const gfMul = (a: number, b: number): number => {
-      let result = 0;
-      for (let i = 0; i < 8; i++) {
-        if (b & 1) {
-          result ^= a;
-        }
-        const hiBitSet = a & 0x80;
-        a <<= 1;
-        if (hiBitSet) {
-          a ^= 0x11b; // Polynomial
-        }
-        b >>= 1;
+function evaluatePolynomial(coefficients: number[], x: number): number {
+  let result = 0;
+  for (let i = coefficients.length - 1; i >= 0; i--) {
+    result = gfMul(result, x) ^ coefficients[i];
+  }
+  return result;
+}
+
+/**
+ * Lagrange basis polynomials at 0 for the x-coordinates `xs` (distinct and
+ * non-zero): the secret is the XOR of gfMul(basis[i], y[i]).
+ */
+function lagrangeAtZero(xs: number[]): number[] {
+  return xs.map((xi, i) => {
+    let numerator = 1;
+    let denominator = 1;
+    xs.forEach((xj, j) => {
+      if (i !== j) {
+        numerator = gfMul(numerator, xj);
+        denominator = gfMul(denominator, xi ^ xj);
       }
-      return result & 0xFF;
-    };
-
-    let x = 1;
-    for (let i = 0; i < 255; i++) {
-      this.EXP_TABLE[i] = x;
-      this.LOG_TABLE[x] = i;
-      x = gfMul(x, 3); // Multiply by generator 3
-    }
-    this.EXP_TABLE[255] = this.EXP_TABLE[0];
-  }
-
-  /**
-   * Multiply two numbers in GF(256)
-   */
-  static multiply(a: number, b: number): number {
-    if (a === 0 || b === 0) return 0;
-    return this.EXP_TABLE[(this.LOG_TABLE[a] + this.LOG_TABLE[b]) % 255];
-  }
-
-  /**
-   * Divide two numbers in GF(256)
-   */
-  static divide(a: number, b: number): number {
-    if (b === 0) throw new Error('Division by zero in GF(256)');
-    if (a === 0) return 0;
-    return this.EXP_TABLE[(this.LOG_TABLE[a] - this.LOG_TABLE[b] + 255) % 255];
-  }
-
-  /**
-   * Add two numbers in GF(256) (XOR)
-   */
-  static add(a: number, b: number): number {
-    return a ^ b;
-  }
-
-  /**
-   * Evaluate polynomial at x
-   */
-  static evaluatePolynomial(coefficients: number[], x: number): number {
-    let result = 0;
-    for (let i = coefficients.length - 1; i >= 0; i--) {
-      result = this.add(this.multiply(result, x), coefficients[i]);
-    }
-    return result;
-  }
-
-  /**
-   * Lagrange interpolation to recover secret
-   */
-  static interpolate(shares: { x: number; y: number }[]): number {
-    let result = 0;
-
-    for (let i = 0; i < shares.length; i++) {
-      let numerator = shares[i].y;
-      let denominator = 1;
-
-      for (let j = 0; j < shares.length; j++) {
-        if (i !== j) {
-          numerator = this.multiply(numerator, shares[j].x);
-          denominator = this.multiply(
-            denominator,
-            this.add(shares[i].x, shares[j].x)
-          );
-        }
-      }
-
-      result = this.add(result, this.divide(numerator, denominator));
-    }
-
-    return result;
-  }
+    });
+    return gfMul(numerator, gfInv(denominator));
+  });
 }
 
 /**
@@ -155,7 +103,7 @@ export function splitSecret(
     // Evaluate polynomial for each share
     for (let shareIndex = 0; shareIndex < totalShares; shareIndex++) {
       const x = shareIndex + 1;
-      const y = GF256.evaluatePolynomial(coefficients, x);
+      const y = evaluatePolynomial(coefficients, x);
       shares[shareIndex][byteIndex + 1] = y;
     }
   }
@@ -187,22 +135,14 @@ export function combineShares(
     }
   }
 
-  const secretLength = shareLength - 1;
-  const secret = new Uint8Array(secretLength);
-
-  // For each byte position
-  for (let byteIndex = 0; byteIndex < secretLength; byteIndex++) {
-    const points: { x: number; y: number }[] = [];
-
-    for (const share of usedShares) {
-      points.push({
-        x: share[0], // X coordinate
-        y: share[byteIndex + 1], // Y coordinate
-      });
-    }
-
-    // Interpolate to recover secret byte
-    secret[byteIndex] = GF256.interpolate(points);
+  const basis = lagrangeAtZero(usedShares.map((share) => share[0]));
+  const secret = new Uint8Array(shareLength - 1);
+  for (let byteIndex = 0; byteIndex < secret.length; byteIndex++) {
+    let byte = 0;
+    usedShares.forEach((share, i) => {
+      byte ^= gfMul(basis[i], share[byteIndex + 1]);
+    });
+    secret[byteIndex] = byte;
   }
 
   return secret;
