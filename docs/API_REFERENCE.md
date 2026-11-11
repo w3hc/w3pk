@@ -311,7 +311,7 @@ Origin-centric wallet derivation with three security modes:
 
 **Security Modes:**
 - **`STANDARD` (default)**: Address only (no private key), persistent sessions allowed
-- **`STRICT`**: Address only (no private key), no persistent sessions (requires auth each time)
+- **`STRICT`**: Address only (no private key), no session in memory or persistent (requires auth each time)
 - **`YOLO`**: Full access (address + private key), persistent sessions allowed
 - **`PRIMARY`**: Address of the passkey's P-256 smart account for the tag, deployed or not, and the passkey's `publicKey` (no private key)
 
@@ -342,7 +342,7 @@ const wallet = await w3pk.deriveWallet()
 console.log('Address:', wallet.address)
 console.log('Private key:', wallet.privateKey) // undefined (STANDARD mode)
 
-// STRICT mode: No persistent sessions
+// STRICT mode: no session, in memory or persistent
 const strictWallet = await w3pk.deriveWallet('STRICT')
 // This will require biometric/PIN authentication every time
 
@@ -476,7 +476,7 @@ const standardWallet = await getOriginSpecificAddress(
 console.log('Standard:', standardWallet.address)
 console.log('Private key:', standardWallet.privateKey) // undefined
 
-// STRICT mode - no private key, no persistent sessions
+// STRICT mode - no private key, no session
 const strictWallet = await getOriginSpecificAddress(
   mnemonic,
   'https://example.com',
@@ -2943,7 +2943,7 @@ w3pk provides two types of sessions:
 **Security Modes & Persistence:**
 - **STANDARD mode**: Persistent sessions allowed ✅
 - **YOLO mode**: Persistent sessions allowed ✅
-- **STRICT mode**: Persistent sessions NEVER allowed ❌ (always requires fresh authentication)
+- **STRICT mode**: No session, in memory or persistent ❌ (always requires fresh authentication, and leaves a live session as it is)
 
 ### `hasActiveSession(): boolean`
 
@@ -3086,10 +3086,10 @@ const w3pk = createWeb3Passkey({
   }
 })
 
-// Using STRICT mode (persistent sessions blocked)
+// Using STRICT mode (no session)
 const wallet = await w3pk.deriveWallet('STRICT')
 // Even with persistentSession.enabled = true,
-// STRICT mode sessions are NEVER persisted
+// STRICT mode caches nothing, in memory or persistent
 ```
 
 ---

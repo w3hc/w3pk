@@ -353,7 +353,7 @@ w3pk.extendSession()
 await w3pk.clearSession()
 ```
 
-**Note:** STRICT mode never allows persistent sessions.
+**Note:** STRICT mode caches nothing: it starts no session, in memory or persistent, and leaves a live one as it is. Once a session starts, the session is the only place the SDK keeps the mnemonic, so it is gone from the SDK once the session expires or is cleared, and `sessionDuration: 0` keeps nothing in memory.
 
 **PRF-keyed storage:** the wallet stored on the device and persistent sessions are encrypted under keys derived from the WebAuthn PRF extension (an authenticator-held secret, released only during a biometric/PIN-verified assertion), so storage alone can't decrypt them. The exception is silent restore (`requireReauth: false`): the PRF-derived key is stored in `localStorage` next to the encrypted session, so any script on the origin can decrypt it until it expires. On authenticators without PRF support, `register()` throws `PrfUnsupportedError` before any address is returned and stores nothing, and the new passkey is dropped where the browser supports [`signalUnknownCredential()`](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/signalUnknownCredential_static). There is no weaker at-rest fallback. See [Security Architecture](./docs/SECURITY.md) for details.
 
