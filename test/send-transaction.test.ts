@@ -17,7 +17,7 @@
  */
 
 import { mockLocalStorage } from "./setup";
-import { UserRejectedRequestError, createWeb3Passkey, getSigningDigests } from "../src/index";
+import { UnauthorizedError, UserRejectedRequestError, createWeb3Passkey, getSigningDigests } from "../src/index";
 import { startMockBundler } from "./fixtures/mock-bundler";
 import { getOriginSpecificAddress } from "../src/wallet/origin-derivation";
 import { deriveWalletFromPath } from "../src/wallet/generate";
@@ -247,6 +247,37 @@ async function runTests() {
       await chain.close();
     }
     passTest("onBeforeSign approves or cancels EOA transactions before the passkey prompt");
+  });
+
+  await runTest("STRICT / STANDARD / YOLO: options.from other than the signer throws 4100 before signing", async () => {
+    const { Transaction } = await import("ethers");
+    const chain = await startMockBundler();
+    try {
+      for (const mode of ["STRICT", "STANDARD", "YOLO"] as const) {
+        const sdk = createWeb3Passkey({ storage: mockLocalStorage, debug: false, rpcUrls: { 1: [chain.url] } });
+        (sdk as any).currentUser = { username: "eoa", ethereumAddress: TEST_CONTRACT, credentialId: "eoa" };
+        (sdk as any).getMnemonicFromSession = async () => TEST_MNEMONIC;
+        const signer = await expectedFrom(mode, "MAIN", window.location.origin);
+        const sent = () => chain.calls.filter((c) => c.method === "eth_sendRawTransaction");
+        chain.calls.length = 0;
+
+        const tx = { to: TEST_CONTRACT, chainId: 1 };
+        const error = await sdk.sendTransaction(tx, { mode, from: TEST_CONTRACT }).catch((e) => e);
+        assert(error instanceof UnauthorizedError, `${mode}: UnauthorizedError, got ${error}`);
+        assertEqual(error.code, 4100, `${mode}: code 4100`);
+        assertEqual(sent().length, 0, `${mode}: nothing sent`);
+        const signError = await sdk.signMessage("hi", { mode, from: TEST_CONTRACT }).catch((e) => e);
+        assert(signError instanceof UnauthorizedError, `${mode}: signMessage throws UnauthorizedError, got ${signError}`);
+
+        await sdk.sendTransaction(tx, { mode, from: signer.toLowerCase() });
+        assertEqual(Transaction.from(sent()[0].params[0]).from, signer, `${mode}: lowercase from is sent`);
+        const signed = await sdk.signMessage("hi", { mode, from: signer.toUpperCase().replace("0X", "0x") });
+        assertEqual(signed.address, signer, `${mode}: uppercase from signs`);
+      }
+    } finally {
+      await chain.close();
+    }
+    passTest("options.from is checked against the signer, in any letter case");
   });
 
   // ------------------------------------------------------------------

@@ -97,6 +97,23 @@ export class UserRejectedRequestError extends Error implements ProviderRpcError 
   }
 }
 
+/** EIP-1193 error 4100: the request names an account other than the signer's */
+export class UnauthorizedError extends Error implements ProviderRpcError {
+  code = 4100;
+
+  constructor(account: string) {
+    super(`w3pk: ${account} is not the signer's account`);
+    this.name = "UnauthorizedError";
+  }
+}
+
+/** Throws UnauthorizedError unless `expected` is unset or `address`, in any letter case */
+export function assertSigner(address: string, expected: string | undefined): void {
+  if (expected !== undefined && expected.toLowerCase() !== address.toLowerCase()) {
+    throw new UnauthorizedError(expected);
+  }
+}
+
 /** Awaits `hook` with `digests`; throws UserRejectedRequestError if it throws, rejects or returns `false` */
 export async function confirmBeforeSign<D>(hook: BeforeSignHook<D>, digests: D): Promise<void> {
   let approved;

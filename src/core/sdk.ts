@@ -122,7 +122,9 @@ import type { SyncCapabilities } from "../sync/types";
 import { supportsEIP7702 } from "../eip7702";
 import type { GuardianShare } from "../recovery/backup-based-recovery";
 import {
+  UnauthorizedError,
   UserRejectedRequestError,
+  assertSigner,
   confirmBeforeSign,
   createEIP1193Provider,
   type EIP1193ProviderInterface,
@@ -914,6 +916,8 @@ export class Web3Passkey {
    *   rawHash always requires a fresh user-verified passkey assertion, and is refused in PRIMARY mode
    * @param options.chainId - PRIMARY mode: chain the signature is bound to, required for EIP191
    * @param options.rpcUrl - PRIMARY mode: RPC endpoint used to check whether the account is deployed
+   * @param options.from - Expected signer address, in any letter case: another throws
+   *   UnauthorizedError (code 4100), unwrapped, before signing
    *
    * In PRIMARY mode the passkey signs an ERC-7739 signature for its P-256 smart account, which
    * verifies through EIP-1271 `isValidSignature`, or through ERC-6492 while the account isn't
@@ -1004,6 +1008,7 @@ export class Web3Passkey {
 
       // Derive the wallet from the specified mode and tag
       const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+      assertSigner(derived.address, options?.from);
 
       const { Wallet } = await import("ethers");
 
@@ -1083,6 +1088,7 @@ export class Web3Passkey {
         origin: derived.origin,
       };
     } catch (error) {
+      if (error instanceof UnauthorizedError) throw error;
       this.config.onError?.(error as any);
       throw new WalletError("Failed to sign message", error);
     }
@@ -1116,6 +1122,7 @@ export class Web3Passkey {
     }
 
     const address = await getSmartAccountAddress(publicKey, tag, this.config.smartAccount);
+    assertSigner(address, options?.from);
     const account = { address, chainId };
     const { hashMessage } = await import("ethers");
 
@@ -1206,6 +1213,8 @@ export class Web3Passkey {
    *   and `method: "eth_sendTransaction"`, an array of them for an array of transactions, before the
    *   passkey prompt; in PRIMARY mode each also carries the UserOperation's `maxFee` in wei; throw, reject or return `false` to cancel with UserRejectedRequestError (code 4001).
    *   The transactions are copied first, and the copy is sent
+   * @param options.from - Expected sender address, in any letter case: another throws
+   *   UnauthorizedError (code 4100), unwrapped, before signing
    * @param options.paymasterUrl - PRIMARY mode: ERC-7677 paymaster service (default: `paymasterUrl`)
    * @param options.paymasterContext - PRIMARY mode: ERC-7677 context (default: {})
    * @param options.timeout - PRIMARY mode: inclusion timeout in ms (default: 60000)
@@ -1250,6 +1259,7 @@ export class Web3Passkey {
 
       // Derive the wallet from the specified mode and tag
       const derived = await getOriginSpecificAddress(mnemonic, origin, effectiveMode, effectiveTag);
+      assertSigner(derived.address, options?.from);
 
       const { Wallet, JsonRpcProvider } = await import("ethers");
 
@@ -1287,7 +1297,7 @@ export class Web3Passkey {
         origin: derived.origin,
       };
     } catch (error) {
-      if (error instanceof UserRejectedRequestError) throw error;
+      if (error instanceof UserRejectedRequestError || error instanceof UnauthorizedError) throw error;
       this.config.onError?.(error as any);
       const reason = (error as any)?.shortMessage ?? (error instanceof Error ? error.message : String(error));
       throw new WalletError(`Failed to send transaction: ${reason}`, error);
@@ -1394,6 +1404,7 @@ export class Web3Passkey {
     return this.queuePrimarySend(`${credentialId}:${tag}:${chainId}`, async () => {
       const publicKey = this.primaryPublicKey();
       const sender = await getSmartAccountAddress(publicKey, tag, this.config.smartAccount);
+      assertSigner(sender, options?.from);
 
       const { JsonRpcProvider } = await import("ethers");
       const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });

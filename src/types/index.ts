@@ -77,6 +77,8 @@ export interface SignMessageOptions {
   chainId?: number;
   /** PRIMARY mode: RPC endpoint used to check whether the account is deployed (default: rpcUrls[chainId][0]) */
   rpcUrl?: string;
+  /** Throws UnauthorizedError (code 4100) before signing unless this is the signer's address, in any letter case */
+  from?: string;
 }
 
 /**
@@ -151,6 +153,8 @@ export interface SendTransactionOptions {
   paymasterContext?: Record<string, unknown>;
   /** PRIMARY mode: how long to wait for the UserOperation's inclusion, in ms (default: 60000) */
   timeout?: number;
+  /** Throws UnauthorizedError (code 4100) before signing unless this is the sender's address, in any letter case */
+  from?: string;
   /**
    * Awaited before the passkey prompt with the transaction's ERC-8213 digests, an array of them
    * for an array of transactions; throw, reject or return `false` to cancel with error 4001
